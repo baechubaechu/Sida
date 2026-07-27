@@ -31,6 +31,8 @@ Commands:
   /help              show this help
   /project           show current project folder
   /rename <name>     rename this project (folder + display name)
+  /brief             show current brief.md
+  /brief edit        re-enter basic brief fields
   /agents            list modules
   /status            show completed modules
   /setup             (re)configure OpenRouter API key
@@ -139,11 +141,21 @@ def ask_conductor(
     *,
     project=None,
 ) -> tuple[str, dict, dict]:
+    from i18n import get_language
+
     conductor = config.get("conductor") or {}
     model = conductor.get("model", "anthropic/claude-haiku-4.5")
     temperature = float(conductor.get("temperature", 0.4))
     max_tokens = int(conductor.get("max_tokens", 700))
     cache_ttl = str(conductor.get("cache_ttl", "1h"))
+    lang = get_language()
+    language_rule = (
+        "CRITICAL: You must respond to the user entirely in Korean. "
+        "Do not use English for the visible reply. "
+        "Keep action JSON keys and agent ids in English only."
+        if lang == "ko"
+        else "Respond to the user in English. Keep action JSON keys and agent ids in English."
+    )
 
     if user_text is not None:
         history.append({"role": "user", "content": user_text})
@@ -151,8 +163,13 @@ def ask_conductor(
             project.save_history(history)
 
     state_text = "\n\n".join(previous_blocks)
+    # Language rule is part of the (stable) conductor system prompt for this session.
     messages = build_conductor_messages(
-        conductor_prompt, project_brief, state_text, history, cache_ttl
+        f"{conductor_prompt.strip()}\n\n## Language\n\n{language_rule}",
+        project_brief,
+        state_text,
+        history,
+        cache_ttl,
     )
 
     raw, usage = call_openrouter(
@@ -238,7 +255,7 @@ def chat(target: Path, project_name: str | None = None) -> str:
     Returns: "close" (back to hub) or "quit" (exit app).
     """
     from harness import ROOT
-    from i18n import t
+    from i18n import get_language, t
 
     api_key = load_env()
     config = load_config()
@@ -274,22 +291,39 @@ def chat(target: Path, project_name: str | None = None) -> str:
 
     if history:
         opening = (
-            "Session resumed. The previous conversation is already in context. "
-            "Greet briefly in one or two sentences, note completed modules if any, "
-            "and wait for the designer's next instruction. Do not rerun modules "
-            "unless asked."
+            "세션이 재개되었습니다. 이전 대화는 이미 컨텍스트에 있습니다. "
+            "한두 문장으로 짧게 인사하고, 완료된 모듈이 있으면 언급한 뒤 "
+            "설계자의 다음 지시를 기다리세요. 요청 없이 모듈을 다시 실행하지 마세요."
+            if get_language() == "ko"
+            else (
+                "Session resumed. The previous conversation is already in context. "
+                "Greet briefly in one or two sentences, note completed modules if any, "
+                "and wait for the designer's next instruction. Do not rerun modules "
+                "unless asked."
+            )
         )
     elif created or not previous_blocks:
         opening = (
-            "A new session just started. Greet briefly, summarize the core problem "
-            "in one or two sentences, and suggest the best first module or question. "
-            "Do not run a module yet unless the brief is already very complete and "
-            "the first step is obvious."
+            "새 세션이 시작되었습니다. 짧게 인사하고, 핵심 문제를 한두 문장으로 요약한 뒤 "
+            "첫 모듈이나 질문을 제안하세요. 브리프가 매우 완전하고 첫 단계가 분명한 경우가 "
+            "아니면 아직 모듈을 실행하지 마세요."
+            if get_language() == "ko"
+            else (
+                "A new session just started. Greet briefly, summarize the core problem "
+                "in one or two sentences, and suggest the best first module or question. "
+                "Do not run a module yet unless the brief is already very complete and "
+                "the first step is obvious."
+            )
         )
     else:
         opening = (
-            "Session resumed. Greet briefly, note which modules already exist, "
-            "and suggest the most useful next step. Do not rerun modules unless asked."
+            "세션이 재개되었습니다. 짧게 인사하고, 이미 있는 모듈을 언급한 뒤 "
+            "다음에 유용한 단계를 제안하세요. 요청 없이 모듈을 다시 실행하지 마세요."
+            if get_language() == "ko"
+            else (
+                "Session resumed. Greet briefly, note which modules already exist, "
+                "and suggest the most useful next step. Do not rerun modules unless asked."
+            )
         )
 
     def _persist() -> None:
@@ -358,6 +392,38 @@ def chat(target: Path, project_name: str | None = None) -> str:
             done = completed_ids(agents, output_dir)
             print("Completed:     ", ", ".join(done) if done else "(none)")
             print(f"History turns: {sum(1 for m in history if m.get('role') == 'user')}")
+            continue
+        if lowered == "/brief" or lowered.startswith("/brief "):
+            from i18n import t
+
+            parts = user_text.split(maxsplit=1)
+            sub = parts[1].strip().lower() if len(parts) > 1 else ""
+            if sub in {"", "show", "view"}:
+                print(f"\n--- {project.brief_path.name} ---\n")
+                print(project.read_brief().rstrip())
+                print("\n----------------------")
+                continue
+            if sub == "edit":
+                brief_md = collect_basic_brief()
+                if brief_md is None:
+                    continue
+                project.brief_path.write_text(brief_md.strip() + "\n", encoding="utf-8")
+                project_brief = project.read_brief()
+                print(t("brief_saved", path=str(project.brief_path)))
+                project.append_transcript("System", "Updated brief.md via /brief edit")
+                # Note in history so Conductor knows brief changed on next turn
+                history.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "[system] The project brief was updated via /brief edit. "
+                            "Use the latest PROJECT BRIEF block going forward."
+                        ),
+                    }
+                )
+                _persist()
+                continue
+            print("Usage: /brief | /brief edit")
             continue
         if lowered == "/rename" or lowered.startswith("/rename "):
             from i18n import t

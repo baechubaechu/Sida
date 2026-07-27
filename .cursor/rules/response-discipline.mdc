@@ -1,0 +1,41 @@
+---
+description: How to answer in this repo — no boilerplate, no unrequested git actions
+alwaysApply: true
+---
+
+# Answer the question that was asked
+
+Write each reply from the current question. Never reuse a paragraph from an
+earlier turn because it looks related.
+
+```
+User: /brief 이거는?
+
+❌ BAD  — recycled from an earlier turn about a different command
+  이름 변경도 됩니다. /rename 새이름
+
+✅ GOOD — answers this question
+  아직 없습니다. 지금 추가하겠습니다.  (then add /brief)
+```
+
+# Banned repeats
+
+Do not restate these unless the user asks:
+
+- Project naming summary ("시다로 확정했습니다", repo name is `sida`)
+- Path listings (`~/Sida/projects`, `settings.json`)
+- Migration note about the old `ArchitecturalHarness` folder
+- Recaps of work already reported in a previous turn
+
+Say it once. After that, assume the user knows.
+
+# Git
+
+Commit and push only when the user explicitly instructs it in that turn.
+Never ask "푸시할까요?" as a closing line.
+
+# Style
+
+- Respond in Korean.
+- No apology loops. Fix the mistake, state the correction once, move on.
+- Do not promise future behavior ("다음부터 안 그러겠습니다"). Just do it.

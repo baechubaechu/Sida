@@ -8,6 +8,7 @@ from pathlib import Path
 
 SETTINGS_DIR = Path.home() / "Sida"
 SETTINGS_PATH = SETTINGS_DIR / "settings.json"
+_OLD_SETTINGS_PATH = Path.home() / "ArchitecturalHarness" / "settings.json"
 DEFAULT_LANGUAGE = "en"
 SUPPORTED = ("en", "ko")
 
@@ -16,9 +17,8 @@ STRINGS: dict[str, dict[str, str]] = {
     "en": {
         "welcome_title": "Sida",
         "welcome_body": (
-            "Sida means a studio assistant in Korean architecture culture.\n"
-            "A CLI prototype that helps architectural reasoning —\n"
-            "chat with the Conductor, run modules only when needed."
+            "A CLI prototype for architectural design reasoning.\n"
+            "Chat with the Conductor and run modules only when needed."
         ),
         "lang_title": "Language",
         "lang_prompt": (
@@ -103,10 +103,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "session_saved_quit": "Conversation saved. Bye.",
     },
     "ko": {
-        "welcome_title": "시다 (Sida)",
+        "welcome_title": "시다",
         "welcome_body": (
-            "한국 건축에서 조수를 이르는 말, 시다.\n"
-            "건물을 대신 설계하지 않고, 설계 추론을 옆에서 돕습니다.\n"
+            "설계 추론을 돕는 CLI 프로토타입입니다.\n"
             "Conductor와 대화하며 필요할 때만 모듈을 실행합니다."
         ),
         "lang_title": "언어",
@@ -195,10 +194,13 @@ STRINGS: dict[str, dict[str, str]] = {
 
 
 def load_settings() -> dict:
-    if not SETTINGS_PATH.exists():
+    path = SETTINGS_PATH
+    if not path.exists() and _OLD_SETTINGS_PATH.exists():
+        path = _OLD_SETTINGS_PATH
+    if not path.exists():
         return {}
     try:
-        data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {}
     except (json.JSONDecodeError, OSError):
         return {}

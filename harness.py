@@ -82,6 +82,14 @@ def resolve_agent(agents: list[dict], query: str) -> dict | None:
 
 
 def build_worker_prompt(agent_prompt: str, project_brief: str, previous_outputs: str) -> str:
+    from i18n import get_language
+
+    lang = get_language()
+    language_rule = (
+        "Write the entire Markdown output in Korean. Keep section headings exactly as specified in the agent output format."
+        if lang == "ko"
+        else "Write the entire Markdown output in English. Keep section headings exactly as specified in the agent output format."
+    )
     return f"""AGENT PROMPT:
 {agent_prompt}
 
@@ -90,6 +98,9 @@ ORIGINAL PROJECT BRIEF:
 
 PREVIOUS AGENT OUTPUTS:
 {previous_outputs}
+
+LANGUAGE:
+{language_rule}
 
 TASK:
 Produce the output for this agent in Markdown.
