@@ -1,0 +1,50 @@
+provider: openrouter
+
+# Where user project folders are stored (easy to find in File Explorer)
+# Default if omitted: ~/Sida/projects
+projects_dir: ~/Sida/projects
+
+# Cheap always-on conversational model
+conductor:
+  model: anthropic/claude-haiku-4.5
+  temperature: 0.4
+  max_tokens: 700
+  prompt: agents/00_conductor.md
+  cache_ttl: 1h
+
+# Specialist module model (only when a module runs)
+worker:
+  model: openai/gpt-4o-mini
+  temperature: 0.3
+  max_tokens: 2000
+
+# Legacy sequential pipeline (run.py) uses worker settings via fallback
+model: openai/gpt-4o-mini
+temperature: 0.3
+max_tokens: 2000
+
+agents:
+  - id: site_reader
+    file: agents/01_site_reader.md
+    name: Site Reader
+    output: 01_site_reader.md
+
+  - id: constraint_mapper
+    file: agents/02_constraint_mapper.md
+    name: Constraint Mapper
+    output: 02_constraint_mapper.md
+
+  - id: design_critic
+    file: agents/03_design_critic.md
+    name: Design Critic
+    output: 03_design_critic.md
+
+  - id: representation_planner
+    file: agents/04_representation_planner.md
+    name: Representation Planner
+    output: 04_representation_planner.md
+
+  - id: presentation_editor
+    file: agents/05_presentation_editor.md
+    name: Presentation Editor
+    output: 05_presentation_editor.md
