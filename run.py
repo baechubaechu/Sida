@@ -16,8 +16,25 @@ from harness import (
     run_worker_agent,
     worker_provider,
 )
-from i18n import t
+from i18n import get_language, t
 from project import open_or_create
+from state_updater import propose_state_patch, state_update_settings, write_state
+
+
+def _auto_update_state(config: dict, api_key: str, project, agent: dict, provider) -> None:
+    """Non-interactive: apply the proposed patch unless state_update.mode is off."""
+    settings = state_update_settings(config)
+    if settings["mode"] == "off":
+        return
+    try:
+        _, proposed = propose_state_patch(
+            config, api_key, project, agent, w_provider=provider, lang=get_language()
+        )
+    except LLMError as exc:
+        print(t("state_propose_failed", reason=str(exc)))
+        return
+    write_state(project, proposed)
+    print(t("state_applied", path=str(project.state_path)))
 
 
 def run(target: Path, project_name: str | None = None) -> None:
@@ -57,6 +74,7 @@ def run(target: Path, project_name: str | None = None) -> None:
         except LLMError as exc:
             fail(t("run_failed", name=name, reason=str(exc)))
         previous_blocks.append(f"### {name}\n\n{result}")
+        _auto_update_state(config, api_key, project, agent, provider)
 
     project.save_session(pipeline="sequential")
     print()

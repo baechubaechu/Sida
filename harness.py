@@ -199,12 +199,18 @@ class OllamaProvider:
 
     name = "ollama"
 
-    def __init__(self, base_url: str | None = None, num_ctx: int | None = None):
+    def __init__(
+        self,
+        base_url: str | None = None,
+        num_ctx: int | None = None,
+        keep_alive: str | None = "30m",
+    ):
         url = (base_url or DEFAULT_OLLAMA_URL).rstrip("/")
         if url.endswith("/v1"):
             url = url[: -len("/v1")]
         self.base_url = url
         self.num_ctx = num_ctx
+        self.keep_alive = keep_alive
 
     def chat(
         self,
@@ -228,6 +234,8 @@ class OllamaProvider:
             "stream": False,
             "options": options,
         }
+        if self.keep_alive is not None:
+            body["keep_alive"] = self.keep_alive
         if json_mode:
             body["format"] = "json"
 
@@ -299,6 +307,15 @@ class MockProvider:
             headers = expected_headers(agent_part)
             body = "\n\n".join(f"## {h}\n- (mock) placeholder" for h in headers)
             return f"# Mock Output\n\n{body}".strip(), {}
+        if role == "state_update":
+            m = re.search(r"MODULE ID:\s*(\S+)", last_user)
+            mod = m.group(1) if m else "module"
+            return (
+                '{"module_status": {"status": "done", "key_takeaway": "(mock) takeaway"}, '
+                '"sections": {"Recent Notes": ["(mock) ' + mod + ' completed"]}}'
+            ), {}
+        if role == "action_recovery":
+            return '{"type": "none"}', {}
         return (
             "(mock) Conductor reply. No model was called.\n\n"
             '```action\n{"type": "none"}\n```'
@@ -311,12 +328,13 @@ def make_provider(
     api_key: str = "",
     base_url: str | None = None,
     num_ctx: int | None = None,
+    keep_alive: str | None = "30m",
 ):
     kind = (kind or "openrouter").lower()
     if kind == "openrouter":
         return OpenRouterProvider(api_key)
     if kind in {"ollama", "local"}:
-        return OllamaProvider(base_url=base_url, num_ctx=num_ctx)
+        return OllamaProvider(base_url=base_url, num_ctx=num_ctx, keep_alive=keep_alive)
     if kind == "mock":
         return MockProvider()
     raise LLMError(f"Unknown provider '{kind}'. Use openrouter | ollama | mock.")
@@ -373,6 +391,7 @@ def resolve_conductor_runtime(config: dict) -> dict:
         "num_ctx": None,
         "history_window": int((conductor.get("context") or {}).get("history_window", 12)),
         "action_recovery": str(conductor.get("action_recovery", "auto")).lower(),
+        "keep_alive": str(conductor.get("ollama_keep_alive", "30m")),
     }
 
     profile = resolve_local_profile(config)
@@ -410,7 +429,11 @@ def resolve_worker_runtime(config: dict) -> dict:
 def conductor_provider(config: dict, api_key: str):
     rt = resolve_conductor_runtime(config)
     return make_provider(
-        rt["provider"], api_key=api_key, base_url=rt.get("base_url"), num_ctx=rt.get("num_ctx")
+        rt["provider"],
+        api_key=api_key,
+        base_url=rt.get("base_url"),
+        num_ctx=rt.get("num_ctx"),
+        keep_alive=rt.get("keep_alive"),
     )
 
 

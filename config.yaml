@@ -7,20 +7,20 @@ projects_dir: ~/Sida/projects
 # ---------------------------------------------------------------------------
 # Local Conductor GPU tiers (Ollama / OpenAI-compatible local server)
 # Default commercial target: 8GB VRAM → profile "local" (7B)
-# Upgrade path: 12GB+ → profile "local_plus" (14B)
+# Recommended: 12GB+ → profile "local_plus" (qwen3.5:9b — Korean + JSON + 16K ctx)
 # Worker modules stay on OpenRouter unless you change worker.model.
 # ---------------------------------------------------------------------------
 local_profiles:
-  # ~8GB VRAM (RTX 4060 / 3060 8GB / many laptops) — default commercial target
+  # ~8GB VRAM (RTX 4060 / 3060 8GB / many laptops) — minimum / default
   local:
     model: qwen2.5:7b
     num_ctx: 8192
     temperature: 0.4
     max_tokens: 700
     history_window: 12
-  # ~12GB+ VRAM (3060 12G / 4070 / 4080) — better long-session continuity
+  # ~12GB+ VRAM (3060 12G / 4070) — recommended Conductor tier
   local_plus:
-    model: qwen2.5:14b        # alt: gemma3:12b (stronger Korean, same VRAM tier)
+    model: qwen3.5:9b         # ~6.6GB Q4; alts: gemma3:12b, qwen2.5:14b
     num_ctx: 16384
     temperature: 0.4
     max_tokens: 700
@@ -32,6 +32,12 @@ conductor:
   provider: openrouter
   local_profile: local          # local (8GB) | local_plus (12GB+)
   base_url: http://127.0.0.1:11434   # Ollama server (native /api/chat)
+  # When provider=ollama: start server, optionally pull missing model, warm VRAM
+  ollama_autostart: true
+  ollama_pull_missing: ask          # ask | auto | off
+  ollama_warmup: true
+  ollama_keep_alive: 30m            # keep model in VRAM between turns
+  ollama_wait_seconds: 45
   model: anthropic/claude-haiku-4.5
   temperature: 0.4
   max_tokens: 700
@@ -40,13 +46,23 @@ conductor:
   # When a reply has no ```action``` block, ask the model once more (JSON-only)
   # to extract the intended action. auto = local providers only | always | off
   action_recovery: auto
-  # Rolling memory for long projects (tuned for 7B@8K / 14B@16K)
+  # Rolling memory for long projects (tuned for 7B@8K / 9B@16K)
   context:
     state_file: project_state.md
     history_window: 12          # overridden by local_profile when provider=ollama
     prefer_state_over_modules: true   # use state takeaways instead of full module .md
 
 # Specialist module model (only when a module runs)
+# After each module run, propose a project_state.md patch (Module Status row,
+# Meta lines, changed bullet sections) and show a diff.
+#   mode: ask (diff + Y/n/e) | auto (apply silently) | off
+#   provider: worker (cloud, reliable JSON) | conductor (fully local when provider=ollama)
+state_update:
+  mode: ask
+  provider: worker
+  max_tokens: 900
+  temperature: 0.2
+
 worker:
   provider: openrouter          # openrouter | ollama | mock
   model: openai/gpt-4o-mini

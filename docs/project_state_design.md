@@ -15,9 +15,9 @@ not raw sources. Sources stay in their own files:
 ## Token budget
 
 Default commercial target: **7B @ 8K ctx (8GB VRAM)**.  
-Optional upgrade: **14B @ 16K (12GB+)**. See `docs/gpu_tiers.md`.
+Optional upgrade: **9B @ 16K (12GB+, recommended)**. See `docs/gpu_tiers.md`.
 
-| Block | `local` (7B / 8K) | `local_plus` (14B / 16K) |
+| Block | `local` (7B / 8K) | `local_plus` (9B / 16K) |
 |-------|-------------------|--------------------------|
 | System prompt + conductor.md | ~600 | ~600 |
 | `brief.md` | 800–1,500 | 800–2,000 |
@@ -77,8 +77,8 @@ local_profiles:
     model: qwen2.5:7b
     num_ctx: 8192
     history_window: 12
-  local_plus:  # 12GB+
-    model: qwen2.5:14b
+  local_plus:  # 12GB+ recommended
+    model: qwen3.5:9b
     num_ctx: 16384
     history_window: 16
 
@@ -96,7 +96,7 @@ conductor:
 | Tier | Model | Ollama |
 |------|-------|--------|
 | 8GB (`local`) | Qwen2.5-7B Q4 | `ollama pull qwen2.5:7b` |
-| 12GB+ (`local_plus`) | Qwen2.5-14B Q4 | `ollama pull qwen2.5:14b` |
+| 12GB+ (`local_plus`) | Qwen3.5-9B Q4 | `ollama pull qwen3.5:9b` |
 
 Fixed section headers in `project_state.md` help smaller models locate facts
 without long-context retrieval degradation.

@@ -114,8 +114,30 @@ def cmd_state(session: Session, arg: str) -> Outcome:
         edit_file_in_editor(project.state_path)
         return "continue"
 
+    if sub.startswith("update"):
+        from session import update_state_after_module
+
+        _, _, target = sub.partition(" ")
+        agent = _pick_module_for_state(session, target.strip())
+        if agent is None:
+            print(t("state_update_no_module"))
+            return "continue"
+        # Manual request: always show the diff and ask, even if mode is auto/off.
+        update_state_after_module(session, agent, mode="ask")
+        return "continue"
+
     print(t("state_usage"))
     return "continue"
+
+
+def _pick_module_for_state(session: Session, query: str) -> dict | None:
+    """Explicit agent, or the most recently written module file."""
+    if query:
+        return resolve_agent(session.agents, query)
+    done = [(session.output_dir / a["output"], a) for a in session.agents if (session.output_dir / a["output"]).exists()]
+    if not done:
+        return None
+    return max(done, key=lambda pair: pair[0].stat().st_mtime)[1]
 
 
 def cmd_rename(session: Session, arg: str) -> Outcome:

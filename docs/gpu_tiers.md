@@ -1,13 +1,15 @@
 # Local Conductor GPU tiers
 
-Commercial default is **8GB VRAM**. 12GB+ is an optional upgrade, not a requirement.
+**8GB VRAM is the minimum** (default profile). **12GB+ is recommended** — it is where
+action-block adherence and Korean quality stop needing workarounds. Modules and state
+updates run on OpenRouter by default, so an 8GB machine still gets the full workflow.
 
 ## Profiles (`config.yaml` → `local_profiles`)
 
 | Profile | VRAM | Model | num_ctx | history_window |
 |---------|------|-------|---------|----------------|
 | **`local`** (default) | ~8GB | `qwen2.5:7b` Q4 | 8192 | 12 |
-| **`local_plus`** | ~12GB+ | `qwen2.5:14b` Q4 | 16384 | 16 |
+| **`local_plus`** (recommended) | ~12GB+ | `qwen3.5:9b` Q4 | 16384 | 16 |
 
 ```yaml
 conductor:
@@ -18,12 +20,23 @@ conductor:
 
 Worker modules stay on OpenRouter (`worker.model`) unless you change them.
 
-## Why 8GB is the default
+## Why `qwen3.5:9b` for 12GB
+
+- Weights ~6.6GB at Q4 → ~4–5GB left for KV cache → 16K context is comfortable
+- Strong Korean + tool/JSON adherence (Conductor action blocks)
+- Thinking mode off by default on the small series — no `<think>` pollution
+- Apache 2.0
+
+14B Q4 (~9GB) leaves little room for context on 12GB; Korean also costs more tokens than English,
+so the smaller model with more ctx headroom wins for this app.
+
+## Why 8GB is still the default profile
 
 - RTX 4060 / 3060 8GB / many laptop GPUs sit here
-- 14B Q4 needs ~9–10GB weights alone — does not fit 8GB with usable context
+- 9B/12B/14B Q4 do not leave usable context on 8GB
 - Conductor only needs short replies + routing + JSON action
 - `project_state.md` carries long-project memory so 7B + 8K ctx is enough
+- `action_recovery` covers occasional missing action blocks on 7B
 
 ## 8GB recipe
 
@@ -37,7 +50,7 @@ conductor:
   local_profile: local
 ```
 
-4. Keep `project_state.md` updated (module runs, decisions, phase changes)
+4. Keep `project_state.md` updated (module runs auto-propose patches; review with Y/n)
 
 ## Reliability by size (action block + Korean)
 
@@ -46,9 +59,10 @@ is instruction-following, not knowledge.
 
 | Size | Action block adherence (rough, Q4) | Korean quality | Fits |
 |------|------------------------------------|----------------|------|
-| 7B (`qwen2.5:7b`) | occasional misses — omits the block or writes prose after it | usable, sometimes stiff | 8GB |
-| 12B (`gemma3:12b`) | good; rare misses | strong, natural | 12GB+ (weights ~8GB alone) |
-| 14B (`qwen2.5:14b`) | good; rare misses | good | 12GB+ |
+| 7B (`qwen2.5:7b`) | occasional misses — omit or prose after block | usable, sometimes stiff | 8GB |
+| 9B (`qwen3.5:9b`) | good; rare misses | strong | **12GB+ (recommended)** |
+| 12B (`gemma3:12b`) | good; rare misses | strong, natural | 12GB+ (~8GB weights) |
+| 14B (`qwen2.5:14b`) | good; rare misses | good | 12GB+ (~9GB weights, tight ctx) |
 
 When the block is missing, `conductor.action_recovery` (default `auto` = local providers)
 makes one extra JSON-only call (`format: json` on Ollama) that reads the visible reply
@@ -61,31 +75,37 @@ local call on the turns where the 7B model slipped. Set `always` to enable on cl
 If recovery also fails, the reply is shown, nothing runs, nothing crashes — type
 `/run <agent>` or ask again.
 
-`gemma3:12b` is a valid `local_plus` alternative. Q4_K_M weights are ~8.1GB, so it is
-a 12GB-tier model, not an 8GB one, despite the smaller parameter count.
+Alternatives for `local_plus`:
 
 ```yaml
 local_profiles:
   local_plus:
-    model: gemma3:12b      # instead of qwen2.5:14b; stronger Korean
+    model: gemma3:12b      # prose-first Korean; slightly less ctx headroom
+    # model: qwen2.5:14b  # stable fallback; tighter on 12GB
     num_ctx: 16384
 ```
 
-## 12GB+ recipe
+## 12GB+ recipe (recommended)
 
 ```bash
-ollama pull qwen2.5:14b
+ollama pull qwen3.5:9b
 ```
 
 ```yaml
 conductor:
   provider: ollama
   local_profile: local_plus
+  ollama_autostart: true      # start server if not running
+  ollama_pull_missing: ask    # ask before downloading a missing model
+  ollama_warmup: true         # load into VRAM before the first chat turn
 ```
+
+Ollama still needs to be **installed** once. After that, opening a project is enough —
+the app starts the server, offers to pull the model, and warms VRAM.
 
 ## Token budget by tier
 
-| Block | `local` (7B / 8K) | `local_plus` (14B / 16K) |
+| Block | `local` (7B / 8K) | `local_plus` (9B / 16K) |
 |-------|-------------------|--------------------------|
 | System + conductor | ~600 | ~600 |
 | brief.md | 800–1,500 | 800–2,000 |

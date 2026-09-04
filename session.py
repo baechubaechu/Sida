@@ -98,12 +98,75 @@ def completed_ids(agents: list[dict], output_dir: Path) -> list[str]:
     return [str(a.get("id")) for a in agents if (output_dir / a["output"]).exists()]
 
 
-def module_completed_note(agent: dict) -> str:
+def module_completed_note(agent: dict, *, state_updated: bool = False) -> str:
     # Sent to the model — stays English regardless of UI language.
-    return (
-        f"[module completed] {agent.get('id')} → {agent.get('output')}. "
-        "Update project_state.md (Module Status + relevant sections) before the next turn."
+    base = f"[module completed] {agent.get('id')} → {agent.get('output')}. "
+    if state_updated:
+        return base + "project_state.md has been updated with this module's takeaways."
+    return base + "Update project_state.md (Module Status + relevant sections) before the next turn."
+
+
+def update_state_after_module(session: Session, agent: dict, *, mode: str | None = None) -> bool:
+    """
+    Propose a project_state.md patch from the module output and apply it according to
+    state_update.mode (ask | auto | off). Returns True if the file changed.
+    """
+    from console import prompt_line
+    from state_updater import (
+        LLMError as _LLMError,
     )
+    from state_updater import (
+        propose_state_patch,
+        state_diff,
+        state_update_settings,
+        write_state,
+    )
+
+    settings = state_update_settings(session.config)
+    mode = mode or settings["mode"]
+    if mode == "off":
+        return False
+
+    print(t("state_proposing", agent=agent.get("id")))
+    try:
+        patch, proposed = propose_state_patch(
+            session.config,
+            session.api_key,
+            session.project,
+            agent,
+            c_provider=session.c_provider,
+            w_provider=session.w_provider,
+            lang=get_language(),
+        )
+    except _LLMError as exc:
+        print(t("state_propose_failed", reason=str(exc)))
+        return False
+
+    current = session.project.state_path.read_text(encoding="utf-8")
+    diff = state_diff(current, proposed)
+    if not diff.strip():
+        print(t("state_no_change"))
+        return False
+
+    if mode == "auto":
+        write_state(session.project, proposed)
+        print(t("state_applied", path=str(session.project.state_path)))
+        return True
+
+    print()
+    print(diff)
+    print()
+    answer = (prompt_line(t("state_apply_prompt")) or "").strip().lower()
+    if answer in {"n", "no", "ㄴ"}:
+        print(t("state_skipped"))
+        return False
+    write_state(session.project, proposed)
+    print(t("state_applied", path=str(session.project.state_path)))
+    if answer in {"e", "edit"}:
+        from briefs import edit_file_in_editor
+
+        edit_file_in_editor(session.project.state_path)
+    return True
 
 
 def execute_run(session: Session, agent: dict) -> None:
@@ -138,7 +201,8 @@ def run_module_command(session: Session, agent: dict, user_text: str) -> None:
         print(t("module_failed", reason=str(exc)))
         print(t("module_nothing_saved", agent=agent.get("id")))
         return
-    note = module_completed_note(agent)
+    updated = update_state_after_module(session, agent)
+    note = module_completed_note(agent, state_updated=updated)
     session.history.append({"role": "user", "content": user_text})
     session.history.append({"role": "assistant", "content": note})
     session.project.append_transcript("User", user_text)
@@ -180,7 +244,8 @@ def handle_action(session: Session, action: dict) -> str:
             print(t("module_failed", reason=str(exc)))
             print(t("module_nothing_saved", agent=agent.get("id")))
             return "continue"
-        session.note("user", module_completed_note(agent))
+        updated = update_state_after_module(session, agent)
+        session.note("user", module_completed_note(agent, state_updated=updated))
         return "continue"
 
     return "continue"
@@ -360,6 +425,9 @@ def open_session(
         created = detected
 
     try:
+        from ollama_boot import ensure_ollama_ready
+
+        ensure_ollama_ready(config)
         c_provider = conductor_provider(config, api_key)
         w_provider = worker_provider(config, api_key)
     except LLMError as exc:

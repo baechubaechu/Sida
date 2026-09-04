@@ -24,6 +24,7 @@ def test_handle_action_read_routes_by_alias(make_session):
 
 def test_handle_action_run_success_records_note(make_session):
     s = make_session()
+    s.config["state_update"] = {"mode": "off"}
     assert handle_action(s, {"type": "run", "agent": "site_reader"}) == "continue"
     assert (s.output_dir / "01_site_reader.md").exists()
     assert s.history[-1]["content"].startswith("[module completed] site_reader")

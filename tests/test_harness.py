@@ -93,7 +93,7 @@ def test_local_profiles_overlay(mock_config):
     assert rt["model"] == "qwen2.5:7b" and rt["num_ctx"] == 8192 and rt["history_window"] == 12
     cfg["conductor"]["local_profile"] = "local_plus"
     rt = resolve_conductor_runtime(cfg)
-    assert rt["model"] == "qwen2.5:14b" and rt["num_ctx"] == 16384 and rt["history_window"] == 16
+    assert rt["model"] == "qwen3.5:9b" and rt["num_ctx"] == 16384 and rt["history_window"] == 16
 
 
 def test_cloud_runtime_untouched(mock_config):

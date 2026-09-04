@@ -35,6 +35,8 @@ py-modules = [
   "i18n",
   "setup_env",
   "run",
+  "state_updater",
+  "ollama_boot",
 ]
 
 [tool.pytest.ini_options]

@@ -30,7 +30,7 @@ Prefer asking one focused question over calling a module.
 3. If information is missing, ask for it or mark it as missing.
 4. Do not invent project facts.
 5. Do not claim AI designed the project.
-6. When a module completes, remind the designer to update `project_state.md`.
+6. When a module completes, `project_state.md` is normally updated automatically (the system note will say so). Only remind the designer to update it when the note says it was not updated.
 
 ## Action block (required)
 

@@ -131,6 +131,27 @@ STRINGS: dict[str, dict[str, str]] = {
         "sess_context": "Context:       last {n} messages + project_state.md",
         "sess_conductor_local": "Conductor:     {provider} / {profile} → {model}{ctx}",
         "sess_conductor_cloud": "Conductor:     {provider} → {model}",
+        "ollama_starting": "[ollama] Server not running — starting it ...",
+        "ollama_started": "[ollama] Server is ready.",
+        "ollama_not_running": (
+            "Ollama is not running at {url}.\n"
+            "Install from https://ollama.com and open the Ollama app, or set conductor.ollama_autostart: true."
+        ),
+        "ollama_not_installed": (
+            "Ollama was not found on this computer.\n"
+            "Install from https://ollama.com , then run this app again."
+        ),
+        "ollama_start_timeout": (
+            "Started Ollama but it did not become ready at {url}.\n"
+            "Open the Ollama app manually and retry."
+        ),
+        "ollama_model_missing": "Ollama model '{model}' is not installed. Run: ollama pull {model}",
+        "ollama_model_missing_ask": "[ollama] Model '{model}' is not installed yet.",
+        "ollama_pull_prompt": "Download '{model}' now? This may take several minutes. [Y/n]: ",
+        "ollama_pulling": "[ollama] Downloading {model} ...",
+        "ollama_pulled": "[ollama] Model ready: {model}",
+        "ollama_warming": "[ollama] Loading {model} into VRAM ...",
+        "ollama_warm": "[ollama] {model} is loaded.",
         "sess_created": "Created new project folder.",
         "sess_resumed": "Resumed existing project folder.",
         "sess_loaded_turns": "Loaded conversation: {n} user turn(s).",
@@ -168,7 +189,14 @@ STRINGS: dict[str, dict[str, str]] = {
         "status_folder": "Folder:    {path}",
         "status_history": "History:   {path}",
         "status_state": "State:     {path}",
-        "state_usage": "Usage: /state | /state edit",
+        "state_usage": "Usage: /state | /state edit | /state update [agent_id]",
+        "state_proposing": "[state] Proposing project_state.md update from {agent} ...",
+        "state_propose_failed": "[state] Could not propose an update: {reason}. Edit with /state edit.",
+        "state_no_change": "[state] No changes proposed.",
+        "state_applied": "[state] project_state.md updated (backup: project_state.prev.md)",
+        "state_apply_prompt": "Apply this update? [Y = yes / n = skip / e = apply then edit]: ",
+        "state_skipped": "[state] Skipped. Edit later with /state edit or /state update.",
+        "state_update_no_module": "[state] No completed module found. Run a module first, or pass an agent id.",
         "none": "(none)",
         "empty": "(empty)",
         "help_commands": (
@@ -181,6 +209,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "  /brief fields      update basic brief fields (other sections kept)\n"
             "  /state             show project_state.md (Conductor memory)\n"
             "  /state edit        open project_state.md in your editor\n"
+            "  /state update [id] propose a state update from a module output (diff + confirm)\n"
             "  /agents            list modules\n"
             "  /status            show completed modules\n"
             "  /setup             (re)configure OpenRouter API key\n"
@@ -314,6 +343,27 @@ STRINGS: dict[str, dict[str, str]] = {
         "sess_context": "컨텍스트:      최근 {n}개 메시지 + project_state.md",
         "sess_conductor_local": "Conductor:     {provider} / {profile} → {model}{ctx}",
         "sess_conductor_cloud": "Conductor:     {provider} → {model}",
+        "ollama_starting": "[ollama] 서버가 꺼져 있어 시작합니다 ...",
+        "ollama_started": "[ollama] 서버 준비됨.",
+        "ollama_not_running": (
+            "Ollama가 {url} 에서 실행 중이 아닙니다.\n"
+            "https://ollama.com 에서 설치 후 Ollama 앱을 실행하거나, conductor.ollama_autostart: true 로 두세요."
+        ),
+        "ollama_not_installed": (
+            "이 컴퓨터에 Ollama가 없습니다.\n"
+            "https://ollama.com 에서 설치한 뒤 다시 실행하세요."
+        ),
+        "ollama_start_timeout": (
+            "Ollama를 시작했지만 {url} 에 아직 응답이 없습니다.\n"
+            "Ollama 앱을 직접 연 뒤 다시 시도하세요."
+        ),
+        "ollama_model_missing": "Ollama 모델 '{model}' 이(가) 없습니다. 실행: ollama pull {model}",
+        "ollama_model_missing_ask": "[ollama] 모델 '{model}' 이(가) 아직 없습니다.",
+        "ollama_pull_prompt": "'{model}' 을(를) 지금 받을까요? 몇 분 걸릴 수 있습니다. [Y/n]: ",
+        "ollama_pulling": "[ollama] {model} 받는 중 ...",
+        "ollama_pulled": "[ollama] 모델 준비됨: {model}",
+        "ollama_warming": "[ollama] {model} 을(를) VRAM에 올리는 중 ...",
+        "ollama_warm": "[ollama] {model} 로드됨.",
         "sess_created": "새 프로젝트 폴더를 만들었습니다.",
         "sess_resumed": "기존 프로젝트를 이어서 엽니다.",
         "sess_loaded_turns": "이전 대화 불러옴: 사용자 턴 {n}개",
@@ -351,7 +401,14 @@ STRINGS: dict[str, dict[str, str]] = {
         "status_folder": "폴더:  {path}",
         "status_history": "대화:  {path}",
         "status_state": "상태:  {path}",
-        "state_usage": "사용법: /state | /state edit",
+        "state_usage": "사용법: /state | /state edit | /state update [agent_id]",
+        "state_proposing": "[state] {agent} 결과로 project_state.md 갱신안을 만드는 중 ...",
+        "state_propose_failed": "[state] 갱신안을 만들지 못했습니다: {reason}. /state edit 로 직접 수정하세요.",
+        "state_no_change": "[state] 제안된 변경 사항이 없습니다.",
+        "state_applied": "[state] project_state.md 갱신됨 (백업: project_state.prev.md)",
+        "state_apply_prompt": "이 갱신을 적용할까요? [Y = 적용 / n = 건너뛰기 / e = 적용 후 에디터로 열기]: ",
+        "state_skipped": "[state] 건너뜀. 나중에 /state edit 또는 /state update 로 반영할 수 있습니다.",
+        "state_update_no_module": "[state] 완료된 모듈이 없습니다. 먼저 모듈을 실행하거나 agent id를 지정하세요.",
         "none": "(없음)",
         "empty": "(비어 있음)",
         "help_commands": (
@@ -364,6 +421,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "  /brief fields      기본 항목만 다시 입력 (다른 섹션은 보존)\n"
             "  /state             project_state.md 보기 (Conductor 메모리)\n"
             "  /state edit        project_state.md 를 에디터로 열기\n"
+            "  /state update [id] 모듈 결과로 상태 갱신안 제안 (diff 확인 후 적용)\n"
             "  /agents            모듈 목록\n"
             "  /status            완료된 모듈 보기\n"
             "  /setup             OpenRouter API 키 (재)설정\n"

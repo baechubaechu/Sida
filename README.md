@@ -31,6 +31,23 @@ Brief
 
 ## Installation
 
+### Windows — `run.bat` (권장)
+
+Python 3.10+ 만 설치되어 있으면 됩니다. `run.bat`을 더블클릭하거나:
+
+```bat
+run.bat                      :: 채팅 (프로젝트 허브). 첫 실행 시 .venv 생성 + 의존성 설치
+run.bat setup                :: 언어 / OpenRouter 키 설정
+run.bat sample_brief         :: 프로젝트 바로 열기
+run.bat pipeline input\brief.md   :: 비대화형 순차 실행
+run.bat test                 :: 테스트
+run.bat update               :: 의존성 재설치
+```
+
+Python이 없으면 python.org 안내 메시지가 뜹니다 (설치 시 "Add python.exe to PATH" 체크).
+
+### Manual (macOS / Linux / 개발용)
+
 Python 3.10 or newer.
 
 ```bash
@@ -68,20 +85,54 @@ Model and agent settings live in `config.yaml`.
 ### Local Conductor (optional, Ollama)
 
 The Conductor (chat) can run on a local model while modules stay on OpenRouter.
-Default target is an 8GB GPU. See `docs/gpu_tiers.md`.
+8GB VRAM is the minimum (`local`, 7B); 12GB+ is recommended (`local_plus`, `qwen3.5:9b`).
+See `docs/gpu_tiers.md`.
 
 ```bash
-ollama pull qwen2.5:7b
+ollama pull qwen2.5:7b      # 8GB
+ollama pull qwen3.5:9b      # 12GB+ recommended
 ```
+
+`conductor.provider: ollama` 이면 앱이 세션을 열 때 Ollama 서버를 자동으로 띄우고,
+모델이 없으면 받을지 물은 뒤 VRAM에 올려 둡니다 (`ollama_autostart` / `ollama_warmup`).
+Ollama **설치**만은 한 번 필요합니다 — https://ollama.com
 
 ```yaml
 # config.yaml
 conductor:
   provider: ollama          # openrouter | ollama | mock
-  local_profile: local      # local (8GB, 7B) | local_plus (12GB+, 14B)
+  local_profile: local_plus # local (8GB, 7B) | local_plus (12GB+, qwen3.5:9b)
+  ollama_autostart: true
+  ollama_pull_missing: ask  # ask | auto | off
+  ollama_warmup: true
 ```
 
 `provider: mock` runs the whole app without any model (UI / flow testing).
+
+### Project memory updates (`state_update`)
+
+After every module run the app proposes a `project_state.md` patch — Module Status row,
+Meta lines, and only the bullet sections the module informs — and shows a diff:
+
+```txt
+[state] site_reader 결과로 project_state.md 갱신안을 만드는 중 ...
+--- project_state.md
++++ proposed
+-| site_reader | pending | |
++| site_reader | done | 남북 레벨 차 6m가 동선의 핵심 제약 |
+...
+이 갱신을 적용할까요? [Y = 적용 / n = 건너뛰기 / e = 적용 후 에디터로 열기]:
+```
+
+```yaml
+# config.yaml
+state_update:
+  mode: ask          # ask | auto | off
+  provider: worker   # worker (cloud, reliable JSON) | conductor (fully local)
+```
+
+`/state update [agent_id]` re-proposes from any completed module. Previous version is kept
+in `project_state.prev.md`.
 
 ## How to run
 
@@ -108,7 +159,8 @@ Projects are saved under the user home folder (easy to open in File Explorer):
 ~/Sida/projects/sample_brief/
 ├─ brief.md
 ├─ brief.prev.md       ← backup written by /brief edit
-├─ project_state.md    ← rolling project memory for the Conductor (edit this)
+├─ project_state.md    ← rolling project memory for the Conductor (auto-proposed after module runs)
+├─ project_state.prev.md ← backup written before each state update
 ├─ session.json
 ├─ history.json        ← Conductor conversation (restored on resume)
 ├─ transcript.md       ← human-readable log
@@ -142,6 +194,7 @@ Commands:
   /brief fields     update the six basic fields only (other sections kept)
   /state            show project_state.md
   /state edit       open project_state.md in your editor
+  /state update     propose a state patch from the latest module (diff + confirm)
   /agents
   /status
   /setup
@@ -224,6 +277,9 @@ Module layout:
 | `conductor.py` | Conductor message assembly, action parsing, one LLM call |
 | `briefs.py` | brief.md authoring — guided fields or external editor |
 | `console.py` | prompts, `$EDITOR` launch, UTF-8 stdio |
+| `state_updater.py` | project_state.md patch proposal (JSON call → diff → apply) |
+| `ollama_boot.py` | start Ollama, pull missing model, warm VRAM on session open |
+| `run.bat` | Windows launcher: venv + deps + dispatch |
 | `harness.py` | providers (OpenRouter / Ollama / mock), worker runs, context budget |
 | `project.py` | project folder I/O, `project_state.md`, brief section patching |
 | `i18n.py` | UI strings — Korean default, English fallback |

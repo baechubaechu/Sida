@@ -54,6 +54,7 @@ def test_status_and_project(make_session, capsys):
 
 def test_run_command_with_mock(make_session, capsys):
     s = make_session()
+    s.config["state_update"] = {"mode": "off"}
     assert dispatch(s, "/run site_reader") == "continue"
     assert (s.output_dir / "01_site_reader.md").exists()
     assert s.history[-1]["content"].startswith("[module completed]")
