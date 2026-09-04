@@ -31,7 +31,11 @@ Brief
 
 ## Installation
 
+Python 3.10 or newer.
+
 ```bash
+python -m venv .venv
+# Windows: .\.venv\Scripts\activate   macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -40,7 +44,7 @@ pip install -r requirements.txt
 가장 쉬운 방법 — 프로그램이 직접 안내합니다:
 
 ```bash
-python setup.py
+python setup_env.py
 ```
 
 또는 `python chat.py ...` / `python run.py ...` 실행 시 키가 없으면 같은 안내가 자동으로 뜹니다.
@@ -61,6 +65,24 @@ cp .env.example .env
 
 Model and agent settings live in `config.yaml`.
 
+### Local Conductor (optional, Ollama)
+
+The Conductor (chat) can run on a local model while modules stay on OpenRouter.
+Default target is an 8GB GPU. See `docs/gpu_tiers.md`.
+
+```bash
+ollama pull qwen2.5:7b
+```
+
+```yaml
+# config.yaml
+conductor:
+  provider: ollama          # openrouter | ollama | mock
+  local_profile: local      # local (8GB, 7B) | local_plus (12GB+, 14B)
+```
+
+`provider: mock` runs the whole app without any model (UI / flow testing).
+
 ## How to run
 
 ### First launch
@@ -70,7 +92,7 @@ pip install -r requirements.txt
 python chat.py
 ```
 
-1. Language (English screen first)
+1. Language (Korean default, English available)
 2. API key + verification
 3. **Project hub** — create / open / switch projects (no chat)
 4. Inside a project — Conductor session
@@ -85,13 +107,21 @@ Projects are saved under the user home folder (easy to open in File Explorer):
 ```txt
 ~/Sida/projects/sample_brief/
 ├─ brief.md
+├─ brief.prev.md       ← backup written by /brief edit
+├─ project_state.md    ← rolling project memory for the Conductor (edit this)
 ├─ session.json
-├─ history.json      ← Conductor conversation (restored on resume)
-├─ transcript.md     ← human-readable log
+├─ history.json        ← Conductor conversation (restored on resume)
+├─ transcript.md       ← human-readable log
 └─ modules/
    ├─ 01_site_reader.md
-   └─ ...
+   ├─ ...
+   └─ _history/        ← previous versions, archived on rerun
 ```
+
+`project_state.md` is what the Conductor reads instead of the full chat log.
+Keep it short: decisions, open questions, module status, next focus.
+Modules updated after the state file are shown to the Conductor in full until
+you fold them into the state.
 
 Path is set in `config.yaml` → `projects_dir`.
 
@@ -107,12 +137,20 @@ Talk in the terminal. Modules run only when needed.
 Commands:
   /help
   /project
+  /brief            show brief
+  /brief edit       open brief.md in your editor (backup → brief.prev.md)
+  /brief fields     update the six basic fields only (other sections kept)
+  /state            show project_state.md
+  /state edit       open project_state.md in your editor
   /agents
   /status
   /setup
   /run site_reader
   /quit
 ```
+
+The Conductor can also ask to read a completed module file
+(`{"type": "read", "module": "site_reader"}`) when the state file lacks detail.
 
 Conductor model and worker model are set in `config.yaml`.
 
@@ -167,6 +205,33 @@ Each agent has a narrow task, a clear input, a fixed Markdown output format, and
 - Attach sample outputs under `examples/sample_output/`
 - Refine agent prompts against studio review feedback
 
+## Development
+
+```bash
+pip install -e ".[dev]"     # or: pip install pytest ruff
+pytest                      # 60+ offline tests (mock provider, no network)
+ruff check .
+```
+
+Module layout:
+
+| File | Role |
+|---|---|
+| `chat.py` | entry point: first-run setup → hub → sessions |
+| `hub.py` | project picker (create / open / sample) |
+| `session.py` | one Conductor session: `Session` state, turns, actions, loop |
+| `commands.py` | slash commands (`/brief`, `/state`, `/run`, ...) |
+| `conductor.py` | Conductor message assembly, action parsing, one LLM call |
+| `briefs.py` | brief.md authoring — guided fields or external editor |
+| `console.py` | prompts, `$EDITOR` launch, UTF-8 stdio |
+| `harness.py` | providers (OpenRouter / Ollama / mock), worker runs, context budget |
+| `project.py` | project folder I/O, `project_state.md`, brief section patching |
+| `i18n.py` | UI strings — Korean default, English fallback |
+| `setup_env.py` | language + OpenRouter key setup |
+| `run.py` | non-interactive sequential pipeline |
+
+Editor for `/brief edit` and `/state edit`: `SIDA_EDITOR` → `VISUAL` → `EDITOR` → `notepad` (Windows) / `nano`, `vim`, `vi`.
+
 ## Tools
 
-Python / OpenRouter / Markdown / YAML / LLM prompts
+Python / OpenRouter / Ollama / Markdown / YAML / LLM prompts

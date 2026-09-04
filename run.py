@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
-"""Sida — sequential agent pipeline into a project folder."""
+"""Sida — sequential agent pipeline into a project folder (non-interactive)."""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-from harness import fail, get_agents, load_config, load_env, run_worker_agent
+from console import configure_stdio
+from harness import (
+    LLMError,
+    fail,
+    get_agents,
+    load_config,
+    load_env,
+    run_worker_agent,
+    worker_provider,
+)
+from i18n import t
 from project import open_or_create
 
 
 def run(target: Path, project_name: str | None = None) -> None:
+    configure_stdio()
     api_key = load_env()
     config = load_config()
     agents = get_agents(config)
@@ -22,30 +33,40 @@ def run(target: Path, project_name: str | None = None) -> None:
     previous_blocks: list[str] = []
     total = len(agents)
 
-    print(f"Project: {project.path}")
-    if created:
-        print("Created new project folder.")
-    else:
-        print("Using existing project folder.")
+    print(t("run_project", path=project.path))
+    print(t("sess_created") if created else t("sess_resumed"))
+
+    try:
+        provider = worker_provider(config, api_key)
+    except LLMError as exc:
+        fail(str(exc))
 
     for index, agent in enumerate(agents, start=1):
         name = agent.get("name", agent.get("id", f"Agent {index}"))
-        print(f"[{index}/{total}] Running {name}...")
-        result = run_worker_agent(
-            api_key, config, agent, project_brief, previous_blocks, output_dir
-        )
+        print(t("run_step", i=index, n=total, name=name))
+        try:
+            result = run_worker_agent(
+                api_key,
+                config,
+                agent,
+                project_brief,
+                previous_blocks,
+                output_dir,
+                provider=provider,
+            )
+        except LLMError as exc:
+            fail(t("run_failed", name=name, reason=str(exc)))
         previous_blocks.append(f"### {name}\n\n{result}")
 
     project.save_session(pipeline="sequential")
-    print(f"\nOutputs saved to {output_dir.as_posix()}/")
+    print()
+    print(t("run_outputs", path=output_dir.as_posix()))
 
 
 def main() -> None:
     args = sys.argv[1:]
     if not args:
-        print("Usage: python run.py input/project_brief.md")
-        print("       python run.py projects/project_name")
-        print("       python chat.py input/project_brief.md   # conversational")
+        print(t("run_usage_cli"))
         sys.exit(1)
 
     project_name = None

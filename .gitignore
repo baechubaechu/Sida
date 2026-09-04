@@ -1,8 +1,15 @@
 ﻿.env
+.venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
 .DS_Store
 output/*
 !output/.gitkeep
 projects/*
 !projects/.gitkeep
+.vscode/

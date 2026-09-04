@@ -15,9 +15,11 @@ from harness import ROOT, fail, load_config
 
 SESSION_FILE = "session.json"
 BRIEF_FILE = "brief.md"
+STATE_FILE = "project_state.md"
 TRANSCRIPT_FILE = "transcript.md"
 HISTORY_FILE = "history.json"
 MODULES_DIRNAME = "modules"
+STATE_TEMPLATE_PATH = ROOT / "templates" / "project_state.md"
 DEFAULT_PROJECTS_DIR = Path.home() / "Sida" / "projects"
 
 
@@ -35,6 +37,32 @@ def slugify(name: str) -> str:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _replace_section(text: str, heading: str, body: str) -> str:
+    """
+    Replace the body under `## {heading}` (up to the next `## ` or `# ` line).
+    If the section does not exist, append it at the end.
+    """
+    pattern = re.compile(
+        rf"(^## {re.escape(heading)}\s*\n)(.*?)(?=^#{{1,2}} |\Z)",
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    match = pattern.search(text)
+    replacement_body = body.strip() + "\n\n"
+    if match:
+        return text[: match.start(2)] + replacement_body + text[match.end(2):]
+    sep = "" if text.endswith("\n\n") else ("\n" if text.endswith("\n") else "\n\n")
+    return f"{text}{sep}## {heading}\n{replacement_body}"
+
+
+def section_body(text: str, heading: str) -> str:
+    pattern = re.compile(
+        rf"^## {re.escape(heading)}\s*\n(.*?)(?=^#{{1,2}} |\Z)",
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    match = pattern.search(text)
+    return match.group(1).strip() if match else ""
 
 
 def resolve_projects_dir(config: dict | None = None) -> Path:
@@ -86,10 +114,66 @@ class Project:
     def history_path(self) -> Path:
         return self.path / HISTORY_FILE
 
+    @property
+    def state_path(self) -> Path:
+        return self.path / STATE_FILE
+
     def read_brief(self) -> str:
         if not self.brief_path.exists():
             fail(f"Missing brief in project: {self.brief_path}")
         return self.brief_path.read_text(encoding="utf-8")
+
+    def read_state(self) -> str | None:
+        if not self.state_path.exists():
+            return None
+        text = self.state_path.read_text(encoding="utf-8").strip()
+        return text or None
+
+    def read_module(self, output_name: str) -> str | None:
+        path = self.modules_dir / output_name
+        if not path.exists():
+            return None
+        text = path.read_text(encoding="utf-8").strip()
+        return text or None
+
+    def update_brief_sections(self, updates: dict[str, str]) -> str:
+        """
+        Replace only the given `## Section` bodies in brief.md.
+        Unknown sections and any extra content are preserved. Empty values are ignored.
+        Returns the new brief text.
+        """
+        current = self.read_brief()
+        backup = self.path / "brief.prev.md"
+        backup.write_text(current, encoding="utf-8")
+
+        text = current
+        for heading, body in updates.items():
+            body = body.strip()
+            if not body:
+                continue
+            text = _replace_section(text, heading, body)
+        self.brief_path.write_text(text.rstrip() + "\n", encoding="utf-8")
+        return text
+
+    def updated_at(self) -> str:
+        if self.session_path.exists():
+            try:
+                data = json.loads(self.session_path.read_text(encoding="utf-8"))
+                return str(data.get("updated_at") or "")
+            except (json.JSONDecodeError, OSError):
+                pass
+        return ""
+
+    def init_state(self, *, force: bool = False) -> None:
+        """Create project_state.md from template if missing."""
+        if self.state_path.exists() and not force:
+            return
+        if STATE_TEMPLATE_PATH.exists():
+            template = STATE_TEMPLATE_PATH.read_text(encoding="utf-8")
+        else:
+            template = "# Project State\n\n## Meta\n\n- **Project**: {name}\n"
+        content = template.replace("- **Project**:", f"- **Project**: {self.name}", 1)
+        self.state_path.write_text(content, encoding="utf-8")
 
     def load_history(self) -> list[dict]:
         """Load Conductor chat history (user/assistant turns only)."""
@@ -210,6 +294,7 @@ def load_project(path: Path) -> Project:
         project.transcript_path.write_text(
             f"# Transcript — {project.name}\n\n", encoding="utf-8"
         )
+    project.init_state()
     project.save_session(resumed_at=_utc_now())
     return project
 
@@ -252,6 +337,7 @@ def create_project_from_brief(
     project.transcript_path.write_text(
         f"# Transcript — {project.name}\n\n", encoding="utf-8"
     )
+    project.init_state()
     project.save_session()
     return project
 
@@ -310,6 +396,7 @@ def create_blank_project(
     project.transcript_path.write_text(
         f"# Transcript — {project.name}\n\n", encoding="utf-8"
     )
+    project.init_state()
     project.save_history([])
     project.save_session()
     return project
@@ -363,9 +450,25 @@ def open_or_create(
     fail(f"Cannot open project or brief: {target}")
 
 
+def _project_sort_key(path: Path) -> tuple[str, str]:
+    session_path = path / SESSION_FILE
+    stamp = ""
+    if session_path.exists():
+        try:
+            data = json.loads(session_path.read_text(encoding="utf-8"))
+            stamp = str(data.get("updated_at") or "")
+        except (json.JSONDecodeError, OSError):
+            stamp = ""
+    if not stamp:
+        stamp = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
+    return (stamp, path.name)
+
+
 def list_projects(config: dict | None = None) -> list[Path]:
+    """Most recently updated first."""
     root = ensure_projects_root(config)
     return sorted(
         [p for p in root.iterdir() if is_project_dir(p)],
-        key=lambda p: p.name,
+        key=_project_sort_key,
+        reverse=True,
     )

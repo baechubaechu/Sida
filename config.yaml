@@ -4,16 +4,51 @@ provider: openrouter
 # Default if omitted: ~/Sida/projects
 projects_dir: ~/Sida/projects
 
+# ---------------------------------------------------------------------------
+# Local Conductor GPU tiers (Ollama / OpenAI-compatible local server)
+# Default commercial target: 8GB VRAM → profile "local" (7B)
+# Upgrade path: 12GB+ → profile "local_plus" (14B)
+# Worker modules stay on OpenRouter unless you change worker.model.
+# ---------------------------------------------------------------------------
+local_profiles:
+  # ~8GB VRAM (RTX 4060 / 3060 8GB / many laptops) — default commercial target
+  local:
+    model: qwen2.5:7b
+    num_ctx: 8192
+    temperature: 0.4
+    max_tokens: 700
+    history_window: 12
+  # ~12GB+ VRAM (3060 12G / 4070 / 4080) — better long-session continuity
+  local_plus:
+    model: qwen2.5:14b        # alt: gemma3:12b (stronger Korean, same VRAM tier)
+    num_ctx: 16384
+    temperature: 0.4
+    max_tokens: 700
+    history_window: 16
+
 # Cheap always-on conversational model
 conductor:
+  # openrouter (default) | ollama | mock — ollama uses local_profiles[local_profile]
+  provider: openrouter
+  local_profile: local          # local (8GB) | local_plus (12GB+)
+  base_url: http://127.0.0.1:11434   # Ollama server (native /api/chat)
   model: anthropic/claude-haiku-4.5
   temperature: 0.4
   max_tokens: 700
   prompt: agents/00_conductor.md
   cache_ttl: 1h
+  # When a reply has no ```action``` block, ask the model once more (JSON-only)
+  # to extract the intended action. auto = local providers only | always | off
+  action_recovery: auto
+  # Rolling memory for long projects (tuned for 7B@8K / 14B@16K)
+  context:
+    state_file: project_state.md
+    history_window: 12          # overridden by local_profile when provider=ollama
+    prefer_state_over_modules: true   # use state takeaways instead of full module .md
 
 # Specialist module model (only when a module runs)
 worker:
+  provider: openrouter          # openrouter | ollama | mock
   model: openai/gpt-4o-mini
   temperature: 0.3
   max_tokens: 2000

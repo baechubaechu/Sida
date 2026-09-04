@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Interactive first-time setup: language, then verified OpenRouter API key."""
+"""Interactive first-time setup: language, then verified OpenRouter API key.
+
+Run: python setup_env.py [--force] [--language]
+(Named setup_env.py so it is never mistaken for a packaging setup.py.)
+"""
 
 from __future__ import annotations
 
@@ -27,11 +31,9 @@ OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
 
 
 def _configure_stdio() -> None:
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-        except Exception:
-            pass
+    from console import configure_stdio
+
+    configure_stdio()
 
 
 def _mask_key(key: str) -> str:
@@ -104,7 +106,7 @@ def verify_api_key(api_key: str) -> tuple[bool, str]:
 
 def prompt_language(*, force: bool = False) -> str:
     """
-    First setup screen is always English.
+    First setup screen is bilingual; Korean is the default.
     After choice, UI follows saved language. Commands stay English.
     """
     if has_language() and not force:
@@ -112,21 +114,20 @@ def prompt_language(*, force: bool = False) -> str:
 
     print()
     print("=" * 40)
-    print("  Language")
+    print(f"  {t('lang_title')}")
     print("=" * 40)
     print()
-    print("Choose UI language.")
-    print("  1) English")
-    print("  2) Korean  (commands stay in English: /help, /quit, /run ...)")
-    print()
+    print(t("lang_prompt"))
     try:
-        choice = input("Select [1/2] (default 1): ").strip()
+        choice = input(t("lang_input")).strip().lower()
     except (EOFError, KeyboardInterrupt):
         print()
-        choice = "1"
+        choice = ""
 
     lang = DEFAULT_LANGUAGE
-    if choice in {"2", "ko", "korean", "한국어", "ㅎ"}:
+    if choice in {"2", "en", "english", "영어"}:
+        lang = "en"
+    elif choice in {"1", "ko", "korean", "한국어", "ㅎ", ""}:
         lang = "ko"
 
     set_language(lang)
