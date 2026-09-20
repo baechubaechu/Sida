@@ -49,6 +49,7 @@ def test_propose_failure_is_reported_not_fatal(make_session, scripted, capsys):
     from harness import LLMError
 
     s = make_session()
+    s.config["state_update"] = {"mode": "ask", "provider": "worker"}
     good = "# Mock\n\n## Site Conditions\n- a\n\n## Spatial Conflicts\n- b\n\n## Opportunities\n- c\n\n## Missing Information\n- d\n\n## Design Implications\n- e\n\n## Handoff\n- f"
     s.w_provider = scripted([good, LLMError("state model down")])
     assert handle_action(s, {"type": "run", "agent": "site_reader"}) == "continue"
@@ -78,6 +79,7 @@ def test_state_update_command_without_modules(make_session, capsys):
 
 def test_no_change_path(make_session, scripted, capsys):
     s = make_session()
+    s.config["state_update"] = {"mode": "ask", "provider": "worker"}
     (s.output_dir / "11_site_reader.md").write_text("x", encoding="utf-8")
     # A patch that produces an identical file: status pending, no takeaway, today's date already set
     from datetime import date

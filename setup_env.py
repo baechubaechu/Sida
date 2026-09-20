@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parent
 ENV_PATH = ROOT / ".env"
 ENV_EXAMPLE = ROOT / ".env.example"
 OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
+OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
 
 
 def _configure_stdio() -> None:
@@ -228,6 +229,113 @@ def ensure_api_key(*, interactive: bool = True) -> str:
     key = setup_api_key(force=True)
     if not key:
         raise SystemExit(t("api_required"))
+    return key
+
+
+# ---------------------------------------------------------------------------
+# OpenAI API key (Rhino modeling mode — separate from OpenRouter)
+# ---------------------------------------------------------------------------
+
+
+def read_openai_key_from_env() -> str:
+    if ENV_PATH.exists():
+        load_dotenv(ENV_PATH, override=True)
+    return os.getenv("OPENAI_API_KEY", "").strip()
+
+
+def write_openai_key(api_key: str) -> None:
+    api_key = api_key.strip()
+    lines: list[str] = []
+    if ENV_PATH.exists():
+        lines = ENV_PATH.read_text(encoding="utf-8").splitlines()
+    elif ENV_EXAMPLE.exists():
+        lines = ENV_EXAMPLE.read_text(encoding="utf-8").splitlines()
+
+    key_line = f"OPENAI_API_KEY={api_key}"
+    found = False
+    new_lines: list[str] = []
+    for line in lines:
+        if re.match(r"^\s*OPENAI_API_KEY\s*=", line):
+            new_lines.append(key_line)
+            found = True
+        else:
+            new_lines.append(line)
+    if not found:
+        if new_lines and new_lines[-1].strip():
+            new_lines.append("")
+        new_lines.append(key_line)
+
+    ENV_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    os.environ["OPENAI_API_KEY"] = api_key
+
+
+def verify_openai_api_key(api_key: str) -> tuple[bool, str]:
+    try:
+        response = requests.get(
+            OPENAI_MODELS_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        return False, str(exc)
+    if response.status_code == 200:
+        return True, "ok"
+    return False, f"HTTP {response.status_code}: {response.text[:200]}"
+
+
+def print_openai_guide(*, existing: str = "") -> None:
+    print()
+    print(t("openai_guide_title"))
+    print(t("openai_guide_body"))
+    if existing:
+        print()
+        print(t("openai_current_overwrite", masked=_mask_key(existing)))
+
+
+def setup_openai_api_key(*, force: bool = False) -> str | None:
+    existing = read_openai_key_from_env()
+    if existing and not force:
+        print(t("openai_exists", masked=_mask_key(existing)))
+        print(t("openai_reconfigure"))
+        return existing
+
+    while True:
+        print_openai_guide(existing=existing if force else "")
+        key = prompt_for_api_key()
+        if not key:
+            print(t("openai_cancelled"))
+            return None
+        print()
+        print(t("openai_verifying"))
+        ok, detail = verify_openai_api_key(key)
+        if ok:
+            write_openai_key(key)
+            print()
+            print(t("openai_ok"))
+            print(t("openai_ok_detail", path=str(ENV_PATH), masked=_mask_key(key)))
+            return key
+        print()
+        print(t("openai_fail"))
+        print(t("openai_fail_detail", reason=detail))
+        if not _ask_yes_no(t("openai_retry"), default_yes=True):
+            print(t("openai_cancelled"))
+            return None
+
+
+def ensure_openai_api_key(*, interactive: bool = True) -> str:
+    """Require OPENAI_API_KEY for modeling mode. Raises LLMError if cancelled."""
+    from harness import LLMError
+
+    _configure_stdio()
+    key = read_openai_key_from_env()
+    if key:
+        return key
+    if not interactive:
+        raise LLMError(t("openai_required"))
+    print(t("openai_missing"))
+    key = setup_openai_api_key(force=True)
+    if not key:
+        raise LLMError(t("openai_required"))
     return key
 
 

@@ -67,3 +67,29 @@ def test_open_in_editor_missing_binary_raises(tmp_path):
 def test_one_line():
     assert one_line("a\n b   c") == "a b c"
     assert one_line("x" * 100, limit=10).endswith("…")
+
+
+def test_agent_look_unique_colors():
+    from console import AGENT_LOOK, agent_look
+
+    colors = [c for _, c in AGENT_LOOK.values()]
+    assert len(colors) == len(set(colors))
+    assert agent_look("site_reader") == ("SR", "cyan")
+    assert agent_look("design_critic")[0] == "DC"
+
+
+def test_paint_respects_no_color(monkeypatch):
+    from console import paint
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
+    assert paint("hi", "cyan", bold=True) == "hi"
+
+
+def test_paint_force_color(monkeypatch):
+    from console import paint
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    out = paint("hi", "cyan")
+    assert out.startswith("\033[") and out.endswith("\033[0m") and "hi" in out

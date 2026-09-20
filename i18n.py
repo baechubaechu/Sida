@@ -37,6 +37,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "lang_saved": "Language saved: English",
         "lang_saved_ko": "언어 저장됨: 한국어 (화면 한국어 / 명령어 영어)",
         "api_missing": "API key is not set yet.",
+        "api_skip_local": "OpenRouter key not required — Conductor/Worker are local (Ollama).",
         "api_title": "OpenRouter API key setup",
         "api_intro": (
             "This program calls LLMs through OpenRouter.\n"
@@ -81,8 +82,12 @@ STRINGS: dict[str, dict[str, str]] = {
             "  n         new project\n"
             "  s         new from sample brief\n"
             "  o         open by name\n"
+            "  l         regulation search (no project)\n"
+            "  m         Rhino modeling (OpenAI GPT-6+ / MCP)\n"
+            "  c         settings (provider / RAG / language)\n"
             "  q         quit"
         ),
+        "hub_runtime": "Runtime: {summary}",
         "hub_prompt": "Choose: ",
         "hub_invalid": "Invalid choice.",
         "hub_open_name": "Project name: ",
@@ -95,6 +100,107 @@ STRINGS: dict[str, dict[str, str]] = {
         "hub_goodbye": "Goodbye.",
         "hub_exists": "Project already exists: {name}. Opening it.",
         "hub_projects_list": "Projects:",
+        # --- hub settings
+        "set_title": "Settings",
+        "set_menu": (
+            "  1) Conductor provider   (ollama / openrouter / mock)\n"
+            "  2) Worker provider\n"
+            "  3) Local GPU profile    (local 8GB / local_plus 12GB+)\n"
+            "  4) RAG on/off\n"
+            "  5) State update mode    (ask / auto / off)\n"
+            "  6) OpenRouter API key\n"
+            "  7) OpenAI API key       (Rhino modeling)\n"
+            "  8) UI language\n"
+            "  0) back"
+        ),
+        "set_prompt": "Settings: ",
+        "set_cancel": "cancel",
+        "set_confirm": "Apply? [Y/n]: ",
+        "set_toggle": "Toggle {cur} → {nxt}",
+        "set_pick_conductor": "Conductor provider:",
+        "set_pick_worker": "Worker provider:",
+        "set_pick_profile": "Local profile (Ollama):",
+        "set_pick_state": "State update mode:",
+        "set_saved": "Saved: {what}",
+        "set_line_conductor": "Conductor:  {provider} / {profile} → {model}",
+        "set_line_worker": "Worker:     {provider} → {model}",
+        "set_line_rag": "RAG:        {enabled} ({provider})",
+        "set_line_state": "State:      mode={mode} via {provider}",
+        "set_line_lang": "Language:   {lang}",
+        "set_line_openrouter": "OpenRouter: {status}",
+        "set_or_needed": "key required for current providers",
+        "set_or_skip": "not required (local/mock)",
+        "busy_role": "Waiting on {role} …",
+        "busy_conductor": "Conductor thinking …",
+        "busy_worker": "Running {name} …",
+        "busy_worker_retry": "Retrying {name} (fix headers) …",
+        "busy_recovery": "Recovering action block …",
+        "busy_state": "Updating project state from {name} …",
+        "busy_rag": "Retrieving regulations (RAG) …",
+        "busy_law": "Looking up regulations …",
+        "law_title": "Regulation search",
+        "law_intro": (
+            "Ask about building / planning codes anytime — no design project needed.\n"
+            "For context control, each question stands alone: prior questions are not "
+            "added to the search/answer context. Restate the statute or article each time."
+        ),
+        "law_rag_off": "Warning: RAG is off in settings. Answers will lack retrieved passages.",
+        "law_hint": "Type a full question. /back (or q) returns to the hub.",
+        "law_prompt": "Law Q: ",
+        "law_label": "Answer: ",
+        "law_sources": "Sources:",
+        "law_no_passages": "(no passages retrieved — answer is agenda-level only)",
+        "law_cleared": "Conversation cleared.",
+        "law_no_session_context": (
+            "No session context is kept — each question is already independent."
+        ),
+        "law_bye": "Back to hub.",
+        "law_failed": "Lookup failed: {reason}",
+        "law_boot_failed": "Could not start regulation search: {reason}",
+        "law_chunk_truncated": (
+            "Note: some passages look truncated (~1k chars). "
+            "Long articles may be incomplete in the index — check the full text on law.go.kr."
+        ),
+        "busy_modeling": "Rhino modeler thinking …",
+        "modeling_title": "Rhino modeling",
+        "modeling_intro": "OpenAI {model} (GPT-6+) + Rhino MCP. Separate from design projects.",
+        "modeling_hint": "Needs OPENAI_API_KEY. Describe geometry. /ctx /clear /back.",
+        "modeling_model_too_old": (
+            "Modeling requires GPT-{min_major}+ (got '{model}'). "
+            "Set modeling.model to something like {example}."
+        ),
+        "modeling_prompt": "Model: ",
+        "modeling_label": "Modeler: ",
+        "modeling_calling": "→ MCP {tool}",
+        "modeling_dry_call": "(dry-run) would call {tool}",
+        "modeling_dry_mode": "MCP offline — planning only (scripts not executed).",
+        "modeling_mcp_ok": "Rhino MCP: {cmd}",
+        "modeling_mcp_fail": "Rhino MCP failed: {reason}",
+        "modeling_slots": "Slots: {detail}",
+        "modeling_slots_fail": "list_slots: {reason}",
+        "modeling_cleared": "Conversation cleared.",
+        "modeling_bye": "Back to hub.",
+        "modeling_failed": "Modeling failed: {reason}",
+        "modeling_boot_failed": "Could not start modeler: {reason}",
+        "modeling_round_limit": "Stopped after max tool rounds.",
+        "openai_guide_title": "OpenAI API key (Rhino modeling)",
+        "openai_guide_body": (
+            "  Create a key at https://platform.openai.com/api-keys\n"
+            "  Saved only in this computer's .env as OPENAI_API_KEY.\n"
+            "  Used only for hub → m modeling (not Conductor/Worker)."
+        ),
+        "openai_current_overwrite": "Current key: {masked} (will overwrite)",
+        "openai_exists": "OpenAI key on file: {masked}",
+        "openai_reconfigure": "Reconfigure anytime: hub → c → 7",
+        "openai_missing": "OpenAI API key required for Rhino modeling.",
+        "openai_required": "OpenAI API key is required for modeling.",
+        "openai_cancelled": "Cancelled — no OpenAI key saved.",
+        "openai_verifying": "Verifying OpenAI key …",
+        "openai_ok": "OpenAI key saved.",
+        "openai_ok_detail": "Wrote {path} ({masked})",
+        "openai_fail": "OpenAI key check failed.",
+        "openai_fail_detail": "{reason}",
+        "openai_retry": "Try again? [Y/n]: ",
         # --- brief
         "brief_title": "Basic project info",
         "brief_intro": "Folder created. Enter basic info for the brief.\n(Press Enter to skip any field — you can fill it later.)",
@@ -253,6 +359,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "lang_saved": "Language saved: English",
         "lang_saved_ko": "언어 저장됨: 한국어 (화면 한국어 / 명령어 영어)",
         "api_missing": "API 키가 아직 설정되지 않았습니다.",
+        "api_skip_local": "OpenRouter 키 불필요 — Conductor/Worker가 로컬(Ollama)입니다.",
         "api_title": "OpenRouter API 키 설정",
         "api_intro": (
             "이 프로그램은 OpenRouter를 통해 LLM을 호출합니다.\n"
@@ -297,8 +404,12 @@ STRINGS: dict[str, dict[str, str]] = {
             "  n         새 프로젝트\n"
             "  s         샘플 브리프로 새 프로젝트\n"
             "  o         이름으로 열기\n"
+            "  l         건축법령 검색 (프로젝트 없이)\n"
+            "  m         라이노 모델링 (OpenAI GPT-6+ / MCP)\n"
+            "  c         설정 (provider / RAG / 언어)\n"
             "  q         종료"
         ),
+        "hub_runtime": "런타임: {summary}",
         "hub_prompt": "선택: ",
         "hub_invalid": "잘못된 선택입니다.",
         "hub_open_name": "프로젝트 이름: ",
@@ -311,6 +422,107 @@ STRINGS: dict[str, dict[str, str]] = {
         "hub_goodbye": "종료합니다.",
         "hub_exists": "이미 있는 프로젝트입니다: {name}. 엽니다.",
         "hub_projects_list": "프로젝트:",
+        # --- hub settings
+        "set_title": "설정",
+        "set_menu": (
+            "  1) Conductor provider   (ollama / openrouter / mock)\n"
+            "  2) Worker provider\n"
+            "  3) 로컬 GPU 프로필       (local 8GB / local_plus 12GB+)\n"
+            "  4) RAG 켜기/끄기\n"
+            "  5) State 갱신 모드       (ask / auto / off)\n"
+            "  6) OpenRouter API 키\n"
+            "  7) OpenAI API 키         (라이노 모델링)\n"
+            "  8) UI 언어\n"
+            "  0) 뒤로"
+        ),
+        "set_prompt": "설정: ",
+        "set_cancel": "취소",
+        "set_confirm": "적용할까요? [Y/n]: ",
+        "set_toggle": "{cur} → {nxt} 로 바꿀까요?",
+        "set_pick_conductor": "Conductor provider:",
+        "set_pick_worker": "Worker provider:",
+        "set_pick_profile": "로컬 프로필 (Ollama):",
+        "set_pick_state": "State 갱신 모드:",
+        "set_saved": "저장됨: {what}",
+        "set_line_conductor": "Conductor:  {provider} / {profile} → {model}",
+        "set_line_worker": "Worker:     {provider} → {model}",
+        "set_line_rag": "RAG:        {enabled} ({provider})",
+        "set_line_state": "State:      mode={mode} / {provider}",
+        "set_line_lang": "언어:       {lang}",
+        "set_line_openrouter": "OpenRouter: {status}",
+        "set_or_needed": "현재 provider에 키 필요",
+        "set_or_skip": "불필요 (로컬/mock)",
+        "busy_role": "{role} 응답 대기 중 …",
+        "busy_conductor": "Conductor 생각 중 …",
+        "busy_worker": "{name} 실행 중 …",
+        "busy_worker_retry": "{name} 재시도 중 (헤더 보정) …",
+        "busy_recovery": "action 블록 복구 중 …",
+        "busy_state": "{name} 결과로 project_state 갱신 중 …",
+        "busy_rag": "법규 RAG 검색 중 …",
+        "busy_law": "법령 검색 중 …",
+        "law_title": "건축법령 검색",
+        "law_intro": (
+            "설계 프로젝트 없이, 건축·도시계획 법령을 아무 때나 물을 수 있습니다.\n"
+            "컨텍스트 관리를 위해 이전 질문은 검색·답변 컨텍스트에 넣지 않습니다. "
+            "법령명·조항을 매 질문마다 다시 적어 주세요."
+        ),
+        "law_rag_off": "경고: 설정에서 RAG가 꺼져 있습니다. 검색 조문 없이 답할 수 있습니다.",
+        "law_hint": "질문을 입력하세요. /back (또는 q) 는 허브로.",
+        "law_prompt": "법령 Q: ",
+        "law_label": "답변: ",
+        "law_sources": "출처:",
+        "law_no_passages": "(검색된 조문 없음 — 아젠다 수준 안내만 가능)",
+        "law_cleared": "대화를 비웠습니다.",
+        "law_no_session_context": (
+            "세션 컨텍스트를 쌓지 않습니다 — 질문마다 이미 독립입니다."
+        ),
+        "law_bye": "허브로 돌아갑니다.",
+        "law_failed": "검색 실패: {reason}",
+        "law_boot_failed": "법령 검색을 시작할 수 없습니다: {reason}",
+        "law_chunk_truncated": (
+            "참고: 일부 조문이 약 1천 자로 잘린 채 옵니다. "
+            "긴 조항은 인덱스에 뒷부분이 없을 수 있으니 law.go.kr 원문을 확인하세요."
+        ),
+        "busy_modeling": "라이노 모델러 생각 중 …",
+        "modeling_title": "라이노 모델링",
+        "modeling_intro": "OpenAI {model} (GPT-6+) + Rhino MCP. 설계 프로젝트와 별도입니다.",
+        "modeling_hint": "OPENAI_API_KEY 필요. 만들 기하를 말하세요. /ctx /clear /back.",
+        "modeling_model_too_old": (
+            "모델링은 GPT-{min_major}+ 만 가능합니다 (현재 '{model}'). "
+            "modeling.model 을 {example} 같이 바꾸세요."
+        ),
+        "modeling_prompt": "모델링: ",
+        "modeling_label": "모델러: ",
+        "modeling_calling": "→ MCP {tool}",
+        "modeling_dry_call": "(dry-run) {tool} 호출 예정",
+        "modeling_dry_mode": "MCP 없음 — 계획만 (스크립트 미실행).",
+        "modeling_mcp_ok": "Rhino MCP: {cmd}",
+        "modeling_mcp_fail": "Rhino MCP 실패: {reason}",
+        "modeling_slots": "슬롯: {detail}",
+        "modeling_slots_fail": "list_slots: {reason}",
+        "modeling_cleared": "대화를 비웠습니다.",
+        "modeling_bye": "허브로 돌아갑니다.",
+        "modeling_failed": "모델링 실패: {reason}",
+        "modeling_boot_failed": "모델러를 시작할 수 없습니다: {reason}",
+        "modeling_round_limit": "도구 라운드 한도에 도달해 멈췄습니다.",
+        "openai_guide_title": "OpenAI API 키 (라이노 모델링)",
+        "openai_guide_body": (
+            "  https://platform.openai.com/api-keys 에서 키를 만드세요.\n"
+            "  이 컴퓨터 .env 의 OPENAI_API_KEY 에만 저장됩니다.\n"
+            "  허브 → m 모델링 전용입니다 (Conductor/Worker와 무관)."
+        ),
+        "openai_current_overwrite": "현재 키: {masked} (덮어씁니다)",
+        "openai_exists": "저장된 OpenAI 키: {masked}",
+        "openai_reconfigure": "다시 설정: 허브 → c → 7",
+        "openai_missing": "라이노 모델링에는 OpenAI API 키가 필요합니다.",
+        "openai_required": "모델링에는 OpenAI API 키가 필요합니다.",
+        "openai_cancelled": "취소됨 — OpenAI 키를 저장하지 않았습니다.",
+        "openai_verifying": "OpenAI 키 확인 중 …",
+        "openai_ok": "OpenAI 키 저장됨.",
+        "openai_ok_detail": "저장: {path} ({masked})",
+        "openai_fail": "OpenAI 키 확인 실패.",
+        "openai_fail_detail": "{reason}",
+        "openai_retry": "다시 시도할까요? [Y/n]: ",
         # --- brief
         "brief_title": "기본 프로젝트 정보",
         "brief_intro": "폴더가 만들어졌습니다. 브리프 기본 정보를 입력하세요.\n(Enter로 건너뛰기 가능 — 나중에 채워도 됩니다)",

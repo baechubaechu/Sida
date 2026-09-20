@@ -29,6 +29,7 @@ Design is not linear. Each expert is an independent lens and can run alone, in a
 
 1. Start from what the designer is actually stuck on, not from the top of a list.
 2. If the brief names a Primary Driver, begin there: site → `site_reader`; idea → `concept_framer`; program → `program_analyst`; regulation → `regulation_checker`; review or competition deadline → `synthesizer` or `presentation_editor`.
+   - `site_reader` = geographic/spatial reading only. Site-related **codes** → `regulation_checker`.
 3. Prefer experts whose inputs are already complete. If an expert would work better after another, say so in one line and let the designer choose.
 4. After three or more experts are complete, or when two outputs disagree, suggest `synthesizer`.
 5. When the brief or the direction changes, name which completed experts are now stale and should be rerun.

@@ -112,7 +112,7 @@ def update_state_after_module(session: Session, agent: dict, *, mode: str | None
     Propose a project_state.md patch from the module output and apply it according to
     state_update.mode (ask | auto | off). Returns True if the file changed.
     """
-    from console import prompt_line
+    from console import agent_look, paint, prompt_line
     from state_updater import (
         LLMError as _LLMError,
     )
@@ -128,7 +128,8 @@ def update_state_after_module(session: Session, agent: dict, *, mode: str | None
     if mode == "off":
         return False
 
-    print(t("state_proposing", agent=agent.get("id")))
+    tag, accent = agent_look(agent.get("id"))
+    print(paint(t("state_proposing", agent=f"[{tag}] {agent.get('id')}"), accent))
     try:
         patch, proposed = propose_state_patch(
             session.config,
@@ -172,9 +173,13 @@ def update_state_after_module(session: Session, agent: dict, *, mode: str | None
 
 def execute_run(session: Session, agent: dict) -> None:
     """Run one module and refresh cached outputs. Raises LLMError on failure."""
+    from console import agent_look, paint
+
     name = agent.get("name", agent.get("id"))
+    tag, accent = agent_look(agent.get("id"))
+    labeled = f"[{tag}] {name}"
     print()
-    print(t("module_running", name=name))
+    print(paint(t("module_running", name=labeled), accent, bold=True))
     result = run_worker_agent(
         session.api_key,
         session.config,
@@ -187,12 +192,14 @@ def execute_run(session: Session, agent: dict) -> None:
     )
     session.refresh_modules()
     out_path = session.output_dir / agent["output"]
-    print(t("module_saved", path=out_path.as_posix()))
+    print(paint(t("module_saved", path=out_path.as_posix()), accent))
     preview = result.strip().splitlines()
     preview_text = "\n".join(preview[:12])
     if len(preview) > 12:
         preview_text += "\n..."
-    print(f"\n{t('module_preview', name=name)}\n{preview_text}\n----------------------\n")
+    header = paint(t("module_preview", name=labeled), accent, bold=True)
+    rule = paint("----------------------", accent)
+    print(f"\n{header}\n{preview_text}\n{rule}\n")
 
 
 def run_module_command(session: Session, agent: dict, user_text: str) -> None:
@@ -285,7 +292,10 @@ def conductor_turn(session: Session, user_text: str | None, *, ephemeral: bool =
             print(t("conductor_not_sent"))
             return "continue"
 
-        print(f"\n{t('conductor_label')}{reply}")
+        from console import ROLE_COLOR, paint
+
+        label = paint(t("conductor_label"), ROLE_COLOR["conductor"], bold=True)
+        print(f"\n{label}{reply}")
         session.project.append_transcript("Conductor", reply)
         session.persist()
         usage_line = format_usage(usage)
@@ -411,8 +421,8 @@ def open_session(
     `created` overrides detection when the caller (hub) just made the folder.
     """
     configure_stdio()
-    api_key = load_env()
     config = load_config()
+    api_key = load_env(config=config)
     agents = get_agents(config)
 
     conductor_cfg = config.get("conductor") or {}

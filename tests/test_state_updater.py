@@ -24,7 +24,7 @@ TEMPLATE = (ROOT / "templates" / "project_state.md").read_text(encoding="utf-8")
 
 def test_settings_defaults_and_validation(mock_config):
     s = state_update_settings(mock_config)
-    assert s["mode"] == "ask" and s["provider"] == "worker"
+    assert s["mode"] == "ask" and s["provider"] == "conductor"
     mock_config["state_update"] = {"mode": "bogus", "provider": "nope"}
     s = state_update_settings(mock_config)
     assert s["mode"] == "ask" and s["provider"] == "worker"

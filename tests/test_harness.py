@@ -82,6 +82,44 @@ def test_ollama_unreachable_is_llmerror():
         p.chat("m", [{"role": "user", "content": "hi"}], 0.1, 5)
 
 
+def test_ollama_sends_think_false_by_default(monkeypatch):
+    captured = {}
+
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"message": {"role": "assistant", "content": "ok"}, "eval_count": 1}
+
+    def fake_post(url, json=None, timeout=None):
+        captured["body"] = json
+        return FakeResp()
+
+    monkeypatch.setattr("harness.requests.post", fake_post)
+    p = make_provider("ollama", base_url="http://127.0.0.1:11434")
+    out, _ = p.chat("qwen3.5:9b", [{"role": "user", "content": "hi"}], 0.2, 100)
+    assert out == "ok"
+    assert captured["body"]["think"] is False
+
+
+def test_ollama_empty_content_with_thinking_is_retryable(monkeypatch):
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {
+                "message": {"role": "assistant", "content": "", "thinking": "…"},
+                "done_reason": "length",
+                "eval_count": 700,
+            }
+
+    monkeypatch.setattr("harness.requests.post", lambda *a, **k: FakeResp())
+    p = make_provider("ollama", base_url="http://h", think=True)
+    with pytest.raises(LLMError) as ei:
+        p.chat("m", [{"role": "user", "content": "hi"}], 0.1, 50)
+    assert "thinking" in str(ei.value).lower()
+
+
 # --- runtime config -------------------------------------------------------
 
 
@@ -94,6 +132,54 @@ def test_local_profiles_overlay(mock_config):
     cfg["conductor"]["local_profile"] = "local_plus"
     rt = resolve_conductor_runtime(cfg)
     assert rt["model"] == "qwen3.5:9b" and rt["num_ctx"] == 16384 and rt["history_window"] == 16
+
+
+def test_worker_ollama_uses_local_profile_model(mock_config):
+    from harness import resolve_worker_runtime
+
+    cfg = mock_config
+    cfg["conductor"]["provider"] = "ollama"
+    cfg["conductor"]["local_profile"] = "local_plus"
+    cfg["worker"]["provider"] = "ollama"
+    cfg["worker"]["model"] = "openai/gpt-4o-mini"  # cloud id must be replaced
+    rt = resolve_worker_runtime(cfg)
+    assert rt["provider"] == "ollama"
+    assert rt["model"] == "qwen3.5:9b"
+    assert rt["num_ctx"] == 16384
+    assert rt["base_url"]
+
+
+def test_needs_openrouter_false_when_fully_local(mock_config):
+    from harness import needs_openrouter
+
+    cfg = mock_config
+    cfg["conductor"]["provider"] = "ollama"
+    cfg["worker"]["provider"] = "ollama"
+    cfg["state_update"] = {"mode": "ask", "provider": "conductor"}
+    assert needs_openrouter(cfg) is False
+    cfg["worker"]["provider"] = "openrouter"
+    assert needs_openrouter(cfg) is True
+    cfg["worker"]["provider"] = "ollama"
+    cfg["state_update"] = {"mode": "ask", "provider": "worker"}
+    # worker is ollama → still local
+    assert needs_openrouter(cfg) is False
+    cfg["conductor"]["provider"] = "openrouter"
+    assert needs_openrouter(cfg) is True
+
+
+def test_load_env_skips_prompt_when_local(mock_config, monkeypatch):
+    from harness import load_env
+
+    cfg = mock_config
+    cfg["conductor"]["provider"] = "ollama"
+    cfg["worker"]["provider"] = "ollama"
+    cfg["state_update"] = {"mode": "off"}
+    monkeypatch.setattr(
+        "setup_env.ensure_api_key",
+        lambda **k: (_ for _ in ()).throw(AssertionError("should not ask for key")),
+    )
+    monkeypatch.setattr("setup_env.read_api_key_from_env", lambda: "")
+    assert load_env(config=cfg) == ""
 
 
 def test_cloud_runtime_untouched(mock_config):

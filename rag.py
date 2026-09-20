@@ -358,7 +358,11 @@ class HttpApiRetriever:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         try:
-            r = self._session.post(self.url, json=body, headers=headers, timeout=self.timeout)
+            from console import ROLE_COLOR, busy_line
+            from i18n import t
+
+            with busy_line(t("busy_rag"), color=ROLE_COLOR["rag"]):
+                r = self._session.post(self.url, json=body, headers=headers, timeout=self.timeout)
         except requests.RequestException:
             self.last_status = None
             return []
@@ -451,7 +455,44 @@ def retrieve_for_agent(
     collection = collection_for_agent(settings, agent)
     if not collection or not settings["enabled"]:
         return ""
-    top_k, max_chars, folder = collection_opts(settings, collection)
+    passages = retrieve_passages(
+        config,
+        collection,
+        query,
+        retriever=retriever,
+        agent_id=str(agent.get("id") or ""),
+        project_brief=project_brief,
+        project_state=project_state,
+        expert_outputs=expert_outputs,
+        lang=lang,
+    )
+    return format_passages(passages, collection=collection)
+
+
+def retrieve_passages(
+    config: dict,
+    collection: str,
+    query: str,
+    *,
+    retriever: Retriever | None = None,
+    agent_id: str = "law_search",
+    project_brief: str | None = None,
+    project_state: str | None = None,
+    expert_outputs: str | None = None,
+    lang: str | None = None,
+    top_k: int | None = None,
+    max_chars: int | None = None,
+) -> list[Passage]:
+    """
+    Retrieve raw passages for any collection (hub law search or workers).
+    Returns [] when RAG is off / provider unavailable / nothing matched.
+    """
+    settings = rag_settings(config)
+    if not settings["enabled"] or not collection:
+        return []
+    default_k, default_chars, folder = collection_opts(settings, collection)
+    use_k = int(top_k) if top_k is not None else default_k
+    use_chars = int(max_chars) if max_chars is not None else default_chars
     if lang is None:
         try:
             from i18n import get_language
@@ -464,7 +505,7 @@ def retrieve_for_agent(
         if retriever is not None
         else make_retriever(
             settings,
-            agent_id=str(agent.get("id") or ""),
+            agent_id=agent_id,
             project_brief=project_brief,
             project_state=project_state,
             expert_outputs=expert_outputs,
@@ -472,9 +513,7 @@ def retrieve_for_agent(
         )
     )
     if isinstance(engine, LocalFileRetriever):
-        passages = engine.retrieve(
-            collection, query, top_k=top_k, max_chars=max_chars, folder=folder
+        return engine.retrieve(
+            collection, query, top_k=use_k, max_chars=use_chars, folder=folder
         )
-    else:
-        passages = engine.retrieve(collection, query, top_k=top_k, max_chars=max_chars)
-    return format_passages(passages, collection=collection)
+    return engine.retrieve(collection, query, top_k=use_k, max_chars=use_chars)

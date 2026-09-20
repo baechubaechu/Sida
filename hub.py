@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Project hub: pick, create, or open a project. No model calls."""
+"""Project hub: pick, create, or open a project; regulation search without a project."""
 
 from __future__ import annotations
 
@@ -8,7 +8,9 @@ from pathlib import Path
 from briefs import collect_basic_brief
 from console import prompt_line
 from harness import ROOT, load_config
+from hub_settings import hub_settings_menu, settings_one_liner
 from i18n import t
+from law_search import run_law_search
 from project import (
     create_blank_project,
     create_project_from_brief,
@@ -19,6 +21,7 @@ from project import (
     projects_dir,
     slugify,
 )
+from rhino_modeler import run_rhino_modeler
 
 HubChoice = tuple[Path, bool]  # (project path, created just now)
 
@@ -88,6 +91,7 @@ def project_hub() -> HubChoice | None:
         print(f"  {t('hub_title')}")
         print("=" * 40)
         print(t("hub_root", path=str(projects_dir())))
+        print(t("hub_runtime", summary=settings_one_liner(config)))
         print()
         if projects:
             print(t("existing_projects"))
@@ -106,6 +110,20 @@ def project_hub() -> HubChoice | None:
 
         if not choice or choice in {"q", "quit", "exit"}:
             return None
+
+        if choice in {"c", "config", "settings", "set"}:
+            config = hub_settings_menu()
+            continue
+
+        if choice in {"l", "law", "법령", "regs", "regulation"}:
+            run_law_search(config)
+            config = load_config()
+            continue
+
+        if choice in {"m", "model", "rhino", "모델링"}:
+            run_rhino_modeler(config)
+            config = load_config()
+            continue
 
         if choice in {"n", "new"}:
             result = hub_create_new(config)

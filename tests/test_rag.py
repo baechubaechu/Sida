@@ -10,7 +10,7 @@ from tests.conftest import ROOT
 
 def test_rag_settings_defaults(mock_config):
     s = rag.rag_settings(mock_config)
-    assert s["enabled"] is False
+    assert s["enabled"] is True
     assert s["provider"] == "http"
     assert s["path"] == "/v1/retrieve"
     assert s["agents"]["regulation_checker"] == "regulation"

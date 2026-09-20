@@ -39,6 +39,11 @@ py-modules = [
   "ollama_boot",
   "migrate",
   "rag",
+  "hub_settings",
+  "law_search",
+  "mcp_stdio",
+  "rhino_mcp",
+  "rhino_modeler",
 ]
 
 [tool.pytest.ini_options]

@@ -61,8 +61,8 @@ def _select_agents(config: dict, path_name: str | None) -> list[dict]:
 
 def run(target: Path, project_name: str | None = None, *, path_name: str | None = None) -> None:
     configure_stdio()
-    api_key = load_env()
     config = load_config()
+    api_key = load_env(config=config)
     agents = _select_agents(config, path_name)
 
     project, created = open_or_create(target, name=project_name, config=config)

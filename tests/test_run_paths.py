@@ -25,7 +25,7 @@ def test_select_agents_unknown_path_fails(mock_config):
 
 def test_run_path_writes_only_path_outputs(mock_config, monkeypatch):
     mock_config["state_update"] = {"mode": "off"}
-    monkeypatch.setattr(run_mod, "load_env", lambda: "")
+    monkeypatch.setattr(run_mod, "load_env", lambda *a, **k: "")
     monkeypatch.setattr(run_mod, "load_config", lambda *a, **k: mock_config)
     run_mod.run(ROOT / "input" / "geumjeong_station_brief.md", path_name="review_prep")
     import project as prj

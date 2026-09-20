@@ -287,8 +287,22 @@ def propose_state_patch(
     messages = build_state_update_messages(
         state_text, str(agent["id"]), str(agent.get("name", agent["id"])), module_output, lang=lang
     )
-    raw, _ = provider.chat(
-        model, messages, settings["temperature"], settings["max_tokens"], role="state_update", json_mode=True
+    from console import agent_look
+    from harness import provider_chat
+    from i18n import t
+
+    tag, accent = agent_look(agent.get("id"))
+    labeled = f"[{tag}] {agent.get('name', agent['id'])}"
+    raw, _ = provider_chat(
+        provider,
+        model,
+        messages,
+        settings["temperature"],
+        settings["max_tokens"],
+        role="state_update",
+        json_mode=True,
+        status=t("busy_state", name=labeled),
+        color=accent,
     )
     patch = parse_state_patch(raw, str(agent["id"]))
     return patch, apply_patch(state_text, patch)

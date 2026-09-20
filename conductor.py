@@ -112,8 +112,18 @@ def recover_action(provider, model: str, reply: str, agents: list[dict]) -> dict
     if not reply.strip():
         return {"type": "none"}
     try:
-        raw, _ = provider.chat(
-            model, _recovery_messages(reply, agents), 0.0, 120, role="action_recovery", json_mode=True
+        from harness import provider_chat
+        from i18n import t
+
+        raw, _ = provider_chat(
+            provider,
+            model,
+            _recovery_messages(reply, agents),
+            0.0,
+            120,
+            role="action_recovery",
+            json_mode=True,
+            status=t("busy_recovery"),
         )
     except Exception:
         return {"type": "none"}
@@ -283,7 +293,18 @@ def ask_conductor(
         history_truncated=truncated,
     )
 
-    raw, usage = provider.chat(model, messages, temperature, max_tokens, role="conductor")
+    from harness import provider_chat
+    from i18n import t
+
+    raw, usage = provider_chat(
+        provider,
+        model,
+        messages,
+        temperature,
+        max_tokens,
+        role="conductor",
+        status=t("busy_conductor"),
+    )
     reply, action = parse_action(raw)
 
     if (

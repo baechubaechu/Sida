@@ -16,21 +16,21 @@ local_profiles:
     model: qwen2.5:7b
     num_ctx: 8192
     temperature: 0.4
-    max_tokens: 700
+    max_tokens: 1400
     history_window: 12
   # ~12GB+ VRAM (3060 12G / 4070) — recommended Conductor tier
   local_plus:
-    model: qwen3.5:9b         # ~6.6GB Q4; alts: gemma3:12b, qwen2.5:14b
+    model: qwen3.5:9b         # ~6.6GB Q4; alts: gemma3:12b, gemma4-uncen:e4b
     num_ctx: 16384
     temperature: 0.4
-    max_tokens: 700
+    max_tokens: 2500
     history_window: 16
 
 # Cheap always-on conversational model
 conductor:
   # openrouter (default) | ollama | mock — ollama uses local_profiles[local_profile]
-  provider: openrouter
-  local_profile: local          # local (8GB) | local_plus (12GB+)
+  provider: ollama
+  local_profile: local_plus # local (8GB, 7B) | local_plus (12GB+, qwen3.5:9b)
   base_url: http://127.0.0.1:11434   # Ollama server (native /api/chat)
   # When provider=ollama: start server, optionally pull missing model, warm VRAM
   ollama_autostart: true
@@ -38,9 +38,11 @@ conductor:
   ollama_warmup: true
   ollama_keep_alive: 30m            # keep model in VRAM between turns
   ollama_wait_seconds: 45
+  # Qwen3+ chain-of-thought: leave false or answers may be Empty LLM response
+  ollama_think: false
   model: anthropic/claude-haiku-4.5
   temperature: 0.4
-  max_tokens: 700
+  max_tokens: 2000
   prompt: agents/00_conductor.md
   cache_ttl: 1h
   # When a reply has no ```action``` block, ask the model once more (JSON-only)
@@ -59,15 +61,15 @@ conductor:
 #   provider: worker (cloud, reliable JSON) | conductor (fully local when provider=ollama)
 state_update:
   mode: ask
-  provider: worker
-  max_tokens: 900
+  provider: conductor           # local when conductor.provider=ollama
+  max_tokens: 1400
   temperature: 0.2
 
 worker:
-  provider: openrouter          # openrouter | ollama | mock
-  model: openai/gpt-4o-mini
+  provider: ollama              # openrouter | ollama | mock
+  # model / num_ctx come from local_profiles[conductor.local_profile] when provider=ollama
   temperature: 0.3
-  max_tokens: 2000
+  max_tokens: 2500
 
 # Legacy sequential pipeline (run.py) uses worker settings via fallback
 model: openai/gpt-4o-mini
@@ -78,22 +80,42 @@ max_tokens: 2000
 # RAG — local_files (dev) or http (VPS API). See docs/rag.md + docs/rag_api.md.
 # ---------------------------------------------------------------------------
 rag:
-  enabled: false
+  enabled: true
   provider: http                 # http (VPS) | local_files (offline corpus)
-  # base_url: https://rag.example.com   # or set SIDA_RAG_URL
-  # api_key_env: SIDA_RAG_API_KEY       # Bearer token from env
+  # base_url from SIDA_RAG_URL; Bearer from SIDA_RAG_API_KEY
   path: /v1/retrieve
   timeout: 30
   knowledge_dir: knowledge       # used only when provider=local_files
-  top_k: 6
-  max_chars: 6000
+  top_k: 12
+  max_chars: 14000
   agents:
     regulation_checker: regulation
   collections:
     regulation:
       path: regulations          # local_files → knowledge/regulations/
-      top_k: 6
-      max_chars: 6000
+      top_k: 12
+      max_chars: 14000
+  # Hub → l (법령 검색): follow-up query expansion + higher recall
+  law_search:
+    top_k: 12
+    max_chars: 14000
+    multi_query: true
+
+# ---------------------------------------------------------------------------
+# Rhino modeling (hub → m). Separate from design projects / Conductor experts.
+# OpenAI API only. Model must be GPT-6 or newer (default: gpt-6-astra).
+# ---------------------------------------------------------------------------
+modeling:
+  provider: openai
+  model: gpt-6-astra
+  min_major: 6
+  temperature: 0.2          # ignored for GPT-6+ (API rejects custom temperature)
+  max_tokens: 2500
+  max_rounds: 8
+  auto_execute: true
+  prompt: agents/71_rhino_modeler.md
+  # mcp_command: null   # or full path to rhino-mcp-router.exe / env SIDA_RHINO_MCP
+  mcp_timeout: 90
 
 # ---------------------------------------------------------------------------
 # Experts. Design is not linear: any expert can run alone, in any order.
@@ -111,7 +133,7 @@ agents:
     name: Site Reader
     output: 11_site_reader.md
     phase: analysis
-    desc: site systems, conflicts, opportunities, missing site info
+    desc: geographic/spatial site reading — systems, conflicts, opportunities (not codes)
     inputs: [program_analyst, concept_framer]
 
   - id: program_analyst
@@ -127,7 +149,7 @@ agents:
     name: Regulation Checker
     output: 13_regulation_checker.md
     phase: analysis
-    desc: governing codes, what to verify, likely binding constraints, incentives (KR default)
+    desc: site- and program-triggered codes, verify list, binding limits, incentives (KR default)
     inputs: [site_reader, program_analyst]
 
   - id: precedent_scout

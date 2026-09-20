@@ -16,6 +16,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = ROOT / "config.yaml"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 MODULE_HISTORY_DIRNAME = "_history"
 WORKER_SYSTEM = (
@@ -35,11 +36,27 @@ def fail(message: str, code: int = 1) -> None:
     sys.exit(code)
 
 
-def load_env(*, interactive: bool = True) -> str:
-    """Load API key; if missing, guide the user through setup."""
-    from setup_env import ensure_api_key
+def load_env(*, interactive: bool = True, config: dict | None = None) -> str:
+    """Load OpenRouter API key when any role uses openrouter; else return empty."""
+    from setup_env import ensure_api_key, read_api_key_from_env
 
+    cfg = config if config is not None else load_config()
+    if not needs_openrouter(cfg):
+        return read_api_key_from_env()
     return ensure_api_key(interactive=interactive)
+
+
+def needs_openrouter(config: dict) -> bool:
+    """True if Conductor, Worker, or state_update will call OpenRouter."""
+    top = str(config.get("provider") or "openrouter").lower()
+    conductor = str((config.get("conductor") or {}).get("provider") or top).lower()
+    worker = str((config.get("worker") or {}).get("provider") or top).lower()
+    providers = {conductor, worker}
+    su = config.get("state_update") or {}
+    if str(su.get("mode", "ask")).lower() != "off":
+        which = str(su.get("provider", "worker")).lower()
+        providers.add(conductor if which == "conductor" else worker)
+    return any(p in {"openrouter", "cloud"} for p in providers)
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict:
@@ -250,6 +267,79 @@ class OpenRouterProvider:
         return _with_retries(send)
 
 
+def gpt_major_version(model: str) -> int | None:
+    """Return GPT major version from a model id (gpt-6-astra → 6), else None."""
+    m = re.search(r"(?:^|/)gpt-(\d+)\b", str(model or "").lower())
+    return int(m.group(1)) if m else None
+
+
+class OpenAIProvider:
+    """Official OpenAI Chat Completions API (used by Rhino modeling mode)."""
+
+    name = "openai"
+
+    def __init__(self, api_key: str, *, base_url: str | None = None):
+        if not api_key:
+            raise LLMError("OpenAI API key is missing. Set OPENAI_API_KEY or enter it in the hub.")
+        self.api_key = api_key
+        self.base_url = (base_url or OPENAI_URL).rstrip("/")
+        if self.base_url.endswith("/chat/completions"):
+            pass
+        elif self.base_url.endswith("/v1"):
+            self.base_url = self.base_url + "/chat/completions"
+        else:
+            self.base_url = self.base_url.rstrip("/") + "/chat/completions"
+
+    def chat(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        **_: Any,
+    ) -> tuple[str, dict]:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        body: dict[str, Any] = {
+            "model": model,
+            "messages": _plain_messages(messages),
+            "max_completion_tokens": int(max_tokens),
+        }
+        # GPT-6+ rejects custom temperature / top_p.
+        major = gpt_major_version(model)
+        if major is not None and major < 6:
+            body["temperature"] = float(temperature)
+
+        def send():
+            try:
+                response = requests.post(self.base_url, headers=headers, json=body, timeout=180)
+            except requests.Timeout as exc:
+                raise _retryable(f"OpenAI timeout: {exc}") from exc
+            except requests.RequestException as exc:
+                raise _retryable(f"OpenAI request failed: {exc}") from exc
+
+            if response.status_code in RETRY_STATUS:
+                raise _retryable(
+                    f"OpenAI error ({response.status_code}): {response.text[:300]}"
+                )
+            if response.status_code != 200:
+                raise LLMError(
+                    f"OpenAI error ({response.status_code}): {response.text[:300]}"
+                )
+            try:
+                data = response.json()
+                content = data["choices"][0]["message"]["content"]
+            except (ValueError, KeyError, IndexError, TypeError) as exc:
+                raise LLMError(f"Unexpected OpenAI response: {exc}") from exc
+            if content is None or not str(content).strip():
+                raise _retryable("Empty LLM response")
+            return str(content).strip(), data.get("usage") or {}
+
+        return _with_retries(send)
+
+
 class OllamaProvider:
     """Local Ollama via native /api/chat (supports num_ctx)."""
 
@@ -260,6 +350,8 @@ class OllamaProvider:
         base_url: str | None = None,
         num_ctx: int | None = None,
         keep_alive: str | None = "30m",
+        *,
+        think: bool | None = False,
     ):
         url = (base_url or DEFAULT_OLLAMA_URL).rstrip("/")
         if url.endswith("/v1"):
@@ -267,6 +359,9 @@ class OllamaProvider:
         self.base_url = url
         self.num_ctx = num_ctx
         self.keep_alive = keep_alive
+        # Qwen3+ etc. may fill num_predict with chain-of-thought and leave content empty.
+        # Default False so visible answers fit in the token budget.
+        self.think = think
 
     def chat(
         self,
@@ -276,6 +371,7 @@ class OllamaProvider:
         max_tokens: int,
         *,
         json_mode: bool = False,
+        think: bool | None = None,
         **_: Any,
     ) -> tuple[str, dict]:
         options: dict[str, Any] = {
@@ -294,6 +390,9 @@ class OllamaProvider:
             body["keep_alive"] = self.keep_alive
         if json_mode:
             body["format"] = "json"
+        use_think = self.think if think is None else think
+        if use_think is not None:
+            body["think"] = bool(use_think)
 
         def send():
             try:
@@ -324,10 +423,19 @@ class OllamaProvider:
                 )
             try:
                 data = response.json()
-                content = data["message"]["content"]
+                msg = data.get("message") or {}
+                content = msg.get("content")
             except (ValueError, KeyError, TypeError) as exc:
                 raise LLMError(f"Unexpected Ollama response: {exc}") from exc
             if not content or not str(content).strip():
+                thinking = str(msg.get("thinking") or msg.get("reasoning") or "")
+                reason = data.get("done_reason") or ""
+                if thinking.strip():
+                    raise _retryable(
+                        "Empty LLM response (model spent the token budget on thinking; "
+                        f"done_reason={reason or 'unknown'}). "
+                        "Sida disables think by default — retry, or raise max_tokens."
+                    )
                 raise _retryable("Empty LLM response")
             usage = {
                 "prompt_tokens": data.get("prompt_eval_count"),
@@ -335,7 +443,14 @@ class OllamaProvider:
             }
             return str(content).strip(), usage
 
-        return _with_retries(send)
+        # If think was on and we still get an empty answer, one silent retry with think off.
+        try:
+            return _with_retries(send)
+        except LLMError as exc:
+            if use_think is True and "thinking" in str(exc).lower():
+                body["think"] = False
+                return _with_retries(send)
+            raise
 
 
 class MockProvider:
@@ -385,15 +500,36 @@ def make_provider(
     base_url: str | None = None,
     num_ctx: int | None = None,
     keep_alive: str | None = "30m",
+    think: bool | None = False,
 ):
     kind = (kind or "openrouter").lower()
     if kind == "openrouter":
         return OpenRouterProvider(api_key)
+    if kind in {"openai", "openai_api"}:
+        return OpenAIProvider(api_key, base_url=base_url)
     if kind in {"ollama", "local"}:
-        return OllamaProvider(base_url=base_url, num_ctx=num_ctx, keep_alive=keep_alive)
+        return OllamaProvider(
+            base_url=base_url, num_ctx=num_ctx, keep_alive=keep_alive, think=think
+        )
     if kind == "mock":
         return MockProvider()
-    raise LLMError(f"Unknown provider '{kind}'. Use openrouter | ollama | mock.")
+    raise LLMError(f"Unknown provider '{kind}'. Use openrouter | openai | ollama | mock.")
+
+
+def provider_chat(provider, model, messages, temperature, max_tokens, **kw):
+    """Call provider.chat with a busy spinner (TTY only)."""
+    from console import ROLE_COLOR, busy_line
+    from i18n import t
+
+    role = str(kw.get("role") or "model")
+    status = kw.pop("status", None)
+    color = kw.pop("color", None)
+    if status is None:
+        status = t("busy_role", role=role)
+    if color is None:
+        color = ROLE_COLOR.get(role)
+    with busy_line(status, color=color):
+        return provider.chat(model, messages, temperature, max_tokens, **kw)
 
 
 def call_openrouter(
@@ -413,18 +549,23 @@ def call_openrouter(
 # ---------------------------------------------------------------------------
 
 
-def resolve_local_profile(config: dict) -> dict | None:
-    """Return the active local_profiles entry when Conductor uses ollama."""
+def resolve_local_profile(config: dict, *, for_worker: bool = False) -> dict | None:
+    """Return local_profiles entry when Conductor (or Worker) provider is ollama."""
     conductor = config.get("conductor") or {}
-    provider = str(conductor.get("provider") or config.get("provider") or "openrouter")
+    worker = config.get("worker") or {}
+    if for_worker:
+        provider = str(worker.get("provider") or config.get("provider") or "openrouter")
+        name = str(worker.get("local_profile") or conductor.get("local_profile") or "local")
+    else:
+        provider = str(conductor.get("provider") or config.get("provider") or "openrouter")
+        name = str(conductor.get("local_profile") or "local")
     if provider.lower() not in {"ollama", "local"}:
         return None
     profiles = config.get("local_profiles") or {}
-    name = str(conductor.get("local_profile") or "local")
     profile = profiles.get(name)
     if not isinstance(profile, dict):
         fail(
-            f"Unknown conductor.local_profile '{name}'. "
+            f"Unknown local_profile '{name}'. "
             f"Define it under local_profiles in config.yaml "
             f"(available: {', '.join(profiles) or 'none'})."
         )
@@ -448,6 +589,8 @@ def resolve_conductor_runtime(config: dict) -> dict:
         "history_window": int((conductor.get("context") or {}).get("history_window", 12)),
         "action_recovery": str(conductor.get("action_recovery", "auto")).lower(),
         "keep_alive": str(conductor.get("ollama_keep_alive", "30m")),
+        # Default false: thinking models (qwen3.5) otherwise burn num_predict on CoT.
+        "think": bool(conductor.get("ollama_think", False)),
     }
 
     profile = resolve_local_profile(config)
@@ -471,15 +614,39 @@ def resolve_conductor_runtime(config: dict) -> dict:
 
 
 def resolve_worker_runtime(config: dict) -> dict:
-    worker = config.get("worker") or {}
-    return {
+    """Effective worker settings. ollama → local_profile model / num_ctx / base_url."""
+    worker = dict(config.get("worker") or {})
+    conductor = config.get("conductor") or {}
+    runtime = {
         "provider": str(worker.get("provider") or config.get("provider") or "openrouter").lower(),
         "model": worker.get("model") or config.get("model", "openai/gpt-4o-mini"),
         "temperature": float(worker.get("temperature", config.get("temperature", 0.3))),
         "max_tokens": int(worker.get("max_tokens", config.get("max_tokens", 2000))),
-        "base_url": worker.get("base_url"),
+        "base_url": worker.get("base_url") or conductor.get("base_url"),
         "num_ctx": worker.get("num_ctx"),
+        "keep_alive": str(
+            worker.get("keep_alive") or conductor.get("ollama_keep_alive") or "30m"
+        ),
+        "local_profile": worker.get("local_profile") or conductor.get("local_profile"),
+        "think": bool(
+            worker["think"]
+            if "think" in worker
+            else conductor.get("ollama_think", False)
+        ),
     }
+    profile = resolve_local_profile(config, for_worker=True)
+    if profile and runtime["provider"] in {"ollama", "local"}:
+        # Cloud-style ids (openai/...) are not valid Ollama tags — replace from profile.
+        model = str(runtime["model"] or "")
+        if profile.get("model") and ("/" in model or not model):
+            runtime["model"] = profile["model"]
+        if runtime["num_ctx"] is None and profile.get("num_ctx"):
+            runtime["num_ctx"] = int(profile["num_ctx"])
+        if not runtime["base_url"]:
+            runtime["base_url"] = profile.get("base_url") or DEFAULT_OLLAMA_URL
+    if runtime["provider"] in {"ollama", "local"} and not runtime["base_url"]:
+        runtime["base_url"] = DEFAULT_OLLAMA_URL
+    return runtime
 
 
 def conductor_provider(config: dict, api_key: str):
@@ -490,13 +657,19 @@ def conductor_provider(config: dict, api_key: str):
         base_url=rt.get("base_url"),
         num_ctx=rt.get("num_ctx"),
         keep_alive=rt.get("keep_alive"),
+        think=rt.get("think", False),
     )
 
 
 def worker_provider(config: dict, api_key: str):
     rt = resolve_worker_runtime(config)
     return make_provider(
-        rt["provider"], api_key=api_key, base_url=rt.get("base_url"), num_ctx=rt.get("num_ctx")
+        rt["provider"],
+        api_key=api_key,
+        base_url=rt.get("base_url"),
+        num_ctx=rt.get("num_ctx"),
+        keep_alive=rt.get("keep_alive"),
+        think=rt.get("think", False),
     )
 
 
@@ -690,8 +863,20 @@ def run_worker_agent(
         {"role": "system", "content": WORKER_SYSTEM},
         {"role": "user", "content": full_prompt},
     ]
-    result, _usage = provider.chat(
-        rt["model"], messages, rt["temperature"], rt["max_tokens"], role="worker"
+    from console import agent_look
+    from i18n import t
+
+    tag, accent = agent_look(agent.get("id"))
+    labeled = f"[{tag}] {name}"
+    result, _usage = provider_chat(
+        provider,
+        rt["model"],
+        messages,
+        rt["temperature"],
+        rt["max_tokens"],
+        role="worker",
+        status=t("busy_worker", name=labeled),
+        color=accent,
     )
 
     headers = expected_headers(agent_prompt)
@@ -706,8 +891,15 @@ def run_worker_agent(
             {"role": "assistant", "content": result},
             {"role": "user", "content": fix},
         ]
-        retried, _ = provider.chat(
-            rt["model"], retry_messages, rt["temperature"], rt["max_tokens"], role="worker"
+        retried, _ = provider_chat(
+            provider,
+            rt["model"],
+            retry_messages,
+            rt["temperature"],
+            rt["max_tokens"],
+            role="worker",
+            status=t("busy_worker_retry", name=labeled),
+            color=accent,
         )
         if len(missing_headers(retried, headers)) < len(missing):
             result = retried

@@ -12,6 +12,7 @@ output/*
 !output/.gitkeep
 projects/*
 !projects/.gitkeep
+_rag_experiment_projects/
 .vscode/
 knowledge/**/_.index/
 knowledge/**/*.chroma/
