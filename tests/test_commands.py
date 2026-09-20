@@ -56,7 +56,7 @@ def test_run_command_with_mock(make_session, capsys):
     s = make_session()
     s.config["state_update"] = {"mode": "off"}
     assert dispatch(s, "/run site_reader") == "continue"
-    assert (s.output_dir / "01_site_reader.md").exists()
+    assert (s.output_dir / "11_site_reader.md").exists()
     assert s.history[-1]["content"].startswith("[module completed]")
     assert dispatch(s, "/run") == "continue"
     assert dispatch(s, "/run nope") == "continue"
@@ -89,12 +89,13 @@ def test_state_edit_with_editor(make_session, monkeypatch):
 
 def test_brief_fields_keeps_other_sections(make_session, monkeypatch):
     s = make_session()
-    answers = iter(["", "", "new core problem", "a, b", "", ""])
+    answers = iter(["", "", "new core problem", "a, b", "", "", "법규"])
     monkeypatch.setattr("builtins.input", lambda *_: next(answers))
     assert dispatch(s, "/brief fields") == "continue"
     brief = s.project.read_brief()
     assert section_body(brief, "Core Problem") == "new core problem"
     assert section_body(brief, "Site Issues") == "- a\n- b"
+    assert section_body(brief, "Primary Driver") == "regulation"
     assert "## Main Layers" in brief
     assert s.project_brief == brief
 

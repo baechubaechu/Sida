@@ -22,10 +22,24 @@ def test_replace_section_appends_when_missing():
     assert section_body(new, "Brand New") == "hello"
 
 
-def test_create_project_initialises_state(project):
+def test_create_project_initialises_state(project, agents):
     assert project.state_path.exists()
-    assert "geumjeong_station_brief" in project.read_state()
+    state = project.read_state()
+    assert "geumjeong_station_brief" in state
     assert project.modules_dir.is_dir()
+    # Module Status rows come from config, one per expert, no placeholder left
+    assert "{{MODULE_ROWS}}" not in state
+    for a in agents:
+        assert f"| {a['id']} | pending | |" in state
+    assert "**Primary driver**" in state
+
+
+def test_module_status_rows_explicit_and_fallback(agents):
+    rows = prj.module_status_rows([{"id": "a"}, {"id": "b"}, {"name": "no id"}])
+    assert rows == "| a | pending | |\n| b | pending | |"
+    assert prj.module_status_rows([]) == "| (no experts configured) | | |"
+    # None → load from (mocked) config
+    assert prj.module_status_rows(None).count("| pending |") == len(agents)
 
 
 def test_update_brief_sections_backs_up_and_patches(project):
@@ -63,9 +77,9 @@ def test_rename_moves_folder(mock_config, project):
 
 
 def test_read_module_none_when_missing(project):
-    assert project.read_module("01_site_reader.md") is None
-    (project.modules_dir / "01_site_reader.md").write_text("x", encoding="utf-8")
-    assert project.read_module("01_site_reader.md") == "x"
+    assert project.read_module("11_site_reader.md") is None
+    (project.modules_dir / "11_site_reader.md").write_text("x", encoding="utf-8")
+    assert project.read_module("11_site_reader.md") == "x"
 
 
 def test_init_state_does_not_overwrite(project):

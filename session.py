@@ -19,6 +19,7 @@ from harness import (
     get_agents,
     load_config,
     load_env,
+    render_conductor_prompt,
     resolve_agent,
     resolve_conductor_runtime,
     run_worker_agent,
@@ -182,6 +183,7 @@ def execute_run(session: Session, agent: dict) -> None:
         session.previous_blocks,
         session.output_dir,
         provider=session.w_provider,
+        project_state=session.project.read_state(),
     )
     session.refresh_modules()
     out_path = session.output_dir / agent["output"]
@@ -418,7 +420,9 @@ def open_session(
     prompt_path = ROOT / prompt_rel
     if not prompt_path.exists():
         fail(f"Missing conductor prompt: {prompt_path}")
-    conductor_prompt = prompt_path.read_text(encoding="utf-8")
+    conductor_prompt = render_conductor_prompt(
+        prompt_path.read_text(encoding="utf-8"), config
+    )
 
     project, detected = open_or_create(target, name=project_name, config=config)
     if created is None:

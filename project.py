@@ -39,6 +39,19 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def module_status_rows(agents: list[dict] | None = None) -> str:
+    """`| id | pending | |` rows for every expert in config, grouped as configured."""
+    if agents is None:
+        try:
+            from harness import get_agents
+
+            agents = get_agents(load_config())
+        except SystemExit:
+            agents = []
+    rows = [f"| {a.get('id')} | pending | |" for a in (agents or []) if a.get("id")]
+    return "\n".join(rows) if rows else "| (no experts configured) | | |"
+
+
 def _replace_section(text: str, heading: str, body: str) -> str:
     """
     Replace the body under `## {heading}` (up to the next `## ` or `# ` line).
@@ -164,15 +177,24 @@ class Project:
                 pass
         return ""
 
-    def init_state(self, *, force: bool = False) -> None:
-        """Create project_state.md from template if missing."""
+    def init_state(self, *, force: bool = False, agents: list[dict] | None = None) -> None:
+        """Create project_state.md from template if missing.
+
+        The Module Status table is generated from config agents so new experts
+        appear automatically.
+        """
         if self.state_path.exists() and not force:
             return
         if STATE_TEMPLATE_PATH.exists():
             template = STATE_TEMPLATE_PATH.read_text(encoding="utf-8")
         else:
-            template = "# Project State\n\n## Meta\n\n- **Project**: {name}\n"
+            template = (
+                "# Project State\n\n## Meta\n\n- **Project**:\n\n"
+                "## Module Status\n\n| Module | Status | Key takeaway |\n"
+                "|--------|--------|--------------|\n{{MODULE_ROWS}}\n"
+            )
         content = template.replace("- **Project**:", f"- **Project**: {self.name}", 1)
+        content = content.replace("{{MODULE_ROWS}}", module_status_rows(agents))
         self.state_path.write_text(content, encoding="utf-8")
 
     def load_history(self) -> list[dict]:
@@ -295,8 +317,33 @@ def load_project(path: Path) -> Project:
             f"# Transcript — {project.name}\n\n", encoding="utf-8"
         )
     project.init_state()
+    _run_migrations(project)
     project.save_session(resumed_at=_utc_now())
     return project
+
+
+def _run_migrations(project: Project) -> None:
+    """Rename legacy module files and sync Module Status rows. Prints notes once."""
+    from migrate import migrate_project
+
+    try:
+        from harness import get_agents
+
+        agents = get_agents(load_config())
+    except SystemExit:
+        agents = []
+    notes = migrate_project(project, agents)
+    if not notes:
+        return
+    try:
+        from i18n import t
+
+        print(t("migrate_applied", n=len(notes)))
+        for note in notes:
+            print(f"  · {note}")
+    except Exception:
+        for note in notes:
+            print(f"[migrate] {note}")
 
 
 def create_project_from_brief(

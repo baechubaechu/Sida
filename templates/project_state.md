@@ -23,7 +23,8 @@
 ## Meta
 
 - **Project**:
-- **Phase**: site_reading | concept | schematic | development | representation | presentation | review
+- **Phase**: analysis | concept | schematic | development | representation | presentation | review
+- **Primary driver**: site | idea | program | regulation | competition  <!-- what is leading this project right now -->
 - **Studio week**:
 - **Last updated**: YYYY-MM-DD
 - **Active focus**: <!-- one line — what matters this week -->
@@ -62,13 +63,11 @@
 
 | Module | Status | Key takeaway |
 |--------|--------|--------------|
-| site_reader | pending | |
-| constraint_mapper | pending | |
-| design_critic | pending | |
-| representation_planner | pending | |
-| presentation_editor | pending |
+{{MODULE_ROWS}}
 
-<!-- Status: pending | in_progress | done | stale (brief/direction changed — rerun?) -->
+<!-- Status: pending | in_progress | done | stale (brief/direction changed — rerun?)
+     Rows are generated from config.yaml agents. Key takeaway: one line, include the
+     expert's Handoff hint if useful (e.g. "→ regulation_checker: rail setback"). -->
 
 ## Missing Information
 

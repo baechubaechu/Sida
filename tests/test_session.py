@@ -19,14 +19,14 @@ def test_handle_action_exit_and_unknowns(make_session, capsys):
 def test_handle_action_read_routes_by_alias(make_session):
     s = make_session()
     assert handle_action(s, {"type": "read", "module": "site reader"}) == "read:site_reader"
-    assert handle_action(s, {"type": "read", "agent": "01_site_reader"}) == "read:site_reader"
+    assert handle_action(s, {"type": "read", "agent": "11_site_reader"}) == "read:site_reader"
 
 
 def test_handle_action_run_success_records_note(make_session):
     s = make_session()
     s.config["state_update"] = {"mode": "off"}
     assert handle_action(s, {"type": "run", "agent": "site_reader"}) == "continue"
-    assert (s.output_dir / "01_site_reader.md").exists()
+    assert (s.output_dir / "11_site_reader.md").exists()
     assert s.history[-1]["content"].startswith("[module completed] site_reader")
     assert len(s.previous_blocks) == 1
 
@@ -40,7 +40,7 @@ def test_handle_action_run_failure_is_not_fatal(make_session, capsys):
 
     s = make_session(w_provider=Boom())
     assert handle_action(s, {"type": "run", "agent": "constraint_mapper"}) == "continue"
-    assert not (s.output_dir / "02_constraint_mapper.md").exists()
+    assert not (s.output_dir / "31_constraint_mapper.md").exists()
     assert s.history == []
     assert "down" in capsys.readouterr().out
 
@@ -60,7 +60,7 @@ def test_conductor_turn_provider_error_keeps_history(make_session, capsys):
 
 def test_conductor_turn_read_flow_injects_file_once(make_session, scripted):
     s = make_session()
-    (s.output_dir / "01_site_reader.md").write_text("# Site Reader\n\n## Missing Information\n- survey", encoding="utf-8")
+    (s.output_dir / "11_site_reader.md").write_text("# Site Reader\n\n## Missing Information\n- survey", encoding="utf-8")
     s.refresh_modules()
     provider = scripted(
         [
@@ -72,7 +72,7 @@ def test_conductor_turn_read_flow_injects_file_once(make_session, scripted):
     assert conductor_turn(s, "what was missing?") == "continue"
     assert len(provider.calls) == 2
     injected = provider.calls[1]["messages"][-1]["content"]
-    assert "MODULE FILE modules/01_site_reader.md" in injected and "survey" in injected
+    assert "MODULE FILE modules/11_site_reader.md" in injected and "survey" in injected
     roles = [m["role"] for m in s.history]
     # user question, assistant(read), [read] marker, assistant(answer)
     assert roles == ["user", "assistant", "user", "assistant"]
@@ -81,7 +81,7 @@ def test_conductor_turn_read_flow_injects_file_once(make_session, scripted):
 
 def test_conductor_turn_read_limit(make_session, scripted):
     s = make_session()
-    (s.output_dir / "01_site_reader.md").write_text("x", encoding="utf-8")
+    (s.output_dir / "11_site_reader.md").write_text("x", encoding="utf-8")
     read = 'again\n```action\n{"type":"read","module":"site_reader"}\n```'
     provider = scripted([read, read, read, NONE])
     s.c_provider = provider

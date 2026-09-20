@@ -1,0 +1,17 @@
+{
+  "api_version": "sida.rag.v1",
+  "passages": [
+    {
+      "source": "kr_railway_adjacent.md#확인-의제",
+      "title": "철도·도시철도 인접 건축",
+      "text": "대지가 철도·도시철도 시설에 접할 때 철도보호지구·이격 거리, 역사 구조물과의 방화 이격을 확인한다. 구체 수치는 노선 관리기관 기준으로 verify.",
+      "score": 0.91
+    },
+    {
+      "source": "kr_stream_adjacent.md#확인-의제",
+      "title": "하천 인접·수변 건축",
+      "text": "하천구역·홍수관리구역 지정 여부와 건축·공작물 설치 허가/금지 구간을 확인한다.",
+      "score": 0.74
+    }
+  ]
+}

@@ -39,7 +39,7 @@ def test_run_command_auto_mode(make_session, monkeypatch):
 def test_off_mode_never_calls_model(make_session, scripted):
     s = make_session()
     s.config["state_update"] = {"mode": "off"}
-    s.w_provider = scripted(["# Mock\n\n## Site Conditions\n- a\n\n## Spatial Conflicts\n- b\n\n## Opportunities\n- c\n\n## Missing Information\n- d\n\n## Design Implications\n- e"])
+    s.w_provider = scripted(["# Mock\n\n## Site Conditions\n- a\n\n## Spatial Conflicts\n- b\n\n## Opportunities\n- c\n\n## Missing Information\n- d\n\n## Design Implications\n- e\n\n## Handoff\n- f"])
     handle_action(s, {"type": "run", "agent": "site_reader"})
     assert len(s.w_provider.calls) == 1  # worker only, no state call
     assert "| site_reader | pending |" in s.project.read_state()
@@ -49,10 +49,10 @@ def test_propose_failure_is_reported_not_fatal(make_session, scripted, capsys):
     from harness import LLMError
 
     s = make_session()
-    good = "# Mock\n\n## Site Conditions\n- a\n\n## Spatial Conflicts\n- b\n\n## Opportunities\n- c\n\n## Missing Information\n- d\n\n## Design Implications\n- e"
+    good = "# Mock\n\n## Site Conditions\n- a\n\n## Spatial Conflicts\n- b\n\n## Opportunities\n- c\n\n## Missing Information\n- d\n\n## Design Implications\n- e\n\n## Handoff\n- f"
     s.w_provider = scripted([good, LLMError("state model down")])
     assert handle_action(s, {"type": "run", "agent": "site_reader"}) == "continue"
-    assert (s.output_dir / "01_site_reader.md").exists()
+    assert (s.output_dir / "11_site_reader.md").exists()
     assert "state model down" in capsys.readouterr().out
 
 
@@ -78,7 +78,7 @@ def test_state_update_command_without_modules(make_session, capsys):
 
 def test_no_change_path(make_session, scripted, capsys):
     s = make_session()
-    (s.output_dir / "01_site_reader.md").write_text("x", encoding="utf-8")
+    (s.output_dir / "11_site_reader.md").write_text("x", encoding="utf-8")
     # A patch that produces an identical file: status pending, no takeaway, today's date already set
     from datetime import date
 

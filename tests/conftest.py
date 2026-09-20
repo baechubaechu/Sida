@@ -50,8 +50,9 @@ def project(mock_config):
 
 
 @pytest.fixture
-def conductor_prompt():
-    return (ROOT / "agents" / "00_conductor.md").read_text(encoding="utf-8")
+def conductor_prompt(mock_config):
+    template = (ROOT / "agents" / "00_conductor.md").read_text(encoding="utf-8")
+    return harness.render_conductor_prompt(template, mock_config)
 
 
 class ScriptedProvider:

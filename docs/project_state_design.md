@@ -53,7 +53,7 @@ Who updates:
 | Current Direction | Evolving stance without re-reading full brief |
 | Confirmed Decisions | Don't re-debate settled items |
 | Open Questions | Drive `none` vs `run module` choices |
-| Tensions | Match constraint_mapper / design_critic framing |
+| Tensions | Match constraint_mapper / synthesizer / design_critic framing |
 | Module Status | Know what's done/stale without loading full `.md` |
 | Missing Information | Trigger site_reader rerun or user homework |
 | Recent Notes | Replace old history turns after sliding window |

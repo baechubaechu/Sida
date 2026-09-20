@@ -131,9 +131,12 @@ def test_slice_history_noop_when_small():
 
 
 def test_expected_and_missing_headers():
-    prompt = (ROOT / "agents" / "01_site_reader.md").read_text(encoding="utf-8")
+    prompt = (ROOT / "agents" / "11_site_reader.md").read_text(encoding="utf-8")
     hs = expected_headers(prompt)
-    assert hs == ["Site Conditions", "Spatial Conflicts", "Opportunities", "Missing Information", "Design Implications"]
+    assert hs == [
+        "Site Conditions", "Spatial Conflicts", "Opportunities",
+        "Missing Information", "Design Implications", "Handoff",
+    ]
     assert missing_headers("# X\n\n## Site Conditions\n- a", hs) == hs[1:]
     assert missing_headers("\n".join(f"## {h}\n-" for h in hs), hs) == []
 
@@ -145,19 +148,19 @@ def test_worker_archives_previous_output(mock_config, agents, project):
     provider = MockProvider()
     out_dir = project.modules_dir
     run_worker_agent("", mock_config, agents[0], project.read_brief(), [], out_dir, provider=provider)
-    first = out_dir / "01_site_reader.md"
+    first = out_dir / "11_site_reader.md"
     assert first.exists()
     # Force a distinct mtime stamp, then rerun.
     import os
 
     os.utime(first, (first.stat().st_atime - 5, first.stat().st_mtime - 5))
     run_worker_agent("", mock_config, agents[0], project.read_brief(), [], out_dir, provider=provider)
-    archived = list((out_dir / "_history").glob("01_site_reader.*.md"))
+    archived = list((out_dir / "_history").glob("11_site_reader.*.md"))
     assert len(archived) == 1
 
 
 def test_worker_retries_missing_headers(mock_config, agents, project, scripted, capsys):
-    prompt = (ROOT / "agents" / "01_site_reader.md").read_text(encoding="utf-8")
+    prompt = (ROOT / "agents" / "11_site_reader.md").read_text(encoding="utf-8")
     hs = expected_headers(prompt)
     bad = "# Site Reader\n\n## Site Conditions\n- only one"
     good = "\n\n".join(f"## {h}\n- x" for h in hs)
@@ -188,7 +191,7 @@ def test_fresh_modules_included_until_state_updated(mock_config, agents, project
 
     provider = MockProvider()
     run_worker_agent("", mock_config, agents[0], project.read_brief(), [], project.modules_dir, provider=provider)
-    mod = project.modules_dir / "01_site_reader.md"
+    mod = project.modules_dir / "11_site_reader.md"
     # module newer than state
     os.utime(project.state_path, (1, 1))
     fresh = modules_newer_than_state(agents, project.modules_dir, project.state_path)
@@ -216,7 +219,129 @@ def test_prepare_context_falls_back_without_state(mock_config, agents, project):
 
 
 def test_mock_worker_matches_output_format():
-    prompt = (ROOT / "agents" / "02_constraint_mapper.md").read_text(encoding="utf-8")
+    prompt = (ROOT / "agents" / "31_constraint_mapper.md").read_text(encoding="utf-8")
     full = harness.build_worker_prompt(prompt, "## Site\nbrief has headers too", "(none yet)")
     out, _ = MockProvider().chat("m", [{"role": "user", "content": full}], 0, 10, role="worker")
     assert missing_headers(out, expected_headers(prompt)) == []
+
+
+@pytest.mark.parametrize("agent_file", sorted(p.name for p in (ROOT / "agents").glob("[1-6]*_*.md")))
+def test_every_expert_prompt_has_handoff_and_inputs(agent_file):
+    prompt = (ROOT / "agents" / agent_file).read_text(encoding="utf-8")
+    hs = expected_headers(prompt)
+    assert hs, agent_file
+    assert hs[-1] == "Handoff", agent_file
+    assert "## Inputs" in prompt, agent_file
+    assert "## Role" in prompt and "## Output Format" in prompt
+
+
+# --- experts: config registry, routing prompt, input selection ------------
+
+
+def test_config_agents_cover_all_prompt_files(mock_config):
+    agents = harness.get_agents(mock_config)
+    files = {a["file"].split("/")[-1] for a in agents}
+    on_disk = {p.name for p in (ROOT / "agents").glob("[1-6]*_*.md")}
+    assert files == on_disk
+    ids = [a["id"] for a in agents]
+    assert len(ids) == len(set(ids))
+    for a in agents:
+        assert a.get("phase") and a.get("desc"), a["id"]
+        assert a["output"] == a["file"].split("/")[-1]
+
+
+def test_paths_reference_known_experts(mock_config):
+    ids = {a["id"] for a in harness.get_agents(mock_config)}
+    paths = harness.get_paths(mock_config)
+    assert {"site_driven", "idea_driven", "program_driven", "regulation_driven", "review_prep"} <= set(paths)
+    for name, seq in paths.items():
+        assert set(seq) <= ids, name
+    # entry expert reflects the driver
+    assert paths["site_driven"][0] == "site_reader"
+    assert paths["idea_driven"][0] == "concept_framer"
+    assert paths["program_driven"][0] == "program_analyst"
+    assert paths["regulation_driven"][0] == "regulation_checker"
+    assert paths["review_prep"][0] == "synthesizer"
+
+
+def test_inputs_reference_known_experts(mock_config):
+    agents = harness.get_agents(mock_config)
+    ids = {a["id"] for a in agents}
+    for a in agents:
+        inputs = harness.agent_inputs(a)
+        assert inputs != "legacy", a["id"]
+        if isinstance(inputs, list):
+            assert set(inputs) <= ids and a["id"] not in inputs, a["id"]
+    assert harness.agent_inputs(harness.agent_by_id(agents, "synthesizer")) == "all"
+    assert harness.agent_inputs({"id": "x"}) == "legacy"
+
+
+def test_render_conductor_prompt_lists_every_expert_and_path(mock_config):
+    template = (ROOT / "agents" / "00_conductor.md").read_text(encoding="utf-8")
+    assert "{{MODULES}}" in template and "{{PATHS}}" in template
+    rendered = harness.render_conductor_prompt(template, mock_config)
+    assert "{{" not in rendered
+    for a in harness.get_agents(mock_config):
+        assert f"`{a['id']}`" in rendered
+        assert a["desc"] in rendered
+    assert "site_driven: site_reader → program_analyst" in rendered
+    assert "reads all completed outputs" in rendered
+    assert "**analysis**" in rendered and "**communication**" in rendered
+
+
+def test_select_input_blocks_filters_by_declaration(mock_config, agents, project):
+    out = project.modules_dir
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "11_site_reader.md").write_text("SITE TEXT", encoding="utf-8")
+    (out / "12_program_analyst.md").write_text("PROGRAM TEXT", encoding="utf-8")
+    (out / "61_representation_planner.md").write_text("REPR TEXT", encoding="utf-8")
+
+    reg = harness.agent_by_id(agents, "regulation_checker")  # inputs: site_reader, program_analyst
+    blocks, others = harness.select_input_blocks(agents, reg, out)
+    joined = "\n".join(blocks)
+    assert "SITE TEXT" in joined and "PROGRAM TEXT" in joined
+    assert "REPR TEXT" not in joined
+    assert others == ["representation_planner"]
+    assert blocks[0].startswith("### Site Reader (site_reader)")
+
+    synth = harness.agent_by_id(agents, "synthesizer")  # all
+    blocks, others = harness.select_input_blocks(agents, synth, out)
+    assert len(blocks) == 3 and others == []
+
+    # own output is never fed back
+    (out / "13_regulation_checker.md").write_text("REG TEXT", encoding="utf-8")
+    blocks, _ = harness.select_input_blocks(agents, reg, out)
+    assert "REG TEXT" not in "\n".join(blocks)
+
+    assert harness.select_input_blocks(agents, {"id": "legacy", "output": "x.md"}, out) is None
+
+
+def test_worker_prompt_includes_state_and_other_completed():
+    full = harness.build_worker_prompt(
+        "AGENT", "BRIEF", "(none yet)",
+        project_state="## Meta\n- **Phase**: concept",
+        other_completed=["design_critic", "synthesizer"],
+    )
+    assert "PROJECT STATE" in full and "**Phase**: concept" in full
+    assert "OTHER COMPLETED EXPERTS" in full and "design_critic, synthesizer" in full
+    assert "Handoff" in full
+    bare = harness.build_worker_prompt("AGENT", "BRIEF", "(none yet)")
+    assert "PROJECT STATE" not in bare and "OTHER COMPLETED" not in bare
+
+
+def test_run_worker_uses_declared_inputs_only(mock_config, agents, project, scripted):
+    out = project.modules_dir
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "11_site_reader.md").write_text("SITE TEXT", encoding="utf-8")
+    (out / "51_design_critic.md").write_text("CRITIC TEXT", encoding="utf-8")
+    reg = harness.agent_by_id(agents, "regulation_checker")
+    hs = expected_headers((ROOT / reg["file"]).read_text(encoding="utf-8"))
+    provider = scripted(["\n\n".join(f"## {h}\n- x" for h in hs)])
+    run_worker_agent(
+        "", mock_config, reg, project.read_brief(), ["### stale legacy block"], out,
+        provider=provider, project_state="STATE TEXT",
+    )
+    sent = provider.calls[0]["messages"][-1]["content"]
+    assert "SITE TEXT" in sent and "STATE TEXT" in sent
+    assert "CRITIC TEXT" not in sent and "design_critic" in sent
+    assert "stale legacy block" not in sent

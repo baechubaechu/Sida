@@ -62,6 +62,62 @@ def get_agents(config: dict) -> list[dict]:
     return agents
 
 
+def get_paths(config: dict) -> dict[str, list[str]]:
+    """Named suggested expert sequences (hints for the Conductor / run.py --path)."""
+    raw = config.get("paths") or {}
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, list[str]] = {}
+    for name, ids in raw.items():
+        if isinstance(ids, list) and ids:
+            out[str(name)] = [str(i) for i in ids]
+    return out
+
+
+def agent_inputs(agent: dict) -> list[str] | str:
+    """
+    Which prior outputs this expert reads: a list of ids, "all", or "legacy"
+    (key absent → caller passes every prior block, as before).
+    """
+    raw = agent.get("inputs")
+    if raw is None:
+        return "legacy"
+    if isinstance(raw, str):
+        return "all" if raw.strip().lower() == "all" else [raw]
+    if isinstance(raw, list):
+        return [str(i) for i in raw]
+    return "legacy"
+
+
+def render_conductor_prompt(template: str, config: dict) -> str:
+    """Fill {{MODULES}} and {{PATHS}} from config so the expert list lives in one place."""
+    agents = get_agents(config)
+    by_phase: dict[str, list[dict]] = {}
+    for a in agents:
+        by_phase.setdefault(str(a.get("phase") or "other"), []).append(a)
+    lines: list[str] = []
+    for phase, items in by_phase.items():
+        lines.append(f"**{phase}**")
+        for a in items:
+            desc = str(a.get("desc") or a.get("name") or "").strip()
+            inputs = agent_inputs(a)
+            if inputs == "all":
+                dep = "reads all completed outputs"
+            elif isinstance(inputs, list) and inputs:
+                dep = "reads: " + ", ".join(inputs)
+            else:
+                dep = "standalone"
+            lines.append(f"- `{a.get('id')}` — {desc}  ({dep})")
+        lines.append("")
+    modules = "\n".join(lines).rstrip()
+
+    paths = get_paths(config)
+    path_lines = [f"- {name}: " + " → ".join(ids) for name, ids in paths.items()]
+    paths_text = "\n".join(path_lines) if path_lines else "- (none defined)"
+
+    return template.replace("{{MODULES}}", modules).replace("{{PATHS}}", paths_text)
+
+
 def agent_by_id(agents: list[dict], agent_id: str) -> dict | None:
     for agent in agents:
         if agent.get("id") == agent_id:
@@ -449,33 +505,90 @@ def worker_provider(config: dict, api_key: str):
 # ---------------------------------------------------------------------------
 
 
-def build_worker_prompt(agent_prompt: str, project_brief: str, previous_outputs: str) -> str:
+def build_worker_prompt(
+    agent_prompt: str,
+    project_brief: str,
+    previous_outputs: str,
+    *,
+    project_state: str | None = None,
+    other_completed: list[str] | None = None,
+    knowledge_block: str | None = None,
+) -> str:
     from i18n import get_language
 
     lang = get_language()
     language_rule = (
-        "Write the entire Markdown output in Korean. Keep section headings exactly as specified in the agent output format."
+        "Write the entire Markdown output in Korean. Keep section headings exactly as specified in the agent output format. In the Handoff section, keep expert ids in English (e.g. → regulation_checker)."
         if lang == "ko"
         else "Write the entire Markdown output in English. Keep section headings exactly as specified in the agent output format."
     )
+    state_block = ""
+    if project_state and project_state.strip():
+        state_block = f"""
+PROJECT STATE (designer-curated memory — decisions, open questions, expert status):
+{project_state.strip()}
+"""
+    others_block = ""
+    if other_completed:
+        others_block = (
+            "\nOTHER COMPLETED EXPERTS (not included above; ask via Handoff if needed): "
+            + ", ".join(other_completed)
+            + "\n"
+        )
+    knowledge = ""
+    if knowledge_block and knowledge_block.strip():
+        knowledge = f"""
+{knowledge_block.strip()}
+"""
     return f"""AGENT PROMPT:
 {agent_prompt}
 
 ORIGINAL PROJECT BRIEF:
 {project_brief}
-
-PREVIOUS AGENT OUTPUTS:
+{state_block}
+RELEVANT EXPERT OUTPUTS:
 {previous_outputs}
-
+{others_block}{knowledge}
 LANGUAGE:
 {language_rule}
 
 TASK:
-Produce the output for this agent in Markdown.
-Follow the output format defined in the agent prompt.
-Do not invent project facts not included in the brief or previous outputs.
+Produce the output for this expert in Markdown.
+Follow the output format defined in the agent prompt, every header, in order.
+Do not invent project facts not included in the brief, project state, expert outputs, or retrieved knowledge.
+When RETRIEVED KNOWLEDGE is present, prefer it for numeric limits and cite `source:` paths; still mark uncertain items as verify.
 If information is missing, mark it as missing information.
+End with the Handoff section: name which experts should look next and what they should check.
 """
+
+
+def select_input_blocks(
+    agents: list[dict], agent: dict, output_dir: Path
+) -> tuple[list[str], list[str]] | None:
+    """
+    Pick which completed outputs this expert receives, per its `inputs` declaration.
+    Returns (blocks, other_completed_names) or None for legacy agents (no `inputs` key).
+    """
+    wanted = agent_inputs(agent)
+    if wanted == "legacy":
+        return None
+    blocks: list[str] = []
+    others: list[str] = []
+    for other in agents:
+        if other.get("id") == agent.get("id"):
+            continue
+        path = output_dir / str(other.get("output", ""))
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8").strip()
+        if not text:
+            continue
+        label = str(other.get("name", other.get("id")))
+        if wanted == "all" or other.get("id") in wanted:
+            blocks.append(f"### {label} ({other.get('id')})\n\n{text}")
+        else:
+            others.append(str(other.get("id")))
+    return blocks, others
 
 
 def expected_headers(agent_prompt: str) -> list[str]:
@@ -517,8 +630,14 @@ def run_worker_agent(
     output_dir: Path,
     *,
     provider=None,
+    project_state: str | None = None,
 ) -> str:
-    """Run one specialist module. Raises LLMError on provider failure."""
+    """Run one expert. Raises LLMError on provider failure.
+
+    Experts with an `inputs` declaration receive only the listed completed outputs
+    (read from output_dir); other completed experts are named but not included.
+    Legacy agents (no `inputs`) receive `previous_blocks` unchanged.
+    """
     rt = resolve_worker_runtime(config)
     provider = provider or worker_provider(config, api_key)
 
@@ -533,8 +652,39 @@ def run_worker_agent(
         fail(f"Missing agent prompt file: {prompt_path}")
 
     agent_prompt = prompt_path.read_text(encoding="utf-8")
-    previous_outputs = "\n\n".join(previous_blocks) if previous_blocks else "(none yet)"
-    full_prompt = build_worker_prompt(agent_prompt, project_brief, previous_outputs)
+
+    selected = select_input_blocks(get_agents(config), agent, output_dir)
+    other_completed: list[str] | None = None
+    if selected is None:
+        blocks = previous_blocks
+    else:
+        blocks, other_completed = selected
+    previous_outputs = "\n\n".join(blocks) if blocks else "(none yet)"
+    knowledge_block = ""
+    try:
+        from rag import build_retrieval_query, retrieve_for_agent
+
+        query = build_retrieval_query(
+            project_brief, project_state=project_state, expert_outputs=previous_outputs
+        )
+        knowledge_block = retrieve_for_agent(
+            config,
+            agent,
+            query,
+            project_brief=project_brief,
+            project_state=project_state,
+            expert_outputs=previous_outputs,
+        )
+    except Exception:
+        knowledge_block = ""
+    full_prompt = build_worker_prompt(
+        agent_prompt,
+        project_brief,
+        previous_outputs,
+        project_state=project_state,
+        other_completed=other_completed,
+        knowledge_block=knowledge_block or None,
+    )
 
     messages = [
         {"role": "system", "content": WORKER_SYSTEM},

@@ -1,0 +1,14 @@
+{
+  "api_version": "sida.rag.v1",
+  "collection": "regulation",
+  "agent_id": "regulation_checker",
+  "query": "Geumjeong Station Gunpo transit architecture\nCore Problem: station connects movement but reinforces disconnection.\nSite Issues: railway divides urban fabric; stream hidden; fragmented pedestrian movement.\n철도 인접 이격 하천구역 환승 피난 공개공지",
+  "top_k": 6,
+  "max_chars": 6000,
+  "lang": "ko",
+  "context": {
+    "brief": "# Geumjeong Station Project Brief\n\n## Project Type\nTransit architecture / graduation studio\n\n## Site\nGeumjeong Station, Gunpo, South Korea\n\n## Core Problem\nThe station connects movement but also reinforces disconnection.\n\n## Primary Driver\nsite",
+    "project_state": "## Meta\n- **Phase**: analysis\n- **Primary driver**: site\n- **Active focus**: 철도·하천 단절면과 환승 동선\n\n## Open Questions\n- 철도 인접 이격·하천구역 적용 여부",
+    "expert_outputs": "### Site Reader (site_reader)\n\n## Site Conditions\n- 철도 인프라가 남북 도시조직을 절단\n- 하천 수계가 시각·동선에서 단절\n\n## Spatial Conflicts\n- 환승 고속 동선 vs 보행 연속성\n\n### Program Analyst (program_analyst)\n\n## Users and Rhythms\n- 환승객 — 피크 짧고 빠름\n- 체류·주민 — 느린 머무름"
+  }
+}

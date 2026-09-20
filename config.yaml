@@ -74,28 +74,144 @@ model: openai/gpt-4o-mini
 temperature: 0.3
 max_tokens: 2000
 
+# ---------------------------------------------------------------------------
+# RAG — local_files (dev) or http (VPS API). See docs/rag.md + docs/rag_api.md.
+# ---------------------------------------------------------------------------
+rag:
+  enabled: false
+  provider: http                 # http (VPS) | local_files (offline corpus)
+  # base_url: https://rag.example.com   # or set SIDA_RAG_URL
+  # api_key_env: SIDA_RAG_API_KEY       # Bearer token from env
+  path: /v1/retrieve
+  timeout: 30
+  knowledge_dir: knowledge       # used only when provider=local_files
+  top_k: 6
+  max_chars: 6000
+  agents:
+    regulation_checker: regulation
+  collections:
+    regulation:
+      path: regulations          # local_files → knowledge/regulations/
+      top_k: 6
+      max_chars: 6000
+
+# ---------------------------------------------------------------------------
+# Experts. Design is not linear: any expert can run alone, in any order.
+#   phase   — lens group (analysis | concept | synthesis | development | critique | communication)
+#   desc    — one line the Conductor shows / uses for routing
+#   inputs  — prior outputs this expert reads when present ("all" = every completed output).
+#             Other completed outputs are listed by name only, to save context.
+# File/output numbering is grouped by phase (1x analysis, 2x concept, 3x synthesis,
+# 4x development, 5x critique, 6x communication) — it is not an execution order.
+# ---------------------------------------------------------------------------
 agents:
+  # --- analysis: what is given
   - id: site_reader
-    file: agents/01_site_reader.md
+    file: agents/11_site_reader.md
     name: Site Reader
-    output: 01_site_reader.md
+    output: 11_site_reader.md
+    phase: analysis
+    desc: site systems, conflicts, opportunities, missing site info
+    inputs: [program_analyst, concept_framer]
 
+  - id: program_analyst
+    file: agents/12_program_analyst.md
+    name: Program Analyst
+    output: 12_program_analyst.md
+    phase: analysis
+    desc: users and rhythms, program components, adjacency, public-private gradient
+    inputs: [site_reader, concept_framer]
+
+  - id: regulation_checker
+    file: agents/13_regulation_checker.md
+    name: Regulation Checker
+    output: 13_regulation_checker.md
+    phase: analysis
+    desc: governing codes, what to verify, likely binding constraints, incentives (KR default)
+    inputs: [site_reader, program_analyst]
+
+  - id: precedent_scout
+    file: agents/14_precedent_scout.md
+    name: Precedent Scout
+    output: 14_precedent_scout.md
+    phase: analysis
+    desc: precedents and typologies matched to the problem, lessons and cautions
+    inputs: [concept_framer, site_reader]
+
+  # --- concept: what the designer claims
+  - id: concept_framer
+    file: agents/21_concept_framer.md
+    name: Concept Framer
+    output: 21_concept_framer.md
+    phase: concept
+    desc: sharpen the designer's idea into a testable concept and operative strategy
+    inputs: [site_reader, program_analyst, precedent_scout]
+
+  # --- synthesis: put lenses together
   - id: constraint_mapper
-    file: agents/02_constraint_mapper.md
+    file: agents/31_constraint_mapper.md
     name: Constraint Mapper
-    output: 02_constraint_mapper.md
+    output: 31_constraint_mapper.md
+    phase: synthesis
+    desc: hard/soft constraints, priorities, tensions — integrates site + program + regulation
+    inputs: [site_reader, program_analyst, regulation_checker]
 
+  - id: synthesizer
+    file: agents/32_synthesizer.md
+    name: Synthesizer
+    output: 32_synthesizer.md
+    phase: synthesis
+    desc: reconcile all expert outputs — convergences, conflicts, decisions required now
+    inputs: all
+
+  # --- development: does the scheme work
+  - id: spatial_reviewer
+    file: agents/41_spatial_reviewer.md
+    name: Spatial Reviewer
+    output: 41_spatial_reviewer.md
+    phase: development
+    desc: test the described organization — circulation, section, thresholds, program fit
+    inputs: [concept_framer, constraint_mapper, site_reader, program_analyst]
+
+  - id: systems_advisor
+    file: agents/42_systems_advisor.md
+    name: Systems Advisor
+    output: 42_systems_advisor.md
+    phase: development
+    desc: structure, envelope, services, egress questions and trade-offs (no sizing)
+    inputs: [spatial_reviewer, constraint_mapper, regulation_checker, site_reader]
+
+  # --- critique
   - id: design_critic
-    file: agents/03_design_critic.md
+    file: agents/51_design_critic.md
     name: Design Critic
-    output: 03_design_critic.md
+    output: 51_design_critic.md
+    phase: critique
+    desc: jury-style critique of the direction against the core problem
+    inputs: all
 
+  # --- communication
   - id: representation_planner
-    file: agents/04_representation_planner.md
+    file: agents/61_representation_planner.md
     name: Representation Planner
-    output: 04_representation_planner.md
+    output: 61_representation_planner.md
+    phase: communication
+    desc: which diagrams, drawings, models prove the concept and test weak points
+    inputs: [concept_framer, spatial_reviewer, design_critic, site_reader]
 
   - id: presentation_editor
-    file: agents/05_presentation_editor.md
+    file: agents/62_presentation_editor.md
     name: Presentation Editor
-    output: 05_presentation_editor.md
+    output: 62_presentation_editor.md
+    phase: communication
+    desc: review / portfolio story, structure, anticipated questions
+    inputs: [concept_framer, synthesizer, design_critic, representation_planner]
+
+# Suggested entry paths by what drives the project. The Conductor treats these as
+# hints, not sequences. `python run.py --path <name> brief.md` runs one in order.
+paths:
+  site_driven: [site_reader, program_analyst, regulation_checker, constraint_mapper, concept_framer, design_critic]
+  idea_driven: [concept_framer, precedent_scout, site_reader, program_analyst, spatial_reviewer, design_critic]
+  program_driven: [program_analyst, site_reader, regulation_checker, constraint_mapper, concept_framer, spatial_reviewer]
+  regulation_driven: [regulation_checker, program_analyst, site_reader, constraint_mapper, spatial_reviewer, systems_advisor]
+  review_prep: [synthesizer, design_critic, representation_planner, presentation_editor]

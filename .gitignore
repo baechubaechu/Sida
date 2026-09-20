@@ -13,3 +13,6 @@ output/*
 projects/*
 !projects/.gitkeep
 .vscode/
+knowledge/**/_.index/
+knowledge/**/*.chroma/
+*.sqlite-vec

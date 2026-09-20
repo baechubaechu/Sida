@@ -104,6 +104,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "brief_issues": "Site issues (comma-separated): ",
         "brief_intention": "Design intention: ",
         "brief_direction": "Current design direction: ",
+        "brief_driver": "Primary driver (site / idea / program / regulation / competition): ",
+        "run_path": "Path: {name} → {experts}",
         "brief_saved": "Brief saved: {path}",
         "brief_backup": "Backup: {path}",
         "brief_no_changes": "(no changes)",
@@ -173,6 +175,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "module_running": "[module] Running {name}...",
         "module_saved": "[module] Saved {path}",
         "module_archived": "[module] Previous version archived: {path}",
+        "migrate_applied": "[migrate] Updated this project ({n} change(s)):",
         "module_failed": "[module] Failed: {reason}",
         "module_nothing_saved": "[module] Nothing was saved. Try again with /run {agent}.",
         "module_preview": "--- {name} preview ---",
@@ -228,6 +231,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "run_failed": "{name} failed: {reason}\nCompleted modules are saved; rerun to continue.",
         "run_usage_cli": (
             "Usage: python run.py input/project_brief.md\n"
+            "       python run.py --path site_driven input/project_brief.md\n"
             "       python run.py projects/project_name\n"
             "       python chat.py input/project_brief.md   # conversational"
         ),
@@ -316,6 +320,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "brief_issues": "사이트 이슈 (쉼표로 구분): ",
         "brief_intention": "설계 의도: ",
         "brief_direction": "현재 설계 방향: ",
+        "brief_driver": "설계 출발점 (site 사이트 / idea 아이디어 / program 프로그램 / regulation 법규 / competition 공모): ",
+        "run_path": "경로: {name} → {experts}",
         "brief_saved": "브리프 저장됨: {path}",
         "brief_backup": "백업: {path}",
         "brief_no_changes": "(변경 없음)",
@@ -385,6 +391,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "module_running": "[module] {name} 실행 중...",
         "module_saved": "[module] 저장됨 {path}",
         "module_archived": "[module] 이전 버전 보관: {path}",
+        "migrate_applied": "[migrate] 이 프로젝트를 갱신했습니다 ({n}건):",
         "module_failed": "[module] 실패: {reason}",
         "module_nothing_saved": "[module] 저장된 것 없음. /run {agent} 으로 다시 시도하세요.",
         "module_preview": "--- {name} 미리보기 ---",
@@ -440,6 +447,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "run_failed": "{name} 실패: {reason}\n완료된 모듈은 저장되어 있습니다. 다시 실행하면 이어집니다.",
         "run_usage_cli": (
             "사용법: python run.py input/project_brief.md\n"
+            "       python run.py --path site_driven input/project_brief.md\n"
             "       python run.py projects/project_name\n"
             "       python chat.py input/project_brief.md   # 대화형"
         ),

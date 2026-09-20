@@ -4,6 +4,7 @@
 
 - **Project**: geumjeong_station_brief
 - **Phase**: concept
+- **Primary driver**: site
 - **Studio week**: week 3
 - **Last updated**: 2026-09-02
 - **Active focus**: layered circulation vs. 실제 대지 단면 — 단면교차 지점을 어디에 둘지
@@ -40,8 +41,15 @@
 
 | Module | Status | Key takeaway |
 |--------|--------|--------------|
-| site_reader | done | 철도·역사 분리, 하천 단절, 보행 단편화가 핵심; fast/slow 레이어 가설과 site tension 일치 |
-| constraint_mapper | pending | site_reader 기반 hard/soft 정리 필요 |
+| site_reader | done | 철도·역사 분리, 하천 단절, 보행 단편화가 핵심; fast/slow 레이어 가설과 site tension 일치 → regulation_checker: 철도 인접 이격 |
+| program_analyst | pending | 환승객/체류자/주민 리듬 분리 필요 |
+| regulation_checker | pending | 철도안전법·하천법·역세권 용도지역 확인 |
+| precedent_scout | pending | |
+| concept_framer | pending | "빠름/느림 레이어"가 슬로건인지 검증 |
+| constraint_mapper | pending | site + program + regulation 이후 |
+| synthesizer | pending | 3개 이상 완료 후 |
+| spatial_reviewer | pending | 단면교차 위치 정해진 뒤 |
+| systems_advisor | pending | |
 | design_critic | pending | |
 | representation_planner | pending | layer·circulation·section 3종 우선 (brief와 합의) |
 | presentation_editor | pending | |

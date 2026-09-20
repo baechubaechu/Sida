@@ -5,9 +5,9 @@ A CLI-based LLM workflow for architectural design reasoning.
 **시다**는 한국 건축 현장에서 조수·보조를 부르는 말입니다.  
 이 도구도 건물을 대신 설계하지 않고, 설계자의 추론을 옆에서 돕는 조수처럼 동작합니다.
 
-Instead of using one model as a general generator, the workflow divides the design process into narrow agents: Site Reader, Constraint Mapper, Design Critic, Representation Planner, and Presentation Editor — coordinated by a Conductor.
+Instead of using one model as a general generator, the workflow divides design reasoning into twelve narrow **experts** — site, program, regulation, precedent, concept, constraints, synthesis, spatial review, systems, critique, representation, presentation — coordinated by a Conductor. Experts are independent lenses: any of them can run alone, in any order, and a `synthesizer` reconciles them. See `docs/experts.md`.
 
-The output is not a final design. It is a set of structured Markdown documents that help clarify site issues, constraints, unresolved problems, representation needs, and presentation structure.
+The output is not a final design. It is a set of structured Markdown documents that help clarify site issues, program demands, regulatory agenda, the concept's claims, constraints, unresolved problems, representation needs, and presentation structure.
 
 ## Why this project exists
 
@@ -17,17 +17,29 @@ Sida asks a different question:
 
 > How can an LLM support architectural design reasoning without pretending to automatically design a building?
 
-## Pipeline
+## How the experts combine
+
+Design is not linear. A project may be led by its site, by an idea, by the program, or by
+regulation — so there is no fixed pipeline. Instead:
 
 ```txt
-Brief
-  → Site Reader
-  → Constraint Mapper
-  → Design Critic
-  → Representation Planner
-  → Presentation Editor
-  → structured Markdown outputs
+                 analysis                concept        synthesis
+Brief ──┬─ site_reader ─────────┐
+        ├─ program_analyst ─────┤                     ┌─ constraint_mapper
+        ├─ regulation_checker ──┼─→ concept_framer ──→┤
+        └─ precedent_scout ─────┘                     └─ synthesizer ─→ decisions
+                                                            │
+        development: spatial_reviewer, systems_advisor ←────┤
+        critique:    design_critic                     ←────┤
+        communication: representation_planner, presentation_editor
 ```
+
+- Every expert declares `inputs` (which prior outputs it reads) and ends with a **Handoff**
+  section naming who should look next. Other completed outputs are listed by name only.
+- The Conductor picks the entry expert from the brief's **Primary Driver**
+  (`site | idea | program | regulation | competition`) and from what the designer is stuck on.
+- `paths` in `config.yaml` are suggested sequences per driver — hints for the Conductor, and
+  runnable with `python run.py --path idea_driven brief.md`.
 
 ## Installation
 
@@ -165,7 +177,8 @@ Projects are saved under the user home folder (easy to open in File Explorer):
 ├─ history.json        ← Conductor conversation (restored on resume)
 ├─ transcript.md       ← human-readable log
 └─ modules/
-   ├─ 01_site_reader.md
+   ├─ 11_site_reader.md
+   ├─ 21_concept_framer.md
    ├─ ...
    └─ _history/        ← previous versions, archived on rerun
 ```
@@ -191,7 +204,7 @@ Commands:
   /project
   /brief            show brief
   /brief edit       open brief.md in your editor (backup → brief.prev.md)
-  /brief fields     update the six basic fields only (other sections kept)
+  /brief fields     update the seven basic fields only (other sections kept; includes Primary Driver)
   /state            show project_state.md
   /state edit       open project_state.md in your editor
   /state update     propose a state patch from the latest module (diff + confirm)
@@ -207,48 +220,48 @@ The Conductor can also ask to read a completed module file
 
 Conductor model and worker model are set in `config.yaml`.
 
-### Sequential pipeline (all modules, non-interactive)
+### Non-interactive runs
 
 ```bash
-python run.py input/sample_brief.md
-python run.py input/geumjeong_station_brief.md
+python run.py input/sample_brief.md                         # every expert, config order
+python run.py --path site_driven input/geumjeong_station_brief.md
+python run.py --path review_prep projects/geumjeong_station_brief
 ```
 
 Outputs go to the same `projects/<name>/modules/` layout.
 
-## Output example
+## Experts
 
-```txt
-~/Sida/projects/geumjeong_station_brief/
-├─ brief.md
-├─ session.json
-├─ transcript.md
-└─ modules/
-   ├─ 01_site_reader.md
-   ├─ 02_constraint_mapper.md
-   ├─ 03_design_critic.md
-   ├─ 04_representation_planner.md
-   └─ 05_presentation_editor.md
-```
+File numbers are grouped by phase (1x analysis, 2x concept, 3x synthesis, 4x development,
+5x critique, 6x communication). They are not an execution order.
 
-## Agents
+| Expert | Phase | What it does | Reads |
+|---|---|---|---|
+| `site_reader` | analysis | site systems, conflicts, opportunities, missing site info | program, concept |
+| `program_analyst` | analysis | users and rhythms, components, adjacency, public–private gradient | site, concept |
+| `regulation_checker` | analysis | governing frameworks (KR default), what to verify, binding constraints, incentives | site, program |
+| `precedent_scout` | analysis | precedents/typologies matched to the problem — lesson and caution | concept, site |
+| `concept_framer` | concept | sharpen the designer's idea into a testable concept and operative strategy | site, program, precedent |
+| `constraint_mapper` | synthesis | hard/soft constraints, priorities, tensions | site, program, regulation |
+| `synthesizer` | synthesis | convergences, conflicts between experts, decisions required now, stale views | all |
+| `spatial_reviewer` | development | test the described organization: circulation, section, thresholds, program fit | concept, constraints, site, program |
+| `systems_advisor` | development | structure / envelope / services / egress questions and trade-offs — no sizing | spatial, constraints, regulation, site |
+| `design_critic` | critique | jury-style critique against the core problem | all |
+| `representation_planner` | communication | diagrams, drawings, models that prove the concept and test weak points | concept, spatial, critic, site |
+| `presentation_editor` | communication | review / portfolio story, structure, anticipated questions | concept, synthesis, critic, representation |
 
-| Agent | Role |
-|---|---|
-| Site Reader | Reads site conditions, conflicts, opportunities, missing info |
-| Constraint Mapper | Turns conditions into hard/soft constraints and tensions |
-| Design Critic | Critiques direction; names unresolved problems and next actions |
-| Representation Planner | Plans diagrams, drawings, and presentation hierarchy |
-| Presentation Editor | Structures concise portfolio / review communication |
-
-Each agent has a narrow task, a clear input, a fixed Markdown output format, and constraints on what it should not do.
+Each expert has a narrow lens, declared inputs, a fixed Markdown output format ending in
+`## Handoff`, and constraints on what it must not do (none of them designs the building).
+Adding an expert = one prompt file + one `agents:` entry in `config.yaml`; the Conductor's
+expert list and the `project_state.md` Module Status table are generated from config.
 
 ## Limitations
 
 - Version 0.1 — CLI prototype only
 - Does not generate drawings, models, or a finished design
 - Quality depends on the brief and the chosen model
-- No memory beyond sequential context passed between agents
+- `regulation_checker` and `precedent_scout` produce verification agendas, not facts — numbers and named works must be checked by the designer. Turn on `rag.enabled` once `knowledge/regulations/` has real excerpts (`docs/rag.md`).
+- Opening an old project auto-renames `01_*.md` module files to the new `11_` / `31_` / … names and adds missing Module Status rows.
 - No web UI, database, or RAG layer
 
 ## Next steps
@@ -279,6 +292,8 @@ Module layout:
 | `console.py` | prompts, `$EDITOR` launch, UTF-8 stdio |
 | `state_updater.py` | project_state.md patch proposal (JSON call → diff → apply) |
 | `ollama_boot.py` | start Ollama, pull missing model, warm VRAM on session open |
+| `migrate.py` | rename legacy module files + sync Module Status on project open |
+| `rag.py` | retrieval stub for regulation_checker (`rag.enabled`) |
 | `run.bat` | Windows launcher: venv + deps + dispatch |
 | `harness.py` | providers (OpenRouter / Ollama / mock), worker runs, context budget |
 | `project.py` | project folder I/O, `project_state.md`, brief section patching |

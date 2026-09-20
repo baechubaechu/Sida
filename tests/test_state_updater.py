@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from harness import LLMError, MockProvider
+from project import module_status_rows
 from state_updater import (
     StatePatch,
     apply_patch,
@@ -15,7 +16,10 @@ from state_updater import (
 )
 from tests.conftest import ROOT
 
-TEMPLATE = (ROOT / "templates" / "project_state.md").read_text(encoding="utf-8")
+TEMPLATE = (ROOT / "templates" / "project_state.md").read_text(encoding="utf-8").replace(
+    "{{MODULE_ROWS}}",
+    module_status_rows([{"id": "site_reader"}, {"id": "constraint_mapper"}, {"id": "design_critic"}]),
+)
 
 
 def test_settings_defaults_and_validation(mock_config):
@@ -102,7 +106,7 @@ def test_build_messages_truncates_and_labels():
 
 
 def test_propose_with_mock(mock_config, agents, project):
-    (project.modules_dir / "01_site_reader.md").write_text("# out\n\n## Site Conditions\n- a", encoding="utf-8")
+    (project.modules_dir / "11_site_reader.md").write_text("# out\n\n## Site Conditions\n- a", encoding="utf-8")
     patch, proposed = propose_state_patch(mock_config, "", project, agents[0], w_provider=MockProvider(), lang="ko")
     assert patch.status == "done" and patch.key_takeaway == "(mock) takeaway"
     assert "| site_reader | done | (mock) takeaway |" in proposed
@@ -120,7 +124,7 @@ def test_propose_requires_module_output(mock_config, agents, project):
 
 def test_propose_uses_conductor_provider_when_configured(mock_config, agents, project, scripted):
     mock_config["state_update"] = {"provider": "conductor"}
-    (project.modules_dir / "01_site_reader.md").write_text("x", encoding="utf-8")
+    (project.modules_dir / "11_site_reader.md").write_text("x", encoding="utf-8")
     c = scripted(['{"module_status":{"status":"done","key_takeaway":"via conductor"}}'])
     w = scripted([])
     patch, _ = propose_state_patch(mock_config, "", project, agents[0], c_provider=c, w_provider=w)

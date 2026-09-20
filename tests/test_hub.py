@@ -28,10 +28,12 @@ def test_open_existing_by_number_not_created(mock_config, project, monkeypatch):
 
 def test_new_project_created_flag(mock_config, monkeypatch):
     monkeypatch.setattr(hub, "load_config", lambda *a, **k: mock_config)
-    _feed(monkeypatch, ["n", "My House", "주택", "", "", "", "", ""])
+    _feed(monkeypatch, ["n", "My House", "주택", "", "", "", "", "", "아이디어"])
     path, created = hub.project_hub()
     assert created is True and path.name == "my_house"
-    assert "주택" in (path / "brief.md").read_text(encoding="utf-8")
+    brief = (path / "brief.md").read_text(encoding="utf-8")
+    assert "주택" in brief
+    assert "## Primary Driver\nidea" in brief  # Korean alias normalized
 
 
 def test_quit_returns_none(mock_config, monkeypatch):

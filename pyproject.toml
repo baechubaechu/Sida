@@ -37,6 +37,8 @@ py-modules = [
   "run",
   "state_updater",
   "ollama_boot",
+  "migrate",
+  "rag",
 ]
 
 [tool.pytest.ini_options]

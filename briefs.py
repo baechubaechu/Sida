@@ -17,7 +17,22 @@ BRIEF_FIELD_HEADINGS: list[tuple[str, str, str]] = [
     ("issues", "brief_issues", "Site Issues"),
     ("intention", "brief_intention", "Design Intention"),
     ("direction", "brief_direction", "Current Design Direction"),
+    ("driver", "brief_driver", "Primary Driver"),
 ]
+
+DRIVER_ALIASES = {
+    "site": "site", "사이트": "site", "대지": "site",
+    "idea": "idea", "아이디어": "idea", "개념": "idea", "concept": "idea",
+    "program": "program", "프로그램": "program",
+    "regulation": "regulation", "법규": "regulation", "code": "regulation", "규제": "regulation",
+    "competition": "competition", "공모": "competition", "review": "competition", "발표": "competition",
+}
+
+
+def normalize_driver(raw: str) -> str:
+    """Map free text to one of site | idea | program | regulation | competition (or keep raw)."""
+    key = raw.strip().lower()
+    return DRIVER_ALIASES.get(key, raw.strip())
 
 
 def _issues_to_bullets(raw: str) -> str:
@@ -49,6 +64,9 @@ def build_brief_markdown(fields: dict[str, str]) -> str:
 
 ## Current Design Direction
 {val("direction")}
+
+## Primary Driver
+{normalize_driver(fields.get("driver", "")) or "-"}
 """
 
 
@@ -94,7 +112,12 @@ def collect_brief_updates(current_brief: str) -> dict[str, str] | None:
             return None
         if not value:
             continue
-        updates[heading] = _issues_to_bullets(value) if key == "issues" else value
+        if key == "issues":
+            updates[heading] = _issues_to_bullets(value)
+        elif key == "driver":
+            updates[heading] = normalize_driver(value)
+        else:
+            updates[heading] = value
     return updates
 
 
