@@ -273,6 +273,8 @@ expert list and the `project_state.md` Module Status table are generated from co
 
 ## Development
 
+처음 개발 환경을 세팅한다면 [`docs/dev-setup.md`](docs/dev-setup.md), 팀 규칙은 [`CONTRIBUTING.md`](CONTRIBUTING.md), AI 에이전트 규칙은 [`AGENTS.md`](AGENTS.md)를 보세요.
+
 ```bash
 pip install -e ".[dev]"     # or: pip install pytest ruff
 pytest                      # 60+ offline tests (mock provider, no network)
