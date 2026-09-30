@@ -1,0 +1,6 @@
+# 줄바꿈을 LF로 통일 (Windows/Mac 팀원 간 불필요한 전체 파일 diff 방지)
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
+*.jpg binary
+*.pdf binary
