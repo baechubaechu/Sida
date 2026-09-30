@@ -4,6 +4,9 @@
 
 [ "$(git symbolic-ref --short HEAD 2>/dev/null)" = "main" ] || exit 0
 
+# fetch.prune 설정이 없어도 원격에서 지워진 브랜치가 [gone]으로 표시되게 합니다.
+git remote prune origin >/dev/null 2>&1
+
 git for-each-ref --format='%(refname:short) %(upstream:track)' refs/heads |
   while read -r branch track; do
     [ "$track" = "[gone]" ] || continue
