@@ -8,6 +8,7 @@ from pathlib import Path
 from briefs import collect_basic_brief
 from console import prompt_line
 from harness import ROOT, load_config
+from hub_about import show_hub_about
 from hub_settings import hub_settings_menu, settings_one_liner
 from i18n import t
 from law_search import run_law_search
@@ -113,6 +114,10 @@ def project_hub() -> HubChoice | None:
 
         if choice in {"c", "config", "settings", "set"}:
             config = hub_settings_menu()
+            continue
+
+        if choice in {"h", "help", "about", "?", "설명", "도움"}:
+            show_hub_about(config)
             continue
 
         if choice in {"l", "law", "법령", "regs", "regulation"}:

@@ -82,6 +82,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "  n         new project\n"
             "  s         new from sample brief\n"
             "  o         open by name\n"
+            "  h         about Sida / workers\n"
             "  l         regulation search (no project)\n"
             "  m         Rhino modeling (OpenAI GPT-6+ / MCP)\n"
             "  c         settings (provider / RAG / language)\n"
@@ -100,6 +101,87 @@ STRINGS: dict[str, dict[str, str]] = {
         "hub_goodbye": "Goodbye.",
         "hub_exists": "Project already exists: {name}. Opening it.",
         "hub_projects_list": "Projects:",
+        # --- about
+        "about_title": "About Sida",
+        "about_overview": (
+            "Sida is a CLI studio assistant for architectural design reasoning.\n"
+            "A Conductor talks with you, routes work, and keeps project_state.md current.\n"
+            "Specialist workers (experts) each apply one lens — they do not design the building\n"
+            "for you. Outputs land in the project's modules/ folder and can feed later workers."
+        ),
+        "about_flow": (
+            "Typical loop inside a project:\n"
+            "  you ↔ Conductor → (optional) run a worker → update project_state → continue.\n"
+            "Workers run one at a time (not in parallel with the Conductor).\n"
+            "Design order is not fixed — pick the lens you need now."
+        ),
+        "about_hub_tools_title": "Hub tools (no design project)",
+        "about_hub_tools": (
+            "  l  Regulation search — RAG Q&A on building/planning codes.\n"
+            "     Each question stands alone; restate statute names every time.\n"
+            "  m  Rhino modeling — OpenAI GPT-6+ plans geometry; Rhino MCP executes it.\n"
+            "  c  Settings — providers, RAG, language, API keys."
+        ),
+        "about_workers_title": "Workers (inside a design project)",
+        "about_phase_analysis": "analysis — what is given",
+        "about_phase_concept": "concept — what the designer claims",
+        "about_phase_synthesis": "synthesis — put lenses together",
+        "about_phase_development": "development — does the scheme work",
+        "about_phase_critique": "critique",
+        "about_phase_communication": "communication",
+        "about_footer": (
+            "Tip: in a session, /run <agent_id> runs a worker without a Conductor turn.\n"
+            "Press Enter to return to the hub."
+        ),
+        "about_back": "Enter to return to hub: ",
+        "worker_name_site_reader": "Site Reader",
+        "worker_desc_site_reader": (
+            "Geographic/spatial site reading — systems, conflicts, opportunities (not codes)."
+        ),
+        "worker_name_program_analyst": "Program Analyst",
+        "worker_desc_program_analyst": (
+            "Users and rhythms, program parts, adjacency, public–private gradient."
+        ),
+        "worker_name_regulation_checker": "Regulation Checker",
+        "worker_desc_regulation_checker": (
+            "Site- and program-triggered codes, verify list, binding limits, incentives (KR default)."
+        ),
+        "worker_name_precedent_scout": "Precedent Scout",
+        "worker_desc_precedent_scout": (
+            "Precedents and typologies matched to the problem — lessons and cautions."
+        ),
+        "worker_name_concept_framer": "Concept Framer",
+        "worker_desc_concept_framer": (
+            "Sharpen the designer's idea into a testable concept and operative strategy."
+        ),
+        "worker_name_constraint_mapper": "Constraint Mapper",
+        "worker_desc_constraint_mapper": (
+            "Hard/soft constraints, priorities, tensions — site + program + regulation."
+        ),
+        "worker_name_synthesizer": "Synthesizer",
+        "worker_desc_synthesizer": (
+            "Reconcile expert outputs — convergences, conflicts, decisions needed now."
+        ),
+        "worker_name_spatial_reviewer": "Spatial Reviewer",
+        "worker_desc_spatial_reviewer": (
+            "Test the described organization — circulation, section, thresholds, program fit."
+        ),
+        "worker_name_systems_advisor": "Systems Advisor",
+        "worker_desc_systems_advisor": (
+            "Structure, envelope, services, egress questions and trade-offs (no sizing)."
+        ),
+        "worker_name_design_critic": "Design Critic",
+        "worker_desc_design_critic": (
+            "Jury-style critique of the direction against the core problem."
+        ),
+        "worker_name_representation_planner": "Representation Planner",
+        "worker_desc_representation_planner": (
+            "Which diagrams, drawings, and models prove the concept and expose weak points."
+        ),
+        "worker_name_presentation_editor": "Presentation Editor",
+        "worker_desc_presentation_editor": (
+            "Review / portfolio story, structure, and anticipated questions."
+        ),
         # --- hub settings
         "set_title": "Settings",
         "set_menu": (
@@ -404,6 +486,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "  n         새 프로젝트\n"
             "  s         샘플 브리프로 새 프로젝트\n"
             "  o         이름으로 열기\n"
+            "  h         시다 소개 / 워커 설명\n"
             "  l         건축법령 검색 (프로젝트 없이)\n"
             "  m         라이노 모델링 (OpenAI GPT-6+ / MCP)\n"
             "  c         설정 (provider / RAG / 언어)\n"
@@ -422,6 +505,87 @@ STRINGS: dict[str, dict[str, str]] = {
         "hub_goodbye": "종료합니다.",
         "hub_exists": "이미 있는 프로젝트입니다: {name}. 엽니다.",
         "hub_projects_list": "프로젝트:",
+        # --- about
+        "about_title": "시다 소개",
+        "about_overview": (
+            "시다는 건축 설계 사고를 돕는 CLI 스튜디오 어시스턴트입니다.\n"
+            "Conductor가 대화·라우팅을 맡고 project_state.md를 갱신합니다.\n"
+            "워커(전문가)는 각각 하나의 렌즈로만 봅니다 — 건물을 대신 설계하지 않습니다.\n"
+            "결과는 프로젝트 modules/ 에 저장되고, 이후 워커가 참고할 수 있습니다."
+        ),
+        "about_flow": (
+            "프로젝트 안에서의 기본 흐름:\n"
+            "  사용자 ↔ Conductor → (선택) 워커 실행 → project_state 갱신 → 계속.\n"
+            "워커와 Conductor는 동시에 돌지 않고 순차로 돌아갑니다.\n"
+            "실행 순서는 고정이 아닙니다 — 지금 필요한 렌즈를 고르면 됩니다."
+        ),
+        "about_hub_tools_title": "허브 도구 (설계 프로젝트 없이)",
+        "about_hub_tools": (
+            "  l  건축법령 검색 — RAG로 건축·도시계획 법령 Q&A.\n"
+            "     질문마다 독립입니다. 법령명·조항을 매번 다시 적으세요.\n"
+            "  m  라이노 모델링 — OpenAI GPT-6+가 계획, Rhino MCP가 실행.\n"
+            "  c  설정 — provider, RAG, 언어, API 키."
+        ),
+        "about_workers_title": "워커 (설계 프로젝트 안)",
+        "about_phase_analysis": "analysis — 주어진 것 읽기",
+        "about_phase_concept": "concept — 디자이너의 주장",
+        "about_phase_synthesis": "synthesis — 렌즈 합치기",
+        "about_phase_development": "development — 안이 성립하는지",
+        "about_phase_critique": "critique — 비평",
+        "about_phase_communication": "communication — 표현·발표",
+        "about_footer": (
+            "팁: 세션에서 /run <agent_id> 로 Conductor 없이 워커만 돌릴 수 있습니다.\n"
+            "Enter 를 누르면 허브로 돌아갑니다."
+        ),
+        "about_back": "허브로 돌아가려면 Enter: ",
+        "worker_name_site_reader": "사이트 리더",
+        "worker_desc_site_reader": (
+            "지리·공간으로 사이트 읽기 — 시스템, 충돌, 기회 (법규 분석은 하지 않음)."
+        ),
+        "worker_name_program_analyst": "프로그램 분석가",
+        "worker_desc_program_analyst": (
+            "이용자·리듬, 프로그램 구성, 인접성, 공·사 그라데이션."
+        ),
+        "worker_name_regulation_checker": "법규 검토",
+        "worker_desc_regulation_checker": (
+            "사이트·프로그램이 건드리는 법령, 검증 목록, 구속력 있는 한계, 인센티브 (기본 KR)."
+        ),
+        "worker_name_precedent_scout": "선례 스카우트",
+        "worker_desc_precedent_scout": (
+            "문제에 맞는 선례·유형 — 배울 점과 베끼면 안 되는 점."
+        ),
+        "worker_name_concept_framer": "개념 프레이머",
+        "worker_desc_concept_framer": (
+            "디자이너 의도를 검증 가능한 개념·작동 전략으로 다듬음."
+        ),
+        "worker_name_constraint_mapper": "제약 매퍼",
+        "worker_desc_constraint_mapper": (
+            "하드/소프트 제약, 우선순위, 긴장 — 사이트·프로그램·법규를 합침."
+        ),
+        "worker_name_synthesizer": "종합자",
+        "worker_desc_synthesizer": (
+            "전문가 결과 정리 — 합의, 모순, 지금 결정할 것."
+        ),
+        "worker_name_spatial_reviewer": "공간 검토",
+        "worker_desc_spatial_reviewer": (
+            "말한 공간조직 점검 — 동선, 단면, 경계, 프로그램 배치."
+        ),
+        "worker_name_systems_advisor": "시스템 자문",
+        "worker_desc_systems_advisor": (
+            "구조·외피·설비·피난 질문과 트레이드오프 (치수 산정 없음)."
+        ),
+        "worker_name_design_critic": "디자인 크리틱",
+        "worker_desc_design_critic": (
+            "핵심 문제에 대한 심사위원식 비평."
+        ),
+        "worker_name_representation_planner": "표현 기획",
+        "worker_desc_representation_planner": (
+            "개념을 증명하고 약점을 드러낼 다이어그램·도면·모델 계획."
+        ),
+        "worker_name_presentation_editor": "발표 편집",
+        "worker_desc_presentation_editor": (
+            "리뷰·포트폴리오 스토리, 구성, 예상 질문."
+        ),
         # --- hub settings
         "set_title": "설정",
         "set_menu": (
