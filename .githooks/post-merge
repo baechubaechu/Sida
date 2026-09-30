@@ -1,5 +1,7 @@
 #!/bin/sh
-# main에서 git pull 후, 원격 브랜치가 삭제된(머지된) 로컬 브랜치를 지웁니다.
+# main에서 git pull 후, 머지된 로컬 브랜치를 지웁니다.
+# 원격 브랜치가 삭제됐고([gone]) 브랜치의 변경이 모두 main에 들어간 경우에만 지웁니다.
+# 머지 후 새로 커밋한 내용(push 안 한 것 포함)이 있으면 남겨 둡니다.
 # 사용하려면 한 번만: git config core.hooksPath .githooks
 
 [ "$(git symbolic-ref --short HEAD 2>/dev/null)" = "main" ] || exit 0
@@ -10,6 +12,12 @@ git remote prune origin >/dev/null 2>&1
 git for-each-ref --format='%(refname:short) %(upstream:track)' refs/heads |
   while read -r branch track; do
     [ "$track" = "[gone]" ] || continue
-    git branch -D "$branch" >/dev/null && echo "머지된 로컬 브랜치 삭제: $branch"
+    # squash 머지는 커밋이 달라지므로, 브랜치 전체 변경을 한 커밋으로 만들어 main에 같은 변경이 있는지 봅니다.
+    base=$(git merge-base main "$branch") || continue
+    squashed=$(git commit-tree "$branch^{tree}" -p "$base" -m squash) || continue
+    case "$(git cherry main "$squashed")" in
+      -*) git branch -D "$branch" >/dev/null && echo "머지된 로컬 브랜치 삭제: $branch" ;;
+      *) echo "원격은 삭제됐지만 main에 없는 변경이 있어 남겨 둠: $branch" ;;
+    esac
   done
 exit 0
