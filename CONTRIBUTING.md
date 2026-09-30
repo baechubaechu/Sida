@@ -4,6 +4,8 @@ Sida를 여러 명이 함께 개발할 때의 Git/GitHub 규칙입니다.
 
 ## 시작하기
 
+프로그램 설치, GitHub 로그인, 에이전트별 설정까지 자세한 순서는 [`docs/dev-setup.md`](docs/dev-setup.md)를 보세요. 요약하면:
+
 ```bash
 git clone https://github.com/baechubaechu/Sida.git
 cd Sida
