@@ -9,7 +9,6 @@ from hub_settings import (
     settings_summary,
 )
 
-
 SAMPLE = """\
 provider: openrouter
 

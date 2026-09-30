@@ -13,6 +13,7 @@ load_dotenv()
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+import project as prj
 from console import configure_stdio
 from harness import (
     agent_by_id,
@@ -23,7 +24,6 @@ from harness import (
     worker_provider,
 )
 from ollama_boot import ensure_ollama_ready
-import project as prj
 
 # Use whatever chat model is already on this machine (no long pull).
 LOCAL_MODEL = "qwen3.5:9b"

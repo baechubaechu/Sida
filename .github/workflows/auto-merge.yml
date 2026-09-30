@@ -1,0 +1,22 @@
+name: Auto-merge
+
+# PR이 열리면 자동 머지를 예약합니다.
+# 필수 검사(CI)가 모두 통과하는 순간 main에 squash 머지되고, 실패하면 머지되지 않습니다.
+# 드래프트(Draft) PR은 제외 → 아직 머지하고 싶지 않으면 Draft로 여세요.
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  enable-auto-merge:
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

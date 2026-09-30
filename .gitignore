@@ -17,3 +17,7 @@ _rag_experiment_projects/
 knowledge/**/_.index/
 knowledge/**/*.chroma/
 *.sqlite-vec
+
+# local/editor
+.claude/
+*.log
