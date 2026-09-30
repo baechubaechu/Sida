@@ -10,6 +10,7 @@ cd Sida
 python -m venv .venv
 .venv\Scripts\activate          # Mac/Linux: source .venv/bin/activate
 pip install -e ".[dev]"
+git config core.hooksPath .githooks   # 머지된 로컬 브랜치 자동 정리
 copy .env.example .env          # Mac/Linux: cp .env.example .env  → 본인 API 키 입력
 pytest                          # 전부 통과하는지 확인
 ```
@@ -44,7 +45,7 @@ git push -u origin feat/짧은-설명
 
 - **자동 머지**: PR을 열면 CI(ruff, pytest)가 돌고, 필요한 승인까지 모두 채워지면 자동으로 main에 머지됩니다. 검사가 실패하면 머지되지 않으니 고쳐서 다시 push하세요.
 - **아직 머지하면 안 되는 작업**은 PR을 **Draft**로 여세요. 준비되면 "Ready for review"를 누르면 자동 머지가 예약됩니다.
-- 머지되면 원격 브랜치는 자동 삭제됩니다. 로컬에서는 `git switch main && git pull`.
+- 머지되면 원격 브랜치는 자동 삭제됩니다. 로컬에서는 `git switch main && git pull`하면 머지된 로컬 브랜치도 지워집니다(`core.hooksPath` 설정 시).
 
 ## 브랜치 이름
 

@@ -1,0 +1,22 @@
+name: Delete merged branch
+
+# PR이 머지되면 원격 브랜치를 삭제합니다.
+# 저장소 설정의 "Automatically delete head branches"는 auto-merge.yml이
+# GITHUB_TOKEN으로 머지한 PR에는 동작하지 않아서 이 워크플로가 대신 지웁니다.
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  delete-branch:
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh api -X DELETE "repos/$REPO/git/refs/heads/$BRANCH" || echo "이미 삭제됨"
+        env:
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

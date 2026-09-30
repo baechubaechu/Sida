@@ -1,0 +1,12 @@
+#!/bin/sh
+# main에서 git pull 후, 원격 브랜치가 삭제된(머지된) 로컬 브랜치를 지웁니다.
+# 사용하려면 한 번만: git config core.hooksPath .githooks
+
+[ "$(git symbolic-ref --short HEAD 2>/dev/null)" = "main" ] || exit 0
+
+git for-each-ref --format='%(refname:short) %(upstream:track)' refs/heads |
+  while read -r branch track; do
+    [ "$track" = "[gone]" ] || continue
+    git branch -D "$branch" >/dev/null && echo "머지된 로컬 브랜치 삭제: $branch"
+  done
+exit 0

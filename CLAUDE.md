@@ -15,6 +15,7 @@ Sida(시다) 저장소에서 작업할 때 따를 규칙입니다. 프로젝트 
 
 ```bash
 pip install -e ".[dev]"   # 의존성 + pytest, ruff
+git config core.hooksPath .githooks   # 머지된 로컬 브랜치 자동 정리 (clone 후 한 번)
 ruff check .              # 린트 (--fix로 자동 수정)
 pytest                    # 테스트 (tests/)
 ```
@@ -47,9 +48,9 @@ pytest                    # 테스트 (tests/)
 - 필수 검사: `test (3.10)`, `test (3.12)` (`.github/workflows/ci.yml`의 ruff + pytest)
 - **최신 main 기준 검사**: PR 브랜치가 main보다 뒤처지면 머지되지 않는다. PR에 "Update branch"가 뜨면 누르거나 `git merge main` 후 push한다. 업데이트하면 CI가 다시 돌고 통과하면 자동 머지된다.
 - 필요 승인 수: 0명. 팀원이 있어도 승인 없이 **자동 검사(CI) + 테스트**를 안전장치로 쓰기로 했다. 그래서 PR 설명에 무엇을 왜 바꿨는지 팀원이 알 수 있게 쓴다.
-- **자동 머지**: PR이 열리면 `.github/workflows/auto-merge.yml`이 squash 자동 머지를 예약하고, 검사를 통과하면 머지된다. 머지된 원격 브랜치는 자동 삭제된다.
+- **자동 머지**: PR이 열리면 `.github/workflows/auto-merge.yml`이 squash 자동 머지를 예약하고, 검사를 통과하면 머지된다. 머지된 원격 브랜치는 `.github/workflows/delete-merged-branch.yml`이 삭제한다(저장소 설정의 자동 삭제는 GITHUB_TOKEN 머지에 동작하지 않음).
 - 아직 머지하면 안 되는 작업은 **Draft PR**로 연다. Draft PR은 자동 머지에서 제외된다.
-- 머지 후에는 `git switch main && git pull`로 동기화하고, 다음 작업은 새 브랜치에서 시작한다.
+- 머지 후에는 `git switch main && git pull`로 동기화하고, 다음 작업은 새 브랜치에서 시작한다. `core.hooksPath`를 `.githooks`로 설정해 두면 이때 원격이 삭제된 로컬 브랜치도 `.githooks/post-merge`가 지운다.
 
 ## 주의사항
 
