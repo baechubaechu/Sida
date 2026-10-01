@@ -212,6 +212,8 @@ Commands:
   /state            show project_state.md
   /state edit       open project_state.md in your editor
   /state update     propose a state patch from the latest module (diff + confirm)
+  /site             show site facts (parcel, zoning, statutory coverage / FAR limits)
+  /site <address>   look up a lot-number address; pick one parcel or several to merge
   /agents
   /status
   /setup
@@ -307,6 +309,8 @@ Module layout:
 | `hub_about.py` | hub `h`: about page listing the experts |
 | `hardware.py` | GPU detection (NVIDIA) and local-profile recommendation |
 | `workspace.py` | UI-agnostic project hub operations: list, look up, create |
+| `landapi.py` | clients for the government land APIs (VWorld): parcel search, zoning, land characteristics |
+| `site_facts.py` + `data/zoning_limits.yaml` | site facts: parcels → one site, statutory coverage / FAR limits, items to verify; saved as `site_facts.json` and given to `site_reader` / `regulation_checker` |
 | `webapp.py` + `webui/` | local web UI (FastAPI): JSON API under `/api`, HTML pages from `webui/templates`, styles in `webui/static` |
 | `run.bat` | Windows launcher: venv + deps + dispatch |
 | `harness.py` | config loading, providers (OpenRouter / OpenAI / Ollama / mock), worker runs, context budget |

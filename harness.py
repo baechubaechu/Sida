@@ -740,6 +740,7 @@ def build_worker_prompt(
     project_state: str | None = None,
     other_completed: list[str] | None = None,
     knowledge_block: str | None = None,
+    site_facts_block: str | None = None,
 ) -> str:
     from i18n import get_language
 
@@ -767,12 +768,17 @@ PROJECT STATE (designer-curated memory — decisions, open questions, expert sta
         knowledge = f"""
 {knowledge_block.strip()}
 """
+    site = ""
+    if site_facts_block and site_facts_block.strip():
+        site = f"""
+{site_facts_block.strip()}
+"""
     return f"""AGENT PROMPT:
 {agent_prompt}
 
 ORIGINAL PROJECT BRIEF:
 {project_brief}
-{state_block}
+{site}{state_block}
 RELEVANT EXPERT OUTPUTS:
 {previous_outputs}
 {others_block}{knowledge}
@@ -782,7 +788,8 @@ LANGUAGE:
 TASK:
 Produce the output for this expert in Markdown.
 Follow the output format defined in the agent prompt, every header, in order.
-Do not invent project facts not included in the brief, project state, expert outputs, or retrieved knowledge.
+Do not invent project facts not included in the brief, site facts, project state, expert outputs, or retrieved knowledge.
+When SITE FACTS are present, they come from government land records: use them as given and prefer them over the brief where the two differ (say so).
 When RETRIEVED KNOWLEDGE is present, prefer it for numeric limits and cite `source:` paths; still mark uncertain items as verify.
 If information is missing, mark it as missing information.
 End with the Handoff section: name which experts should look next and what they should check.
@@ -998,12 +1005,20 @@ def run_worker_agent(
 
     # Local models silently drop the start of an over-long prompt (the agent role itself),
     # so trim expert outputs and retrieved knowledge to what the context window can hold.
+    try:
+        from site_facts import block_for_agent
+
+        site_block = block_for_agent(config, agent, output_dir.parent)
+    except Exception as exc:  # site facts must never block the expert run
+        site_block = ""
+        say(t("site_block_failed", reason=str(exc) or type(exc).__name__))
     fixed_prompt = build_worker_prompt(
         agent_prompt,
         project_brief,
         "",
         project_state=project_state,
         other_completed=other_completed,
+        site_facts_block=site_block or None,
     )
     budget = worker_input_budget(rt, len(WORKER_SYSTEM) + len(fixed_prompt))
     if budget is not None:
@@ -1018,6 +1033,7 @@ def run_worker_agent(
         project_state=project_state,
         other_completed=other_completed,
         knowledge_block=knowledge_block or None,
+        site_facts_block=site_block or None,
     )
 
     messages = [

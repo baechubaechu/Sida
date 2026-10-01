@@ -94,6 +94,29 @@ python chat.py                    # 첫 실행: 언어 → 실행 모드(클라�
 - PowerShell에서 `activate`가 "스크립트를 실행할 수 없습니다"로 막히면 명령 프롬프트(cmd)에서 실행하거나, 활성화 없이 `.venv\Scripts\python.exe -m pip ...`처럼 venv의 Python을 직접 씁니다.
 - conda를 쓰고 있다면 `(base)` 환경이 켜진 채로 venv를 만들어도 됩니다. 다만 이후 명령은 venv를 활성화한 상태에서 실행합니다.
 
+### 대지 조회용 키
+
+`/site <주소>`로 필지와 용도지역을 조회하려면 정부 API 키가 필요합니다. 키는 팀에서 전달받아 `.env`에 넣습니다. 저장소, PR, 이슈에는 올리지 않습니다. 키가 없어도 나머지 기능과 테스트는 그대로 동작합니다.
+
+```
+VWORLD_API_KEY=
+VWORLD_DOMAIN=http://localhost:8765
+DATA_GO_KR_API_KEY=
+LAW_OPEN_API_OC=
+```
+
+| 변수 | 발급처 | 지금 쓰는 곳 |
+|---|---|---|
+| `VWORLD_API_KEY`, `VWORLD_DOMAIN` | vworld.kr → 오픈API → 인증키 발급 | 주소 검색, 용도지역·지구, 토지 특성 |
+| `DATA_GO_KR_API_KEY` | data.go.kr → 마이페이지 → 인증키 (Decoding 키) | 다음 단계: 행위제한, 근거 조문, 건축물대장 |
+| `LAW_OPEN_API_OC` | open.law.go.kr → OPEN API 신청 | 이후 단계: 조례 조문 원문 |
+
+직접 발급할 때 알아 둘 것:
+
+- **브이월드**: 발급할 때 등록한 서비스 주소를 `VWORLD_DOMAIN`에 그대로 넣습니다. 활용 API는 검색, 지오코더, 2D데이터, 국가중점, WMS/WFS를 고릅니다. 개발키는 6개월짜리이고 3회 연장할 수 있습니다. 만료되면 `/site`가 "키를 거부했습니다"라고 알립니다.
+- **공공데이터포털**: 키는 계정당 하나이고 서비스마다 활용신청을 합니다(토지이용규제정보서비스, 토지이용규제법령정보서비스, 건축HUB 건축물대장정보). 토지이음 계열 두 서비스는 요청에 `Accept: application/xml` 헤더가 없으면 `HTTP_ERROR`(코드 04)를 돌려줍니다.
+- **법제처**: OC 값은 신청할 때 직접 정하는 문자열입니다. IP를 등록하면 그 IP에서만 호출됩니다.
+
 ## 5. 확인
 
 ```bash

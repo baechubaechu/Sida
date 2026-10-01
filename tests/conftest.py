@@ -15,13 +15,61 @@ if str(ROOT) not in sys.path:
 import hardware  # noqa: E402
 import harness  # noqa: E402
 import i18n  # noqa: E402
+import landapi  # noqa: E402
 import project as prj  # noqa: E402
+
+REAL_HTTP_GET = landapi._http_get  # the autouse fixture below replaces it for every test
+
+
+def _no_network(url, params):
+    raise AssertionError(f"unexpected network call in a test: {url}")
+
+
+LAND_FIXTURES = ROOT / "tests" / "fixtures" / "landapi"
+
+
+def land_fixture(name: str):
+    import json
+
+    return json.loads((LAND_FIXTURES / name).read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def fake_vworld(monkeypatch):
+    """Serve recorded VWorld responses (금정동 689) instead of the network; records calls."""
+    calls: list[tuple[str, dict]] = []
+    overrides: dict[str, object] = {}
+
+    def http_get(url, params):
+        calls.append((url, dict(params)))
+        op = url.rsplit("/", 1)[-1]
+        if op in overrides:
+            value = overrides[op]
+            if isinstance(value, Exception):
+                raise value
+            return value
+        if op == "search":
+            return land_fixture("search_geumjeong_689.json")
+        path = LAND_FIXTURES / f"{op}_{params['pnu']}.json"
+        if path.exists():
+            return land_fixture(path.name)
+        return land_fixture("getLandUseAttr_unknown_pnu.json")
+
+    monkeypatch.setattr(landapi, "_http_get", http_get)
+    http_get.calls = calls
+    http_get.overrides = overrides
+    return http_get
 
 
 @pytest.fixture(autouse=True)
 def isolated_settings(tmp_path, monkeypatch):
     """Never touch ~/Sida/settings.json or config.local.yaml during tests. Default language: ko."""
     monkeypatch.setattr(harness, "LOCAL_CONFIG_PATH", tmp_path / "config.local.yaml")
+    # No real land-API calls or keys: tests pass fixtures through landapi._http_get.
+    monkeypatch.setattr(landapi, "ENV_PATH", tmp_path / "no.env")
+    monkeypatch.setenv("VWORLD_API_KEY", "test-key")
+    monkeypatch.setenv("VWORLD_DOMAIN", "http://localhost:8765")
+    monkeypatch.setattr(landapi, "_http_get", _no_network)
     # No real nvidia-smi calls: tests that need a GPU patch query_nvidia_smi themselves.
     monkeypatch.setattr(hardware, "query_nvidia_smi", lambda: None)
     settings_dir = tmp_path / "settings"

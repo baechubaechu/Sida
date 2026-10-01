@@ -53,6 +53,8 @@ py-modules = [
   "rhino_mcp",
   "rhino_modeler",
   "workspace",
+  "landapi",
+  "site_facts",
   "webapp",
 ]
 

@@ -1,0 +1,16 @@
+{
+ "response": {
+  "service": {
+   "name": "search",
+   "version": "2.0",
+   "operation": "search",
+   "time": "2(ms)"
+  },
+  "status": "ERROR",
+  "error": {
+   "level": "2",
+   "code": "INVALID_KEY",
+   "text": "등록되지 않은 인증키입니다."
+  }
+ }
+}
