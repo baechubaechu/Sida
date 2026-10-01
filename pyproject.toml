@@ -28,6 +28,7 @@ py-modules = [
   "session",
   "commands",
   "conductor",
+  "engine",
   "briefs",
   "console",
   "harness",

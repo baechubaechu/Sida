@@ -289,7 +289,8 @@ Module layout:
 |---|---|
 | `chat.py` | entry point: first-run setup → hub → sessions |
 | `hub.py` | project picker (create / open / sample) |
-| `session.py` | one Conductor session: `Session` state, turns, actions, loop |
+| `engine.py` | UI-agnostic session core: `Session` state, Conductor turns, expert runs, state updates — returns values and emits events, never prints |
+| `session.py` | terminal front end for a session: renders engine events, asks the inline questions, input loop |
 | `commands.py` | slash commands (`/brief`, `/state`, `/run`, ...) |
 | `conductor.py` | Conductor message assembly, action parsing, one LLM call |
 | `briefs.py` | brief.md authoring — guided fields or external editor |
