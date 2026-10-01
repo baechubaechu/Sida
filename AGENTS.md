@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Sida(시다) 저장소에서 작업하는 모든 AI 에이전트(Claude Code, Cursor, Codex, Copilot 등)가 따를 규칙입니다. Claude Code는 `CLAUDE.md`가 이 파일을 불러옵니다. 프로젝트 개요는 `README.md`, 전문가(에이전트) 구성은 `docs/experts.md`, 팀 규칙 전체는 `CONTRIBUTING.md`, 개발 환경 세팅은 `docs/dev-setup.md`를 보세요.
+Sida(시다) 저장소에서 작업하는 모든 AI 에이전트(Claude Code, Cursor, Codex, Copilot 등)가 따를 규칙입니다. Claude Code는 `CLAUDE.md`가 이 파일을 불러옵니다. 프로젝트 개요는 `README.md`, 전문가(에이전트) 구성은 `docs/experts.md`, 팀 규칙 전체는 `CONTRIBUTING.md`, 개발 환경 세팅은 `docs/dev-setup.md`, 앞으로의 방향과 순서는 `docs/roadmap.md`를 보세요.
 
 ## 프로젝트 요약
 
