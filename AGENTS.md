@@ -7,7 +7,8 @@ Sida(시다) 저장소에서 작업하는 모든 AI 에이전트(Claude Code, Cu
 건축 설계 추론을 돕는 CLI 기반 LLM 워크플로. Conductor가 12개 전문가(`agents/*.md`)를 조합해 구조화된 Markdown 문서를 만든다. 최종 설계를 대신하지 않는다.
 
 - 진입점: `chat.py`(프로젝트 허브), `run.py`(비대화형 파이프라인), Windows는 `run.bat`
-- 핵심 모듈: `harness.py`, `conductor.py`, `session.py`, `hub.py`, `rag.py`, `i18n.py`(한국어 우선 UI 문자열)
+- 핵심 모듈: `harness.py`, `conductor.py`, `engine.py`, `session.py`, `hub.py`, `rag.py`, `i18n.py`(한국어 우선 UI 문자열)
+- `engine.py`는 화면과 무관한 세션 코어다. `print`/`input`을 쓰지 않고, 값을 반환하고 진행 상황은 이벤트(`Session.emit`)로 알린다. 터미널 출력과 질문은 `session.py`에 둔다. 새 세션 로직은 `engine.py`에 넣는다.
 - 설정: `config.yaml`은 팀 공통 기본값(클라우드, RAG 꺼짐)이다. PC별 설정은 Git이 무시하는 `config.local.yaml`에 두고, `load_config`가 그 값을 덮어쓴다. 허브 설정 메뉴와 첫 실행 질문은 `config.local.yaml`에만 쓴다. 개인 설정을 `config.yaml`에 커밋하지 않는다. 비밀값은 `.env`(키 목록은 `.env.example`)
 - 새 모듈을 추가하면 `pyproject.toml`의 `[tool.setuptools] py-modules`에도 등록한다. 빠지면 CI 설치가 깨진다.
 

@@ -33,9 +33,22 @@ class LLMError(Exception):
     """Recoverable LLM/provider failure. Callers decide whether to exit."""
 
 
+class SidaError(SystemExit):
+    """
+    Fatal configuration / usage error raised by `fail()`.
+
+    Subclasses SystemExit so the CLI still exits with the given code when nothing
+    catches it; other front ends catch it and show `.message` instead of exiting.
+    """
+
+    def __init__(self, message: str, code: int = 1):
+        super().__init__(code)
+        self.message = message
+
+
 def fail(message: str, code: int = 1) -> None:
     print(f"Error: {message}", file=sys.stderr)
-    sys.exit(code)
+    raise SidaError(message, code)
 
 
 def load_env(*, interactive: bool = True, config: dict | None = None) -> str:
@@ -916,13 +929,24 @@ def run_worker_agent(
     *,
     provider=None,
     project_state: str | None = None,
+    notify=None,
 ) -> str:
     """Run one expert. Raises LLMError on provider failure.
 
     Experts with an `inputs` declaration receive only the listed completed outputs
     (read from output_dir); other completed experts are named but not included.
     Legacy agents (no `inputs`) receive `previous_blocks` unchanged.
+
+    Warnings (RAG unavailable, inputs trimmed, missing headers, archived file) go to
+    `notify(message)` when given; otherwise they are printed as before.
     """
+
+    def say(message: str, *, err: bool = True) -> None:
+        if notify is not None:
+            notify(message)
+        else:
+            print(message, file=sys.stderr if err else sys.stdout)
+
     rt = resolve_worker_runtime(config)
     provider = provider or worker_provider(config, api_key)
     # project_state.md carries long editing notes in HTML comments; they only cost context.
@@ -970,7 +994,7 @@ def run_worker_agent(
         knowledge_block = ""
         rag_note = t("rag_warn_error", reason=str(exc) or type(exc).__name__)
     if rag_note:
-        print(rag_note, file=sys.stderr)
+        say(rag_note)
 
     # Local models silently drop the start of an over-long prompt (the agent role itself),
     # so trim expert outputs and retrieved knowledge to what the context window can hold.
@@ -986,10 +1010,7 @@ def run_worker_agent(
         blocks, knowledge_block, trimmed = fit_worker_inputs(blocks, knowledge_block, budget)
         if trimmed:
             previous_outputs = "\n\n".join(blocks) if blocks else "(none yet)"
-            print(
-                t("worker_input_trimmed", name=name, n=trimmed, ctx=rt["num_ctx"]),
-                file=sys.stderr,
-            )
+            say(t("worker_input_trimmed", name=name, n=trimmed, ctx=rt["num_ctx"]))
     full_prompt = build_worker_prompt(
         agent_prompt,
         project_brief,
@@ -1045,20 +1066,13 @@ def run_worker_agent(
             result = retried
         still = missing_headers(result, headers)
         if still:
-            from i18n import t
-
-            print(
-                t("module_missing_headers", name=name, headers=", ".join(still)),
-                file=sys.stderr,
-            )
+            say(t("module_missing_headers", name=name, headers=", ".join(still)))
 
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / output_name
     archived = archive_module_output(output_path)
     if archived:
-        from i18n import t
-
-        print(t("module_archived", path=archived.relative_to(output_dir).as_posix()))
+        say(t("module_archived", path=archived.relative_to(output_dir).as_posix()), err=False)
     output_path.write_text(result + "\n", encoding="utf-8")
     return result
 

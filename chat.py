@@ -4,7 +4,8 @@
 Module layout:
   chat.py       entry point (this file)
   hub.py        project picker
-  session.py    one Conductor session: state, turns, actions, loop
+  engine.py     UI-agnostic session core: state, turns, expert runs, state updates
+  session.py    terminal front end for a session: rendering, prompts, input loop
   commands.py   slash commands inside a session
   conductor.py  Conductor message assembly + one LLM call
   briefs.py     brief.md authoring (guided fields / external editor)
