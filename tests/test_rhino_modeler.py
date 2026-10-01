@@ -92,3 +92,29 @@ def test_hub_modeling_menu(mock_config, monkeypatch):
 def test_safe_tools_include_run_python():
     assert "run_python" in SAFE_TOOLS
     assert "ask_user" not in SAFE_TOOLS
+
+
+def _router(packages, rhino, version):
+    exe = (
+        packages / rhino / "Rhino-MCP-Platform" / version / "router" / "win-x64"
+        / "rhino-mcp-router.exe"
+    )
+    exe.parent.mkdir(parents=True)
+    exe.write_text("", encoding="utf-8")
+    return str(exe)
+
+
+def test_default_rhino_commands_find_any_version_newest_first(tmp_path, monkeypatch):
+    from mcp_stdio import iter_default_rhino_commands
+
+    monkeypatch.delenv("SIDA_RHINO_MCP", raising=False)
+    assert list(iter_default_rhino_commands(tmp_path)) == []  # nothing installed
+
+    old = _router(tmp_path, "8.0", "0.2.1-wip")
+    newer = _router(tmp_path, "8.0", "0.2.10")  # numeric sort: 10 > 9 > 1
+    mid = _router(tmp_path, "8.0", "0.2.9")
+    rhino9 = _router(tmp_path, "9.0", "0.1.0")
+    assert list(iter_default_rhino_commands(tmp_path)) == [[rhino9], [newer], [mid], [old]]
+
+    monkeypatch.setenv("SIDA_RHINO_MCP", "C:/custom/router.exe")
+    assert next(iter_default_rhino_commands(tmp_path)) == ["C:/custom/router.exe"]

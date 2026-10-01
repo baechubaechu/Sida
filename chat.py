@@ -47,12 +47,13 @@ def ensure_app_setup() -> None:
 
     ensure_run_mode()
     config = load_config()
+    # Reading the key also loads .env, which the hub needs for SIDA_RAG_URL in local mode.
+    had_key = bool(read_api_key_from_env())
     if not needs_openrouter(config):
         print(t("api_skip_local"))
         print()
         return
 
-    had_key = bool(read_api_key_from_env())
     if not had_key:
         print(t("api_missing"))
         print()

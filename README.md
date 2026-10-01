@@ -65,7 +65,7 @@ Python 3.10 or newer.
 ```bash
 python -m venv .venv
 # Windows: .\.venv\Scripts\activate   macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ## Environment setup
@@ -99,8 +99,8 @@ there; change it later from the hub with `c` (settings) → `9`.
 
 ### Local Conductor (optional, Ollama)
 
-The Conductor (chat) can run on a local model while modules stay on OpenRouter.
-8GB VRAM is the minimum (`local`, 7B); 12GB+ is recommended (`local_plus`, `qwen3.5:9b`).
+In local mode the Conductor and the experts both run on Ollama; cloud mode uses OpenRouter
+for both. You can also mix them per role in the settings menu. 8GB VRAM is the minimum (`local`, 7B); 12GB+ is recommended (`local_plus`, `qwen3.5:9b`).
 See `docs/gpu_tiers.md`.
 
 ```bash
@@ -154,7 +154,7 @@ in `project_state.prev.md`.
 ### First launch
 
 ```bash
-pip install -r requirements.txt
+pip install -e .
 python chat.py
 ```
 
@@ -260,16 +260,17 @@ expert list and the `project_state.md` Module Status table are generated from co
 
 ## Limitations
 
-- Version 0.1 — CLI prototype only
+- Version 0.2 — CLI prototype only
 - Does not generate drawings, models, or a finished design
 - Quality depends on the brief and the chosen model
-- `regulation_checker` and `precedent_scout` produce verification agendas, not facts — numbers and named works must be checked by the designer. Turn on `rag.enabled` once `knowledge/regulations/` has real excerpts (`docs/rag.md`).
+- `regulation_checker` and `precedent_scout` produce verification agendas, not facts — numbers and named works must be checked by the designer. Regulation retrieval (RAG) is off by default; it needs a VPS URL/key or a filled `knowledge/regulations/` corpus (`docs/rag.md`).
+- In local mode, long inputs are trimmed to fit the model's context window (a notice is printed); `synthesizer` and `design_critic` read every output and are affected most.
 - Opening an old project auto-renames `01_*.md` module files to the new `11_` / `31_` / … names and adds missing Module Status rows.
-- No web UI, database, or RAG layer
+- No web UI or database
 
 ## Next steps
 
-- Add optional dry-run / mock mode for demos without an API key
+- Web UI on top of the same core (the CLI stays for automation and tests)
 - Save a run log with model and timestamps
 - Attach sample outputs under `examples/sample_output/`
 - Refine agent prompts against studio review feedback
@@ -280,7 +281,7 @@ expert list and the `project_state.md` Module Status table are generated from co
 
 ```bash
 pip install -e ".[dev]"     # or: pip install pytest ruff
-pytest                      # 60+ offline tests (mock provider, no network)
+pytest                      # offline tests (mock provider, no network)
 ruff check .
 ```
 
@@ -298,9 +299,15 @@ Module layout:
 | `state_updater.py` | project_state.md patch proposal (JSON call → diff → apply) |
 | `ollama_boot.py` | start Ollama, pull missing model, warm VRAM on session open |
 | `migrate.py` | rename legacy module files + sync Module Status on project open |
-| `rag.py` | retrieval stub for regulation_checker (`rag.enabled`) |
+| `rag.py` | regulation retrieval for regulation_checker / law search — VPS HTTP API or local markdown |
+| `law_search.py` | hub `l`: regulation Q&A without a project (RAG + Conductor model) |
+| `rhino_modeler.py` | hub `m`: Rhino modeling loop (OpenAI model plans, MCP tools execute) |
+| `rhino_mcp.py` / `mcp_stdio.py` | Rhino MCP router bridge, allowed-tool list, stdio JSON-RPC client |
+| `hub_settings.py` | hub `c`: settings menu and run mode → `config.local.yaml` |
+| `hub_about.py` | hub `h`: about page listing the experts |
+| `hardware.py` | GPU detection (NVIDIA) and local-profile recommendation |
 | `run.bat` | Windows launcher: venv + deps + dispatch |
-| `harness.py` | providers (OpenRouter / Ollama / mock), worker runs, context budget |
+| `harness.py` | config loading, providers (OpenRouter / OpenAI / Ollama / mock), worker runs, context budget |
 | `project.py` | project folder I/O, `project_state.md`, brief section patching |
 | `i18n.py` | UI strings — Korean default, English fallback |
 | `setup_env.py` | language + OpenRouter key setup |

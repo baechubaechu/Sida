@@ -711,6 +711,14 @@ def worker_provider(config: dict, api_key: str):
 # ---------------------------------------------------------------------------
 
 
+def strip_md_comments(text: str | None) -> str | None:
+    """Drop `<!-- ... -->` guidance comments (written for people) before sending text to a model."""
+    if not text:
+        return text
+    stripped = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    return re.sub(r"\n{3,}", "\n\n", stripped).strip()
+
+
 def build_worker_prompt(
     agent_prompt: str,
     project_brief: str,
@@ -797,6 +805,77 @@ def select_input_blocks(
     return blocks, others
 
 
+# Rough chars-per-token for Korean-heavy Markdown. Deliberately low (pessimistic) so the
+# estimate errs toward trimming rather than overflowing the local context window.
+CHARS_PER_TOKEN = 1.5
+BUDGET_MARGIN_CHARS = 400
+TRIM_MARK = "\n\n[... trimmed to fit the local model context ...]\n\n"
+
+
+def worker_input_budget(runtime: dict, fixed_chars: int) -> int | None:
+    """
+    Chars left for expert outputs + retrieved knowledge after the fixed prompt parts.
+    None = no limit (cloud providers, or a local provider without a known num_ctx).
+    """
+    if runtime.get("provider") not in {"ollama", "local"} or not runtime.get("num_ctx"):
+        return None
+    input_tokens = int(runtime["num_ctx"]) - int(runtime.get("max_tokens") or 0)
+    return max(0, int(input_tokens * CHARS_PER_TOKEN) - fixed_chars - BUDGET_MARGIN_CHARS)
+
+
+def clip_block(text: str, limit: int) -> str:
+    """Shorten one expert output to ~`limit` chars: keep its start and its `## Handoff`."""
+    if len(text) <= limit:
+        return text
+    tail = ""
+    cut = text.rfind("\n## Handoff")
+    if cut != -1:
+        tail = text[cut:].strip()[: max(0, limit // 3)]
+    head_len = max(0, limit - len(tail) - len(TRIM_MARK))
+    return text[:head_len].rstrip() + TRIM_MARK + tail
+
+
+def fit_worker_inputs(
+    blocks: list[str], knowledge: str, budget: int
+) -> tuple[list[str], str, int]:
+    """
+    Trim expert-output blocks and the knowledge block to `budget` chars in total.
+    Knowledge gets at most half when blocks exist. Short blocks are kept whole and their
+    unused share goes to the longer ones. Returns (blocks, knowledge, pieces trimmed).
+    """
+    total = sum(len(b) for b in blocks) + len(knowledge)
+    if total <= budget:
+        return blocks, knowledge, 0
+
+    trimmed = 0
+    knowledge_cap = budget // 2 if blocks else budget
+    if len(knowledge) > knowledge_cap:
+        knowledge = knowledge[: max(0, knowledge_cap - len(TRIM_MARK))].rstrip() + TRIM_MARK.rstrip()
+        trimmed += 1
+
+    remaining = max(0, budget - len(knowledge))
+    limits = [0] * len(blocks)
+    pending = sorted(range(len(blocks)), key=lambda i: len(blocks[i]))
+    while pending:
+        share = remaining // len(pending)
+        i = pending[0]
+        if len(blocks[i]) <= share:  # fits whole → give its leftover to the rest
+            limits[i] = len(blocks[i])
+            remaining -= len(blocks[i])
+            pending.pop(0)
+            continue
+        for j in pending:
+            limits[j] = share
+        break
+
+    out: list[str] = []
+    for block, limit in zip(blocks, limits, strict=True):
+        clipped = clip_block(block, limit)
+        trimmed += clipped != block
+        out.append(clipped)
+    return out, knowledge, trimmed
+
+
 def expected_headers(agent_prompt: str) -> list[str]:
     """`## ...` headers listed under the agent's `## Output Format` section."""
     match = re.search(r"^## Output Format\s*$", agent_prompt, flags=re.MULTILINE)
@@ -846,6 +925,8 @@ def run_worker_agent(
     """
     rt = resolve_worker_runtime(config)
     provider = provider or worker_provider(config, api_key)
+    # project_state.md carries long editing notes in HTML comments; they only cost context.
+    project_state = strip_md_comments(project_state)
 
     prompt_rel = agent.get("file")
     output_name = agent.get("output")
@@ -867,8 +948,11 @@ def run_worker_agent(
         blocks, other_completed = selected
     previous_outputs = "\n\n".join(blocks) if blocks else "(none yet)"
     knowledge_block = ""
+    rag_note: str | None = None
+    from i18n import t
+
     try:
-        from rag import build_retrieval_query, retrieve_for_agent
+        from rag import build_retrieval_query, last_retrieval_warning, retrieve_for_agent
 
         query = build_retrieval_query(
             project_brief, project_state=project_state, expert_outputs=previous_outputs
@@ -881,8 +965,31 @@ def run_worker_agent(
             project_state=project_state,
             expert_outputs=previous_outputs,
         )
-    except Exception:
+        rag_note = last_retrieval_warning()
+    except Exception as exc:  # retrieval must never block the expert run
         knowledge_block = ""
+        rag_note = t("rag_warn_error", reason=str(exc) or type(exc).__name__)
+    if rag_note:
+        print(rag_note, file=sys.stderr)
+
+    # Local models silently drop the start of an over-long prompt (the agent role itself),
+    # so trim expert outputs and retrieved knowledge to what the context window can hold.
+    fixed_prompt = build_worker_prompt(
+        agent_prompt,
+        project_brief,
+        "",
+        project_state=project_state,
+        other_completed=other_completed,
+    )
+    budget = worker_input_budget(rt, len(WORKER_SYSTEM) + len(fixed_prompt))
+    if budget is not None:
+        blocks, knowledge_block, trimmed = fit_worker_inputs(blocks, knowledge_block, budget)
+        if trimmed:
+            previous_outputs = "\n\n".join(blocks) if blocks else "(none yet)"
+            print(
+                t("worker_input_trimmed", name=name, n=trimmed, ctx=rt["num_ctx"]),
+                file=sys.stderr,
+            )
     full_prompt = build_worker_prompt(
         agent_prompt,
         project_brief,

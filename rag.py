@@ -336,6 +336,7 @@ class HttpApiRetriever:
         self._session = session or requests.Session()
         self.last_request: dict[str, Any] | None = None
         self.last_status: int | None = None
+        self.last_error: str | None = None  # unreachable | http | bad_response
 
     @property
     def url(self) -> str:
@@ -354,6 +355,7 @@ class HttpApiRetriever:
             lang=self.lang,
         )
         self.last_request = body
+        self.last_error = None
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -365,13 +367,16 @@ class HttpApiRetriever:
                 r = self._session.post(self.url, json=body, headers=headers, timeout=self.timeout)
         except requests.RequestException:
             self.last_status = None
+            self.last_error = "unreachable"
             return []
         self.last_status = r.status_code
         if r.status_code != 200:
+            self.last_error = "http"
             return []
         try:
             data = r.json()
         except ValueError:
+            self.last_error = "bad_response"
             return []
         return parse_retrieve_response(data)
 
@@ -415,6 +420,52 @@ def make_retriever(
 
 
 # ---------------------------------------------------------------------------
+# Diagnostics — why the last retrieval gave nothing (retrieval itself never raises)
+# ---------------------------------------------------------------------------
+
+_last_problem: tuple[str, dict[str, Any]] | None = None
+
+
+def diagnose_retrieval(
+    settings: dict, engine: Retriever, passages: list[Passage]
+) -> tuple[str, dict[str, Any]] | None:
+    """(i18n key, format args) when RAG is on but produced nothing; None when it worked."""
+    if passages:
+        return None
+    if isinstance(engine, NullRetriever):
+        if settings["provider"] in {"http", "api", "remote", "vps"} and not settings["base_url"]:
+            return "rag_warn_no_url", {}
+        return "rag_warn_provider", {"provider": settings["provider"]}
+    error = getattr(engine, "last_error", None)
+    if error == "unreachable":
+        return "rag_warn_unreachable", {"url": getattr(engine, "url", "")}
+    if error == "http":
+        return "rag_warn_http", {"status": getattr(engine, "last_status", "?")}
+    if error == "bad_response":
+        return "rag_warn_bad_response", {}
+    return "rag_warn_no_hits", {}
+
+
+def last_retrieval_warning() -> str | None:
+    """Localized one-line warning for the most recent retrieval, or None if it worked / RAG is off."""
+    if _last_problem is None:
+        return None
+    from i18n import t
+
+    key, args = _last_problem
+    return t(key, **args)
+
+
+def url_missing(settings: dict) -> bool:
+    """RAG is on with the HTTP provider but no server URL is configured."""
+    return bool(
+        settings["enabled"]
+        and settings["provider"] in {"http", "api", "remote", "vps"}
+        and not settings["base_url"]
+    )
+
+
+# ---------------------------------------------------------------------------
 # Format + public API
 # ---------------------------------------------------------------------------
 
@@ -451,6 +502,8 @@ def retrieve_for_agent(
     Return a formatted knowledge block for this agent, or "" if RAG is off /
     the agent has no collection / nothing matched.
     """
+    global _last_problem
+    _last_problem = None
     settings = rag_settings(config)
     collection = collection_for_agent(settings, agent)
     if not collection or not settings["enabled"]:
@@ -485,8 +538,11 @@ def retrieve_passages(
 ) -> list[Passage]:
     """
     Retrieve raw passages for any collection (hub law search or workers).
-    Returns [] when RAG is off / provider unavailable / nothing matched.
+    Returns [] when RAG is off / provider unavailable / nothing matched;
+    `last_retrieval_warning()` then says why.
     """
+    global _last_problem
+    _last_problem = None
     settings = rag_settings(config)
     if not settings["enabled"] or not collection:
         return []
@@ -513,7 +569,10 @@ def retrieve_passages(
         )
     )
     if isinstance(engine, LocalFileRetriever):
-        return engine.retrieve(
+        passages = engine.retrieve(
             collection, query, top_k=use_k, max_chars=use_chars, folder=folder
         )
-    return engine.retrieve(collection, query, top_k=use_k, max_chars=use_chars)
+    else:
+        passages = engine.retrieve(collection, query, top_k=use_k, max_chars=use_chars)
+    _last_problem = diagnose_retrieval(settings, engine, passages)
+    return passages

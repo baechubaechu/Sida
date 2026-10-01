@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import threading
 from collections.abc import Iterator
@@ -178,26 +179,32 @@ def _unwrap_tool_result(result: Any) -> Any:
     return result
 
 
-def iter_default_rhino_commands() -> Iterator[list[str]]:
-    """Candidate argv lists for the Rhino MCP router."""
+def _version_key(name: str) -> tuple[int, ...]:
+    """'0.2.10-wip' → (0, 2, 10) so versions sort numerically, not as text."""
+    return tuple(int(n) for n in re.findall(r"\d+", name))
+
+
+def rhino_packages_dir() -> Path:
+    return Path.home() / "AppData" / "Roaming" / "McNeel" / "Rhinoceros" / "packages"
+
+
+def iter_default_rhino_commands(packages_dir: Path | None = None) -> Iterator[list[str]]:
+    """
+    Candidate argv lists for the Rhino MCP router: SIDA_RHINO_MCP first, then every
+    installed Rhino-MCP-Platform router, newest Rhino and package version first.
+    """
     import os
 
     env = os.environ.get("SIDA_RHINO_MCP", "").strip()
     if env:
         yield [env]
-    yield [
-        str(
-            Path.home()
-            / "AppData"
-            / "Roaming"
-            / "McNeel"
-            / "Rhinoceros"
-            / "packages"
-            / "8.0"
-            / "Rhino-MCP-Platform"
-            / "0.2.1-wip"
-            / "router"
-            / "win-x64"
-            / "rhino-mcp-router.exe"
-        )
-    ]
+    root = packages_dir or rhino_packages_dir()
+    found = root.glob("*/Rhino-MCP-Platform/*/router/win-x64/rhino-mcp-router.exe")
+    # .../packages/<rhino>/Rhino-MCP-Platform/<package>/router/win-x64/<exe>
+    ranked = sorted(
+        found,
+        key=lambda p: (_version_key(p.parents[4].name), _version_key(p.parents[2].name)),
+        reverse=True,
+    )
+    for path in ranked:
+        yield [str(path)]

@@ -15,7 +15,13 @@ from harness import (
     resolve_conductor_runtime,
 )
 from i18n import get_language, t
-from rag import Passage, format_passages, rag_settings, retrieve_passages
+from rag import (
+    Passage,
+    format_passages,
+    last_retrieval_warning,
+    rag_settings,
+    retrieve_passages,
+)
 
 LAW_SYSTEM_KO = """당신은 한국 건축·도시계획 법령 정보 도우미입니다.
 프로젝트나 사이트 브리프 없이, 사용자가 물어본 법령·기준만 설명합니다.
@@ -208,6 +214,9 @@ def answer_law_question(
 def _print_sources(passages: list) -> None:
     if not passages:
         print(t("law_no_passages"))
+        warning = last_retrieval_warning()
+        if warning:
+            print(warning)
         return
     print(t("law_sources"))
     truncated = False
