@@ -18,7 +18,7 @@ AI 에이전트를 쓴다면 빈 폴더를 에이전트로 열고 아래 메시�
    - git config core.hooksPath .githooks 설정, .venv 생성, pip install -e ".[dev]"까지 해 줘.
 4. 아래 두 가지는 내가 직접 할 테니, 실행할 명령만 알려 주고 기다려.
    - GitHub 로그인(gh auth login)
-   - API 키 입력(python setup_env.py 또는 .env 작성). 키를 대화창에 붙여 넣으라고 하지 마.
+   - 첫 실행(python chat.py): 실행 모드(클라우드/로컬) 선택과 API 키 입력. 키를 대화창에 붙여 넣으라고 하지 마.
 5. 마지막에 ruff check . 와 pytest를 돌려서 결과를 알려 줘.
 6. 커밋, push, 브랜치 생성은 하지 마. 세팅만 해.
 ```
@@ -81,9 +81,14 @@ PowerShell에서 설치 직후 `gh`를 찾지 못하면 터미널을 새로 열�
 python -m venv .venv
 .venv\Scripts\activate            # macOS/Linux: source .venv/bin/activate
 pip install -e ".[dev]"           # 실행 의존성 + pytest, ruff
-python setup_env.py               # 언어와 OpenRouter 키 설정 → .env 생성
+python chat.py                    # 첫 실행: 언어 → 실행 모드(클라우드/로컬) → 필요하면 API 키
 ```
 
+- 첫 실행 때 **클라우드(OpenRouter)** 와 **로컬(Ollama)** 중 하나를 고릅니다. 답은 이 PC 전용 파일 `config.local.yaml`에 저장되고 Git에 올라가지 않습니다. 나중에 허브에서 `c`(설정) → `9`로 바꿀 수 있습니다.
+  - 클라우드: OpenRouter API 키가 필요합니다. GPU는 필요 없습니다.
+  - 로컬: [Ollama](https://ollama.com) 설치와 GPU(VRAM 8GB 이상)가 필요합니다. 키와 비용은 없습니다. 자세한 내용은 [`gpu_tiers.md`](gpu_tiers.md).
+- `config.yaml`은 팀 공통 기본값입니다. 개인 설정을 여기에 고쳐서 커밋하지 않습니다.
+- 법령 RAG는 기본으로 꺼져 있습니다. 팀에서 접속 주소와 키를 받았다면 `.env`에 `SIDA_RAG_URL`, `SIDA_RAG_API_KEY`를 넣고 허브 `c`(설정) → `4`로 켭니다.
 - 키를 직접 넣으려면 `.env.example`을 `.env`로 복사해 채웁니다. `.env`는 커밋되지 않습니다.
 - 테스트는 API 키 없이 돌아갑니다(가짜 응답 사용).
 - PowerShell에서 `activate`가 "스크립트를 실행할 수 없습니다"로 막히면 명령 프롬프트(cmd)에서 실행하거나, 활성화 없이 `.venv\Scripts\python.exe -m pip ...`처럼 venv의 Python을 직접 씁니다.

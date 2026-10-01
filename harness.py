@@ -15,6 +15,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = ROOT / "config.yaml"
+LOCAL_CONFIG_NAME = "config.local.yaml"
+LOCAL_CONFIG_PATH = ROOT / LOCAL_CONFIG_NAME
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
@@ -59,16 +61,47 @@ def needs_openrouter(config: dict) -> bool:
     return any(p in {"openrouter", "cloud"} for p in providers)
 
 
-def load_config(path: Path = CONFIG_PATH) -> dict:
-    if not path.exists():
-        fail(f"Missing config file: {path}")
+def local_config_path(path: Path = CONFIG_PATH) -> Path:
+    """Per-machine overrides file that sits next to `path` (git-ignored)."""
+    if path == CONFIG_PATH:
+        return LOCAL_CONFIG_PATH
+    return path.with_name(LOCAL_CONFIG_NAME)
+
+
+def merge_config(base: dict, override: dict) -> dict:
+    """Deep-merge dicts: override wins; lists and scalars are replaced whole."""
+    out = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = merge_config(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def _read_yaml(path: Path) -> dict:
     try:
         with path.open(encoding="utf-8") as f:
-            config = yaml.safe_load(f)
+            data = yaml.safe_load(f)
     except yaml.YAMLError as exc:
         fail(f"Invalid YAML in {path}: {exc}")
-    if not isinstance(config, dict):
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
         fail(f"Invalid config format in {path}")
+    return data
+
+
+def load_config(path: Path = CONFIG_PATH) -> dict:
+    """Team defaults (config.yaml) overlaid with this machine's config.local.yaml."""
+    if not path.exists():
+        fail(f"Missing config file: {path}")
+    config = _read_yaml(path)
+    if not config:
+        fail(f"Invalid config format in {path}")
+    local = local_config_path(path)
+    if local.exists():
+        config = merge_config(config, _read_yaml(local))
     return config
 
 

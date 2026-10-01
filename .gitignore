@@ -21,3 +21,6 @@ knowledge/**/*.chroma/
 # local/editor
 .claude/
 *.log
+
+# per-machine settings (hub → c writes here)
+config.local.yaml

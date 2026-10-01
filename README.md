@@ -92,7 +92,10 @@ cp .env.example .env
 # .env 에 OPENROUTER_API_KEY=... 입력
 ```
 
-Model and agent settings live in `config.yaml`.
+Model and agent settings live in `config.yaml` (team defaults: cloud via OpenRouter, RAG off).
+Per-machine choices go to the git-ignored `config.local.yaml`, which overrides it.
+On first launch the app asks **cloud (OpenRouter) or local (Ollama)** and saves the answer
+there; change it later from the hub with `c` (settings) → `9`.
 
 ### Local Conductor (optional, Ollama)
 
@@ -110,7 +113,7 @@ ollama pull qwen3.5:9b      # 12GB+ recommended
 Ollama **설치**만은 한 번 필요합니다 — https://ollama.com
 
 ```yaml
-# config.yaml
+# config.local.yaml (this machine only)
 conductor:
   provider: ollama          # openrouter | ollama | mock
   local_profile: local_plus # local (8GB, 7B) | local_plus (12GB+, qwen3.5:9b)

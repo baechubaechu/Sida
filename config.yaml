@@ -1,3 +1,6 @@
+# Team defaults — committed. Do not put per-machine choices here.
+# This machine's choices (run mode, providers, RAG on/off) live in config.local.yaml,
+# which is git-ignored and overrides this file. Hub → c (settings) writes there.
 provider: openrouter
 
 # Where user project folders are stored (easy to find in File Explorer)
@@ -29,8 +32,8 @@ local_profiles:
 # Cheap always-on conversational model
 conductor:
   # openrouter (default) | ollama | mock — ollama uses local_profiles[local_profile]
-  provider: ollama
-  local_profile: local_plus # local (8GB, 7B) | local_plus (12GB+, qwen3.5:9b)
+  provider: openrouter
+  local_profile: local      # local (8GB, 7B) | local_plus (12GB+, qwen3.5:9b)
   base_url: http://127.0.0.1:11434   # Ollama server (native /api/chat)
   # When provider=ollama: start server, optionally pull missing model, warm VRAM
   ollama_autostart: true
@@ -61,12 +64,12 @@ conductor:
 #   provider: worker (cloud, reliable JSON) | conductor (fully local when provider=ollama)
 state_update:
   mode: ask
-  provider: conductor           # local when conductor.provider=ollama
+  provider: worker
   max_tokens: 1400
   temperature: 0.2
 
 worker:
-  provider: ollama              # openrouter | ollama | mock
+  provider: openrouter          # openrouter | ollama | mock
   # model / num_ctx come from local_profiles[conductor.local_profile] when provider=ollama
   temperature: 0.3
   max_tokens: 2500
@@ -80,7 +83,7 @@ max_tokens: 2000
 # RAG — local_files (dev) or http (VPS API). See docs/rag.md + docs/rag_api.md.
 # ---------------------------------------------------------------------------
 rag:
-  enabled: true
+  enabled: false                 # off by default; turn on per machine once you have a VPS URL/key
   provider: http                 # http (VPS) | local_files (offline corpus)
   # base_url from SIDA_RAG_URL; Bearer from SIDA_RAG_API_KEY
   path: /v1/retrieve

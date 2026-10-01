@@ -19,7 +19,12 @@ is an offline fallback.
 
 ## Production (VPS)
 
+RAG is off in the team defaults. Turn it on per machine — hub → `c` (settings) → `4`,
+or in `config.local.yaml` — after putting the VPS URL and key in `.env`
+(`SIDA_RAG_URL`, `SIDA_RAG_API_KEY`).
+
 ```yaml
+# config.local.yaml
 rag:
   enabled: true
   provider: http

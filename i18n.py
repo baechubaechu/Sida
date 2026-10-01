@@ -193,6 +193,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "  6) OpenRouter API key\n"
             "  7) OpenAI API key       (Rhino modeling)\n"
             "  8) UI language\n"
+            "  9) Run mode             (cloud / local)\n"
             "  0) back"
         ),
         "set_prompt": "Settings: ",
@@ -201,7 +202,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "set_toggle": "Toggle {cur} → {nxt}",
         "set_pick_conductor": "Conductor provider:",
         "set_pick_worker": "Worker provider:",
-        "set_pick_profile": "Local profile (Ollama):",
+        "set_pick_profile": "Local profile (Ollama) — local: 8GB VRAM, local_plus: 12GB+:",
         "set_pick_state": "State update mode:",
         "set_saved": "Saved: {what}",
         "set_line_conductor": "Conductor:  {provider} / {profile} → {model}",
@@ -212,6 +213,21 @@ STRINGS: dict[str, dict[str, str]] = {
         "set_line_openrouter": "OpenRouter: {status}",
         "set_or_needed": "key required for current providers",
         "set_or_skip": "not required (local/mock)",
+        "set_line_mode": "Mode:       {mode}",
+        "set_line_file": "Saved in:   {path}",
+        "mode_title": "Run mode",
+        "mode_intro": (
+            "Where should the models run?\n"
+            "  1) Cloud — OpenRouter. Needs an API key and is billed per use. No GPU needed.\n"
+            "  2) Local — Ollama on this PC. Free, but needs a GPU (8GB+ VRAM) and a model download."
+        ),
+        "mode_prompt_first": "Select [1/2] (default 1): ",
+        "mode_prompt": "Select [1/2] (Enter = cancel): ",
+        "mode_saved": "Run mode saved: {mode}",
+        "mode_change_later": "Change it anytime: hub → c (settings) → 9.",
+        "mode_name_cloud": "cloud (OpenRouter)",
+        "mode_name_local": "local (Ollama)",
+        "mode_name_custom": "custom",
         "busy_role": "Waiting on {role} …",
         "busy_conductor": "Conductor thinking …",
         "busy_worker": "Running {name} …",
@@ -342,6 +358,30 @@ STRINGS: dict[str, dict[str, str]] = {
         "ollama_pulled": "[ollama] Model ready: {model}",
         "ollama_warming": "[ollama] Loading {model} into VRAM ...",
         "ollama_warm": "[ollama] {model} is loaded.",
+        "ollama_speed": "[ollama] Speed on this PC: {rate} tokens/s.",
+        "ollama_speed_slow": (
+            "[ollama] That is slow for chat. Consider a smaller profile (hub → c → 3) "
+            "or cloud mode (hub → c → 9)."
+        ),
+        "hw_profile_ok": "[gpu] {name} ({gb}GB VRAM) — fits the '{profile}' profile.",
+        "hw_profile_too_big": (
+            "[gpu] {name} ({gb}GB VRAM) is below what the '{profile}' profile needs. "
+            "Recommended: '{rec}' (hub → c → 3)."
+        ),
+        "hw_profile_can_upgrade": (
+            "[gpu] {name} ({gb}GB VRAM) can also run the larger '{rec}' profile "
+            "(current: '{profile}'; hub → c → 3)."
+        ),
+        "hw_recommend_cloud": (
+            "[gpu] {name} ({gb}GB VRAM) is below the 8GB minimum for the '{profile}' profile. "
+            "Cloud mode is recommended (hub → c → 9)."
+        ),
+        "mode_detected_local": (
+            "Detected GPU: {name} ({gb}GB VRAM) — local mode can run the '{rec}' profile."
+        ),
+        "mode_detected_cloud": (
+            "Detected GPU: {name} ({gb}GB VRAM) — below the 8GB local minimum; cloud is recommended."
+        ),
         "sess_created": "Created new project folder.",
         "sess_resumed": "Resumed existing project folder.",
         "sess_loaded_turns": "Loaded conversation: {n} user turn(s).",
@@ -597,6 +637,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "  6) OpenRouter API 키\n"
             "  7) OpenAI API 키         (라이노 모델링)\n"
             "  8) UI 언어\n"
+            "  9) 실행 모드             (클라우드 / 로컬)\n"
             "  0) 뒤로"
         ),
         "set_prompt": "설정: ",
@@ -605,7 +646,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "set_toggle": "{cur} → {nxt} 로 바꿀까요?",
         "set_pick_conductor": "Conductor provider:",
         "set_pick_worker": "Worker provider:",
-        "set_pick_profile": "로컬 프로필 (Ollama):",
+        "set_pick_profile": "로컬 프로필 (Ollama) — local: VRAM 8GB, local_plus: 12GB 이상:",
         "set_pick_state": "State 갱신 모드:",
         "set_saved": "저장됨: {what}",
         "set_line_conductor": "Conductor:  {provider} / {profile} → {model}",
@@ -616,6 +657,21 @@ STRINGS: dict[str, dict[str, str]] = {
         "set_line_openrouter": "OpenRouter: {status}",
         "set_or_needed": "현재 provider에 키 필요",
         "set_or_skip": "불필요 (로컬/mock)",
+        "set_line_mode": "모드:       {mode}",
+        "set_line_file": "저장 위치:  {path}",
+        "mode_title": "실행 모드",
+        "mode_intro": (
+            "모델을 어디서 실행할까요?\n"
+            "  1) 클라우드 — OpenRouter. API 키가 필요하고 쓴 만큼 비용이 듭니다. GPU 불필요.\n"
+            "  2) 로컬 — 이 PC의 Ollama. 무료지만 GPU(VRAM 8GB 이상)와 모델 다운로드가 필요합니다."
+        ),
+        "mode_prompt_first": "선택 [1/2] (기본 1): ",
+        "mode_prompt": "선택 [1/2] (Enter = 취소): ",
+        "mode_saved": "실행 모드 저장됨: {mode}",
+        "mode_change_later": "나중에 바꾸려면: 허브 → c(설정) → 9.",
+        "mode_name_cloud": "클라우드 (OpenRouter)",
+        "mode_name_local": "로컬 (Ollama)",
+        "mode_name_custom": "사용자 지정",
         "busy_role": "{role} 응답 대기 중 …",
         "busy_conductor": "Conductor 생각 중 …",
         "busy_worker": "{name} 실행 중 …",
@@ -746,6 +802,30 @@ STRINGS: dict[str, dict[str, str]] = {
         "ollama_pulled": "[ollama] 모델 준비됨: {model}",
         "ollama_warming": "[ollama] {model} 을(를) VRAM에 올리는 중 ...",
         "ollama_warm": "[ollama] {model} 로드됨.",
+        "ollama_speed": "[ollama] 이 PC에서의 속도: 초당 {rate}토큰.",
+        "ollama_speed_slow": (
+            "[ollama] 대화하기에는 느립니다. 더 작은 프로필(허브 → c → 3)이나 "
+            "클라우드 모드(허브 → c → 9)를 고려하세요."
+        ),
+        "hw_profile_ok": "[gpu] {name} (VRAM {gb}GB) — '{profile}' 프로필에 맞습니다.",
+        "hw_profile_too_big": (
+            "[gpu] {name} (VRAM {gb}GB)는 '{profile}' 프로필에 부족합니다. "
+            "추천: '{rec}' (허브 → c → 3)."
+        ),
+        "hw_profile_can_upgrade": (
+            "[gpu] {name} (VRAM {gb}GB)는 더 큰 '{rec}' 프로필도 돌릴 수 있습니다 "
+            "(현재: '{profile}', 허브 → c → 3)."
+        ),
+        "hw_recommend_cloud": (
+            "[gpu] {name} (VRAM {gb}GB)는 '{profile}' 프로필의 최소 8GB에 못 미칩니다. "
+            "클라우드 모드를 추천합니다 (허브 → c → 9)."
+        ),
+        "mode_detected_local": (
+            "감지된 GPU: {name} (VRAM {gb}GB) — 로컬 모드에서 '{rec}' 프로필을 돌릴 수 있습니다."
+        ),
+        "mode_detected_cloud": (
+            "감지된 GPU: {name} (VRAM {gb}GB) — 로컬 최소 8GB에 못 미쳐 클라우드를 추천합니다."
+        ),
         "sess_created": "새 프로젝트 폴더를 만들었습니다.",
         "sess_resumed": "기존 프로젝트를 이어서 엽니다.",
         "sess_loaded_turns": "이전 대화 불러옴: 사용자 턴 {n}개",

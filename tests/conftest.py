@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import hardware  # noqa: E402
 import harness  # noqa: E402
 import i18n  # noqa: E402
 import project as prj  # noqa: E402
@@ -19,7 +20,10 @@ import project as prj  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def isolated_settings(tmp_path, monkeypatch):
-    """Never touch ~/Sida/settings.json during tests. Default language: ko."""
+    """Never touch ~/Sida/settings.json or config.local.yaml during tests. Default language: ko."""
+    monkeypatch.setattr(harness, "LOCAL_CONFIG_PATH", tmp_path / "config.local.yaml")
+    # No real nvidia-smi calls: tests that need a GPU patch query_nvidia_smi themselves.
+    monkeypatch.setattr(hardware, "query_nvidia_smi", lambda: None)
     settings_dir = tmp_path / "settings"
     monkeypatch.setattr(i18n, "SETTINGS_DIR", settings_dir)
     monkeypatch.setattr(i18n, "SETTINGS_PATH", settings_dir / "settings.json")

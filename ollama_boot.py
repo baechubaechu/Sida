@@ -187,6 +187,55 @@ def warmup_model(base_url: str, model: str, *, keep_alive: str, num_ctx: int | N
         raise LLMError(f"Ollama warmup failed ({r.status_code}): {r.text[:300]}")
 
 
+SLOW_TOKENS_PER_SEC = 10.0
+
+
+def measure_speed(
+    base_url: str, model: str, *, keep_alive: str, num_ctx: int | None
+) -> float | None:
+    """Generation speed in tokens/s from a short reply, or None if it cannot be measured."""
+    options: dict[str, Any] = {"num_predict": 64, "temperature": 0}
+    if num_ctx:
+        options["num_ctx"] = int(num_ctx)
+    body = {
+        "model": model,
+        "messages": [{"role": "user", "content": "Count from 1 to 40, separated by spaces."}],
+        "stream": False,
+        "think": False,
+        "keep_alive": keep_alive,
+        "options": options,
+    }
+    try:
+        r = requests.post(f"{base_url}/api/chat", json=body, timeout=300)
+        data = r.json() if r.status_code == 200 else {}
+        tokens = float(data.get("eval_count") or 0)
+        seconds = float(data.get("eval_duration") or 0) / 1e9
+    except (requests.RequestException, ValueError, TypeError, AttributeError):
+        return None
+    if tokens <= 0 or seconds <= 0:
+        return None
+    return tokens / seconds
+
+
+def profile_advice(profile: str | None, gpu: dict | None) -> str | None:
+    """One line telling the user whether `profile` suits the detected GPU, before a download."""
+    from hardware import PROFILE_MIN_VRAM_MB, recommend_profile, vram_gb
+    from i18n import t
+
+    profile = profile or "local"
+    if not gpu or profile not in PROFILE_MIN_VRAM_MB:
+        return None
+    rec = recommend_profile(gpu["vram_mb"])
+    info = {"name": gpu["name"], "gb": vram_gb(gpu), "profile": profile, "rec": rec}
+    if rec is None:
+        return t("hw_recommend_cloud", **info)
+    if gpu["vram_mb"] < PROFILE_MIN_VRAM_MB[profile]:
+        return t("hw_profile_too_big", **info)
+    if rec != profile:
+        return t("hw_profile_can_upgrade", **info)
+    return t("hw_profile_ok", **info)
+
+
 def ensure_ollama_ready(
     config: dict,
     *,
@@ -222,10 +271,17 @@ def ensure_ollama_ready(
         print_fn(t("ollama_started"))
 
     names = list_ollama_models(base)
+    pulled = False
     if not model_is_present(names, model):
         mode = settings["pull_missing"]
         if mode == "off":
             raise LLMError(t("ollama_model_missing", model=model))
+        # Before a multi-GB download: say whether this profile suits the GPU.
+        from hardware import detect_gpu
+
+        advice = profile_advice(runtime.get("local_profile"), detect_gpu())
+        if advice:
+            print_fn(advice)
         do_pull = mode == "auto"
         if mode == "ask":
             print_fn(t("ollama_model_missing_ask", model=model))
@@ -239,6 +295,7 @@ def ensure_ollama_ready(
             raise LLMError(t("ollama_model_missing", model=model))
         print_fn(t("ollama_pulling", model=model))
         pull_model(base, model)
+        pulled = True
         print_fn(t("ollama_pulled", model=model))
 
     if settings["warmup"]:
@@ -250,3 +307,12 @@ def ensure_ollama_ready(
             num_ctx=runtime.get("num_ctx"),
         )
         print_fn(t("ollama_warm", model=model))
+        if pulled:
+            # First run of a freshly downloaded model: report how fast it is here.
+            rate = measure_speed(
+                base, model, keep_alive=settings["keep_alive"], num_ctx=runtime.get("num_ctx")
+            )
+            if rate is not None:
+                print_fn(t("ollama_speed", rate=f"{rate:.0f}"))
+                if rate < SLOW_TOKENS_PER_SEC:
+                    print_fn(t("ollama_speed_slow"))
