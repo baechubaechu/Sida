@@ -49,6 +49,7 @@ Python 3.10+ 만 설치되어 있으면 됩니다. `run.bat`을 더블클릭하�
 
 ```bat
 run.bat                      :: 채팅 (프로젝트 허브). 첫 실행 시 .venv 생성 + 의존성 설치
+run.bat web                  :: 웹 UI (브라우저에서 http://127.0.0.1:8765, 지금은 프로젝트 허브까지)
 run.bat setup                :: 언어 / OpenRouter 키 설정
 run.bat sample_brief         :: 프로젝트 바로 열기
 run.bat pipeline input\brief.md   :: 비대화형 순차 실행
@@ -305,6 +306,8 @@ Module layout:
 | `hub_settings.py` | hub `c`: settings menu and run mode → `config.local.yaml` |
 | `hub_about.py` | hub `h`: about page listing the experts |
 | `hardware.py` | GPU detection (NVIDIA) and local-profile recommendation |
+| `workspace.py` | UI-agnostic project hub operations: list, look up, create |
+| `webapp.py` + `webui/` | local web UI (FastAPI): JSON API under `/api`, HTML pages from `webui/templates`, styles in `webui/static` |
 | `run.bat` | Windows launcher: venv + deps + dispatch |
 | `harness.py` | config loading, providers (OpenRouter / OpenAI / Ollama / mock), worker runs, context budget |
 | `project.py` | project folder I/O, `project_state.md`, brief section patching |
