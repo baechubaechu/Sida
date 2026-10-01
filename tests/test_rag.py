@@ -212,3 +212,97 @@ def test_example_files_roundtrip():
     block = rag.format_passages(passages, collection="regulation")
     assert "RETRIEVED KNOWLEDGE (regulation)" in block
     assert "source: kr_railway_adjacent.md" in block
+
+
+# --- warnings when RAG is on but produced nothing ---------------------------
+
+
+def _http_config(mock_config, base_url="https://vps.example"):
+    mock_config["rag"] = {
+        "enabled": True,
+        "provider": "http",
+        "base_url": base_url,
+        "agents": {"regulation_checker": "regulation"},
+    }
+    return mock_config
+
+
+class _FakeHttp:
+    def __init__(self, *, status=200, payload=None, exc=None):
+        self.status, self.payload, self.exc = status, payload, exc
+
+    def post(self, *_a, **_k):
+        if self.exc:
+            raise self.exc
+        status, payload = self.status, self.payload
+
+        class Reply:
+            status_code = status
+
+            def json(self):
+                if payload is None:
+                    raise ValueError("not json")
+                return payload
+
+        return Reply()
+
+
+def _retriever(session):
+    return rag.HttpApiRetriever("https://vps.example", session=session)
+
+
+def test_no_warning_when_rag_off_or_passages_found(mock_config):
+    mock_config["rag"] = {"enabled": False}
+    assert rag.retrieve_passages(mock_config, "regulation", "q") == []
+    assert rag.last_retrieval_warning() is None
+
+    cfg = _http_config(mock_config)
+    ok = _retriever(_FakeHttp(payload={"passages": [{"source": "s", "text": "본문"}]}))
+    assert len(rag.retrieve_passages(cfg, "regulation", "q", retriever=ok)) == 1
+    assert rag.last_retrieval_warning() is None
+
+
+def test_warning_names_the_reason(mock_config, monkeypatch):
+    import requests
+
+    monkeypatch.delenv("SIDA_RAG_URL", raising=False)
+    cfg = _http_config(mock_config, base_url="")
+    assert rag.retrieve_passages(cfg, "regulation", "q") == []
+    assert "SIDA_RAG_URL" in rag.last_retrieval_warning()
+    assert rag.url_missing(rag.rag_settings(cfg))
+
+    cfg = _http_config(mock_config)
+    cases = [
+        (_FakeHttp(exc=requests.ConnectionError("down")), "vps.example"),
+        (_FakeHttp(status=503, payload={}), "503"),
+        (_FakeHttp(payload=None), "JSON"),
+        (_FakeHttp(payload={"passages": []}), "찾지 못했"),
+    ]
+    for session, expected in cases:
+        assert rag.retrieve_passages(cfg, "regulation", "q", retriever=_retriever(session)) == []
+        assert expected in rag.last_retrieval_warning()
+
+
+def test_warning_cleared_for_agent_without_collection(mock_config):
+    cfg = _http_config(mock_config)
+    failing = _retriever(_FakeHttp(status=500, payload={}))
+    rag.retrieve_passages(cfg, "regulation", "q", retriever=failing)
+    assert rag.last_retrieval_warning()
+    assert rag.retrieve_for_agent(cfg, {"id": "site_reader"}, "q") == ""
+    assert rag.last_retrieval_warning() is None  # stale warning must not leak to other experts
+
+
+def test_worker_run_prints_rag_warning(mock_config, agents, project, monkeypatch, capsys):
+    from harness import MockProvider, agent_by_id, run_worker_agent
+
+    monkeypatch.delenv("SIDA_RAG_URL", raising=False)
+    _http_config(mock_config, base_url="")
+    brief = project.read_brief()
+    out = project.modules_dir
+    reg = agent_by_id(agents, "regulation_checker")
+    run_worker_agent("", mock_config, reg, brief, [], out, provider=MockProvider())
+    assert "[rag]" in capsys.readouterr().err
+
+    site = agent_by_id(agents, "site_reader")
+    run_worker_agent("", mock_config, site, brief, [], out, provider=MockProvider())
+    assert "[rag]" not in capsys.readouterr().err  # only experts that use RAG warn

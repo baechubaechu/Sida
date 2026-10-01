@@ -10,7 +10,7 @@ rem    run.bat pipeline <brief.md>   non-interactive sequential run (run.py)
 rem    run.bat test            run the test suite
 rem    run.bat update          reinstall dependencies
 rem
-rem  First run creates .venv and installs requirements. Needs Python 3.10+.
+rem  First run creates .venv and installs dependencies (pyproject.toml). Needs Python 3.10+.
 rem ---------------------------------------------------------------------------
 
 cd /d "%~dp0"
@@ -19,7 +19,7 @@ set "PYTHONUTF8=1"
 set "PYTHONIOENCODING=utf-8"
 set "VENV=.venv"
 set "VPY=%VENV%\Scripts\python.exe"
-set "STAMP=%VENV%\requirements.installed"
+set "STAMP=%VENV%\pyproject.installed"
 
 if not exist "%VPY%" goto :create_venv
 goto :deps
@@ -35,12 +35,12 @@ set "NEED_INSTALL="
 if /i "%~1"=="update" set "NEED_INSTALL=1"
 if not exist "%STAMP%" set "NEED_INSTALL=1"
 if not defined NEED_INSTALL (
-    fc /b requirements.txt "%STAMP%" >nul 2>&1 || set "NEED_INSTALL=1"
+    fc /b pyproject.toml "%STAMP%" >nul 2>&1 || set "NEED_INSTALL=1"
 )
 if defined NEED_INSTALL (
     echo [sida] Installing dependencies ...
-    "%VPY%" -m pip install --quiet -r requirements.txt || goto :pip_failed
-    copy /y requirements.txt "%STAMP%" >nul
+    "%VPY%" -m pip install --quiet -e . || goto :pip_failed
+    copy /y pyproject.toml "%STAMP%" >nul
 )
 if /i "%~1"=="update" (
     echo [sida] Dependencies are up to date.

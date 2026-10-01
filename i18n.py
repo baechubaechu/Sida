@@ -248,6 +248,26 @@ STRINGS: dict[str, dict[str, str]] = {
         "law_label": "Answer: ",
         "law_sources": "Sources:",
         "law_no_passages": "(no passages retrieved — answer is agenda-level only)",
+        "rag_warn_no_url": (
+            "[rag] Warning: RAG is on but no server URL is set (SIDA_RAG_URL in .env). "
+            "Continuing without retrieved regulations."
+        ),
+        "rag_warn_provider": (
+            "[rag] Warning: unknown rag.provider '{provider}'. Continuing without retrieved regulations."
+        ),
+        "rag_warn_unreachable": (
+            "[rag] Warning: cannot reach the RAG server ({url}). Continuing without retrieved regulations."
+        ),
+        "rag_warn_http": (
+            "[rag] Warning: the RAG server returned HTTP {status}. "
+            "Continuing without retrieved regulations."
+        ),
+        "rag_warn_bad_response": (
+            "[rag] Warning: the RAG server reply was not valid JSON. "
+            "Continuing without retrieved regulations."
+        ),
+        "rag_warn_no_hits": "[rag] No matching regulation passages were found for this request.",
+        "rag_warn_error": "[rag] Warning: retrieval failed ({reason}). Continuing without retrieved regulations.",
         "law_cleared": "Conversation cleared.",
         "law_no_session_context": (
             "No session context is kept — each question is already independent."
@@ -408,6 +428,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "module_nothing_saved": "[module] Nothing was saved. Try again with /run {agent}.",
         "module_preview": "--- {name} preview ---",
         "module_missing_headers": "[module] Warning: {name} output is missing headers: {headers}",
+        "worker_input_trimmed": (
+            "[module] {name}: trimmed {n} input(s) to fit the local model context "
+            "(num_ctx={ctx}). Use cloud mode or a larger profile for full inputs."
+        ),
         "unknown_agent": "Unknown agent: {agent}",
         "run_usage": "Usage: /run <agent_id>",
         # --- info commands
@@ -692,6 +716,24 @@ STRINGS: dict[str, dict[str, str]] = {
         "law_label": "답변: ",
         "law_sources": "출처:",
         "law_no_passages": "(검색된 조문 없음 — 아젠다 수준 안내만 가능)",
+        "rag_warn_no_url": (
+            "[rag] 경고: RAG가 켜져 있지만 서버 주소가 없습니다(.env의 SIDA_RAG_URL). "
+            "법규 검색 없이 진행합니다."
+        ),
+        "rag_warn_provider": (
+            "[rag] 경고: 알 수 없는 rag.provider '{provider}'. 법규 검색 없이 진행합니다."
+        ),
+        "rag_warn_unreachable": (
+            "[rag] 경고: RAG 서버에 연결할 수 없습니다({url}). 법규 검색 없이 진행합니다."
+        ),
+        "rag_warn_http": (
+            "[rag] 경고: RAG 서버가 HTTP {status}를 돌려줬습니다. 법규 검색 없이 진행합니다."
+        ),
+        "rag_warn_bad_response": (
+            "[rag] 경고: RAG 서버 응답이 올바른 JSON이 아닙니다. 법규 검색 없이 진행합니다."
+        ),
+        "rag_warn_no_hits": "[rag] 이번 요청에 맞는 법규 구절을 찾지 못했습니다.",
+        "rag_warn_error": "[rag] 경고: 검색에 실패했습니다({reason}). 법규 검색 없이 진행합니다.",
         "law_cleared": "대화를 비웠습니다.",
         "law_no_session_context": (
             "세션 컨텍스트를 쌓지 않습니다 — 질문마다 이미 독립입니다."
@@ -852,6 +894,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "module_nothing_saved": "[module] 저장된 것 없음. /run {agent} 으로 다시 시도하세요.",
         "module_preview": "--- {name} 미리보기 ---",
         "module_missing_headers": "[module] 경고: {name} 출력에 빠진 섹션: {headers}",
+        "worker_input_trimmed": (
+            "[module] {name}: 로컬 모델 컨텍스트(num_ctx={ctx})에 맞추려고 입력 {n}개를 줄였습니다. "
+            "전체 입력을 쓰려면 클라우드 모드나 더 큰 프로필을 쓰세요."
+        ),
         "unknown_agent": "알 수 없는 모듈: {agent}",
         "run_usage": "사용법: /run <agent_id>",
         # --- info commands
