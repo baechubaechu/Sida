@@ -270,10 +270,8 @@ expert list and the `project_state.md` Module Status table are generated from co
 
 ## Next steps
 
-- Web UI on top of the same core (the CLI stays for automation and tests)
-- Save a run log with model and timestamps
-- Attach sample outputs under `examples/sample_output/`
-- Refine agent prompts against studio review feedback
+See [`docs/roadmap.md`](docs/roadmap.md). In short: separate the core from the terminal I/O,
+then add a local web UI on top of it (the CLI stays for automation and tests).
 
 ## Development
 
