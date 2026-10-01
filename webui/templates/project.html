@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} · Sida{% endblock %}
+{% block content %}
+
+<p><a href="/">{{ t("web_back_hub") }}</a></p>
+
+<section class="card">
+  <div class="card-head">
+    <h1>{{ project.name }}</h1>
+    {% if project.project_type %}<span class="project-type">{{ project.project_type }}</span>{% endif %}
+  </div>
+  <p class="notice">{{ t("web_session_soon", name=project.name) }}</p>
+  <p class="muted small">{{ project.path }}</p>
+</section>
+
+<div class="columns">
+  <section class="card">
+    <h2>{{ t("web_brief") }}</h2>
+    <pre class="doc">{{ project.brief }}</pre>
+  </section>
+
+  <section class="card">
+    <h2>{{ t("web_experts") }}</h2>
+    <ul class="expert-list">
+      {% for e in project.experts %}
+      <li class="{{ 'done' if e.done else 'pending' }}">
+        <span class="expert-name">{{ e.name }}</span>
+        <span class="expert-phase">{{ e.phase }}</span>
+        <span class="expert-status">{{ t("web_status_done") if e.done else t("web_status_pending") }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+</div>
+
+{% endblock %}

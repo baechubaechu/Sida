@@ -6,6 +6,7 @@ rem
 rem    run.bat                 chat (project hub)
 rem    run.bat <project|brief> open a project or start from a brief .md
 rem    run.bat setup           language + OpenRouter API key
+rem    run.bat web             web UI in your browser (http://127.0.0.1:8765)
 rem    run.bat pipeline <brief.md>   non-interactive sequential run (run.py)
 rem    run.bat test            run the test suite
 rem    run.bat update          reinstall dependencies
@@ -49,6 +50,7 @@ if /i "%~1"=="update" (
 
 rem ---------------------------------------------------------------- dispatch
 if /i "%~1"=="setup"    ( "%VPY%" setup_env.py %2 %3 & goto :end )
+if /i "%~1"=="web"      ( "%VPY%" webapp.py %2 %3 %4 & goto :end )
 if /i "%~1"=="test"     ( "%VPY%" -m pip install --quiet pytest >nul 2>&1 & "%VPY%" -m pytest %2 %3 %4 & goto :end )
 if /i "%~1"=="pipeline" ( shift & "%VPY%" run.py %1 %2 %3 & goto :end )
 "%VPY%" chat.py %*

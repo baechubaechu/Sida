@@ -13,12 +13,17 @@ dependencies = [
   "requests>=2.31,<3",
   "python-dotenv>=1.0,<2",
   "PyYAML>=6.0,<7",
+  "fastapi>=0.110,<1",
+  "uvicorn>=0.29,<1",
+  "jinja2>=3.1,<4",
+  "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=8",
   "ruff>=0.5",
+  "httpx>=0.27,<1",
 ]
 
 [tool.setuptools]
@@ -47,6 +52,8 @@ py-modules = [
   "mcp_stdio",
   "rhino_mcp",
   "rhino_modeler",
+  "workspace",
+  "webapp",
 ]
 
 [tool.pytest.ini_options]
