@@ -105,6 +105,18 @@ rag:
     multi_query: true
 
 # ---------------------------------------------------------------------------
+# Site facts — parcel data looked up from an address with `/site <주소>` (VWorld API).
+# Saved in the project as site_facts.json and given to these experts as a SITE FACTS block.
+#   physical   — area, land category, terrain, road frontage
+#   regulatory — zoning, statutory coverage / FAR limits, districts, items to verify
+# Needs VWORLD_API_KEY and VWORLD_DOMAIN in .env.
+# ---------------------------------------------------------------------------
+site_facts:
+  agents:
+    site_reader: physical
+    regulation_checker: regulatory
+
+# ---------------------------------------------------------------------------
 # Rhino modeling (hub → m). Separate from design projects / Conductor experts.
 # OpenAI API only. Model must be GPT-6 or newer (default: gpt-6-astra).
 # ---------------------------------------------------------------------------
