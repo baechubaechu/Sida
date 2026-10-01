@@ -87,3 +87,108 @@ def test_boot_not_installed(mock_config, monkeypatch):
         raise AssertionError("expected LLMError")
     except LLMError as exc:
         assert "ollama.com" in str(exc).lower() or "Ollama" in str(exc)
+
+
+# --- GPU advice before download, speed after -------------------------------
+
+GPU_8GB = "NVIDIA GeForce RTX 4060, 8188\n"
+GPU_16GB = "NVIDIA GeForce RTX 5070 Ti, 16303\n"
+GPU_6GB = "NVIDIA GeForce RTX 2060, 6144\n"
+
+
+def test_profile_advice_cases():
+    from hardware import parse_nvidia_smi
+
+    small, big, tiny = (parse_nvidia_smi(x) for x in (GPU_8GB, GPU_16GB, GPU_6GB))
+    assert "local_plus" in boot.profile_advice("local_plus", small)  # too big → names the profile
+    assert "'local'" in boot.profile_advice("local_plus", small)  # … and recommends local
+    assert "local_plus" in boot.profile_advice("local", big)  # could upgrade
+    assert "16GB" in boot.profile_advice("local_plus", big)  # fits
+    assert "c → 9" in boot.profile_advice("local", tiny)  # below minimum → cloud
+    assert boot.profile_advice("local", None) is None  # nothing detected → say nothing
+    assert boot.profile_advice("my_custom_profile", big) is None
+
+
+def _missing_model_boot(mock_config, monkeypatch, *, profile, gpu_text, answer, warmup=False):
+    import hardware
+
+    mock_config["conductor"]["provider"] = "ollama"
+    mock_config["conductor"]["local_profile"] = profile
+    mock_config["conductor"]["ollama_warmup"] = warmup
+    mock_config["conductor"]["ollama_pull_missing"] = "ask"
+    monkeypatch.setattr(hardware, "query_nvidia_smi", lambda: gpu_text)
+    monkeypatch.setattr(boot, "ollama_reachable", lambda *a, **k: True)
+    monkeypatch.setattr(boot, "list_ollama_models", lambda *_: [])
+    pulled: list[str] = []
+    monkeypatch.setattr(boot, "pull_model", lambda url, model: pulled.append(model))
+    monkeypatch.setattr(boot, "warmup_model", lambda *a, **k: None)
+    logs: list[str] = []
+    seen_before_prompt: list[str] = []
+
+    def prompt(_label):
+        seen_before_prompt.extend(logs)
+        return answer
+
+    try:
+        boot.ensure_ollama_ready(mock_config, prompt_fn=prompt, print_fn=logs.append)
+    except LLMError:
+        pass
+    return logs, seen_before_prompt, pulled
+
+
+def test_gpu_warning_is_shown_before_the_download_prompt(mock_config, monkeypatch):
+    logs, before, pulled = _missing_model_boot(
+        mock_config, monkeypatch, profile="local_plus", gpu_text=GPU_8GB, answer="n"
+    )
+    assert any("[gpu]" in line and "8GB" in line for line in before)
+    assert pulled == []  # user could decline after reading the warning
+
+
+def test_no_gpu_line_when_detection_fails(mock_config, monkeypatch):
+    logs, _before, pulled = _missing_model_boot(
+        mock_config, monkeypatch, profile="local", gpu_text=None, answer="y"
+    )
+    assert not any("[gpu]" in line for line in logs)
+    assert pulled == ["qwen2.5:7b"]
+
+
+def test_speed_reported_after_fresh_download_and_slow_warning(mock_config, monkeypatch):
+    monkeypatch.setattr(boot, "measure_speed", lambda *a, **k: 4.2)
+    logs, _before, pulled = _missing_model_boot(
+        mock_config, monkeypatch, profile="local", gpu_text=GPU_8GB, answer="y", warmup=True
+    )
+    assert pulled == ["qwen2.5:7b"]
+    assert any("4" in line and ("tokens/s" in line or "토큰" in line) for line in logs)
+    assert any("c → 9" in line for line in logs)  # slow → suggests smaller profile / cloud
+
+
+def test_speed_not_measured_when_model_already_present(mock_config, monkeypatch):
+    mock_config["conductor"]["provider"] = "ollama"
+    mock_config["conductor"]["local_profile"] = "local"
+    monkeypatch.setattr(boot, "ollama_reachable", lambda *a, **k: True)
+    monkeypatch.setattr(boot, "list_ollama_models", lambda *_: ["qwen2.5:7b"])
+    monkeypatch.setattr(boot, "warmup_model", lambda *a, **k: None)
+
+    def never(*_a, **_k):
+        raise AssertionError("measure_speed must only run after a fresh download")
+
+    monkeypatch.setattr(boot, "measure_speed", never)
+    boot.ensure_ollama_ready(mock_config, print_fn=lambda *_: None)
+
+
+def test_measure_speed_from_ollama_counters(monkeypatch):
+    class Resp:
+        status_code = 200
+
+        def json(self):
+            return {"eval_count": 60, "eval_duration": 2_000_000_000}
+
+    monkeypatch.setattr(boot.requests, "post", lambda *a, **k: Resp())
+    assert boot.measure_speed("http://h", "m", keep_alive="1m", num_ctx=None) == 30.0
+
+    class Bad(Resp):
+        def json(self):
+            return {"eval_count": 0}
+
+    monkeypatch.setattr(boot.requests, "post", lambda *a, **k: Bad())
+    assert boot.measure_speed("http://h", "m", keep_alive="1m", num_ctx=None) is None

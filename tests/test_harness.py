@@ -431,3 +431,55 @@ def test_run_worker_uses_declared_inputs_only(mock_config, agents, project, scri
     assert "SITE TEXT" in sent and "STATE TEXT" in sent
     assert "CRITIC TEXT" not in sent and "design_critic" in sent
     assert "stale legacy block" not in sent
+
+
+# --- config.yaml + config.local.yaml ---------------------------------------
+
+
+def _write_base(tmp_path):
+    base = tmp_path / "config.yaml"
+    base.write_text(
+        "conductor:\n  provider: openrouter\n  model: m1\n"
+        "rag:\n  enabled: false\n  provider: http\n"
+        "agents:\n  - id: a\n  - id: b\n",
+        encoding="utf-8",
+    )
+    return base
+
+
+def test_load_config_without_local_file_is_base_only(tmp_path):
+    cfg = harness.load_config(_write_base(tmp_path))
+    assert cfg["conductor"] == {"provider": "openrouter", "model": "m1"}
+    assert cfg["rag"]["enabled"] is False
+
+
+def test_load_config_overlays_local_file(tmp_path):
+    base = _write_base(tmp_path)
+    (tmp_path / "config.local.yaml").write_text(
+        "conductor:\n  provider: ollama\nrag:\n  enabled: true\n", encoding="utf-8"
+    )
+    cfg = harness.load_config(base)
+    assert cfg["conductor"] == {"provider": "ollama", "model": "m1"}  # sibling key kept
+    assert cfg["rag"] == {"enabled": True, "provider": "http"}
+    assert [a["id"] for a in cfg["agents"]] == ["a", "b"]
+
+
+def test_load_config_ignores_empty_local_file(tmp_path):
+    base = _write_base(tmp_path)
+    (tmp_path / "config.local.yaml").write_text("# only a comment\n", encoding="utf-8")
+    assert harness.load_config(base)["conductor"]["provider"] == "openrouter"
+
+
+def test_default_load_config_reads_local_config_path():
+    # conftest points LOCAL_CONFIG_PATH at a tmp file, never the real one.
+    harness.LOCAL_CONFIG_PATH.write_text("projects_dir: /tmp/from-local\n", encoding="utf-8")
+    assert harness.load_config()["projects_dir"] == "/tmp/from-local"
+
+
+def test_committed_defaults_are_cloud_with_rag_off():
+    """config.yaml must stay machine-neutral: personal choices belong in config.local.yaml."""
+    cfg = harness.load_config(ROOT / "config.yaml")
+    assert cfg["conductor"]["provider"] == "openrouter"
+    assert cfg["worker"]["provider"] == "openrouter"
+    assert cfg["rag"]["enabled"] is False
+    assert harness.needs_openrouter(cfg)

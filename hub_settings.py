@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Hub settings menu — patch config.yaml without wiping comments.
+"""Hub settings menu — writes this machine's config.local.yaml.
 
-Supports Conductor/Worker provider, local GPU profile, RAG on/off,
-state_update mode, OpenRouter key, and UI language.
+config.yaml holds team defaults and is never written here; choices land in the
+git-ignored config.local.yaml, which load_config overlays on top.
+
+Supports run mode (cloud / local), Conductor/Worker provider, local GPU profile,
+RAG on/off, state_update mode, API keys, and UI language.
 """
 
 from __future__ import annotations
@@ -12,9 +15,11 @@ from pathlib import Path
 from typing import Any
 
 from console import prompt_line
+from hardware import detect_gpu, recommend_profile, vram_gb
 from harness import (
     CONFIG_PATH,
     load_config,
+    local_config_path,
     needs_openrouter,
     resolve_conductor_runtime,
     resolve_worker_runtime,
@@ -24,6 +29,11 @@ from i18n import get_language, t
 PROVIDERS = ("ollama", "openrouter", "mock")
 PROFILES = ("local", "local_plus")
 STATE_MODES = ("ask", "auto", "off")
+MODE_PROVIDER = {"cloud": "openrouter", "local": "ollama"}
+LOCAL_CONFIG_HEADER = (
+    "# This machine only — not committed. Values here override config.yaml.\n"
+    "# Change them from the hub (c = settings) or edit this file directly.\n"
+)
 
 
 def _yaml_scalar(value: Any) -> str:
@@ -82,13 +92,87 @@ def set_section_key(text: str, section: str, key: str, value: Any) -> str:
 
 
 def save_config_patches(patches: list[tuple[str, str, Any]], *, path: Path | None = None) -> Path:
-    """Apply (section, key, value) patches to config.yaml and write."""
-    path = path or CONFIG_PATH
-    text = path.read_text(encoding="utf-8")
+    """Apply (section, key, value) patches to config.local.yaml (created if missing)."""
+    path = path or local_config_path()
+    text = path.read_text(encoding="utf-8") if path.exists() else LOCAL_CONFIG_HEADER
     for section, key, value in patches:
         text = set_section_key(text, section, key, value)
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def run_mode_patches(mode: str, profile: str | None = None) -> list[tuple[str, str, Any]]:
+    """Config patches for a run mode: cloud = OpenRouter, local = Ollama (both roles)."""
+    provider = MODE_PROVIDER[mode]
+    patches: list[tuple[str, str, Any]] = [
+        ("conductor", "provider", provider),
+        ("worker", "provider", provider),
+    ]
+    if mode == "local" and profile:
+        patches.append(("conductor", "local_profile", profile))
+    return patches
+
+
+def current_run_mode(config: dict) -> str:
+    """cloud | local | custom (roles differ, or mock)."""
+    c = resolve_conductor_runtime(config)["provider"]
+    w = resolve_worker_runtime(config)["provider"]
+    if c == w == "openrouter":
+        return "cloud"
+    if c in {"ollama", "local"} and w in {"ollama", "local"}:
+        return "local"
+    return "custom"
+
+
+def choose_run_mode(*, config_path: Path | None = None, first_run: bool = False) -> str | None:
+    """
+    Ask cloud vs local and save it to config.local.yaml.
+    Enter picks cloud on first run. Returns the mode, or None if cancelled.
+    """
+    base = config_path or CONFIG_PATH
+    print()
+    print("=" * 40)
+    print(f"  {t('mode_title')}")
+    print("=" * 40)
+    print(t("mode_intro"))
+    gpu = detect_gpu()
+    rec = recommend_profile(gpu["vram_mb"]) if gpu else None
+    if gpu:
+        key = "mode_detected_local" if rec else "mode_detected_cloud"
+        print(t(key, name=gpu["name"], gb=vram_gb(gpu), rec=rec or ""))
+    print()
+    raw = prompt_line(t("mode_prompt_first") if first_run else t("mode_prompt"))
+    if raw is None:
+        return None
+    raw = raw.strip().lower()
+    if raw in {"1", "cloud", "c", "클라우드"} or (first_run and raw == ""):
+        mode = "cloud"
+    elif raw in {"2", "local", "l", "로컬"}:
+        mode = "local"
+    else:
+        if raw:
+            print(t("hub_invalid"))
+        return None
+
+    profile = None
+    if mode == "local":
+        # Pre-select what the detected GPU can run; otherwise keep the configured profile.
+        cur = rec or str(
+            (load_config(base).get("conductor") or {}).get("local_profile") or "local"
+        )
+        profile = _pick(t("set_pick_profile"), PROFILES, cur) or cur
+    save_config_patches(run_mode_patches(mode, profile), path=local_config_path(base))
+    print(t("mode_saved", mode=t(f"mode_name_{mode}")))
+    if first_run:
+        print(t("mode_change_later"))
+    return mode
+
+
+def ensure_run_mode(*, config_path: Path | None = None) -> None:
+    """First launch on this machine (no config.local.yaml yet): ask cloud vs local."""
+    if local_config_path(config_path or CONFIG_PATH).exists():
+        return
+    choose_run_mode(config_path=config_path, first_run=True)
 
 
 def settings_summary(config: dict) -> str:
@@ -99,6 +183,7 @@ def settings_summary(config: dict) -> str:
     lang = get_language()
     or_needed = needs_openrouter(config)
     lines = [
+        t("set_line_mode", mode=t(f"mode_name_{current_run_mode(config)}")),
         t(
             "set_line_conductor",
             provider=c["provider"],
@@ -165,23 +250,25 @@ def _toggle_bool(current: bool) -> bool | None:
 
 def hub_settings_menu(*, config_path: Path | None = None) -> dict:
     """
-    Interactive settings loop. Writes config.yaml / language / API key as chosen.
+    Interactive settings loop. Writes config.local.yaml / language / API key as chosen.
     Returns the reloaded config dict.
     """
-    path = config_path or CONFIG_PATH
+    base = config_path or CONFIG_PATH
+    path = local_config_path(base)
     while True:
-        config = load_config(path)
+        config = load_config(base)
         print()
         print("=" * 40)
         print(f"  {t('set_title')}")
         print("=" * 40)
         print(settings_summary(config))
+        print(t("set_line_file", path=str(path)))
         print()
         print(t("set_menu"))
         print()
         choice = prompt_line(t("set_prompt"))
         if choice is None or choice.strip().lower() in {"", "0", "b", "back", "q"}:
-            return load_config(path)
+            return load_config(base)
         choice = choice.strip().lower()
 
         c_rt = resolve_conductor_runtime(config)
@@ -243,6 +330,10 @@ def hub_settings_menu(*, config_path: Path | None = None) -> dict:
             from setup_env import prompt_language
 
             prompt_language(force=True)
+            continue
+
+        if choice in {"9", "m", "mode"}:
+            choose_run_mode(config_path=base)
             continue
 
         print(t("hub_invalid"))

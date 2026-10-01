@@ -29,8 +29,9 @@ from session import run_session
 
 
 def ensure_app_setup() -> None:
-    """Language + API key (only if OpenRouter is used). No project creation here."""
+    """Language, run mode (first launch), API key if OpenRouter is used. No project creation."""
     from harness import load_config, needs_openrouter
+    from hub_settings import ensure_run_mode
     from setup_env import ensure_api_key, prompt_language, read_api_key_from_env
 
     configure_stdio()
@@ -44,6 +45,7 @@ def ensure_app_setup() -> None:
     print(t("welcome_body"))
     print()
 
+    ensure_run_mode()
     config = load_config()
     if not needs_openrouter(config):
         print(t("api_skip_local"))

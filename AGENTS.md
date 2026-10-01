@@ -8,7 +8,7 @@ Sida(시다) 저장소에서 작업하는 모든 AI 에이전트(Claude Code, Cu
 
 - 진입점: `chat.py`(프로젝트 허브), `run.py`(비대화형 파이프라인), Windows는 `run.bat`
 - 핵심 모듈: `harness.py`, `conductor.py`, `session.py`, `hub.py`, `rag.py`, `i18n.py`(한국어 우선 UI 문자열)
-- 설정: `config.yaml`, 비밀값은 `.env`(키 목록은 `.env.example`)
+- 설정: `config.yaml`은 팀 공통 기본값(클라우드, RAG 꺼짐)이다. PC별 설정은 Git이 무시하는 `config.local.yaml`에 두고, `load_config`가 그 값을 덮어쓴다. 허브 설정 메뉴와 첫 실행 질문은 `config.local.yaml`에만 쓴다. 개인 설정을 `config.yaml`에 커밋하지 않는다. 비밀값은 `.env`(키 목록은 `.env.example`)
 - 새 모듈을 추가하면 `pyproject.toml`의 `[tool.setuptools] py-modules`에도 등록한다. 빠지면 CI 설치가 깨진다.
 
 ## 개발 명령어
