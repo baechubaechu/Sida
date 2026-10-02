@@ -105,7 +105,7 @@ def test_save_config_patches_defaults_to_local_file_not_config_yaml():
     assert "enabled: true" in written.read_text(encoding="utf-8")
     assert (ROOT / "config.yaml").read_text(encoding="utf-8") == tracked
     cfg = harness.load_config()
-    assert cfg["rag"]["enabled"] is True and cfg["rag"]["provider"] == "http"
+    assert cfg["rag"]["enabled"] is True and cfg["rag"]["provider"] == "lawgokr"  # sibling kept
 
 
 def test_first_run_enter_picks_cloud_and_leaves_base_untouched(tmp_path, monkeypatch):
@@ -213,3 +213,8 @@ def test_one_liner_flags_rag_on_without_url(mock_config, monkeypatch):
     assert "rag:on(no url)" not in settings_one_liner(mock_config)
     mock_config["rag"] = {"enabled": False, "provider": "http"}
     assert "rag:off" in settings_one_liner(mock_config)
+
+    mock_config["rag"] = {"enabled": True, "provider": "lawgokr"}
+    assert settings_one_liner(mock_config).endswith("rag:on")  # conftest sets an OC value
+    monkeypatch.delenv("LAW_OPEN_API_OC")
+    assert "rag:on(no key)" in settings_one_liner(mock_config)

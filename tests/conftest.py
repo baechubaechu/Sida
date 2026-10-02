@@ -16,9 +16,12 @@ import hardware  # noqa: E402
 import harness  # noqa: E402
 import i18n  # noqa: E402
 import landapi  # noqa: E402
+import lawapi  # noqa: E402
 import project as prj  # noqa: E402
 
 REAL_HTTP_GET = landapi._http_get  # the autouse fixture below replaces it for every test
+REAL_LAW_HTTP_GET = lawapi._http_get
+LAW_FIXTURES = ROOT / "tests" / "fixtures" / "lawapi"
 
 
 def _no_network(url, params):
@@ -70,6 +73,10 @@ def isolated_settings(tmp_path, monkeypatch):
     monkeypatch.setenv("VWORLD_API_KEY", "test-key")
     monkeypatch.setenv("VWORLD_DOMAIN", "http://localhost:8765")
     monkeypatch.setattr(landapi, "_http_get", _no_network)
+    monkeypatch.setattr(lawapi, "ENV_PATH", tmp_path / "no.env")
+    monkeypatch.setenv("LAW_OPEN_API_OC", "test-oc")
+    monkeypatch.setattr(lawapi, "_http_get", _no_network)
+    lawapi.clear_cache()
     # No real nvidia-smi calls: tests that need a GPU patch query_nvidia_smi themselves.
     monkeypatch.setattr(hardware, "query_nvidia_smi", lambda: None)
     settings_dir = tmp_path / "settings"

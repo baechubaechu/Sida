@@ -25,7 +25,7 @@ from harness import (
     resolve_worker_runtime,
 )
 from i18n import get_language, t
-from rag import rag_settings, url_missing
+from rag import key_missing, rag_settings, url_missing
 
 PROVIDERS = ("ollama", "openrouter", "mock")
 PROFILES = ("local", "local_plus")
@@ -212,8 +212,11 @@ def settings_one_liner(config: dict) -> str:
     c = resolve_conductor_runtime(config)
     w = resolve_worker_runtime(config)
     rag_on = "rag:on" if (config.get("rag") or {}).get("enabled") else "rag:off"
-    if url_missing(rag_settings(config)):
+    settings = rag_settings(config)
+    if url_missing(settings):
         rag_on += "(no url)"
+    elif key_missing(settings):
+        rag_on += "(no key)"
     return f"C:{c['provider']}/{c['model']}  W:{w['provider']}/{w['model']}  {rag_on}"
 
 

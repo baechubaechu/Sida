@@ -267,6 +267,23 @@ STRINGS: dict[str, dict[str, str]] = {
             "Continuing without retrieved regulations."
         ),
         "rag_warn_no_hits": "[rag] No matching regulation passages were found for this request.",
+        "rag_warn_no_oc": (
+            "[rag] Warning: statute search is on but LAW_OPEN_API_OC is not set in .env. "
+            "Continuing without retrieved regulations."
+        ),
+        "rag_warn_law_not_applied": (
+            "[rag] Warning: this law.go.kr key has not applied for the intelligent search API "
+            "(open.law.go.kr → OPEN API 신청 → 지능형 법령검색 시스템 검색 API). "
+            "Continuing without retrieved regulations."
+        ),
+        "rag_warn_law_denied": (
+            "[rag] Warning: law.go.kr refused the request ({detail}). "
+            "Continuing without retrieved regulations."
+        ),
+        "rag_warn_no_query": (
+            "[rag] No statute search was run: there are no site facts and no Korean project type "
+            "in the brief to search with. Look the site up with /site <address> first."
+        ),
         "rag_warn_error": "[rag] Warning: retrieval failed ({reason}). Continuing without retrieved regulations.",
         "law_cleared": "Conversation cleared.",
         "law_no_session_context": (
@@ -385,6 +402,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "No OpenRouter API key is set. Run `run.bat setup` in a terminal to add one."
         ),
         "web_warn_rag_url": "RAG is on but no server URL is set (SIDA_RAG_URL in .env).",
+        "web_warn_rag_key": "Statute search is on but LAW_OPEN_API_OC is not set in .env.",
         "web_back_hub": "← Projects",
         "web_brief": "Brief",
         "web_experts": "Experts",
@@ -804,6 +822,22 @@ STRINGS: dict[str, dict[str, str]] = {
             "[rag] 경고: RAG 서버 응답이 올바른 JSON이 아닙니다. 법규 검색 없이 진행합니다."
         ),
         "rag_warn_no_hits": "[rag] 이번 요청에 맞는 법규 구절을 찾지 못했습니다.",
+        "rag_warn_no_oc": (
+            "[rag] 경고: 법령 검색이 켜져 있지만 .env에 LAW_OPEN_API_OC가 없습니다. "
+            "법규 검색 없이 진행합니다."
+        ),
+        "rag_warn_law_not_applied": (
+            "[rag] 경고: 이 법제처 키로는 지능형 검색 API를 신청하지 않았습니다 "
+            "(open.law.go.kr → OPEN API 신청 → 지능형 법령검색 시스템 검색 API). "
+            "법규 검색 없이 진행합니다."
+        ),
+        "rag_warn_law_denied": (
+            "[rag] 경고: 법제처가 요청을 거부했습니다({detail}). 법규 검색 없이 진행합니다."
+        ),
+        "rag_warn_no_query": (
+            "[rag] 법령 검색을 하지 않았습니다. 대지 사실이 없고 브리프에 한국어 프로젝트 유형도 없어 "
+            "검색어를 만들 수 없습니다. 먼저 /site <주소>로 대지를 조회하세요."
+        ),
         "rag_warn_error": "[rag] 경고: 검색에 실패했습니다({reason}). 법규 검색 없이 진행합니다.",
         "law_cleared": "대화를 비웠습니다.",
         "law_no_session_context": (
@@ -922,6 +956,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "OpenRouter API 키가 없습니다. 터미널에서 `run.bat setup`을 실행해 넣어 주세요."
         ),
         "web_warn_rag_url": "RAG가 켜져 있지만 서버 주소가 없습니다(.env의 SIDA_RAG_URL).",
+        "web_warn_rag_key": "법령 검색이 켜져 있지만 .env에 LAW_OPEN_API_OC가 없습니다.",
         "web_back_hub": "← 프로젝트 목록",
         "web_brief": "브리프",
         "web_experts": "전문가",

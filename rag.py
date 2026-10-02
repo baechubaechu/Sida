@@ -2,8 +2,9 @@
 """Retrieval for specialist experts (regulation first).
 
 Providers:
-  - local_files — markdown under knowledge/<collection>/ (dev / offline)
-  - http        — POST to a VPS RAG API (production); see docs/rag_api.md
+  - lawgokr     — 법제처 국가법령정보 지능형 검색 (law.go.kr); the default. See lawapi.py
+  - http        — POST to a self-hosted RAG API; see docs/rag_api.md
+  - local_files — markdown under knowledge/<collection>/ (offline)
 
 When `rag.enabled` is false, nothing is injected.
 `retrieve_for_agent(config, agent, query, ...)` is the only worker call site.
@@ -381,6 +382,130 @@ class HttpApiRetriever:
         return parse_retrieve_response(data)
 
 
+LAW_PROVIDERS = frozenset({"lawgokr", "law_api", "law.go.kr"})
+HTTP_PROVIDERS = frozenset({"http", "api", "remote", "vps"})
+LAW_PASSAGE_CHARS = 1800
+LAW_MAX_QUERIES = 5
+# The service gives rank only (no score) and its tail is noisy, so keep the head of each list.
+LAW_PER_QUERY = 3
+LAW_SINGLE_QUERY = 6
+_PAREN_RE = re.compile(r"[(（].*$")
+
+
+class LawSearchRetriever:
+    """법제처 지능형 검색. Takes short focused questions, never a whole project description."""
+
+    name = "lawgokr"
+    url = "law.go.kr"
+
+    def __init__(self, *, http_get=None):
+        self._http_get = http_get
+        self.last_error: str | None = None  # no_key | denied | unreachable | bad_response
+        self.last_detail = ""
+
+    def retrieve(
+        self,
+        collection: str,
+        query: str,
+        *,
+        top_k: int,
+        max_chars: int,
+        queries: list[str] | None = None,
+    ) -> list[Passage]:
+        import lawapi
+        from console import ROLE_COLOR, busy_line
+        from i18n import t
+
+        self.last_error, self.last_detail = None, ""
+        asked = [q for q in (queries if queries is not None else [query]) if q and q.strip()]
+        asked = asked[:LAW_MAX_QUERIES]
+        if not asked:
+            return []
+        per_query = LAW_PER_QUERY if len(asked) > 1 else min(top_k, LAW_SINGLE_QUERY)
+        ranked: list[list[dict]] = []
+        try:
+            with busy_line(t("busy_rag"), color=ROLE_COLOR["rag"]):
+                for q in asked:
+                    ranked.append(lawapi.ai_search(q, display=per_query, http_get=self._http_get))
+        except lawapi.LawApiError as exc:
+            self.last_error = "unreachable" if exc.kind == "network" else exc.kind
+            self.last_detail = exc.detail
+            return []
+
+        # Round-robin across queries so one question does not crowd out the others.
+        merged: list[dict] = []
+        seen: set[tuple[str, str]] = set()
+        for rank in range(per_query):
+            for results in ranked:
+                if rank < len(results):
+                    item = results[rank]
+                    key = (item["law"], item["label"])
+                    if key not in seen:
+                        seen.add(key)
+                        merged.append(item)
+
+        # Articles only: annex search returns titles without bodies and is too noisy to inject.
+        passages: list[Passage] = []
+        used = 0
+        for item in merged[:top_k]:
+            text = item["text"]
+            if len(text) > LAW_PASSAGE_CHARS:
+                text = text[: LAW_PASSAGE_CHARS - 20].rstrip() + "\n[... 조문 일부 생략 ...]"
+            if used + len(text) > max_chars and passages:
+                break
+            name = f"{item['law']} {item['label']}"
+            title = f"{name} ({item['title']})" if item["title"] else name
+            if item.get("effective"):
+                title += f" [시행 {item['effective']}]"
+            passages.append(
+                Passage(
+                    source=f"law.go.kr/{name}",
+                    title=title,
+                    text=text,
+                    score=round(max(0.1, 1.0 - 0.03 * len(passages)), 2),
+                )
+            )
+            used += len(text)
+        return passages
+
+
+def focus_queries(project_brief: str | None, site_facts: dict | None) -> list[str]:
+    """
+    Short statute questions for a project, built from what is known for certain: the
+    zoning and districts in site facts, then Korean one-liners in the brief. The statute
+    search needs focused questions — a whole brief returns nothing useful.
+    """
+    queries: list[str] = []
+    if site_facts:
+        summary = site_facts.get("summary") or {}
+        zones = [z["zone"] for z in summary.get("zoning") or []]
+        for zone in zones[:2]:
+            queries.append(f"{zone}에서 건축할 수 있는 건축물")
+        if zones:
+            queries.append(f"{zones[0]} 건폐율 용적률")
+        try:
+            from site_facts import load_limits
+
+            keywords = [r["keyword"] for r in load_limits()["verify"]]
+        except Exception:
+            keywords = []
+        for d in summary.get("districts") or []:
+            name = str(d.get("name") or "")
+            if d.get("relation") == "접함" or "토지거래" in name:
+                continue
+            if any(k in name for k in keywords):
+                queries.append(f"{_PAREN_RE.sub('', name).strip()} 건축 제한")
+    if project_brief:
+        from project import section_body
+
+        for heading, suffix in (("Project Type", " 건축 기준"), ("Core Problem", "")):
+            line = " ".join(section_body(project_brief, heading).split()).lstrip("- ").strip()
+            if 2 <= len(line) <= 60 and re.search(r"[가-힣]", line):
+                queries.append(line + suffix)
+    unique = list(dict.fromkeys(q for q in queries if q.strip()))
+    return unique[:LAW_MAX_QUERIES]
+
+
 class NullRetriever:
     name = "null"
 
@@ -400,9 +525,11 @@ def make_retriever(
     if not settings["enabled"]:
         return NullRetriever()
     provider = settings["provider"]
+    if provider in LAW_PROVIDERS:
+        return LawSearchRetriever()
     if provider in {"local_files", "files", "markdown"}:
         return LocalFileRetriever(settings["knowledge_dir"])
-    if provider in {"http", "api", "remote", "vps"}:
+    if provider in HTTP_PROVIDERS:
         if not settings["base_url"]:
             return NullRetriever()
         return HttpApiRetriever(
@@ -433,10 +560,17 @@ def diagnose_retrieval(
     if passages:
         return None
     if isinstance(engine, NullRetriever):
-        if settings["provider"] in {"http", "api", "remote", "vps"} and not settings["base_url"]:
+        if settings["provider"] in HTTP_PROVIDERS and not settings["base_url"]:
             return "rag_warn_no_url", {}
         return "rag_warn_provider", {"provider": settings["provider"]}
     error = getattr(engine, "last_error", None)
+    if error == "no_key":
+        return "rag_warn_no_oc", {}
+    if error == "denied":
+        detail = getattr(engine, "last_detail", "")
+        if detail == "not_applied":
+            return "rag_warn_law_not_applied", {}
+        return "rag_warn_law_denied", {"detail": detail}
     if error == "unreachable":
         return "rag_warn_unreachable", {"url": getattr(engine, "url", "")}
     if error == "http":
@@ -459,10 +593,21 @@ def last_retrieval_warning() -> str | None:
 def url_missing(settings: dict) -> bool:
     """RAG is on with the HTTP provider but no server URL is configured."""
     return bool(
-        settings["enabled"]
-        and settings["provider"] in {"http", "api", "remote", "vps"}
-        and not settings["base_url"]
+        settings["enabled"] and settings["provider"] in HTTP_PROVIDERS and not settings["base_url"]
     )
+
+
+def key_missing(settings: dict) -> bool:
+    """RAG is on with the 법제처 provider but LAW_OPEN_API_OC is not set."""
+    if not settings["enabled"] or settings["provider"] not in LAW_PROVIDERS:
+        return False
+    import lawapi
+
+    try:
+        lawapi.law_oc()
+    except lawapi.LawApiError:
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -497,10 +642,14 @@ def retrieve_for_agent(
     project_state: str | None = None,
     expert_outputs: str | None = None,
     lang: str | None = None,
+    site_facts: dict | None = None,
 ) -> str:
     """
     Return a formatted knowledge block for this agent, or "" if RAG is off /
     the agent has no collection / nothing matched.
+
+    With the 법제처 provider the long `query` is not used: focused questions are built
+    from `site_facts` and the brief instead (see focus_queries).
     """
     global _last_problem
     _last_problem = None
@@ -508,10 +657,17 @@ def retrieve_for_agent(
     collection = collection_for_agent(settings, agent)
     if not collection or not settings["enabled"]:
         return ""
+    queries = None
+    if settings["provider"] in LAW_PROVIDERS and retriever is None:
+        queries = focus_queries(project_brief, site_facts)
+        if not queries:
+            _last_problem = ("rag_warn_no_query", {})
+            return ""
     passages = retrieve_passages(
         config,
         collection,
         query,
+        queries=queries,
         retriever=retriever,
         agent_id=str(agent.get("id") or ""),
         project_brief=project_brief,
@@ -535,6 +691,7 @@ def retrieve_passages(
     lang: str | None = None,
     top_k: int | None = None,
     max_chars: int | None = None,
+    queries: list[str] | None = None,
 ) -> list[Passage]:
     """
     Retrieve raw passages for any collection (hub law search or workers).
@@ -568,7 +725,11 @@ def retrieve_passages(
             lang=lang or "ko",
         )
     )
-    if isinstance(engine, LocalFileRetriever):
+    if isinstance(engine, LawSearchRetriever):
+        passages = engine.retrieve(
+            collection, query, top_k=use_k, max_chars=use_chars, queries=queries
+        )
+    elif isinstance(engine, LocalFileRetriever):
         passages = engine.retrieve(
             collection, query, top_k=use_k, max_chars=use_chars, folder=folder
         )

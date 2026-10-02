@@ -266,7 +266,7 @@ expert list and the `project_state.md` Module Status table are generated from co
 - Version 0.2 — CLI prototype only
 - Does not generate drawings, models, or a finished design
 - Quality depends on the brief and the chosen model
-- `regulation_checker` and `precedent_scout` produce verification agendas, not facts — numbers and named works must be checked by the designer. Regulation retrieval (RAG) is off by default; it needs a VPS URL/key or a filled `knowledge/regulations/` corpus (`docs/rag.md`).
+- `regulation_checker` and `precedent_scout` produce verification agendas, not facts — numbers and named works must be checked by the designer. Statute retrieval is off by default; turned on, it searches 법제처 (law.go.kr) directly and needs only `LAW_OPEN_API_OC` in `.env` (`docs/rag.md`).
 - In local mode, long inputs are trimmed to fit the model's context window (a notice is printed); `synthesizer` and `design_critic` read every output and are affected most.
 - Opening an old project auto-renames `01_*.md` module files to the new `11_` / `31_` / … names and adds missing Module Status rows.
 - No web UI or database
@@ -301,8 +301,9 @@ Module layout:
 | `state_updater.py` | project_state.md patch proposal (JSON call → diff → apply) |
 | `ollama_boot.py` | start Ollama, pull missing model, warm VRAM on session open |
 | `migrate.py` | rename legacy module files + sync Module Status on project open |
-| `rag.py` | regulation retrieval for regulation_checker / law search — VPS HTTP API or local markdown |
-| `law_search.py` | hub `l`: regulation Q&A without a project (RAG + Conductor model) |
+| `rag.py` | statute retrieval for regulation_checker / law search — 법제처 search (default), a self-hosted HTTP API, or local markdown |
+| `lawapi.py` | client for the 법제처 OPEN API (law.go.kr): intelligent statute search |
+| `law_search.py` | hub `l`: regulation Q&A without a project (retrieved articles + Conductor model) |
 | `rhino_modeler.py` | hub `m`: Rhino modeling loop (OpenAI model plans, MCP tools execute) |
 | `rhino_mcp.py` / `mcp_stdio.py` | Rhino MCP router bridge, allowed-tool list, stdio JSON-RPC client |
 | `hub_settings.py` | hub `c`: settings menu and run mode → `config.local.yaml` |

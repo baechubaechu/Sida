@@ -54,6 +54,7 @@ py-modules = [
   "rhino_modeler",
   "workspace",
   "landapi",
+  "lawapi",
   "site_facts",
   "webapp",
 ]
