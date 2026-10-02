@@ -26,38 +26,8 @@ dev = [
   "httpx>=0.27,<1",
 ]
 
-[tool.setuptools]
-py-modules = [
-  "chat",
-  "hub",
-  "session",
-  "commands",
-  "conductor",
-  "engine",
-  "briefs",
-  "console",
-  "harness",
-  "hardware",
-  "project",
-  "i18n",
-  "setup_env",
-  "run",
-  "state_updater",
-  "ollama_boot",
-  "migrate",
-  "rag",
-  "hub_settings",
-  "hub_about",
-  "law_search",
-  "mcp_stdio",
-  "rhino_mcp",
-  "rhino_modeler",
-  "workspace",
-  "landapi",
-  "lawapi",
-  "site_facts",
-  "webapp",
-]
+[tool.setuptools.packages.find]
+include = ["sida*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

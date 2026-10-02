@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import os
 
-import project as prj
-from project import _replace_section, section_body
+from sida import project as prj
+from sida.project import _replace_section, section_body
 from tests.conftest import ROOT
 
 BRIEF = (ROOT / "input" / "geumjeong_station_brief.md").read_text(encoding="utf-8")

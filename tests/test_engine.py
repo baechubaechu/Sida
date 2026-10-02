@@ -6,9 +6,8 @@ import re
 
 import pytest
 
-import engine
-import harness
-from harness import LLMError, SidaError
+from sida import engine, harness
+from sida.harness import LLMError, SidaError
 from tests.conftest import ROOT
 
 NONE = 'ok\n```action\n{"type":"none"}\n```'
@@ -39,7 +38,7 @@ class Boom:
 
 
 def test_engine_never_prints_or_reads_input():
-    source = (ROOT / "engine.py").read_text(encoding="utf-8")
+    source = (ROOT / "sida" / "engine.py").read_text(encoding="utf-8")
     assert not re.search(r"^\s*print\(", source, flags=re.MULTILINE)
     assert not re.search(r"\binput\(", source)
 

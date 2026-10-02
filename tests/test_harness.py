@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-import harness
-from harness import (
+from sida import harness
+from sida.harness import (
     LLMError,
     MockProvider,
     _flatten_content,
@@ -95,7 +95,7 @@ def test_ollama_sends_think_false_by_default(monkeypatch):
         captured["body"] = json
         return FakeResp()
 
-    monkeypatch.setattr("harness.requests.post", fake_post)
+    monkeypatch.setattr("sida.harness.requests.post", fake_post)
     p = make_provider("ollama", base_url="http://127.0.0.1:11434")
     out, _ = p.chat("qwen3.5:9b", [{"role": "user", "content": "hi"}], 0.2, 100)
     assert out == "ok"
@@ -113,7 +113,7 @@ def test_ollama_empty_content_with_thinking_is_retryable(monkeypatch):
                 "eval_count": 700,
             }
 
-    monkeypatch.setattr("harness.requests.post", lambda *a, **k: FakeResp())
+    monkeypatch.setattr("sida.harness.requests.post", lambda *a, **k: FakeResp())
     p = make_provider("ollama", base_url="http://h", think=True)
     with pytest.raises(LLMError) as ei:
         p.chat("m", [{"role": "user", "content": "hi"}], 0.1, 50)
@@ -135,7 +135,7 @@ def test_local_profiles_overlay(mock_config):
 
 
 def test_worker_ollama_uses_local_profile_model(mock_config):
-    from harness import resolve_worker_runtime
+    from sida.harness import resolve_worker_runtime
 
     cfg = mock_config
     cfg["conductor"]["provider"] = "ollama"
@@ -150,7 +150,7 @@ def test_worker_ollama_uses_local_profile_model(mock_config):
 
 
 def test_needs_openrouter_false_when_fully_local(mock_config):
-    from harness import needs_openrouter
+    from sida.harness import needs_openrouter
 
     cfg = mock_config
     cfg["conductor"]["provider"] = "ollama"
@@ -168,17 +168,17 @@ def test_needs_openrouter_false_when_fully_local(mock_config):
 
 
 def test_load_env_skips_prompt_when_local(mock_config, monkeypatch):
-    from harness import load_env
+    from sida.harness import load_env
 
     cfg = mock_config
     cfg["conductor"]["provider"] = "ollama"
     cfg["worker"]["provider"] = "ollama"
     cfg["state_update"] = {"mode": "off"}
     monkeypatch.setattr(
-        "setup_env.ensure_api_key",
+        "sida.setup_env.ensure_api_key",
         lambda **k: (_ for _ in ()).throw(AssertionError("should not ask for key")),
     )
-    monkeypatch.setattr("setup_env.read_api_key_from_env", lambda: "")
+    monkeypatch.setattr("sida.setup_env.read_api_key_from_env", lambda: "")
     assert load_env(config=cfg) == ""
 
 
@@ -489,7 +489,7 @@ def test_committed_defaults_are_cloud_with_rag_off():
 
 
 def test_worker_input_budget_only_for_local_with_known_ctx():
-    from harness import worker_input_budget
+    from sida.harness import worker_input_budget
 
     cloud = {"provider": "openrouter", "num_ctx": None, "max_tokens": 2500}
     assert worker_input_budget(cloud, 100) is None
@@ -501,7 +501,7 @@ def test_worker_input_budget_only_for_local_with_known_ctx():
 
 
 def test_clip_block_keeps_start_and_handoff():
-    from harness import TRIM_MARK, clip_block
+    from sida.harness import TRIM_MARK, clip_block
 
     text = "### Site Reader\n\n" + "가" * 5000 + "\n## Handoff\n- → regulation_checker: 철도 이격"
     assert clip_block(text, 99999) == text
@@ -513,7 +513,7 @@ def test_clip_block_keeps_start_and_handoff():
 
 
 def test_fit_worker_inputs_fair_share_and_knowledge_cap():
-    from harness import fit_worker_inputs
+    from sida.harness import fit_worker_inputs
 
     short, long_a, long_b = "s" * 500, "a" * 6000, "b" * 9000
     blocks, knowledge, trimmed = fit_worker_inputs([short, long_a, long_b], "", 20000)
@@ -538,7 +538,7 @@ def _valid_output(agent):
 def test_local_worker_prompt_fits_context_and_reports_trimming(
     mock_config, agents, project, scripted, capsys
 ):
-    from harness import agent_by_id, resolve_worker_runtime
+    from sida.harness import agent_by_id, resolve_worker_runtime
 
     mock_config["conductor"]["local_profile"] = "local"  # 8K context
     mock_config["worker"]["provider"] = "ollama"
@@ -565,7 +565,7 @@ def test_local_worker_prompt_fits_context_and_reports_trimming(
 
 
 def test_cloud_worker_prompt_is_never_trimmed(mock_config, agents, project, scripted, capsys):
-    from harness import agent_by_id
+    from sida.harness import agent_by_id
 
     body = "# Site Reader\n\n" + "내용 " * 20000
     (project.modules_dir / "11_site_reader.md").write_text(body, encoding="utf-8")
@@ -579,7 +579,7 @@ def test_cloud_worker_prompt_is_never_trimmed(mock_config, agents, project, scri
 
 
 def test_strip_md_comments_removes_guidance_only():
-    from harness import strip_md_comments
+    from sida.harness import strip_md_comments
 
     text = "## Meta\n\n<!-- multi\n line note -->\n\n- **Phase**: concept  <!-- inline -->\n\n\n\n## Next\n- a"
     out = strip_md_comments(text)
@@ -590,7 +590,7 @@ def test_strip_md_comments_removes_guidance_only():
 
 
 def test_worker_gets_project_state_without_comments(mock_config, agents, project, scripted):
-    from harness import agent_by_id
+    from sida.harness import agent_by_id
 
     state = project.read_state()
     assert "<!--" in state  # the template ships with editing notes

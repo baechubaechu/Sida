@@ -4,6 +4,17 @@
 # 머지 후 새로 커밋한 내용(push 안 한 것 포함)이 있으면 남겨 둡니다.
 # 사용하려면 한 번만: git config core.hooksPath .githooks
 
+# pull로 pyproject.toml이 바뀌었으면 의존성을 다시 설치합니다(.venv가 있을 때만).
+if git diff --name-only ORIG_HEAD HEAD 2>/dev/null | grep -qx pyproject.toml; then
+  for py in .venv/Scripts/python.exe .venv/bin/python; do
+    [ -x "$py" ] || continue
+    echo "pyproject.toml이 바뀌어 의존성을 다시 설치합니다 ..."
+    "$py" -m pip install --quiet -e ".[dev]" ||
+      echo "설치 실패. 직접 실행하세요: pip install -e \".[dev]\""
+    break
+  done
+fi
+
 [ "$(git symbolic-ref --short HEAD 2>/dev/null)" = "main" ] || exit 0
 
 # fetch.prune 설정이 없어도 원격에서 지워진 브랜치가 [gone]으로 표시되게 합니다.

@@ -286,9 +286,9 @@ pytest                      # offline tests (mock provider, no network)
 ruff check .
 ```
 
-Module layout:
+Module layout. The code is the `sida/` package: the shared core sits directly in `sida/`, and code that belongs to one expert domain sits in `sida/experts/<domain>/` (tests mirror this under `tests/experts/<domain>/`). `chat.py`, `run.py`, `setup_env.py` and `webapp.py` in the repo root only start the module of the same name.
 
-| File | Role |
+| File (under `sida/`) | Role |
 |---|---|
 | `chat.py` | entry point: first-run setup → hub → sessions |
 | `hub.py` | project picker (create / open / sample) |
@@ -301,19 +301,19 @@ Module layout:
 | `state_updater.py` | project_state.md patch proposal (JSON call → diff → apply) |
 | `ollama_boot.py` | start Ollama, pull missing model, warm VRAM on session open |
 | `migrate.py` | rename legacy module files + sync Module Status on project open |
-| `rag.py` | statute retrieval for regulation_checker / law search — 법제처 search (default) or local markdown |
-| `lawapi.py` | client for the 법제처 OPEN API (law.go.kr): intelligent statute search |
-| `law_search.py` | hub `l`: regulation Q&A without a project (retrieved articles + Conductor model) |
-| `rhino_modeler.py` | hub `m`: Rhino modeling loop (OpenAI model plans, MCP tools execute) |
-| `rhino_mcp.py` / `mcp_stdio.py` | Rhino MCP router bridge, allowed-tool list, stdio JSON-RPC client |
+| `experts/regulation/rag.py` | statute retrieval for regulation_checker / law search — 법제처 search (default) or local markdown |
+| `experts/regulation/lawapi.py` | client for the 법제처 OPEN API (law.go.kr): intelligent statute search |
+| `experts/regulation/law_search.py` | hub `l`: regulation Q&A without a project (retrieved articles + Conductor model) |
+| `experts/rhino/rhino_modeler.py` | hub `m`: Rhino modeling loop (OpenAI model plans, MCP tools execute) |
+| `experts/rhino/rhino_mcp.py` / `mcp_stdio.py` | Rhino MCP router bridge, allowed-tool list, stdio JSON-RPC client |
 | `hub_settings.py` | hub `c`: settings menu and run mode → `config.local.yaml` |
 | `hub_about.py` | hub `h`: about page listing the experts |
 | `hardware.py` | GPU detection (NVIDIA) and local-profile recommendation |
 | `workspace.py` | UI-agnostic project hub operations: list, look up, create |
-| `landapi.py` | clients for the government land APIs (VWorld): parcel search, zoning, land characteristics |
-| `site_facts.py` + `data/zoning_limits.yaml` | site facts: parcels → one site, statutory coverage / FAR limits, items to verify; saved as `site_facts.json` and given to `site_reader` / `regulation_checker` |
-| `webapp.py` + `webui/` | local web UI (FastAPI): JSON API under `/api`, HTML pages from `webui/templates`, styles in `webui/static` |
-| `run.bat` | Windows launcher: venv + deps + dispatch |
+| `experts/site/landapi.py` | clients for the government land APIs (VWorld): parcel search, zoning, land characteristics |
+| `experts/site/site_facts.py` + `data/zoning_limits.yaml` (repo root) | site facts: parcels → one site, statutory coverage / FAR limits, items to verify; saved as `site_facts.json` and given to `site_reader` / `regulation_checker` |
+| `webapp.py` + `webui/` (repo root) | local web UI (FastAPI): JSON API under `/api`, HTML pages from `webui/templates`, styles in `webui/static` |
+| `run.bat` (repo root) | Windows launcher: venv + deps + dispatch |
 | `harness.py` | config loading, providers (OpenRouter / OpenAI / Ollama / mock), worker runs, context budget |
 | `project.py` | project folder I/O, `project_state.md`, brief section patching |
 | `i18n.py` | UI strings — Korean default, English fallback |

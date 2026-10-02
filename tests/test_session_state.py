@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from commands import dispatch
-from session import handle_action, update_state_after_module
+from sida.commands import dispatch
+from sida.session import handle_action, update_state_after_module
 
 
 def _answer(monkeypatch, text):
@@ -46,7 +46,7 @@ def test_off_mode_never_calls_model(make_session, scripted):
 
 
 def test_propose_failure_is_reported_not_fatal(make_session, scripted, capsys):
-    from harness import LLMError
+    from sida.harness import LLMError
 
     s = make_session()
     s.config["state_update"] = {"mode": "ask", "provider": "worker"}

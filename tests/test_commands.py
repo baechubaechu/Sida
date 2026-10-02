@@ -3,8 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from commands import dispatch
-from project import section_body
+from sida.commands import dispatch
+from sida.project import section_body
 
 FAKE_EDITOR = Path(__file__).parent / "_fixtures" / "fake_editor.py"
 

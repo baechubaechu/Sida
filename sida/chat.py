@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""Sida CLI entry point — first-run setup, project hub, Conductor sessions.
+
+Module layout (sida/; expert-specific code is under sida/experts/):
+  chat.py       entry point (this file)
+  hub.py        project picker
+  engine.py     UI-agnostic session core: state, turns, expert runs, state updates
+  session.py    terminal front end for a session: rendering, prompts, input loop
+  commands.py   slash commands inside a session
+  conductor.py  Conductor message assembly + one LLM call
+  briefs.py     brief.md authoring (guided fields / external editor)
+  console.py    prompts, editor launch, UTF-8 stdio
+  harness.py    providers (OpenRouter / Ollama / mock), workers, context budget
+  project.py    project folder I/O
+  i18n.py       UI strings (Korean default, English fallback)
+  setup_env.py  language + API key setup
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+from sida.console import configure_stdio
+from sida.harness import fail
+from sida.hub import project_hub
+from sida.i18n import has_language, t
+from sida.project import list_projects, projects_dir
+from sida.session import run_session
+
+
+def ensure_app_setup() -> None:
+    """Language, run mode (first launch), API key if OpenRouter is used. No project creation."""
+    from sida.harness import load_config, needs_openrouter
+    from sida.hub_settings import ensure_run_mode
+    from sida.setup_env import ensure_api_key, prompt_language, read_api_key_from_env
+
+    configure_stdio()
+    if not has_language():
+        prompt_language(force=False)
+        print()
+
+    print("=" * 40)
+    print(f"  {t('welcome_title')}")
+    print("=" * 40)
+    print(t("welcome_body"))
+    print()
+
+    ensure_run_mode()
+    config = load_config()
+    # Reading the key also loads .env, which the hub needs for the other API keys in local mode.
+    had_key = bool(read_api_key_from_env())
+    if not needs_openrouter(config):
+        print(t("api_skip_local"))
+        print()
+        return
+
+    if not had_key:
+        print(t("api_missing"))
+        print()
+    ensure_api_key(interactive=True)
+    if not had_key:
+        print()
+
+
+def print_usage() -> None:
+    print("Usage:")
+    print("  python chat.py")
+    print("  python chat.py sample_brief")
+    print("  python chat.py input/project_brief.md")
+    print("  python chat.py --name my_project input/brief.md")
+    print("  python chat.py --list")
+    print("  python setup_env.py")
+
+
+def main() -> None:
+    args = sys.argv[1:]
+
+    if args and args[0] in {"-h", "--help"}:
+        print_usage()
+        raise SystemExit(0)
+
+    if args and args[0] == "--list":
+        ensure_app_setup()
+        root = projects_dir()
+        projects = list_projects()
+        print(t("sess_projects_root", path=root))
+        if not projects:
+            print(t("hub_empty"))
+            return
+        print(t("hub_projects_list"))
+        for path in projects:
+            print(f"  {path}")
+        return
+
+    ensure_app_setup()
+
+    initial: Path | None = None
+    project_name = None
+    if args:
+        if args[0] == "--name":
+            if len(args) < 3:
+                fail("Usage: python chat.py --name my_project input/brief.md")
+            project_name = args[1]
+            initial = Path(args[2])
+        else:
+            initial = Path(args[0])
+
+    while True:
+        created: bool | None = None
+        if initial is not None:
+            target, name = initial, project_name
+            initial, project_name = None, None
+        else:
+            choice = project_hub()
+            name = None
+            if choice is None:
+                print(t("hub_goodbye"))
+                break
+            target, created = choice
+
+        outcome = run_session(target, project_name=name, created=created)
+        if outcome == "quit":
+            break
+        print(t("hub_closed"))
+
+
+if __name__ == "__main__":
+    main()

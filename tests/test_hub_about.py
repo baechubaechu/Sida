@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import i18n
-from hub_about import format_about_text, worker_label
+from sida import i18n
+from sida.hub_about import format_about_text, worker_label
 
 
 def test_format_about_lists_workers(mock_config):
@@ -24,7 +24,7 @@ def test_worker_label_follows_language(agents):
 
 
 def test_hub_about_returns_to_menu(mock_config, monkeypatch):
-    import hub
+    from sida import hub
 
     called = {"n": 0}
 

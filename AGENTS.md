@@ -6,18 +6,20 @@ Sida(시다) 저장소에서 작업하는 모든 AI 에이전트(Claude Code, Cu
 
 건축 설계 추론을 돕는 CLI 기반 LLM 워크플로. Conductor가 12개 전문가(`agents/*.md`)를 조합해 구조화된 Markdown 문서를 만든다. 최종 설계를 대신하지 않는다.
 
-- 진입점: `chat.py`(프로젝트 허브), `run.py`(비대화형 파이프라인), Windows는 `run.bat`
-- 핵심 모듈: `harness.py`, `conductor.py`, `engine.py`, `session.py`, `hub.py`, `rag.py`, `i18n.py`(한국어 우선 UI 문자열)
+- 진입점: `chat.py`(프로젝트 허브), `run.py`(비대화형 파이프라인), Windows는 `run.bat`. 저장소 최상위의 이 파일들은 `sida/`의 같은 이름 모듈을 실행하기만 한다.
+- 코드는 `sida/` 패키지에 있다. 공통 코어는 `sida/` 바로 아래에 둔다: `harness.py`, `conductor.py`, `engine.py`, `session.py`, `hub.py`, `i18n.py`(한국어 우선 UI 문자열) 등.
+- 한 전문가 영역에만 쓰이는 코드는 `sida/experts/<영역>/`에 둔다: `site/`(대지 사실, 정부 토지 API), `regulation/`(법령 검색), `rhino/`(Rhino 모델링). 테스트도 같은 구조로 `tests/experts/<영역>/`에 둔다. 새 전문가 기능은 공통 코어를 고치기보다 해당 영역 폴더에 만든다.
+- import는 패키지 경로로 쓴다: `from sida.harness import fail`, `from sida.experts.site import site_facts`.
 - `engine.py`는 화면과 무관한 세션 코어다. `print`/`input`을 쓰지 않고, 값을 반환하고 진행 상황은 이벤트(`Session.emit`)로 알린다. 터미널 출력과 질문은 `session.py`에 둔다. 새 세션 로직은 `engine.py`에 넣는다.
 - 웹 UI(`webapp.py`, `webui/`)는 세 층이다: 코어 함수(`engine.py`, `workspace.py`) → JSON API(`/api/...`) → HTML 화면. 로직은 코어에 두고, 경로와 템플릿에는 넣지 않는다. 기능을 추가하면 JSON API와 그 테스트(`tests/test_webapp.py`)를 같이 만든다. 코어 함수는 경로에서 `core(...)`로 호출한다(`fail()`이 서버를 종료시키지 않게 하기 위해서다).
 - 설정: `config.yaml`은 팀 공통 기본값(클라우드, RAG 꺼짐)이다. PC별 설정은 Git이 무시하는 `config.local.yaml`에 두고, `load_config`가 그 값을 덮어쓴다. 허브 설정 메뉴와 첫 실행 질문은 `config.local.yaml`에만 쓴다. 개인 설정을 `config.yaml`에 커밋하지 않는다. 비밀값은 `.env`(키 목록은 `.env.example`)
-- 새 모듈을 추가하면 `pyproject.toml`의 `[tool.setuptools] py-modules`에도 등록한다. 빠지면 CI 설치가 깨진다.
+- 새 모듈은 `sida/` 아래에 두면 자동으로 패키지에 포함된다. 새 폴더를 만들면 `__init__.py`를 넣는다.
 
 ## 개발 명령어
 
 ```bash
 pip install -e ".[dev]"   # 의존성 + pytest, ruff
-git config core.hooksPath .githooks   # 머지된 로컬 브랜치 자동 정리 (clone 후 한 번)
+git config core.hooksPath .githooks   # pull 후 머지된 로컬 브랜치 정리 + pyproject.toml이 바뀌면 재설치 (clone 후 한 번)
 ruff check .              # 린트 (--fix로 자동 수정)
 pytest                    # 테스트 (tests/)
 ```
@@ -62,9 +64,9 @@ pytest                    # 테스트 (tests/)
 - 줄바꿈은 LF로 통일한다(`.gitattributes`). Windows에서 CRLF 차이로 전체 파일이 변경된 것처럼 보이면 내용 변경이 아니다.
 - `harness.py`, `i18n.py`, `conductor.py` 같은 큰 파일은 다른 사람(또는 다른 에이전트)과 동시에 크게 수정하지 않는다.
 - 이 저장소는 여러 에이전트를 함께 쓴다. 한 작업 폴더를 두 에이전트가 동시에 쓰면 브랜치 전환과 커밋 안 된 변경이 서로 섞인다. 작업 전에 `git status`와 현재 브랜치를 확인하고, 내가 만들지 않은 커밋 안 된 변경은 커밋하거나 되돌리지 말고 사용자에게 알린다.
-- 대지 사실(`site_facts.py`, `landapi.py`)은 정부 API에서 가져온 값만 담는다. 수치를 추정하거나 지어내지 않고, 가져오지 못한 항목은 "미확인"으로 둔다. 법정 수치 표(`data/zoning_limits.yaml`)를 고칠 때는 조문 원문과 대조하고 `verified` 날짜를 갱신한다.
+- 대지 사실(`sida/experts/site/`의 `site_facts.py`, `landapi.py`)은 정부 API에서 가져온 값만 담는다. 수치를 추정하거나 지어내지 않고, 가져오지 못한 항목은 "미확인"으로 둔다. 법정 수치 표(`data/zoning_limits.yaml`)를 고칠 때는 조문 원문과 대조하고 `verified` 날짜를 갱신한다.
 - 테스트는 외부 API를 호출하지 않는다. `tests/conftest.py`가 `landapi._http_get`과 `lawapi._http_get`을 막아 두었고, 녹화한 응답(`tests/fixtures/landapi/`, `tests/fixtures/lawapi/`)을 쓴다.
-- 법제처 검색(`lawapi.py`)에는 짧은 질문만 보낸다. 브리프 전체처럼 긴 글을 보내면 결과가 없거나 무관한 조문이 나온다. 전문가용 검색어는 `rag.focus_queries`가 대지 사실과 브리프의 짧은 한국어 항목으로 만든다.
+- 법제처 검색(`sida/experts/regulation/lawapi.py`)에는 짧은 질문만 보낸다. 브리프 전체처럼 긴 글을 보내면 결과가 없거나 무관한 조문이 나온다. 전문가용 검색어는 `rag.focus_queries`가 대지 사실과 브리프의 짧은 한국어 항목으로 만든다.
 - 규칙 파일: 공통 규칙은 이 파일(`AGENTS.md`), Claude Code는 `CLAUDE.md`(이 파일을 import), Cursor 전용 보충 규칙은 `.cursor/rules/`. 공통 규칙은 이 파일만 고친다.
 
 ## 답변 스타일
