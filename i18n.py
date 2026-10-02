@@ -234,7 +234,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "busy_worker_retry": "Retrying {name} (fix headers) …",
         "busy_recovery": "Recovering action block …",
         "busy_state": "Updating project state from {name} …",
-        "busy_rag": "Retrieving regulations (RAG) …",
+        "busy_rag": "Searching statutes …",
         "busy_law": "Looking up regulations …",
         "law_title": "Regulation search",
         "law_intro": (
@@ -242,28 +242,21 @@ STRINGS: dict[str, dict[str, str]] = {
             "For context control, each question stands alone: prior questions are not "
             "added to the search/answer context. Restate the statute or article each time."
         ),
-        "law_rag_off": "Warning: RAG is off in settings. Answers will lack retrieved passages.",
+        "law_rag_off": "Warning: statute search is off in settings (c → 4). Answers will lack retrieved articles.",
         "law_hint": "Type a full question. /back (or q) returns to the hub.",
         "law_prompt": "Law Q: ",
         "law_label": "Answer: ",
         "law_sources": "Sources:",
         "law_no_passages": "(no passages retrieved — answer is agenda-level only)",
-        "rag_warn_no_url": (
-            "[rag] Warning: RAG is on but no server URL is set (SIDA_RAG_URL in .env). "
-            "Continuing without retrieved regulations."
-        ),
         "rag_warn_provider": (
             "[rag] Warning: unknown rag.provider '{provider}'. Continuing without retrieved regulations."
         ),
         "rag_warn_unreachable": (
-            "[rag] Warning: cannot reach the RAG server ({url}). Continuing without retrieved regulations."
-        ),
-        "rag_warn_http": (
-            "[rag] Warning: the RAG server returned HTTP {status}. "
+            "[rag] Warning: cannot reach the statute search ({url}). "
             "Continuing without retrieved regulations."
         ),
         "rag_warn_bad_response": (
-            "[rag] Warning: the RAG server reply was not valid JSON. "
+            "[rag] Warning: unexpected reply from the statute search. "
             "Continuing without retrieved regulations."
         ),
         "rag_warn_no_hits": "[rag] No matching regulation passages were found for this request.",
@@ -401,7 +394,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "web_warn_no_key": (
             "No OpenRouter API key is set. Run `run.bat setup` in a terminal to add one."
         ),
-        "web_warn_rag_url": "RAG is on but no server URL is set (SIDA_RAG_URL in .env).",
         "web_warn_rag_key": "Statute search is on but LAW_OPEN_API_OC is not set in .env.",
         "web_back_hub": "← Projects",
         "web_brief": "Brief",
@@ -791,7 +783,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "busy_worker_retry": "{name} 재시도 중 (헤더 보정) …",
         "busy_recovery": "action 블록 복구 중 …",
         "busy_state": "{name} 결과로 project_state 갱신 중 …",
-        "busy_rag": "법규 RAG 검색 중 …",
+        "busy_rag": "법령 조문 검색 중 …",
         "busy_law": "법령 검색 중 …",
         "law_title": "건축법령 검색",
         "law_intro": (
@@ -799,27 +791,20 @@ STRINGS: dict[str, dict[str, str]] = {
             "컨텍스트 관리를 위해 이전 질문은 검색·답변 컨텍스트에 넣지 않습니다. "
             "법령명·조항을 매 질문마다 다시 적어 주세요."
         ),
-        "law_rag_off": "경고: 설정에서 RAG가 꺼져 있습니다. 검색 조문 없이 답할 수 있습니다.",
+        "law_rag_off": "경고: 설정에서 법령 검색이 꺼져 있습니다(c → 4). 검색된 조문 없이 답하게 됩니다.",
         "law_hint": "질문을 입력하세요. /back (또는 q) 는 허브로.",
         "law_prompt": "법령 Q: ",
         "law_label": "답변: ",
         "law_sources": "출처:",
         "law_no_passages": "(검색된 조문 없음 — 아젠다 수준 안내만 가능)",
-        "rag_warn_no_url": (
-            "[rag] 경고: RAG가 켜져 있지만 서버 주소가 없습니다(.env의 SIDA_RAG_URL). "
-            "법규 검색 없이 진행합니다."
-        ),
         "rag_warn_provider": (
             "[rag] 경고: 알 수 없는 rag.provider '{provider}'. 법규 검색 없이 진행합니다."
         ),
         "rag_warn_unreachable": (
-            "[rag] 경고: RAG 서버에 연결할 수 없습니다({url}). 법규 검색 없이 진행합니다."
-        ),
-        "rag_warn_http": (
-            "[rag] 경고: RAG 서버가 HTTP {status}를 돌려줬습니다. 법규 검색 없이 진행합니다."
+            "[rag] 경고: 법령 검색에 연결할 수 없습니다({url}). 법규 검색 없이 진행합니다."
         ),
         "rag_warn_bad_response": (
-            "[rag] 경고: RAG 서버 응답이 올바른 JSON이 아닙니다. 법규 검색 없이 진행합니다."
+            "[rag] 경고: 법령 검색의 응답이 예상과 다릅니다. 법규 검색 없이 진행합니다."
         ),
         "rag_warn_no_hits": "[rag] 이번 요청에 맞는 법규 구절을 찾지 못했습니다.",
         "rag_warn_no_oc": (
@@ -955,7 +940,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "web_warn_no_key": (
             "OpenRouter API 키가 없습니다. 터미널에서 `run.bat setup`을 실행해 넣어 주세요."
         ),
-        "web_warn_rag_url": "RAG가 켜져 있지만 서버 주소가 없습니다(.env의 SIDA_RAG_URL).",
         "web_warn_rag_key": "법령 검색이 켜져 있지만 .env에 LAW_OPEN_API_OC가 없습니다.",
         "web_back_hub": "← 프로젝트 목록",
         "web_brief": "브리프",

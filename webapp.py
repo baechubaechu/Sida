@@ -65,12 +65,12 @@ def load_config() -> dict:
 def runtime_summary(config: dict) -> dict:
     """What the hub shows about how models will run, plus setup problems worth flagging."""
     from hub_settings import current_run_mode
-    from rag import key_missing, rag_settings, url_missing
+    from rag import key_missing, rag_settings
     from setup_env import read_api_key_from_env
 
     conductor = harness.resolve_conductor_runtime(config)
     worker = harness.resolve_worker_runtime(config)
-    api_key = read_api_key_from_env()  # also loads .env (SIDA_RAG_URL)
+    api_key = read_api_key_from_env()
     rag = rag_settings(config)
     return {
         "mode": current_run_mode(config),
@@ -79,7 +79,6 @@ def runtime_summary(config: dict) -> dict:
         "rag_enabled": bool(rag["enabled"]),
         "warnings": {
             "openrouter_key_missing": harness.needs_openrouter(config) and not api_key,
-            "rag_url_missing": url_missing(rag),
             "rag_key_missing": key_missing(rag),
         },
     }

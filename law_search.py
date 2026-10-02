@@ -178,19 +178,10 @@ def answer_law_question(
         queries = [question]
 
     groups: list[list[Passage]] = []
-    for i, query in enumerate(queries):
+    for query in queries:
         groups.append(
             retrieve_passages(
-                config,
-                coll,
-                query,
-                agent_id="law_search",
-                lang=get_language(),
-                top_k=opts["top_k"],
-                max_chars=opts["max_chars"],
-                # Other phrasings of *this* question only (not prior user turns).
-                project_brief=queries[0] if i > 0 else None,
-                expert_outputs="\n".join(queries[:i]) if i > 0 else None,
+                config, coll, query, top_k=opts["top_k"], max_chars=opts["max_chars"]
             )
         )
     passages = merge_passages(groups, limit=opts["top_k"])

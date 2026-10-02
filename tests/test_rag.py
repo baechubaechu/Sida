@@ -12,9 +12,8 @@ def test_rag_settings_defaults(mock_config):
     s = rag.rag_settings(mock_config)
     assert s["enabled"] is False  # off until a machine opts in via config.local.yaml
     assert s["provider"] == "lawgokr"  # 법제처 search, called directly
-    assert s["path"] == "/v1/retrieve"
     assert s["agents"]["regulation_checker"] == "regulation"
-    assert s["api_key_env"] == "SIDA_RAG_API_KEY"
+    assert "base_url" not in s and "api_key" not in s  # no self-hosted server settings
 
 
 def test_retrieve_disabled_returns_empty(mock_config):
@@ -124,179 +123,56 @@ def test_scaffold_corpus_exists():
     assert any("철도" in c[2] for c in chunks)
 
 
-def test_build_retrieve_request_matches_example_schema():
-    import json
-
-    example = json.loads((ROOT / "examples" / "rag_retrieve_request.json").read_text(encoding="utf-8"))
-    body = rag.build_retrieve_request(
-        collection="regulation",
-        query="q",
-        top_k=6,
-        max_chars=6000,
-        agent_id="regulation_checker",
-        project_brief="BRIEF",
-        project_state="STATE",
-        expert_outputs="OUT",
-        lang="ko",
-    )
-    assert body["api_version"] == rag.API_VERSION == example["api_version"]
-    assert set(body.keys()) == set(example.keys())
-    assert set(body["context"].keys()) == {"brief", "project_state", "expert_outputs"}
-    assert body["context"]["brief"] == "BRIEF"
+# --- warnings when retrieval is on but produced nothing ----------------------
+# (the 법제처 provider's own failure modes are covered in tests/test_lawapi.py)
 
 
-def test_parse_retrieve_response_aliases():
-    passages = rag.parse_retrieve_response(
-        {"results": [{"id": "a.md", "content": "본문", "score": "0.5"}]}
-    )
-    assert len(passages) == 1
-    assert passages[0].source == "a.md" and passages[0].text == "본문" and passages[0].score == 0.5
-    assert rag.parse_retrieve_response({"passages": []}) == []
-    assert rag.parse_retrieve_response("nope") == []
-
-
-def test_http_retriever_posts_context_and_parses(monkeypatch):
-    class FakeResp:
-        status_code = 200
-
-        def json(self):
-            return json.loads(
-                (ROOT / "examples" / "rag_retrieve_response.json").read_text(encoding="utf-8")
-            )
-
-    import json
-
-    calls = []
-
-    class FakeSession:
-        def post(self, url, json=None, headers=None, timeout=None):
-            calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
-            return FakeResp()
-
-    engine = rag.HttpApiRetriever(
-        "https://rag.example.com",
-        api_key="secret",
-        agent_id="regulation_checker",
-        project_brief="BRIEF TEXT",
-        project_state="STATE TEXT",
-        expert_outputs="SITE TEXT",
-        session=FakeSession(),
-    )
-    hits = engine.retrieve("regulation", "철도 하천", top_k=4, max_chars=3000)
-    assert len(hits) == 2 and hits[0].source.startswith("kr_railway")
-    assert calls[0]["url"] == "https://rag.example.com/v1/retrieve"
-    assert calls[0]["headers"]["Authorization"] == "Bearer secret"
-    req = calls[0]["json"]
-    assert req["api_version"] == "sida.rag.v1"
-    assert req["context"]["brief"] == "BRIEF TEXT"
-    assert req["context"]["expert_outputs"] == "SITE TEXT"
-    assert engine.last_request == req
-
-
-def test_http_retriever_soft_fails_on_error():
-    class BoomSession:
-        def post(self, *a, **k):
-            raise rag.requests.ConnectionError("down")
-
-    engine = rag.HttpApiRetriever("https://x", session=BoomSession())
-    assert engine.retrieve("regulation", "q", top_k=3, max_chars=100) == []
-
-
-def test_example_files_roundtrip():
-    import json
-
-    req = json.loads((ROOT / "examples" / "rag_retrieve_request.json").read_text(encoding="utf-8"))
-    resp = json.loads((ROOT / "examples" / "rag_retrieve_response.json").read_text(encoding="utf-8"))
-    assert req["collection"] == "regulation"
-    passages = rag.parse_retrieve_response(resp)
-    block = rag.format_passages(passages, collection="regulation")
-    assert "RETRIEVED KNOWLEDGE (regulation)" in block
-    assert "source: kr_railway_adjacent.md" in block
-
-
-# --- warnings when RAG is on but produced nothing ---------------------------
-
-
-def _http_config(mock_config, base_url="https://vps.example"):
+def _local_config(mock_config, tmp_path):
     mock_config["rag"] = {
         "enabled": True,
-        "provider": "http",
-        "base_url": base_url,
+        "provider": "local_files",
+        "knowledge_dir": str(tmp_path / "knowledge"),
         "agents": {"regulation_checker": "regulation"},
     }
     return mock_config
 
 
-class _FakeHttp:
-    def __init__(self, *, status=200, payload=None, exc=None):
-        self.status, self.payload, self.exc = status, payload, exc
-
-    def post(self, *_a, **_k):
-        if self.exc:
-            raise self.exc
-        status, payload = self.status, self.payload
-
-        class Reply:
-            status_code = status
-
-            def json(self):
-                if payload is None:
-                    raise ValueError("not json")
-                return payload
-
-        return Reply()
-
-
-def _retriever(session):
-    return rag.HttpApiRetriever("https://vps.example", session=session)
-
-
-def test_no_warning_when_rag_off_or_passages_found(mock_config):
+def test_no_warning_when_rag_off_or_passages_found(mock_config, tmp_path):
     mock_config["rag"] = {"enabled": False}
     assert rag.retrieve_passages(mock_config, "regulation", "q") == []
     assert rag.last_retrieval_warning() is None
 
-    cfg = _http_config(mock_config)
-    ok = _retriever(_FakeHttp(payload={"passages": [{"source": "s", "text": "본문"}]}))
-    assert len(rag.retrieve_passages(cfg, "regulation", "q", retriever=ok)) == 1
+    cfg = _local_config(mock_config, tmp_path)
+    folder = tmp_path / "knowledge" / "regulation"
+    folder.mkdir(parents=True)
+    (folder / "kr_rail.md").write_text("# 철도\n\n## 철도보호지구\n철도 경계선 30미터", encoding="utf-8")
+    assert len(rag.retrieve_passages(cfg, "regulation", "철도보호지구 경계선")) == 1
     assert rag.last_retrieval_warning() is None
 
 
-def test_warning_names_the_reason(mock_config, monkeypatch):
-    import requests
+def test_warning_for_no_hits_and_for_a_removed_provider(mock_config, tmp_path):
+    cfg = _local_config(mock_config, tmp_path)
+    assert rag.retrieve_passages(cfg, "regulation", "철도보호지구") == []  # empty corpus
+    assert "찾지 못했" in rag.last_retrieval_warning()
 
-    monkeypatch.delenv("SIDA_RAG_URL", raising=False)
-    cfg = _http_config(mock_config, base_url="")
-    assert rag.retrieve_passages(cfg, "regulation", "q") == []
-    assert "SIDA_RAG_URL" in rag.last_retrieval_warning()
-    assert rag.url_missing(rag.rag_settings(cfg))
-
-    cfg = _http_config(mock_config)
-    cases = [
-        (_FakeHttp(exc=requests.ConnectionError("down")), "vps.example"),
-        (_FakeHttp(status=503, payload={}), "503"),
-        (_FakeHttp(payload=None), "JSON"),
-        (_FakeHttp(payload={"passages": []}), "찾지 못했"),
-    ]
-    for session, expected in cases:
-        assert rag.retrieve_passages(cfg, "regulation", "q", retriever=_retriever(session)) == []
-        assert expected in rag.last_retrieval_warning()
+    # A config.local.yaml written for the old self-hosted server keeps working, with a hint.
+    cfg["rag"]["provider"] = "http"
+    assert rag.retrieve_passages(cfg, "regulation", "철도보호지구") == []
+    assert "'http'" in rag.last_retrieval_warning()
 
 
-def test_warning_cleared_for_agent_without_collection(mock_config):
-    cfg = _http_config(mock_config)
-    failing = _retriever(_FakeHttp(status=500, payload={}))
-    rag.retrieve_passages(cfg, "regulation", "q", retriever=failing)
+def test_warning_cleared_for_agent_without_collection(mock_config, tmp_path):
+    cfg = _local_config(mock_config, tmp_path)
+    rag.retrieve_passages(cfg, "regulation", "철도보호지구")
     assert rag.last_retrieval_warning()
     assert rag.retrieve_for_agent(cfg, {"id": "site_reader"}, "q") == ""
     assert rag.last_retrieval_warning() is None  # stale warning must not leak to other experts
 
 
-def test_worker_run_prints_rag_warning(mock_config, agents, project, monkeypatch, capsys):
+def test_worker_run_prints_rag_warning(mock_config, agents, project, monkeypatch, capsys, tmp_path):
     from harness import MockProvider, agent_by_id, run_worker_agent
 
-    monkeypatch.delenv("SIDA_RAG_URL", raising=False)
-    _http_config(mock_config, base_url="")
+    _local_config(mock_config, tmp_path)  # on, but the corpus is empty
     brief = project.read_brief()
     out = project.modules_dir
     reg = agent_by_id(agents, "regulation_checker")
@@ -305,4 +181,4 @@ def test_worker_run_prints_rag_warning(mock_config, agents, project, monkeypatch
 
     site = agent_by_id(agents, "site_reader")
     run_worker_agent("", mock_config, site, brief, [], out, provider=MockProvider())
-    assert "[rag]" not in capsys.readouterr().err  # only experts that use RAG warn
+    assert "[rag]" not in capsys.readouterr().err  # only experts that use retrieval warn

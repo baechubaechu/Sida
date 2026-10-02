@@ -301,7 +301,7 @@ Module layout:
 | `state_updater.py` | project_state.md patch proposal (JSON call → diff → apply) |
 | `ollama_boot.py` | start Ollama, pull missing model, warm VRAM on session open |
 | `migrate.py` | rename legacy module files + sync Module Status on project open |
-| `rag.py` | statute retrieval for regulation_checker / law search — 법제처 search (default), a self-hosted HTTP API, or local markdown |
+| `rag.py` | statute retrieval for regulation_checker / law search — 법제처 search (default) or local markdown |
 | `lawapi.py` | client for the 법제처 OPEN API (law.go.kr): intelligent statute search |
 | `law_search.py` | hub `l`: regulation Q&A without a project (retrieved articles + Conductor model) |
 | `rhino_modeler.py` | hub `m`: Rhino modeling loop (OpenAI model plans, MCP tools execute) |

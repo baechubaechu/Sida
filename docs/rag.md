@@ -14,7 +14,6 @@ Parcel facts (zoning, statutory coverage / FAR limits) are a separate feature �
 | Provider | What it is | Needs |
 |---|---|---|
 | `lawgokr` (default) | 법제처 국가법령정보 **지능형 법령검색**, called directly from Sida (`lawapi.py`) | `LAW_OPEN_API_OC` in `.env`, with "지능형 법령검색 시스템 검색 API" checked in the OPEN API application |
-| `http` | A self-hosted RAG API ([rag_api.md](rag_api.md)) | `SIDA_RAG_URL`, `SIDA_RAG_API_KEY` |
 | `local_files` | Markdown under `knowledge/regulations/` (offline, keyword match) | nothing |
 
 Retrieval is off in the team defaults. Turn it on per machine: hub → `c` (settings) → `4`,
@@ -23,14 +22,17 @@ or in `config.local.yaml`:
 ```yaml
 rag:
   enabled: true
-  # provider: lawgokr   # default; set http or local_files to use another
+  # provider: lawgokr   # default; local_files uses the offline corpus instead
 ```
 
 ## Why 법제처 search is the default
 
+Sida used to query a self-hosted RAG server (a VPS with its own index of nine statutes).
 Compared on eight topical questions (2026-10), 법제처 search found the expected article in
-six and a related one in the other two; the self-hosted RAG of the time found it in one.
-It also covers every statute (not a chosen few), is always current, and needs no server.
+six and a related one in the other two; the self-hosted server found it in one. 법제처
+search also covers every statute, is always current, and needs no server, so the
+self-hosted client was removed. A `config.local.yaml` that still says `provider: http`
+gets a warning naming the unknown provider.
 
 What to know about it (`lawapi.py` has the details):
 
@@ -56,7 +58,6 @@ run_worker_agent(regulation_checker)
   → site_facts.load_facts(project)                       # zoning etc., if /site was run
   → rag.retrieve_for_agent(..., site_facts=facts)
        lawgokr:      focus_queries(brief, facts) → lawapi.ai_search per question → merge
-       http:         POST /v1/retrieve  { query: brief + state + inputs, context… }
        local_files:  keyword match over knowledge/regulations/
   → build_worker_prompt(..., knowledge_block=formatted passages)
   → model sees RETRIEVED KNOWLEDGE with `source: law.go.kr/<법령명> <조>` lines
@@ -70,6 +71,6 @@ hub → l (law_search.py)
 - `tests/test_lawapi.py` — the 법제처 client and provider against recorded responses
   (`tests/fixtures/lawapi/`): parsing, caching, rejected or missing key, focused questions,
   what `regulation_checker` receives.
-- `tests/test_rag.py` — settings, local ranking, HTTP request body, response parse, warnings.
+- `tests/test_rag.py` — settings, local ranking, worker prompt injection, warnings.
 
 Tests never call law.go.kr: `tests/conftest.py` blocks `lawapi._http_get` and sets a fake OC.
