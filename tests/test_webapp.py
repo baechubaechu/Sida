@@ -5,9 +5,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-import harness
-import webapp
-from project import section_body
+from sida import harness, webapp
+from sida.project import section_body
 
 
 @pytest.fixture
@@ -61,7 +60,7 @@ def test_api_unknown_project_is_404(client):
 
 
 def test_api_runtime_reports_mode_and_missing_key(client, mock_config, monkeypatch):
-    monkeypatch.setattr("setup_env.read_api_key_from_env", lambda: "")
+    monkeypatch.setattr("sida.setup_env.read_api_key_from_env", lambda: "")
     body = client.get("/api/runtime").json()
     assert body["conductor"]["provider"] == "mock"
     assert body["warnings"] == {"openrouter_key_missing": False, "rag_key_missing": False}

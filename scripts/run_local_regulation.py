@@ -13,9 +13,9 @@ load_dotenv()
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import project as prj
-from console import configure_stdio
-from harness import (
+from sida import project as prj
+from sida.console import configure_stdio
+from sida.harness import (
     agent_by_id,
     get_agents,
     load_config,
@@ -23,7 +23,7 @@ from harness import (
     run_worker_agent,
     worker_provider,
 )
-from ollama_boot import ensure_ollama_ready
+from sida.ollama_boot import ensure_ollama_ready
 
 # Use whatever chat model is already on this machine (no long pull).
 LOCAL_MODEL = "qwen3.5:9b"

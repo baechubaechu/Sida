@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hub_settings import (
+from sida.hub_settings import (
     save_config_patches,
     set_section_key,
     settings_one_liner,
@@ -96,7 +96,7 @@ def _base(tmp_path):
 
 
 def test_save_config_patches_defaults_to_local_file_not_config_yaml():
-    import harness
+    from sida import harness
     from tests.conftest import ROOT
 
     tracked = (ROOT / "config.yaml").read_text(encoding="utf-8")
@@ -109,8 +109,8 @@ def test_save_config_patches_defaults_to_local_file_not_config_yaml():
 
 
 def test_first_run_enter_picks_cloud_and_leaves_base_untouched(tmp_path, monkeypatch):
-    import harness
-    from hub_settings import choose_run_mode, current_run_mode
+    from sida import harness
+    from sida.hub_settings import choose_run_mode, current_run_mode
 
     base = _base(tmp_path)
     _answers(monkeypatch, "")
@@ -121,8 +121,8 @@ def test_first_run_enter_picks_cloud_and_leaves_base_untouched(tmp_path, monkeyp
 
 
 def test_run_mode_local_sets_both_roles_and_profile(tmp_path, monkeypatch):
-    import harness
-    from hub_settings import choose_run_mode, current_run_mode
+    from sida import harness
+    from sida.hub_settings import choose_run_mode, current_run_mode
 
     base = _base(tmp_path)
     base.write_text(
@@ -143,7 +143,7 @@ def test_run_mode_local_sets_both_roles_and_profile(tmp_path, monkeypatch):
 
 
 def test_run_mode_cancel_writes_nothing(tmp_path, monkeypatch):
-    from hub_settings import choose_run_mode
+    from sida.hub_settings import choose_run_mode
 
     base = _base(tmp_path)
     _answers(monkeypatch, KeyboardInterrupt())
@@ -154,7 +154,7 @@ def test_run_mode_cancel_writes_nothing(tmp_path, monkeypatch):
 
 
 def test_ensure_run_mode_asks_only_when_local_file_missing(tmp_path, monkeypatch):
-    from hub_settings import ensure_run_mode
+    from sida.hub_settings import ensure_run_mode
 
     base = _base(tmp_path)
     _answers(monkeypatch, "1")
@@ -165,8 +165,8 @@ def test_ensure_run_mode_asks_only_when_local_file_missing(tmp_path, monkeypatch
 
 
 def test_settings_menu_writes_local_file_only(tmp_path, monkeypatch):
-    import harness
-    from hub_settings import hub_settings_menu
+    from sida import harness
+    from sida.hub_settings import hub_settings_menu
 
     base = _base(tmp_path)
     _answers(monkeypatch, "4", "y", "0")  # toggle RAG on, back
@@ -177,9 +177,8 @@ def test_settings_menu_writes_local_file_only(tmp_path, monkeypatch):
 
 
 def test_run_mode_preselects_profile_the_gpu_can_run(tmp_path, monkeypatch, capsys):
-    import hardware
-    import harness
-    from hub_settings import choose_run_mode
+    from sida import hardware, harness
+    from sida.hub_settings import choose_run_mode
 
     base = _base(tmp_path)
     base.write_text(
@@ -195,8 +194,8 @@ def test_run_mode_preselects_profile_the_gpu_can_run(tmp_path, monkeypatch, caps
 
 
 def test_run_mode_recommends_cloud_for_small_gpu(tmp_path, monkeypatch, capsys):
-    import hardware
-    from hub_settings import choose_run_mode
+    from sida import hardware
+    from sida.hub_settings import choose_run_mode
 
     monkeypatch.setattr(hardware, "query_nvidia_smi", lambda: "GTX 1650, 4096\n")
     _answers(monkeypatch, "")

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import subprocess
 
-import hardware
-from hardware import parse_nvidia_smi, recommend_profile, vram_gb
+from sida import hardware
+from sida.hardware import parse_nvidia_smi, recommend_profile, vram_gb
 
 
 def test_parse_nvidia_smi_picks_largest_gpu():

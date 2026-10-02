@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import ollama_boot as boot
-from harness import LLMError
+from sida import ollama_boot as boot
+from sida.harness import LLMError
 
 
 def test_model_is_present_matches_variants():
@@ -97,7 +97,7 @@ GPU_6GB = "NVIDIA GeForce RTX 2060, 6144\n"
 
 
 def test_profile_advice_cases():
-    from hardware import parse_nvidia_smi
+    from sida.hardware import parse_nvidia_smi
 
     small, big, tiny = (parse_nvidia_smi(x) for x in (GPU_8GB, GPU_16GB, GPU_6GB))
     assert "local_plus" in boot.profile_advice("local_plus", small)  # too big → names the profile
@@ -110,7 +110,7 @@ def test_profile_advice_cases():
 
 
 def _missing_model_boot(mock_config, monkeypatch, *, profile, gpu_text, answer, warmup=False):
-    import hardware
+    from sida import hardware
 
     mock_config["conductor"]["provider"] = "ollama"
     mock_config["conductor"]["local_profile"] = profile

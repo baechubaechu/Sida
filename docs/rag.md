@@ -7,13 +7,13 @@ text** instead of numbers from model memory. Retrieval never raises: when it yie
 the run continues and a one-line `[rag]` warning says why.
 
 Parcel facts (zoning, statutory coverage / FAR limits) are a separate feature — see
-`site_facts.py` and `/site`. This document is only about finding statute articles.
+`sida/experts/site/site_facts.py` and `/site`. This document is only about finding statute articles.
 
 ## Providers (`rag.provider` in `config.yaml`)
 
 | Provider | What it is | Needs |
 |---|---|---|
-| `lawgokr` (default) | 법제처 국가법령정보 **지능형 법령검색**, called directly from Sida (`lawapi.py`) | `LAW_OPEN_API_OC` in `.env`, with "지능형 법령검색 시스템 검색 API" checked in the OPEN API application |
+| `lawgokr` (default) | 법제처 국가법령정보 **지능형 법령검색**, called directly from Sida (`sida/experts/regulation/lawapi.py`) | `LAW_OPEN_API_OC` in `.env`, with "지능형 법령검색 시스템 검색 API" checked in the OPEN API application |
 | `local_files` | Markdown under `knowledge/regulations/` (offline, keyword match) | nothing |
 
 Retrieval is off in the team defaults. Turn it on per machine: hub → `c` (settings) → `4`,
@@ -68,9 +68,9 @@ hub → l (law_search.py)
 
 ## Tests
 
-- `tests/test_lawapi.py` — the 법제처 client and provider against recorded responses
+- `tests/experts/regulation/test_lawapi.py` — the 법제처 client and provider against recorded responses
   (`tests/fixtures/lawapi/`): parsing, caching, rejected or missing key, focused questions,
   what `regulation_checker` receives.
-- `tests/test_rag.py` — settings, local ranking, worker prompt injection, warnings.
+- `tests/experts/regulation/test_rag.py` — settings, local ranking, worker prompt injection, warnings.
 
 Tests never call law.go.kr: `tests/conftest.py` blocks `lawapi._http_get` and sets a fake OC.

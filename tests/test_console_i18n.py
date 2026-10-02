@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-import i18n
-from console import one_line, open_in_editor, resolve_editor
+from sida import i18n
+from sida.console import one_line, open_in_editor, resolve_editor
 
 FAKE_EDITOR = Path(__file__).parent / "_fixtures" / "fake_editor.py"
 
@@ -70,7 +70,7 @@ def test_one_line():
 
 
 def test_agent_look_unique_colors():
-    from console import AGENT_LOOK, agent_look
+    from sida.console import AGENT_LOOK, agent_look
 
     colors = [c for _, c in AGENT_LOOK.values()]
     assert len(colors) == len(set(colors))
@@ -79,7 +79,7 @@ def test_agent_look_unique_colors():
 
 
 def test_paint_respects_no_color(monkeypatch):
-    from console import paint
+    from sida.console import paint
 
     monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.delenv("FORCE_COLOR", raising=False)
@@ -87,7 +87,7 @@ def test_paint_respects_no_color(monkeypatch):
 
 
 def test_paint_force_color(monkeypatch):
-    from console import paint
+    from sida.console import paint
 
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("FORCE_COLOR", "1")

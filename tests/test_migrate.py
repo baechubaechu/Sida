@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from migrate import (
+from sida.migrate import (
     LEGACY_MODULE_FILES,
     ensure_module_status_rows,
     existing_module_ids,
@@ -114,7 +114,7 @@ def test_migrate_project_end_to_end(tmp_path, agents):
 
 
 def test_load_project_runs_migration(mock_config, tmp_path, monkeypatch, agents, capsys):
-    import project as prj
+    from sida import project as prj
 
     monkeypatch.setattr(prj, "DEFAULT_PROJECTS_DIR", tmp_path / "projects")
     root = tmp_path / "projects" / "old_proj"

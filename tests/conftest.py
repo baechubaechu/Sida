@@ -12,12 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import hardware  # noqa: E402
-import harness  # noqa: E402
-import i18n  # noqa: E402
-import landapi  # noqa: E402
-import lawapi  # noqa: E402
-import project as prj  # noqa: E402
+from sida import hardware, harness, i18n  # noqa: E402
+from sida import project as prj  # noqa: E402
+from sida.experts.regulation import lawapi  # noqa: E402
+from sida.experts.site import landapi  # noqa: E402
 
 REAL_HTTP_GET = landapi._http_get  # the autouse fixture below replaces it for every test
 REAL_LAW_HTTP_GET = lawapi._http_get
@@ -141,7 +139,7 @@ def scripted():
 @pytest.fixture
 def make_session(mock_config, agents, project, conductor_prompt):
     """Build a Session with mock/scripted providers, no network."""
-    from session import Session, load_existing_outputs
+    from sida.session import Session, load_existing_outputs
 
     def _make(c_provider=None, w_provider=None, history=None):
         return Session(

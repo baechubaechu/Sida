@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-import workspace
-from project import section_body
+from sida import workspace
+from sida.project import section_body
 
 
 def test_empty_root_lists_nothing(mock_config):

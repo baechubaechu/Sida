@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from conductor import ask_conductor, build_conductor_messages, parse_action
-from harness import LLMError, MockProvider
+from sida.conductor import ask_conductor, build_conductor_messages, parse_action
+from sida.harness import LLMError, MockProvider
 
 
 def test_parse_action_variants():
@@ -154,7 +154,7 @@ def test_recovery_skipped_when_block_present_or_cloud_or_off(mock_config, agents
 
 
 def test_recovery_exit_and_read_paths(mock_config, agents, project, conductor_prompt, scripted):
-    from conductor import _parse_recovered, recover_action
+    from sida.conductor import _parse_recovered, recover_action
 
     assert _parse_recovered('{"type":"exit"}', agents) == {"type": "exit", "recovered": True}
     assert _parse_recovered('{"type":"read","module":"constraint mapper"}', agents) == {
@@ -168,7 +168,7 @@ def test_recovery_exit_and_read_paths(mock_config, agents, project, conductor_pr
 
 
 def test_language_rule_injected(mock_config, agents, project, conductor_prompt, scripted):
-    import i18n
+    from sida import i18n
 
     i18n.set_language("ko")
     provider = scripted(['ok\n```action\n{"type":"none"}\n```'])

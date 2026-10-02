@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import hub
-from session import open_session
+from sida import hub
+from sida.session import open_session
 
 
 def _feed(monkeypatch, answers):
@@ -43,7 +43,7 @@ def test_quit_returns_none(mock_config, monkeypatch):
 
 
 def test_open_session_honours_created_override(mock_config, project, monkeypatch):
-    import session as sess
+    from sida import session as sess
 
     monkeypatch.setattr(sess, "load_env", lambda *a, **k: "dummy")
     monkeypatch.setattr(sess, "load_config", lambda *a, **k: mock_config)
