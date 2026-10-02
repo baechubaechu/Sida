@@ -205,13 +205,8 @@ def test_run_mode_recommends_cloud_for_small_gpu(tmp_path, monkeypatch, capsys):
     assert "GTX 1650" in out and ("클라우드를 추천" in out or "cloud is recommended" in out)
 
 
-def test_one_liner_flags_rag_on_without_url(mock_config, monkeypatch):
-    monkeypatch.delenv("SIDA_RAG_URL", raising=False)
-    mock_config["rag"] = {"enabled": True, "provider": "http"}
-    assert "rag:on(no url)" in settings_one_liner(mock_config)
-    monkeypatch.setenv("SIDA_RAG_URL", "https://vps.example")
-    assert "rag:on(no url)" not in settings_one_liner(mock_config)
-    mock_config["rag"] = {"enabled": False, "provider": "http"}
+def test_one_liner_flags_rag_on_without_key(mock_config, monkeypatch):
+    mock_config["rag"] = {"enabled": False, "provider": "lawgokr"}
     assert "rag:off" in settings_one_liner(mock_config)
 
     mock_config["rag"] = {"enabled": True, "provider": "lawgokr"}

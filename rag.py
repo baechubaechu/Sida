@@ -3,7 +3,6 @@
 
 Providers:
   - lawgokr     — 법제처 국가법령정보 지능형 검색 (law.go.kr); the default. See lawapi.py
-  - http        — POST to a self-hosted RAG API; see docs/rag_api.md
   - local_files — markdown under knowledge/<collection>/ (offline)
 
 When `rag.enabled` is false, nothing is injected.
@@ -12,13 +11,10 @@ When `rag.enabled` is false, nothing is injected.
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
-
-import requests
 
 from harness import ROOT
 
@@ -27,8 +23,6 @@ from harness import ROOT
 DEFAULT_AGENT_COLLECTIONS: dict[str, str] = {
     "regulation_checker": "regulation",
 }
-
-API_VERSION = "sida.rag.v1"
 
 
 @dataclass(frozen=True)
@@ -61,14 +55,6 @@ def rag_settings(config: dict) -> dict:
     if not knowledge.is_absolute():
         knowledge = ROOT / knowledge
 
-    # URL: config.base_url → env SIDA_RAG_URL → empty
-    base_url = str(raw.get("base_url") or os.environ.get("SIDA_RAG_URL") or "").rstrip("/")
-    key_env = str(raw.get("api_key_env") or "SIDA_RAG_API_KEY")
-    api_key = str(raw.get("api_key") or os.environ.get(key_env) or "")
-    path = str(raw.get("path") or "/v1/retrieve")
-    if not path.startswith("/"):
-        path = "/" + path
-
     return {
         "enabled": bool(raw.get("enabled", False)),
         "provider": str(raw.get("provider") or "local_files").lower(),
@@ -77,11 +63,6 @@ def rag_settings(config: dict) -> dict:
         "collections": collections,
         "default_top_k": int(raw.get("top_k", 6)),
         "default_max_chars": int(raw.get("max_chars", 6000)),
-        "base_url": base_url,
-        "api_key": api_key,
-        "api_key_env": key_env,
-        "path": path,
-        "timeout": float(raw.get("timeout", 30)),
     }
 
 
@@ -101,7 +82,7 @@ def collection_opts(settings: dict, collection: str) -> tuple[int, int, Path]:
 
 
 # ---------------------------------------------------------------------------
-# Query building + HTTP request body (what the VPS receives)
+# Query building
 # ---------------------------------------------------------------------------
 
 
@@ -119,7 +100,7 @@ def build_retrieval_query(
     expert_outputs: str | None = None,
     max_chars: int = 2500,
 ) -> str:
-    """Compact query text — brief + state + prior experts (also sent as context.*)."""
+    """Compact query text — brief + state + prior experts (keyword match over local files)."""
     parts: list[str] = []
     if project_brief and project_brief.strip():
         parts.append(project_brief.strip())
@@ -131,72 +112,6 @@ def build_retrieval_query(
     if len(text) > max_chars:
         text = text[:max_chars]
     return text
-
-
-def _clip(text: str | None, limit: int) -> str:
-    if not text or not str(text).strip() or str(text).strip() == "(none yet)":
-        return ""
-    t = str(text).strip()
-    return t if len(t) <= limit else t[: limit - 20] + "\n[... truncated ...]"
-
-
-def build_retrieve_request(
-    *,
-    collection: str,
-    query: str,
-    top_k: int,
-    max_chars: int,
-    agent_id: str,
-    project_brief: str | None = None,
-    project_state: str | None = None,
-    expert_outputs: str | None = None,
-    lang: str = "ko",
-) -> dict[str, Any]:
-    """
-    JSON body POSTed to the VPS. Keep this stable — VPS logs/debug against this schema.
-    See docs/rag_api.md and examples/rag_retrieve_request.json.
-    """
-    return {
-        "api_version": API_VERSION,
-        "collection": collection,
-        "agent_id": agent_id,
-        "query": query,
-        "top_k": top_k,
-        "max_chars": max_chars,
-        "lang": lang,
-        "context": {
-            "brief": _clip(project_brief, 4000),
-            "project_state": _clip(project_state, 3000),
-            "expert_outputs": _clip(expert_outputs, 4000),
-        },
-    }
-
-
-def parse_retrieve_response(data: Any) -> list[Passage]:
-    """Accept {passages:[...]} or a bare list. Unknown shapes → []."""
-    if isinstance(data, list):
-        items = data
-    elif isinstance(data, dict):
-        items = data.get("passages") or data.get("results") or data.get("chunks") or []
-    else:
-        return []
-    out: list[Passage] = []
-    if not isinstance(items, list):
-        return out
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        text = str(item.get("text") or item.get("content") or "").strip()
-        if not text:
-            continue
-        source = str(item.get("source") or item.get("id") or item.get("path") or "unknown")
-        title = str(item.get("title") or source)
-        try:
-            score = float(item.get("score") or 0.0)
-        except (TypeError, ValueError):
-            score = 0.0
-        out.append(Passage(source=source, title=title, text=text, score=score))
-    return out
 
 
 # ---------------------------------------------------------------------------
@@ -306,84 +221,7 @@ class LocalFileRetriever:
         return selected
 
 
-class HttpApiRetriever:
-    """POST JSON to a remote RAG service (VPS)."""
-
-    name = "http"
-
-    def __init__(
-        self,
-        base_url: str,
-        *,
-        path: str = "/v1/retrieve",
-        api_key: str = "",
-        timeout: float = 30.0,
-        agent_id: str = "",
-        project_brief: str | None = None,
-        project_state: str | None = None,
-        expert_outputs: str | None = None,
-        lang: str = "ko",
-        session: requests.Session | None = None,
-    ):
-        self.base_url = base_url.rstrip("/")
-        self.path = path if path.startswith("/") else f"/{path}"
-        self.api_key = api_key
-        self.timeout = timeout
-        self.agent_id = agent_id
-        self.project_brief = project_brief
-        self.project_state = project_state
-        self.expert_outputs = expert_outputs
-        self.lang = lang
-        self._session = session or requests.Session()
-        self.last_request: dict[str, Any] | None = None
-        self.last_status: int | None = None
-        self.last_error: str | None = None  # unreachable | http | bad_response
-
-    @property
-    def url(self) -> str:
-        return f"{self.base_url}{self.path}"
-
-    def retrieve(self, collection: str, query: str, *, top_k: int, max_chars: int) -> list[Passage]:
-        body = build_retrieve_request(
-            collection=collection,
-            query=query,
-            top_k=top_k,
-            max_chars=max_chars,
-            agent_id=self.agent_id,
-            project_brief=self.project_brief,
-            project_state=self.project_state,
-            expert_outputs=self.expert_outputs,
-            lang=self.lang,
-        )
-        self.last_request = body
-        self.last_error = None
-        headers = {"Content-Type": "application/json", "Accept": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-        try:
-            from console import ROLE_COLOR, busy_line
-            from i18n import t
-
-            with busy_line(t("busy_rag"), color=ROLE_COLOR["rag"]):
-                r = self._session.post(self.url, json=body, headers=headers, timeout=self.timeout)
-        except requests.RequestException:
-            self.last_status = None
-            self.last_error = "unreachable"
-            return []
-        self.last_status = r.status_code
-        if r.status_code != 200:
-            self.last_error = "http"
-            return []
-        try:
-            data = r.json()
-        except ValueError:
-            self.last_error = "bad_response"
-            return []
-        return parse_retrieve_response(data)
-
-
 LAW_PROVIDERS = frozenset({"lawgokr", "law_api", "law.go.kr"})
-HTTP_PROVIDERS = frozenset({"http", "api", "remote", "vps"})
 LAW_PASSAGE_CHARS = 1800
 LAW_MAX_QUERIES = 5
 # The service gives rank only (no score) and its tail is noisy, so keep the head of each list.
@@ -513,15 +351,7 @@ class NullRetriever:
         return []
 
 
-def make_retriever(
-    settings: dict,
-    *,
-    agent_id: str = "",
-    project_brief: str | None = None,
-    project_state: str | None = None,
-    expert_outputs: str | None = None,
-    lang: str = "ko",
-) -> Retriever:
+def make_retriever(settings: dict) -> Retriever:
     if not settings["enabled"]:
         return NullRetriever()
     provider = settings["provider"]
@@ -529,20 +359,6 @@ def make_retriever(
         return LawSearchRetriever()
     if provider in {"local_files", "files", "markdown"}:
         return LocalFileRetriever(settings["knowledge_dir"])
-    if provider in HTTP_PROVIDERS:
-        if not settings["base_url"]:
-            return NullRetriever()
-        return HttpApiRetriever(
-            settings["base_url"],
-            path=settings["path"],
-            api_key=settings["api_key"],
-            timeout=settings["timeout"],
-            agent_id=agent_id,
-            project_brief=project_brief,
-            project_state=project_state,
-            expert_outputs=expert_outputs,
-            lang=lang,
-        )
     return NullRetriever()
 
 
@@ -560,8 +376,6 @@ def diagnose_retrieval(
     if passages:
         return None
     if isinstance(engine, NullRetriever):
-        if settings["provider"] in HTTP_PROVIDERS and not settings["base_url"]:
-            return "rag_warn_no_url", {}
         return "rag_warn_provider", {"provider": settings["provider"]}
     error = getattr(engine, "last_error", None)
     if error == "no_key":
@@ -573,8 +387,6 @@ def diagnose_retrieval(
         return "rag_warn_law_denied", {"detail": detail}
     if error == "unreachable":
         return "rag_warn_unreachable", {"url": getattr(engine, "url", "")}
-    if error == "http":
-        return "rag_warn_http", {"status": getattr(engine, "last_status", "?")}
     if error == "bad_response":
         return "rag_warn_bad_response", {}
     return "rag_warn_no_hits", {}
@@ -588,13 +400,6 @@ def last_retrieval_warning() -> str | None:
 
     key, args = _last_problem
     return t(key, **args)
-
-
-def url_missing(settings: dict) -> bool:
-    """RAG is on with the HTTP provider but no server URL is configured."""
-    return bool(
-        settings["enabled"] and settings["provider"] in HTTP_PROVIDERS and not settings["base_url"]
-    )
 
 
 def key_missing(settings: dict) -> bool:
@@ -639,9 +444,6 @@ def retrieve_for_agent(
     *,
     retriever: Retriever | None = None,
     project_brief: str | None = None,
-    project_state: str | None = None,
-    expert_outputs: str | None = None,
-    lang: str | None = None,
     site_facts: dict | None = None,
 ) -> str:
     """
@@ -669,11 +471,6 @@ def retrieve_for_agent(
         query,
         queries=queries,
         retriever=retriever,
-        agent_id=str(agent.get("id") or ""),
-        project_brief=project_brief,
-        project_state=project_state,
-        expert_outputs=expert_outputs,
-        lang=lang,
     )
     return format_passages(passages, collection=collection)
 
@@ -684,11 +481,6 @@ def retrieve_passages(
     query: str,
     *,
     retriever: Retriever | None = None,
-    agent_id: str = "law_search",
-    project_brief: str | None = None,
-    project_state: str | None = None,
-    expert_outputs: str | None = None,
-    lang: str | None = None,
     top_k: int | None = None,
     max_chars: int | None = None,
     queries: list[str] | None = None,
@@ -706,25 +498,7 @@ def retrieve_passages(
     default_k, default_chars, folder = collection_opts(settings, collection)
     use_k = int(top_k) if top_k is not None else default_k
     use_chars = int(max_chars) if max_chars is not None else default_chars
-    if lang is None:
-        try:
-            from i18n import get_language
-
-            lang = get_language()
-        except Exception:
-            lang = "ko"
-    engine = (
-        retriever
-        if retriever is not None
-        else make_retriever(
-            settings,
-            agent_id=agent_id,
-            project_brief=project_brief,
-            project_state=project_state,
-            expert_outputs=expert_outputs,
-            lang=lang or "ko",
-        )
-    )
+    engine = retriever if retriever is not None else make_retriever(settings)
     if isinstance(engine, LawSearchRetriever):
         passages = engine.retrieve(
             collection, query, top_k=use_k, max_chars=use_chars, queries=queries

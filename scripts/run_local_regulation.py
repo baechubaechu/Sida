@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local LLM + VPS RAG smoke: run regulation_checker with Ollama worker."""
+"""Local LLM + 법제처 search smoke: run regulation_checker with Ollama worker."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def main() -> None:
     cfg["state_update"] = {"mode": "off"}
     cfg["local_profiles"]["local_plus"]["model"] = LOCAL_MODEL
     cfg["rag"]["enabled"] = True
-    cfg["rag"]["provider"] = "http"
+    cfg["rag"]["provider"] = "lawgokr"
 
     prj.load_config = lambda *a, **k: cfg
 
@@ -75,7 +75,7 @@ def main() -> None:
     reg = agent_by_id(agents, "regulation_checker")
     provider = worker_provider(cfg, "")
 
-    print("=== run regulation_checker (Ollama + VPS RAG) ===")
+    print("=== run regulation_checker (Ollama + 법제처 search) ===")
     out = run_worker_agent(
         "",
         cfg,

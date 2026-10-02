@@ -120,9 +120,11 @@ def test_run_module_failure_raises_and_saves_nothing(core):
 
 
 def test_worker_warnings_become_notice_events_when_captured(core, monkeypatch, capsys):
-    monkeypatch.delenv("SIDA_RAG_URL", raising=False)
+    monkeypatch.delenv("LAW_OPEN_API_OC")
     s = core()
-    s.config["rag"] = {"enabled": True, "provider": "http", "base_url": ""}
+    project_type = "## Project Type\n환승역\n"
+    s.project_brief = s.project_brief + "\n" + project_type  # gives the search something to ask
+    s.config["rag"] = {"enabled": True, "provider": "lawgokr"}
     s.capture_notices = True
     engine.run_module(s, harness.agent_by_id(s.agents, "regulation_checker"))
     notices = [d["message"] for k, d in s.events if k == "notice"]
@@ -130,7 +132,8 @@ def test_worker_warnings_become_notice_events_when_captured(core, monkeypatch, c
     assert capsys.readouterr().err == ""  # nothing leaked to the terminal
 
     s2 = core()
-    s2.config["rag"] = {"enabled": True, "provider": "http", "base_url": ""}
+    s2.project_brief = s.project_brief
+    s2.config["rag"] = {"enabled": True, "provider": "lawgokr"}
     engine.run_module(s2, harness.agent_by_id(s2.agents, "regulation_checker"))
     assert "notice" not in kinds(s2)
     assert "[rag]" in capsys.readouterr().err  # default: printed, as the CLI expects
