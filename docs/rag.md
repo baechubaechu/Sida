@@ -1,69 +1,75 @@
-# RAG for specialist experts
+# Statute retrieval for experts and the law search
 
 ## Goal
 
-`regulation_checker` should cite **retrieved, dated ordinance text** instead of inventing
-numbers from model memory. Production retrieval runs on a **VPS over HTTP**; local markdown
-is an offline fallback.
+`regulation_checker` and the hub law search (`l`) should cite **retrieved, dated statute
+text** instead of numbers from model memory. Retrieval never raises: when it yields nothing
+the run continues and a one-line `[rag]` warning says why.
 
-## Status
+Parcel facts (zoning, statutory coverage / FAR limits) are a separate feature — see
+`site_facts.py` and `/site`. This document is only about finding statute articles.
 
-| Piece | State |
-|---|---|
-| Config (`rag:` in `config.yaml`) | ready — `enabled: false` by default |
-| Worker hook (`retrieve_for_agent`) | ready |
-| **HTTP client → VPS** (`provider: http`) | ready — see **[docs/rag_api.md](rag_api.md)** |
-| Local markdown retriever | ready — `provider: local_files` |
-| Corpus `knowledge/regulations/` | scaffold samples for offline / contract demos |
-| Example request/response JSON | `examples/rag_retrieve_request.json` |
+## Providers (`rag.provider` in `config.yaml`)
 
-## Production (VPS)
+| Provider | What it is | Needs |
+|---|---|---|
+| `lawgokr` (default) | 법제처 국가법령정보 **지능형 법령검색**, called directly from Sida (`lawapi.py`) | `LAW_OPEN_API_OC` in `.env`, with "지능형 법령검색 시스템 검색 API" checked in the OPEN API application |
+| `http` | A self-hosted RAG API ([rag_api.md](rag_api.md)) | `SIDA_RAG_URL`, `SIDA_RAG_API_KEY` |
+| `local_files` | Markdown under `knowledge/regulations/` (offline, keyword match) | nothing |
 
-RAG is off in the team defaults. Turn it on per machine — hub → `c` (settings) → `4`,
-or in `config.local.yaml` — after putting the VPS URL and key in `.env`
-(`SIDA_RAG_URL`, `SIDA_RAG_API_KEY`).
-
-```yaml
-# config.local.yaml
-rag:
-  enabled: true
-  provider: http
-  # base_url: https://YOUR_VPS   # or SIDA_RAG_URL
-  path: /v1/retrieve
-  api_key_env: SIDA_RAG_API_KEY
-```
-
-What the VPS receives / must return is fully specified in **[rag_api.md](rag_api.md)**.
-Replay a call:
-
-```bash
-curl -sS -X POST "$SIDA_RAG_URL/v1/retrieve" \
-  -H "Authorization: Bearer $SIDA_RAG_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d @examples/rag_retrieve_request.json
-```
-
-## Offline fallback
+Retrieval is off in the team defaults. Turn it on per machine: hub → `c` (settings) → `4`,
+or in `config.local.yaml`:
 
 ```yaml
 rag:
   enabled: true
-  provider: local_files
-  knowledge_dir: knowledge
+  # provider: lawgokr   # default; set http or local_files to use another
 ```
+
+## Why 법제처 search is the default
+
+Compared on eight topical questions (2026-10), 법제처 search found the expected article in
+six and a related one in the other two; the self-hosted RAG of the time found it in one.
+It also covers every statute (not a chosen few), is always current, and needs no server.
+
+What to know about it (`lawapi.py` has the details):
+
+- **It wants short questions.** "직통계단 설치 기준" works; a whole project brief returns
+  nothing or noise. So for `regulation_checker`, Sida does not send the brief. It builds up
+  to five short questions (`rag.focus_queries`) from **site facts** — the zoning
+  ("일반공업지역에서 건축할 수 있는 건축물", "일반공업지역 건폐율 용적률") and districts
+  that need checking — and then from short Korean lines in the brief (Project Type, Core
+  Problem). With no site facts and an English brief there is nothing to ask, and the
+  warning tells the designer to run `/site <주소>` first.
+- **Rank only, no score.** Nonsense still returns results, and the tail of each list is
+  noisy. Sida keeps the top 3 per question (6 for a single question in the law search).
+- **Articles come with full text**; long ones are cut to 1,800 characters.
+- **Annexes (별표) come as titles only** and the annex search is unreliable, so they are not
+  injected. Ordinances are not covered; they are planned through the ordinance API.
+- **Be gentle with the service.** Identical questions are answered from memory within a
+  run, and one expert run sends at most five requests.
 
 ## Call path
 
 ```
 run_worker_agent(regulation_checker)
-  → build_retrieval_query(brief + state + input experts)
-  → retrieve_for_agent(...)
-       → HttpApiRetriever  POST /v1/retrieve  { api_version, collection, query, context… }
-       → or LocalFileRetriever over knowledge/regulations/
+  → site_facts.load_facts(project)                       # zoning etc., if /site was run
+  → rag.retrieve_for_agent(..., site_facts=facts)
+       lawgokr:      focus_queries(brief, facts) → lawapi.ai_search per question → merge
+       http:         POST /v1/retrieve  { query: brief + state + inputs, context… }
+       local_files:  keyword match over knowledge/regulations/
   → build_worker_prompt(..., knowledge_block=formatted passages)
-  → model sees RETRIEVED KNOWLEDGE with source: paths
+  → model sees RETRIEVED KNOWLEDGE with `source: law.go.kr/<법령명> <조>` lines
+
+hub → l (law_search.py)
+  → the designer's question (plus a synonym variant) → rag.retrieve_passages → model answer
 ```
 
 ## Tests
 
-`tests/test_rag.py` — settings, local ranking, HTTP request body, response parse, worker hook.
+- `tests/test_lawapi.py` — the 법제처 client and provider against recorded responses
+  (`tests/fixtures/lawapi/`): parsing, caching, rejected or missing key, focused questions,
+  what `regulation_checker` receives.
+- `tests/test_rag.py` — settings, local ranking, HTTP request body, response parse, warnings.
+
+Tests never call law.go.kr: `tests/conftest.py` blocks `lawapi._http_get` and sets a fake OC.

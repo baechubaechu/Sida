@@ -65,7 +65,7 @@ def load_config() -> dict:
 def runtime_summary(config: dict) -> dict:
     """What the hub shows about how models will run, plus setup problems worth flagging."""
     from hub_settings import current_run_mode
-    from rag import rag_settings, url_missing
+    from rag import key_missing, rag_settings, url_missing
     from setup_env import read_api_key_from_env
 
     conductor = harness.resolve_conductor_runtime(config)
@@ -80,6 +80,7 @@ def runtime_summary(config: dict) -> dict:
         "warnings": {
             "openrouter_key_missing": harness.needs_openrouter(config) and not api_key,
             "rag_url_missing": url_missing(rag),
+            "rag_key_missing": key_missing(rag),
         },
     }
 

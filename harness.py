@@ -988,6 +988,8 @@ def run_worker_agent(
         query = build_retrieval_query(
             project_brief, project_state=project_state, expert_outputs=previous_outputs
         )
+        from site_facts import load_facts
+
         knowledge_block = retrieve_for_agent(
             config,
             agent,
@@ -995,6 +997,7 @@ def run_worker_agent(
             project_brief=project_brief,
             project_state=project_state,
             expert_outputs=previous_outputs,
+            site_facts=load_facts(output_dir.parent),
         )
         rag_note = last_retrieval_warning()
     except Exception as exc:  # retrieval must never block the expert run

@@ -65,14 +65,24 @@ def test_api_runtime_reports_mode_and_missing_key(client, mock_config, monkeypat
     monkeypatch.delenv("SIDA_RAG_URL", raising=False)
     body = client.get("/api/runtime").json()
     assert body["conductor"]["provider"] == "mock"
-    assert body["warnings"] == {"openrouter_key_missing": False, "rag_url_missing": False}
+    assert body["warnings"] == {
+        "openrouter_key_missing": False, "rag_url_missing": False, "rag_key_missing": False,
+    }
 
     mock_config["conductor"]["provider"] = "openrouter"
     mock_config["worker"]["provider"] = "openrouter"
     mock_config["rag"] = {"enabled": True, "provider": "http"}
     body = client.get("/api/runtime").json()
     assert body["mode"] == "cloud"
-    assert body["warnings"] == {"openrouter_key_missing": True, "rag_url_missing": True}
+    assert body["warnings"] == {
+        "openrouter_key_missing": True, "rag_url_missing": True, "rag_key_missing": False,
+    }
+
+    mock_config["rag"] = {"enabled": True, "provider": "lawgokr"}
+    monkeypatch.delenv("LAW_OPEN_API_OC")
+    warnings = client.get("/api/runtime").json()["warnings"]
+    assert warnings["rag_key_missing"] is True and warnings["rag_url_missing"] is False
+    assert "LAW_OPEN_API_OC" in client.get("/").text
 
 
 def test_core_failure_becomes_http_error_not_server_exit(client, monkeypatch):

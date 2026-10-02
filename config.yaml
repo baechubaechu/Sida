@@ -80,12 +80,15 @@ temperature: 0.3
 max_tokens: 2000
 
 # ---------------------------------------------------------------------------
-# RAG — local_files (dev) or http (VPS API). See docs/rag.md + docs/rag_api.md.
+# Statute retrieval ("RAG") for regulation_checker and the hub law search. See docs/rag.md.
+#   lawgokr     — 법제처 국가법령정보 지능형 검색, called directly. Needs LAW_OPEN_API_OC in .env.
+#   http        — a self-hosted RAG API (SIDA_RAG_URL / SIDA_RAG_API_KEY). See docs/rag_api.md.
+#   local_files — markdown under knowledge/ (offline).
 # ---------------------------------------------------------------------------
 rag:
-  enabled: false                 # off by default; turn on per machine once you have a VPS URL/key
-  provider: http                 # http (VPS) | local_files (offline corpus)
-  # base_url from SIDA_RAG_URL; Bearer from SIDA_RAG_API_KEY
+  enabled: false                 # off by default; turn on per machine once the key is in .env
+  provider: lawgokr              # lawgokr | http | local_files
+  # http only: base_url from SIDA_RAG_URL; Bearer from SIDA_RAG_API_KEY
   path: /v1/retrieve
   timeout: 30
   knowledge_dir: knowledge       # used only when provider=local_files

@@ -88,7 +88,7 @@ python chat.py                    # 첫 실행: 언어 → 실행 모드(클라�
   - 클라우드: OpenRouter API 키가 필요합니다. GPU는 필요 없습니다.
   - 로컬: [Ollama](https://ollama.com) 설치와 GPU(VRAM 8GB 이상)가 필요합니다. 키와 비용은 없습니다. 자세한 내용은 [`gpu_tiers.md`](gpu_tiers.md).
 - `config.yaml`은 팀 공통 기본값입니다. 개인 설정을 여기에 고쳐서 커밋하지 않습니다.
-- 법령 RAG는 기본으로 꺼져 있습니다. 팀에서 접속 주소와 키를 받았다면 `.env`에 `SIDA_RAG_URL`, `SIDA_RAG_API_KEY`를 넣고 허브 `c`(설정) → `4`로 켭니다.
+- 법령 검색은 기본으로 꺼져 있습니다. `.env`에 `LAW_OPEN_API_OC`를 넣고 허브 `c`(설정) → `4`로 켭니다. 법제처를 직접 호출하므로 별도 서버가 필요 없습니다.
 - 키를 직접 넣으려면 `.env.example`을 `.env`로 복사해 채웁니다. `.env`는 커밋되지 않습니다.
 - 테스트는 API 키 없이 돌아갑니다(가짜 응답 사용).
 - PowerShell에서 `activate`가 "스크립트를 실행할 수 없습니다"로 막히면 명령 프롬프트(cmd)에서 실행하거나, 활성화 없이 `.venv\Scripts\python.exe -m pip ...`처럼 venv의 Python을 직접 씁니다.
@@ -109,13 +109,13 @@ LAW_OPEN_API_OC=
 |---|---|---|
 | `VWORLD_API_KEY`, `VWORLD_DOMAIN` | vworld.kr → 오픈API → 인증키 발급 | 주소 검색, 용도지역·지구, 토지 특성 |
 | `DATA_GO_KR_API_KEY` | data.go.kr → 마이페이지 → 인증키 (Decoding 키) | 다음 단계: 행위제한, 근거 조문, 건축물대장 |
-| `LAW_OPEN_API_OC` | open.law.go.kr → OPEN API 신청 | 이후 단계: 조례 조문 원문 |
+| `LAW_OPEN_API_OC` | open.law.go.kr → OPEN API 신청 | 법령 검색(허브 `l`, `regulation_checker`). 이후 단계: 조례 조문 원문 |
 
 직접 발급할 때 알아 둘 것:
 
 - **브이월드**: 발급할 때 등록한 서비스 주소를 `VWORLD_DOMAIN`에 그대로 넣습니다. 활용 API는 검색, 지오코더, 2D데이터, 국가중점, WMS/WFS를 고릅니다. 개발키는 6개월짜리이고 3회 연장할 수 있습니다. 만료되면 `/site`가 "키를 거부했습니다"라고 알립니다.
 - **공공데이터포털**: 키는 계정당 하나이고 서비스마다 활용신청을 합니다(토지이용규제정보서비스, 토지이용규제법령정보서비스, 건축HUB 건축물대장정보). 토지이음 계열 두 서비스는 요청에 `Accept: application/xml` 헤더가 없으면 `HTTP_ERROR`(코드 04)를 돌려줍니다.
-- **법제처**: OC 값은 신청할 때 직접 정하는 문자열입니다. IP를 등록하면 그 IP에서만 호출됩니다.
+- **법제처**: OC 값은 신청할 때 직접 정하는 문자열입니다. IP를 등록하면 그 IP에서만 호출됩니다. 신청 목록에서 "지능형 법령검색 시스템 검색 API"(XML, JSON)를 체크해야 법령 검색이 됩니다. 빠져 있으면 "지능형 검색 API를 신청하지 않았습니다"라는 경고가 나옵니다.
 
 ## 5. 확인
 

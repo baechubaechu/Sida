@@ -7,6 +7,9 @@
 {% if runtime.warnings.rag_url_missing %}
 <p class="notice warn">{{ t("web_warn_rag_url") }}</p>
 {% endif %}
+{% if runtime.warnings.rag_key_missing %}
+<p class="notice warn">{{ t("web_warn_rag_key") }}</p>
+{% endif %}
 
 <section class="card">
   <div class="card-head">
