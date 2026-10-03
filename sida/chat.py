@@ -21,6 +21,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from sida.cli import cli_entrypoint
 from sida.console import configure_stdio
 from sida.harness import fail
 from sida.hub import project_hub
@@ -73,6 +74,7 @@ def print_usage() -> None:
     print("  python setup_env.py")
 
 
+@cli_entrypoint
 def main() -> None:
     args = sys.argv[1:]
 

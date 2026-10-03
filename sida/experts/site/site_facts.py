@@ -22,6 +22,7 @@ import yaml
 
 from sida.experts.site import landapi
 from sida.harness import ROOT
+from sida.storage import atomic_write_text
 
 FACTS_FILE = "site_facts.json"
 FACTS_VERSION = 1
@@ -213,7 +214,7 @@ def facts_path(project_path: Path) -> Path:
 
 def save_facts(project_path: Path, facts: dict) -> Path:
     path = facts_path(project_path)
-    path.write_text(json.dumps(facts, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    atomic_write_text(path, json.dumps(facts, ensure_ascii=False, indent=2) + "\n")
     return path
 
 

@@ -201,5 +201,7 @@ def test_fail_raises_catchable_error_with_message(capsys):
     with pytest.raises(SidaError) as info:
         harness.fail("브리프가 없습니다", code=3)
     assert info.value.message == "브리프가 없습니다" and info.value.code == 3
-    assert isinstance(info.value, SystemExit)  # the CLI still exits when nothing catches it
-    assert "브리프가 없습니다" in capsys.readouterr().err
+    assert isinstance(info.value, Exception)
+    assert not isinstance(info.value, SystemExit)
+    assert str(info.value) == "브리프가 없습니다"
+    assert capsys.readouterr() == ("", "")

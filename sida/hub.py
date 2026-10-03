@@ -23,6 +23,7 @@ from sida.project import (
     projects_dir,
     slugify,
 )
+from sida.storage import atomic_write_text
 
 HubChoice = tuple[Path, bool]  # (project path, created just now)
 
@@ -49,7 +50,7 @@ def hub_create_new(config: dict) -> HubChoice | None:
         print(t("hub_closed"))
         return None
 
-    project.brief_path.write_text(brief_md.strip() + "\n", encoding="utf-8")
+    atomic_write_text(project.brief_path, brief_md.strip() + "\n")
     print(t("brief_saved", path=str(project.brief_path)))
     load_project(project.path)  # refresh session stamp
     return project.path, True
