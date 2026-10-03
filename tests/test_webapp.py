@@ -78,13 +78,27 @@ def test_api_runtime_reports_mode_and_missing_key(client, mock_config, monkeypat
     assert "LAW_OPEN_API_OC" in client.get("/").text
 
 
-def test_core_failure_becomes_http_error_not_server_exit(client, monkeypatch):
+def test_core_failure_becomes_http_error_not_server_exit(client, monkeypatch, capsys):
     def broken(*_a, **_k):
         harness.fail("config.yaml이 깨졌습니다")
 
     monkeypatch.setattr(harness, "load_config", broken)
     r = client.get("/api/projects")
     assert r.status_code == 500 and "config.yaml이 깨졌습니다" in r.json()["detail"]
+    assert client.get("/api/health").status_code == 200
+    assert capsys.readouterr() == ("", "")
+
+
+def test_save_failure_returns_http_error_and_server_stays_available(client, monkeypatch, capsys):
+    def locked(*_args):
+        raise PermissionError("simulated locked file")
+
+    monkeypatch.setattr("os.replace", locked)
+    response = client.post("/api/projects", json={"name": "locked-project"})
+    assert response.status_code == 500
+    assert "simulated locked file" in response.json()["detail"]
+    assert client.get("/api/health").json()["ok"] is True
+    assert capsys.readouterr() == ("", "")
 
 
 # --- HTML pages --------------------------------------------------------------

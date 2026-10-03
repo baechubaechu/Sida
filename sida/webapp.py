@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from sida import harness, workspace
 from sida.briefs import BRIEF_FIELD_HEADINGS
+from sida.cli import cli_entrypoint
 from sida.i18n import get_language, t
 
 WEB_DIR = harness.ROOT / "webui"
@@ -48,8 +49,8 @@ class NewProject(BaseModel):
 
 def core(fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
     """
-    Call a core function from a route. `fail()` raises SidaError, a SystemExit: left
-    alone it would stop the server, so it becomes an HTTP 500 carrying the message.
+    Translate an application error into an HTTP 500 carrying its message.
+    Application errors carry no terminal output or exit behavior.
     """
     try:
         return fn(*args, **kwargs)
@@ -241,6 +242,7 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
     return app
 
 
+@cli_entrypoint
 def main(argv: list[str] | None = None) -> None:
     import threading
     import webbrowser

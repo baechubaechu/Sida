@@ -23,6 +23,7 @@ from sida.harness import (
     worker_provider,
 )
 from sida.project import Project
+from sida.storage import atomic_write_text
 
 # Sections the model may replace, with their bullet caps (mirrors template comments).
 SECTION_CAPS: dict[str, int] = {
@@ -311,5 +312,5 @@ def propose_state_patch(
 def write_state(project: Project, new_text: str) -> None:
     backup = project.path / "project_state.prev.md"
     if project.state_path.exists():
-        backup.write_text(project.state_path.read_text(encoding="utf-8"), encoding="utf-8")
-    project.state_path.write_text(new_text, encoding="utf-8")
+        atomic_write_text(backup, project.state_path.read_text(encoding="utf-8"))
+    atomic_write_text(project.state_path, new_text)

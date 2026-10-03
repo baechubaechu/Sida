@@ -8,6 +8,7 @@ from pathlib import Path
 from sida.console import one_line, open_in_editor, prompt_line
 from sida.i18n import t
 from sida.project import section_body
+from sida.storage import atomic_write_text
 
 # (field key, i18n label key, markdown heading)
 BRIEF_FIELD_HEADINGS: list[tuple[str, str, str]] = [
@@ -127,7 +128,7 @@ def edit_file_in_editor(path: Path, *, backup: Path | None = None) -> bool:
     Prints status lines. Returns True if the file changed.
     """
     if backup is not None and path.exists():
-        backup.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+        atomic_write_text(backup, path.read_text(encoding="utf-8"))
     try:
         from sida.console import resolve_editor
 

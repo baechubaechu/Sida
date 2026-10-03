@@ -16,6 +16,8 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
+from sida.cli import cli_entrypoint
+from sida.errors import fail
 from sida.i18n import (
     DEFAULT_LANGUAGE,
     get_language,
@@ -223,12 +225,12 @@ def ensure_api_key(*, interactive: bool = True) -> str:
         return key
 
     if not interactive:
-        raise SystemExit(f"Error: {t('api_required')}")
+        fail(t("api_required"))
 
     print(t("api_missing"))
     key = setup_api_key(force=True)
     if not key:
-        raise SystemExit(t("api_required"))
+        fail(t("api_required"))
     return key
 
 
@@ -339,6 +341,7 @@ def ensure_openai_api_key(*, interactive: bool = True) -> str:
     return key
 
 
+@cli_entrypoint
 def main() -> None:
     _configure_stdio()
     force = "--force" in sys.argv or "-f" in sys.argv

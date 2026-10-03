@@ -13,6 +13,10 @@ from typing import Any
 import requests
 import yaml
 
+from sida.errors import SidaError as SidaError
+from sida.errors import fail as fail
+from sida.storage import atomic_write_text
+
 ROOT = Path(__file__).resolve().parents[1]  # repo root (config.yaml, agents/, projects/)
 CONFIG_PATH = ROOT / "config.yaml"
 LOCAL_CONFIG_NAME = "config.local.yaml"
@@ -31,24 +35,6 @@ RETRY_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
 
 class LLMError(Exception):
     """Recoverable LLM/provider failure. Callers decide whether to exit."""
-
-
-class SidaError(SystemExit):
-    """
-    Fatal configuration / usage error raised by `fail()`.
-
-    Subclasses SystemExit so the CLI still exits with the given code when nothing
-    catches it; other front ends catch it and show `.message` instead of exiting.
-    """
-
-    def __init__(self, message: str, code: int = 1):
-        super().__init__(code)
-        self.message = message
-
-
-def fail(message: str, code: int = 1) -> None:
-    print(f"Error: {message}", file=sys.stderr)
-    raise SidaError(message, code)
 
 
 def load_env(*, interactive: bool = True, config: dict | None = None) -> str:
@@ -911,7 +897,7 @@ def missing_headers(output: str, headers: list[str]) -> list[str]:
 
 
 def archive_module_output(output_path: Path) -> Path | None:
-    """Move an existing module file into modules/_history before overwrite."""
+    """Copy the old output to _history, leaving it available until the new save succeeds."""
     if not output_path.exists():
         return None
     hist = output_path.parent / MODULE_HISTORY_DIRNAME
@@ -922,7 +908,7 @@ def archive_module_output(output_path: Path) -> Path | None:
     while target.exists():
         target = hist / f"{output_path.stem}.{stamp}-{counter}{output_path.suffix}"
         counter += 1
-    output_path.replace(target)
+    atomic_write_text(target, output_path.read_text(encoding="utf-8"))
     return target
 
 
@@ -1094,7 +1080,7 @@ def run_worker_agent(
     archived = archive_module_output(output_path)
     if archived:
         say(t("module_archived", path=archived.relative_to(output_dir).as_posix()), err=False)
-    output_path.write_text(result + "\n", encoding="utf-8")
+    atomic_write_text(output_path, result + "\n")
     return result
 
 

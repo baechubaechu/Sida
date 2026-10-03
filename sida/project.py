@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sida.harness import ROOT, fail, load_config
+from sida.harness import ROOT, SidaError, fail, load_config
+from sida.storage import atomic_write_text
 
 SESSION_FILE = "session.json"
 BRIEF_FILE = "brief.md"
@@ -46,7 +47,7 @@ def module_status_rows(agents: list[dict] | None = None) -> str:
             from sida.harness import get_agents
 
             agents = get_agents(load_config())
-        except SystemExit:
+        except SidaError:
             agents = []
     rows = [f"| {a.get('id')} | pending | |" for a in (agents or []) if a.get("id")]
     return "\n".join(rows) if rows else "| (no experts configured) | | |"
@@ -83,7 +84,7 @@ def resolve_projects_dir(config: dict | None = None) -> Path:
     if config is None:
         try:
             config = load_config()
-        except SystemExit:
+        except SidaError:
             config = {}
 
     raw = (config or {}).get("projects_dir") or str(DEFAULT_PROJECTS_DIR)
@@ -157,7 +158,7 @@ class Project:
         """
         current = self.read_brief()
         backup = self.path / "brief.prev.md"
-        backup.write_text(current, encoding="utf-8")
+        atomic_write_text(backup, current)
 
         text = current
         for heading, body in updates.items():
@@ -165,7 +166,7 @@ class Project:
             if not body:
                 continue
             text = _replace_section(text, heading, body)
-        self.brief_path.write_text(text.rstrip() + "\n", encoding="utf-8")
+        atomic_write_text(self.brief_path, text.rstrip() + "\n")
         return text
 
     def updated_at(self) -> str:
@@ -195,7 +196,7 @@ class Project:
             )
         content = template.replace("- **Project**:", f"- **Project**: {self.name}", 1)
         content = content.replace("{{MODULE_ROWS}}", module_status_rows(agents))
-        self.state_path.write_text(content, encoding="utf-8")
+        atomic_write_text(self.state_path, content)
 
     def load_history(self) -> list[dict]:
         """Load Conductor chat history (user/assistant turns only)."""
@@ -225,9 +226,9 @@ class Project:
             content = item.get("content")
             if role in {"user", "assistant"} and isinstance(content, str):
                 clean.append({"role": role, "content": content})
-        self.history_path.write_text(
+        atomic_write_text(
+            self.history_path,
             json.dumps(clean, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
         )
 
     def save_session(self, **extra: object) -> None:
@@ -240,9 +241,9 @@ class Project:
             "path": str(self.path),
         }
         data.update(extra)
-        self.session_path.write_text(
+        atomic_write_text(
+            self.session_path,
             json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
         )
 
     def append_transcript(self, role: str, text: str) -> None:
@@ -313,8 +314,8 @@ def load_project(path: Path) -> Project:
     )
     project.modules_dir.mkdir(parents=True, exist_ok=True)
     if not project.transcript_path.exists():
-        project.transcript_path.write_text(
-            f"# Transcript — {project.name}\n\n", encoding="utf-8"
+        atomic_write_text(
+            project.transcript_path, f"# Transcript — {project.name}\n\n"
         )
     project.init_state()
     _run_migrations(project)
@@ -330,7 +331,7 @@ def _run_migrations(project: Project) -> None:
         from sida.harness import get_agents
 
         agents = get_agents(load_config())
-    except SystemExit:
+    except SidaError:
         agents = []
     notes = migrate_project(project, agents)
     if not notes:
@@ -381,8 +382,8 @@ def create_project_from_brief(
         created_at=created_at,
         source_brief=source,
     )
-    project.transcript_path.write_text(
-        f"# Transcript — {project.name}\n\n", encoding="utf-8"
+    atomic_write_text(
+        project.transcript_path, f"# Transcript — {project.name}\n\n"
     )
     project.init_state()
     project.save_session()
@@ -427,9 +428,9 @@ def create_blank_project(
 
     project_path.mkdir(parents=True, exist_ok=False)
     (project_path / MODULES_DIRNAME).mkdir(parents=True, exist_ok=True)
-    (project_path / BRIEF_FILE).write_text(
+    atomic_write_text(
+        project_path / BRIEF_FILE,
         (brief_text or EMPTY_BRIEF_TEMPLATE).strip() + "\n",
-        encoding="utf-8",
     )
 
     session_id = f"sida-{project_name}-{uuid.uuid4().hex[:8]}"
@@ -440,8 +441,8 @@ def create_blank_project(
         created_at=_utc_now(),
         source_brief=None,
     )
-    project.transcript_path.write_text(
-        f"# Transcript — {project.name}\n\n", encoding="utf-8"
+    atomic_write_text(
+        project.transcript_path, f"# Transcript — {project.name}\n\n"
     )
     project.init_state()
     project.save_history([])

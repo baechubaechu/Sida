@@ -11,6 +11,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from sida.errors import SidaError
+from sida.storage import atomic_write_text
+
 # Old sequential filenames → current phase-grouped filenames (same expert ids).
 LEGACY_MODULE_FILES: dict[str, str] = {
     "01_site_reader.md": "11_site_reader.md",
@@ -131,7 +134,7 @@ def migrate_project(project, agents: list[dict] | None = None) -> list[str]:
             from sida.harness import get_agents, load_config
 
             agents = get_agents(load_config())
-        except SystemExit:
+        except SidaError:
             agents = []
 
     if not project.state_path.exists():
@@ -142,6 +145,6 @@ def migrate_project(project, agents: list[dict] | None = None) -> list[str]:
     state = project.state_path.read_text(encoding="utf-8")
     new_state, added = ensure_module_status_rows(state, agents or [])
     if added:
-        project.state_path.write_text(new_state, encoding="utf-8")
+        atomic_write_text(project.state_path, new_state)
         notes.append("state Module Status + " + ", ".join(added))
     return notes

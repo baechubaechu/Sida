@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from sida import run as run_mod
+from sida.harness import SidaError
 from tests.conftest import ROOT
 
 
@@ -19,7 +20,7 @@ def test_select_agents_by_path(mock_config):
 
 
 def test_select_agents_unknown_path_fails(mock_config):
-    with pytest.raises(SystemExit):
+    with pytest.raises(SidaError):
         run_mod._select_agents(mock_config, "nope")
 
 

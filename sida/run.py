@@ -6,6 +6,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from sida.cli import cli_entrypoint
 from sida.console import configure_stdio
 from sida.harness import (
     LLMError,
@@ -106,6 +107,7 @@ def run(target: Path, project_name: str | None = None, *, path_name: str | None 
     print(t("run_outputs", path=output_dir.as_posix()))
 
 
+@cli_entrypoint
 def main() -> None:
     args = sys.argv[1:]
     if not args:
