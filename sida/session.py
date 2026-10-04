@@ -111,7 +111,13 @@ def update_state_after_module(session: Session, agent: dict, *, mode: str | None
         return False
 
     if mode == "auto":
-        path = engine.apply_state(session, proposal)
+        from sida.project_documents import DocumentConflict
+
+        try:
+            path = engine.apply_state(session, proposal)
+        except DocumentConflict as exc:
+            print(exc.message)
+            return False
         print(t("state_applied", path=str(path)))
         return True
 
@@ -120,9 +126,16 @@ def update_state_after_module(session: Session, agent: dict, *, mode: str | None
     print()
     answer = (prompt_line(t("state_apply_prompt")) or "").strip().lower()
     if answer in {"n", "no", "ㄴ"}:
+        engine.discard_state(session, proposal)
         print(t("state_skipped"))
         return False
-    path = engine.apply_state(session, proposal)
+    from sida.project_documents import DocumentConflict
+
+    try:
+        path = engine.apply_state(session, proposal)
+    except DocumentConflict as exc:
+        print(exc.message)
+        return False
     print(t("state_applied", path=str(path)))
     if answer in {"e", "edit"}:
         from sida.briefs import edit_file_in_editor

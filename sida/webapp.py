@@ -25,7 +25,10 @@ from pydantic import BaseModel, Field
 from sida import harness, workspace
 from sida.briefs import BRIEF_FIELD_HEADINGS
 from sida.cli import cli_entrypoint
+from sida.document_api import create_router as create_document_router
+from sida.editing import EditingService
 from sida.i18n import get_language, t
+from sida.project_documents import DocumentConflict
 
 WEB_DIR = harness.ROOT / "webui"
 DEFAULT_HOST = "127.0.0.1"
@@ -54,6 +57,10 @@ def core(fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
     """
     try:
         return fn(*args, **kwargs)
+    except DocumentConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.message) from exc
+    except harness.LLMError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except harness.SidaError as exc:
         raise HTTPException(status_code=500, detail=exc.message) from exc
 
@@ -124,6 +131,8 @@ def project_url(name: str) -> str:
 
 def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> FastAPI:
     app = FastAPI(title="Sida", docs_url=None, redoc_url=None)
+    app.state.editing = EditingService()
+    app.include_router(create_document_router(app.state.editing, load_config, core))
     app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
     templates = Jinja2Templates(directory=WEB_DIR / "templates")
     templates.env.globals.update(t=t, local_time=local_time, project_url=project_url)

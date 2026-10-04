@@ -92,3 +92,19 @@ def test_no_change_path(make_session, scripted, capsys):
     assert update_state_after_module(s, s.agents[0]) is False
     out = capsys.readouterr().out
     assert "변경" in out or "changes" in out.lower()
+
+
+def test_state_changed_while_waiting_for_approval_is_reported(make_session, monkeypatch, capsys):
+    from sida import engine
+
+    s = make_session()
+    engine.run_module(s, s.agents[0])
+
+    def edit_while_approving(*_args):
+        s.project.state_path.write_text("# newer designer state\n", encoding="utf-8")
+        return "y"
+
+    monkeypatch.setattr("builtins.input", edit_while_approving)
+    assert update_state_after_module(s, s.agents[0], mode="ask") is False
+    assert s.project.read_state() == "# newer designer state"
+    assert "입력이 변경" in capsys.readouterr().out

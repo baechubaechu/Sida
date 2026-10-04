@@ -23,6 +23,7 @@ from sida.harness import (
     worker_provider,
 )
 from sida.project import Project
+from sida.state_revisions import preserve_revisions, record_module_revision, without_revisions
 from sida.storage import atomic_write_text
 
 # Sections the model may replace, with their bullet caps (mirrors template comments).
@@ -47,6 +48,10 @@ class StatePatch:
     key_takeaway: str = ""
     meta: dict[str, str] = field(default_factory=dict)  # phase / active_focus
     sections: dict[str, list[str]] = field(default_factory=dict)
+    # Captured by orchestration, never supplied by the model.
+    base_state: str = ""
+    base_brief: str = ""
+    module_output: str = ""
 
     def is_empty(self) -> bool:
         return not (self.key_takeaway or self.meta or self.sections)
@@ -218,7 +223,7 @@ def update_module_row(text: str, module_id: str, status: str, takeaway: str) -> 
     row = f"| {module_id} | {status} |{cell}|"
     pattern = re.compile(rf"^\|\s*{re.escape(module_id)}\s*\|.*$", re.MULTILINE)
     if pattern.search(text):
-        return pattern.sub(row, text, count=1)
+        return pattern.sub(lambda _match: row, text, count=1)
     # Append to the Module Status table if the row is missing.
     table = re.search(r"(^## Module Status\s*\n(?:.*\n)*?)(\n<!--|\n## |\Z)", text, re.MULTILINE)
     if table:
@@ -250,7 +255,8 @@ def apply_patch(state_text: str, patch: StatePatch, *, today: str | None = None)
 
 def state_diff(old: str, new: str) -> str:
     lines = difflib.unified_diff(
-        old.splitlines(), new.splitlines(), fromfile="project_state.md", tofile="proposed", lineterm="", n=1
+        without_revisions(old).splitlines(), without_revisions(new).splitlines(),
+        fromfile="project_state.md", tofile="proposed", lineterm="", n=1
     )
     return "\n".join(lines)
 
@@ -284,9 +290,10 @@ def propose_state_patch(
     module_output = project.read_module(agent["output"]) or ""
     if not module_output:
         raise LLMError(f"module output missing: {agent['output']}")
+    base_brief = project.read_brief()
 
     messages = build_state_update_messages(
-        state_text, str(agent["id"]), str(agent.get("name", agent["id"])), module_output, lang=lang
+        without_revisions(state_text), str(agent["id"]), str(agent.get("name", agent["id"])), module_output, lang=lang
     )
     from sida.console import agent_look
     from sida.harness import provider_chat
@@ -306,7 +313,13 @@ def propose_state_patch(
         color=accent,
     )
     patch = parse_state_patch(raw, str(agent["id"]))
-    return patch, apply_patch(state_text, patch)
+    patch.base_state = state_text
+    patch.base_brief = base_brief
+    patch.module_output = module_output
+    proposed = preserve_revisions(apply_patch(without_revisions(state_text), patch), state_text)
+    if not patch.is_empty():
+        proposed = record_module_revision(proposed, str(agent["id"]), module_output)
+    return patch, proposed
 
 
 def write_state(project: Project, new_text: str) -> None:

@@ -189,8 +189,9 @@ Projects are saved under the user home folder (easy to open in File Explorer):
 
 `project_state.md` is what the Conductor reads instead of the full chat log.
 Keep it short: decisions, open questions, module status, next focus.
-Modules updated after the state file are shown to the Conductor in full until
-you fold them into the state.
+Expert outputs are shown to the Conductor in full until their exact content version
+is accepted into the state. Updating one expert's state does not hide other unreflected
+outputs. Existing projects without version records retain full outputs until accepted.
 
 Path is set in `config.yaml` → `projects_dir`.
 

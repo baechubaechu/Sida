@@ -39,6 +39,8 @@ from sida.harness import (
 )
 from sida.i18n import get_language
 from sida.project import Project, open_or_create
+from sida.project_documents import Document, DocumentConflict, read_document, save_document
+from sida.state_revisions import content_revision, module_revisions
 
 MAX_READS_PER_TURN = 2
 READ_CHAR_LIMIT = 6000
@@ -69,6 +71,7 @@ class Session:
     emit: Emit | None = None
     # When set, warnings from an expert run arrive as "notice" events instead of being printed.
     capture_notices: bool = False
+    pending_state: StateProposal | None = None
 
     @property
     def output_dir(self) -> Path:
@@ -123,6 +126,9 @@ class StateProposal:
     agent: dict
     proposed: str
     diff: str
+    original_state: str
+    original_brief: str
+    module_revision: str
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +427,8 @@ def propose_state(session: Session, agent: dict) -> StateProposal | None:
     """
     from sida.state_updater import propose_state_patch, state_diff
 
-    _patch, proposed = propose_state_patch(
+    session.pending_state = None
+    patch, proposed = propose_state_patch(
         session.config,
         session.api_key,
         session.project,
@@ -430,16 +437,58 @@ def propose_state(session: Session, agent: dict) -> StateProposal | None:
         w_provider=session.w_provider,
         lang=get_language(),
     )
-    current = session.project.state_path.read_text(encoding="utf-8")
+    current = patch.base_state
     diff = state_diff(current, proposed)
     if not diff.strip():
-        return None
-    return StateProposal(agent=agent, proposed=proposed, diff=diff)
+        if module_revisions(current) == module_revisions(proposed):
+            return None
+        diff = (
+            "설계 상태 요약은 같으며, 이 전문가 결과의 상태 반영 기록을 갱신합니다."
+            if get_language() == "ko" else
+            "The summary is unchanged; record this expert output version as reflected in state."
+        )
+    proposal = StateProposal(
+        agent=agent, proposed=proposed, diff=diff,
+        original_state=patch.base_state, original_brief=patch.base_brief,
+        module_revision=content_revision(patch.module_output),
+    )
+    session.pending_state = proposal
+    return proposal
 
 
 def apply_state(session: Session, proposal: StateProposal) -> Path:
     """Write the proposed state (previous version kept as project_state.prev.md)."""
     from sida.state_updater import write_state
 
+    if session.pending_state is not proposal:
+        raise DocumentConflict("이미 처리됐거나 현재 세션의 승인안이 아닙니다. 새 갱신안을 만드세요.")
+    current_output = session.project.read_module(proposal.agent["output"])
+    if (
+        session.project.state_path.read_text(encoding="utf-8") != proposal.original_state
+        or session.project.read_brief() != proposal.original_brief
+        or not current_output
+        or content_revision(current_output) != proposal.module_revision
+    ):
+        raise DocumentConflict("승인안의 입력이 변경됐습니다. 새 갱신안을 만든 뒤 확인하세요.")
     write_state(session.project, proposal.proposed)
+    session.pending_state = None
     return session.project.state_path
+
+
+def discard_state(session: Session, proposal: StateProposal) -> None:
+    """Skip a proposal without changing project state or its reflection records."""
+    if session.pending_state is not proposal:
+        raise DocumentConflict("이미 처리됐거나 현재 세션의 승인안이 아닙니다.")
+    session.pending_state = None
+
+
+def read_editable_document(session: Session, kind: str) -> Document:
+    return read_document(session.project, kind)
+
+
+def edit_document(session: Session, kind: str, content: str, *, expected_revision: str) -> Document:
+    """Save a designer edit and refresh the brief used by subsequent model calls."""
+    document = save_document(session.project, kind, content, expected_revision=expected_revision)
+    if kind == "brief":
+        session.reload_brief()
+    return document

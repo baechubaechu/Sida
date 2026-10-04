@@ -285,7 +285,13 @@ def test_fresh_modules_included_until_state_updated(mock_config, agents, project
     snap = build_module_snapshot(agents, project.modules_dir, fresh)
     assert "not yet reflected in PROJECT STATE" in snap and "Mock Output" in snap
 
-    # state touched after module -> compact
+    # Touching state is not evidence of acceptance. Only record this expert's revision.
+    from sida.state_updater import propose_state_patch, write_state
+
+    _, proposed = propose_state_patch(
+        mock_config, "", project, agents[0], w_provider=provider, lang="ko"
+    )
+    write_state(project, proposed)
     later = mod.stat().st_mtime + 10
     os.utime(project.state_path, (later, later))
     fresh2 = modules_newer_than_state(agents, project.modules_dir, project.state_path)
@@ -302,6 +308,41 @@ def test_prepare_context_falls_back_without_state(mock_config, agents, project):
     assert state is None
     assert module_ctx == blocks[0]
     assert not truncated
+
+
+def test_updating_one_module_does_not_hide_another(mock_config, agents, project):
+    from sida.state_updater import propose_state_patch, write_state
+
+    for agent in agents[:2]:
+        (project.modules_dir / agent["output"]).write_text(
+            f"# {agent['id']}\n\n아직 반영하지 않은 분석", encoding="utf-8"
+        )
+    _, proposed = propose_state_patch(
+        mock_config, "", project, agents[0], w_provider=MockProvider(), lang="ko"
+    )
+    write_state(project, proposed)
+    fresh = modules_newer_than_state(agents, project.modules_dir, project.state_path)
+    assert [a["id"] for a in fresh] == [agents[1]["id"]]
+    snapshot = build_module_snapshot(agents, project.modules_dir, fresh)
+    assert f"# {agents[1]['id']}" in snapshot
+
+
+def test_same_timestamp_rerun_is_still_unreflected(mock_config, agents, project):
+    import os
+
+    from sida.state_updater import propose_state_patch, write_state
+
+    agent = agents[0]
+    module = project.modules_dir / agent["output"]
+    module.write_text("original analysis", encoding="utf-8")
+    _, proposed = propose_state_patch(
+        mock_config, "", project, agent, w_provider=MockProvider(), lang="ko"
+    )
+    write_state(project, proposed)
+    stamp = project.state_path.stat().st_mtime
+    module.write_text("new analysis", encoding="utf-8")
+    os.utime(module, (stamp, stamp))
+    assert modules_newer_than_state(agents, project.modules_dir, project.state_path) == [agent]
 
 
 def test_mock_worker_matches_output_format():

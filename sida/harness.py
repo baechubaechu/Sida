@@ -15,6 +15,7 @@ import yaml
 
 from sida.errors import SidaError as SidaError
 from sida.errors import fail as fail
+from sida.state_revisions import content_revision, module_revisions, without_revisions
 from sida.storage import atomic_write_text
 
 ROOT = Path(__file__).resolve().parents[1]  # repo root (config.yaml, agents/, projects/)
@@ -1135,14 +1136,21 @@ def slice_history(history: list[dict], window: int) -> tuple[list[dict], bool]:
 def modules_newer_than_state(
     agents: list[dict], output_dir: Path, state_path: Path | None
 ) -> list[dict]:
-    """Modules whose output file changed after project_state.md was last saved."""
+    """Outputs not represented by the exact accepted revision in project state.
+
+Legacy states without revision records are conservative: keep the full output
+until a state proposal for that expert has been accepted.
+"""
     if state_path is None or not state_path.exists():
         return []
-    state_mtime = state_path.stat().st_mtime
+    revisions = module_revisions(state_path.read_text(encoding="utf-8"))
     fresh = []
     for agent in agents:
         path = output_dir / agent["output"]
-        if path.exists() and path.stat().st_mtime > state_mtime:
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8").strip()
+        if text and revisions.get(str(agent["id"])) != content_revision(text):
             fresh.append(agent)
     return fresh
 
@@ -1150,7 +1158,7 @@ def modules_newer_than_state(
 def build_module_snapshot(
     agents: list[dict], output_dir: Path, fresh: list[dict] | None = None
 ) -> str:
-    """Compact module index; full text only for modules newer than the state file."""
+    """Compact index with full text for outputs not yet reflected in project state."""
     fresh_ids = {a.get("id") for a in (fresh or [])}
     lines = ["Completed module files (see PROJECT STATE for takeaways):", ""]
     any_done = False
@@ -1163,7 +1171,7 @@ def build_module_snapshot(
         if not text:
             continue
         any_done = True
-        marker = "  (UPDATED after PROJECT STATE — full text below)" if agent.get("id") in fresh_ids else ""
+        marker = "  (NOT YET REFLECTED in PROJECT STATE — full text below)" if agent.get("id") in fresh_ids else ""
         lines.append(f"- {agent.get('id')} → modules/{agent['output']}{marker}")
         if agent.get("id") in fresh_ids:
             fresh_blocks.append(f"### {agent.get('name', agent.get('id'))} (not yet reflected in PROJECT STATE)\n\n{text}")
@@ -1201,7 +1209,7 @@ def prepare_conductor_context(
     settings = get_conductor_context_settings(config)
     sliced_history, truncated = slice_history(history, settings["history_window"])
 
-    state_text = project_state.strip() if project_state else None
+    state_text = without_revisions(project_state).strip() if project_state else None
     prefer_state = settings["prefer_state_over_modules"]
 
     if state_text and prefer_state:

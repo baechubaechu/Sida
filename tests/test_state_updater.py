@@ -79,6 +79,12 @@ def test_update_module_row_and_meta():
     assert update_meta_line(new, "Nonexistent", "v") == new
 
 
+def test_update_module_row_preserves_windows_paths_and_backreferences():
+    takeaway = r"도면 C:\models\site.3dm 및 \1 검토"
+    new = update_module_row(TEMPLATE, "site_reader", "done", takeaway)
+    assert f"| site_reader | done | {takeaway} |" in new
+
+
 def test_apply_patch_full():
     patch = StatePatch(
         module_id="site_reader",
@@ -130,3 +136,20 @@ def test_propose_uses_conductor_provider_when_configured(mock_config, agents, pr
     patch, _ = propose_state_patch(mock_config, "", project, agents[0], c_provider=c, w_provider=w)
     assert patch.key_takeaway == "via conductor"
     assert len(c.calls) == 1 and c.calls[0]["kw"].get("json_mode") is True and w.calls == []
+
+
+def test_updating_last_section_preserves_other_module_revisions(mock_config, agents, project, scripted):
+    from sida.state_revisions import content_revision, module_revisions, record_module_revision
+
+    state = record_module_revision(project.read_state(), "program_analyst", "accepted program")
+    project.state_path.write_text(state, encoding="utf-8")
+    (project.modules_dir / agents[0]["output"]).write_text("new site", encoding="utf-8")
+    provider = scripted(['{"sections":{"Next Focus":["검토할 항목"]}}'])
+    _, proposed = propose_state_patch(
+        mock_config, "", project, agents[0], w_provider=provider, lang="ko"
+    )
+    assert module_revisions(proposed) == {
+        "program_analyst": content_revision("accepted program"),
+        agents[0]["id"]: content_revision("new site"),
+    }
+    assert "검토할 항목" in proposed
