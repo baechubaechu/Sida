@@ -185,3 +185,146 @@ def test_foreign_host_and_cross_site_writes_are_refused(mock_config):
 
     same = {**ok, "origin": "http://127.0.0.1:8765"}
     assert local.post("/api/projects/sample", headers=same).status_code == 201
+
+
+@pytest.mark.parametrize("kind", ["brief", "state"])
+def test_document_api_edits_and_rejects_stale_save(client, project, kind):
+    url = f"/api/projects/{project.name}/documents/{kind}"
+    before_session = project.session_path.read_bytes()
+    original = client.get(url).json()
+    assert set(original) == {"kind", "content", "revision"}
+    assert project.session_path.read_bytes() == before_session  # GET never opens/touches the session
+    body = {
+        "content": original["content"] + "\n## 사용자 작성 항목\n- 보존할 내용\n",
+        "expected_revision": original["revision"],
+    }
+    saved = client.put(url, json=body)
+    assert saved.status_code == 200
+    assert "보존할 내용" in saved.json()["content"]
+    assert client.put(url, json=body).status_code == 409
+    assert client.get(url).json() == saved.json()
+
+
+def test_document_api_rejects_bad_kind_and_missing_project(client, project):
+    assert client.get(f"/api/projects/{project.name}/documents/history").status_code == 400
+    assert client.get("/api/projects/missing/documents/state").status_code == 404
+    project.state_path.unlink()
+    assert client.get(f"/api/projects/{project.name}/documents/state").status_code == 404
+
+
+@pytest.fixture
+def state_api(client, project, agents, monkeypatch):
+    # This feature never needs a real API key or provider in tests.
+    monkeypatch.setattr(harness, "load_env", lambda **_kw: "")
+    (project.modules_dir / agents[0]["output"]).write_text("analysis", encoding="utf-8")
+    return client, f"/api/projects/{project.name}", agents[0]
+
+
+@pytest.mark.parametrize("decision", ["apply", "skip"])
+def test_state_api_requires_explicit_decision_and_blocks_replay(state_api, project, decision):
+    from sida.state_revisions import module_revisions
+
+    client, base, agent = state_api
+    before = project.state_path.read_bytes()
+    response = client.post(f"{base}/state-proposals", json={"agent": agent["id"]})
+    assert response.status_code == 200
+    proposal = response.json()["proposal"]
+    assert set(proposal) == {"id", "agent", "diff"}
+    assert "sida-module-revisions" not in proposal["diff"]
+    assert project.state_path.read_bytes() == before
+    url = f"{base}/state-proposals/{proposal['id']}/{decision}"
+    result = client.post(url)
+    assert result.status_code == 200
+    if decision == "apply":
+        assert result.json()["applied"] is True
+        assert "sida-module-revisions" not in result.json()["document"]["content"]
+        assert agent["id"] in module_revisions(project.read_state())
+        assert (project.path / "project_state.prev.md").read_bytes() == before
+    else:
+        assert result.json() == {"skipped": True}
+        assert project.state_path.read_bytes() == before
+        assert module_revisions(project.read_state()) == {}
+    assert client.post(url).status_code == 409
+
+
+@pytest.mark.parametrize("source", ["state", "brief", "module"])
+def test_state_api_rejects_approval_after_source_changes(state_api, project, source):
+    client, base, agent = state_api
+    proposal = client.post(f"{base}/state-proposals", json={"agent": agent["id"]}).json()["proposal"]
+    if source == "module":
+        (project.modules_dir / agent["output"]).write_text("new analysis", encoding="utf-8")
+    else:
+        url = f"{base}/documents/{source}"
+        original = client.get(url).json()
+        assert client.put(url, json={
+            "content": original["content"] + "\nchanged\n",
+            "expected_revision": original["revision"],
+        }).status_code == 200
+    before = project.state_path.read_bytes()
+    response = client.post(f"{base}/state-proposals/{proposal['id']}/apply")
+    assert response.status_code == 409
+    assert project.state_path.read_bytes() == before
+
+
+def test_state_api_replacement_invalidates_previous_approval(state_api):
+    client, base, agent = state_api
+    old = client.post(f"{base}/state-proposals", json={"agent": agent["id"]}).json()["proposal"]
+    new = client.post(f"{base}/state-proposals", json={"agent": agent["id"]}).json()["proposal"]
+    assert old["id"] != new["id"]
+    assert client.post(f"{base}/state-proposals/{old['id']}/apply").status_code == 409
+    assert client.post(f"{base}/state-proposals/{new['id']}/apply").status_code == 200
+
+
+def test_state_api_approval_cannot_cross_project(state_api, mock_config):
+    from sida.project import create_blank_project
+
+    client, base, agent = state_api
+    other = create_blank_project("other", config=mock_config)
+    proposal = client.post(f"{base}/state-proposals", json={"agent": agent["id"]}).json()["proposal"]
+    response = client.post(f"/api/projects/{other.name}/state-proposals/{proposal['id']}/apply")
+    assert response.status_code == 409
+    assert client.post(f"{base}/state-proposals/{proposal['id']}/apply").status_code == 200
+
+
+@pytest.mark.parametrize("agent_id", ["nope", "program_analyst"])
+def test_state_api_rejects_unknown_or_unrun_expert(state_api, agent_id):
+    client, base, _agent = state_api
+    assert client.post(f"{base}/state-proposals", json={"agent": agent_id}).status_code == 400
+
+
+def test_state_api_reports_provider_error_without_writing_state(state_api, project, monkeypatch):
+    from sida import engine
+
+    client, base, agent = state_api
+    before = project.state_path.read_bytes()
+
+    def broken(*_args):
+        raise harness.LLMError("provider unavailable")
+
+    monkeypatch.setattr(engine, "propose_state", broken)
+    response = client.post(f"{base}/state-proposals", json={"agent": agent["id"]})
+    assert response.status_code == 502
+    assert "provider unavailable" in response.json()["detail"]
+    assert project.state_path.read_bytes() == before
+    assert client.get("/api/health").status_code == 200
+
+
+def test_state_api_no_change_returns_no_pending_approval(state_api, monkeypatch):
+    from sida import engine
+
+    client, base, agent = state_api
+    monkeypatch.setattr(engine, "propose_state", lambda *_args: None)
+    assert client.post(f"{base}/state-proposals", json={"agent": agent["id"]}).json() == {"proposal": None}
+
+
+def test_document_api_writes_keep_cross_site_guard(client, project):
+    url = f"/api/projects/{project.name}/documents/brief"
+    original = client.get(url).json()
+    headers = {"origin": "https://evil.example"}
+    assert client.put(url, headers=headers, json={
+        "content": "x", "expected_revision": original["revision"],
+    }).status_code == 403
+    assert client.post(
+        f"/api/projects/{project.name}/state-proposals", headers=headers,
+        json={"agent": "site_reader"},
+    ).status_code == 403

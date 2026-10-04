@@ -205,3 +205,79 @@ def test_fail_raises_catchable_error_with_message(capsys):
     assert not isinstance(info.value, SystemExit)
     assert str(info.value) == "브리프가 없습니다"
     assert capsys.readouterr() == ("", "")
+
+
+@pytest.mark.parametrize("changed", ["state", "module", "brief"])
+def test_state_approval_rejects_changed_source(core, changed):
+    from sida.project_documents import DocumentConflict
+
+    s = core()
+    agent = s.agents[0]
+    engine.run_module(s, agent)
+    proposal = engine.propose_state(s, agent)
+    target = {
+        "state": s.project.state_path,
+        "module": s.output_dir / agent["output"],
+        "brief": s.project.brief_path,
+    }[changed]
+    target.write_text(target.read_text(encoding="utf-8") + "\nchanged\n", encoding="utf-8")
+    before = s.project.state_path.read_bytes()
+    with pytest.raises(DocumentConflict):
+        engine.apply_state(s, proposal)
+    assert s.project.state_path.read_bytes() == before
+    assert not (s.project.path / "project_state.prev.md").exists()
+
+
+def test_discard_state_never_writes_and_replay_cannot_apply(core):
+    from sida.project_documents import DocumentConflict
+
+    s = core()
+    engine.run_module(s, s.agents[0])
+    proposal = engine.propose_state(s, s.agents[0])
+    before = s.project.state_path.read_bytes()
+    engine.discard_state(s, proposal)
+    assert s.project.state_path.read_bytes() == before
+    assert s.pending_state is None
+    with pytest.raises(DocumentConflict):
+        engine.apply_state(s, proposal)
+
+
+def test_applied_state_cannot_be_applied_twice(core):
+    from sida.project_documents import DocumentConflict
+
+    s = core()
+    engine.run_module(s, s.agents[0])
+    proposal = engine.propose_state(s, s.agents[0])
+    engine.apply_state(s, proposal)
+    before_backup = (s.project.path / "project_state.prev.md").read_bytes()
+    with pytest.raises(DocumentConflict):
+        engine.apply_state(s, proposal)
+    assert (s.project.path / "project_state.prev.md").read_bytes() == before_backup
+
+
+def test_editing_brief_refreshes_session_context(core, capsys):
+    s = core()
+    document = engine.read_editable_document(s, "brief")
+    edited = document.content + "\n## 직접 작성한 요구\n- 보행 연결\n"
+    saved = engine.edit_document(s, "brief", edited, expected_revision=document.revision)
+    assert s.project_brief == saved.content
+    assert "보행 연결" in s.project_brief
+    assert capsys.readouterr() == ("", "")
+
+
+def test_identical_summary_for_new_module_version_still_needs_acceptance(core):
+    from sida.harness import modules_newer_than_state
+
+    s = core()
+    agent = s.agents[0]
+    engine.run_module(s, agent)
+    proposal = engine.propose_state(s, agent)
+    engine.apply_state(s, proposal)
+    module = s.output_dir / agent["output"]
+    module.write_text(module.read_text(encoding="utf-8") + "\n새 결과\n", encoding="utf-8")
+    next_proposal = engine.propose_state(s, agent)
+    assert next_proposal is not None
+    assert "sida-module-revisions" not in next_proposal.diff
+    assert modules_newer_than_state(s.agents, s.output_dir, s.project.state_path) == [agent]
+    engine.apply_state(s, next_proposal)
+    assert modules_newer_than_state(s.agents, s.output_dir, s.project.state_path) == []
