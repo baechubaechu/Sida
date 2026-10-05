@@ -24,7 +24,7 @@ worker:
 
 rag:
   enabled: false
-  provider: http
+  provider: lawgokr
 
 state_update:
   mode: ask
@@ -42,7 +42,7 @@ def test_set_section_key_preserves_comment():
 
 
 def test_set_section_key_bool_and_insert(tmp_path):
-    text = "rag:\n  provider: http\n"
+    text = "rag:\n  provider: lawgokr\n"
     out = set_section_key(text, "rag", "enabled", True)
     assert "enabled: true" in out
     path = tmp_path / "config.yaml"
@@ -65,7 +65,7 @@ def test_set_section_key_bool_and_insert(tmp_path):
 def test_summary_one_liner(mock_config):
     mock_config["conductor"]["provider"] = "ollama"
     mock_config["worker"]["provider"] = "ollama"
-    mock_config["rag"] = {"enabled": True, "provider": "http"}
+    mock_config["rag"] = {"enabled": True, "provider": "lawgokr"}
     one = settings_one_liner(mock_config)
     assert "ollama" in one and "rag:on" in one
     block = settings_summary(mock_config)

@@ -37,7 +37,41 @@ def land_fixture(name: str):
 
 
 @pytest.fixture
-def fake_vworld(monkeypatch):
+def fake_ordinance(monkeypatch):
+    """Serve recorded law.go.kr ordinance responses (군포시, 서울특별시, 고성군); records calls."""
+    calls: list[dict] = []
+    overrides: dict[str, object] = {}
+    searches = {"군포시": "gunpo", "서울특별시": "seoul", "고성군": "goseong"}
+
+    previous = lawapi._http_get  # another fixture's fake, or the network block
+
+    def http_get(url, params):
+        if params.get("target") != "ordin":
+            return previous(url, params)
+        calls.append(dict(params))
+        op = "body" if "MST" in params else "search"
+        if op in overrides:
+            value = overrides[op]
+            if isinstance(value, list):  # a queue of replies, one per call
+                value = value.pop(0) if len(value) > 1 else value[0]
+            if isinstance(value, Exception):
+                raise value
+            return value
+        if op == "body":
+            return (LAW_FIXTURES / f"ordin_body_gunpo_{params['MST']}.json").read_text(encoding="utf-8")
+        name = searches.get(params["query"].split()[0])
+        if name is None:
+            return '{"OrdinSearch": {"totalCnt": "0", "resultCode": "00"}}'
+        return (LAW_FIXTURES / f"ordin_search_{name}.json").read_text(encoding="utf-8")
+
+    monkeypatch.setattr(lawapi, "_http_get", http_get)
+    http_get.calls = calls
+    http_get.overrides = overrides
+    return http_get
+
+
+@pytest.fixture
+def fake_vworld(monkeypatch, fake_ordinance):
     """Serve recorded VWorld responses (금정동 689) instead of the network; records calls."""
     calls: list[tuple[str, dict]] = []
     overrides: dict[str, object] = {}
@@ -77,6 +111,7 @@ def isolated_settings(tmp_path, monkeypatch):
     monkeypatch.setattr(lawapi, "ENV_PATH", tmp_path / "no.env")
     monkeypatch.setenv("LAW_OPEN_API_OC", "test-oc")
     monkeypatch.setattr(lawapi, "_http_get", _no_network)
+    monkeypatch.setattr(lawapi, "_http_get_bytes", lambda url: _no_network(url, {}))
     lawapi.clear_cache()
     # No real nvidia-smi calls: tests that need a GPU patch query_nvidia_smi themselves.
     monkeypatch.setattr(hardware, "query_nvidia_smi", lambda: None)

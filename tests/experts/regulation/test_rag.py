@@ -13,7 +13,6 @@ def test_rag_settings_defaults(mock_config):
     assert s["enabled"] is False  # off until a machine opts in via config.local.yaml
     assert s["provider"] == "lawgokr"  # 법제처 search, called directly
     assert s["agents"]["regulation_checker"] == "regulation"
-    assert "base_url" not in s and "api_key" not in s  # no self-hosted server settings
 
 
 def test_retrieve_disabled_returns_empty(mock_config):
@@ -150,15 +149,15 @@ def test_no_warning_when_rag_off_or_passages_found(mock_config, tmp_path):
     assert rag.last_retrieval_warning() is None
 
 
-def test_warning_for_no_hits_and_for_a_removed_provider(mock_config, tmp_path):
+def test_warning_for_no_hits_and_for_an_unknown_provider(mock_config, tmp_path):
     cfg = _local_config(mock_config, tmp_path)
     assert rag.retrieve_passages(cfg, "regulation", "철도보호지구") == []  # empty corpus
     assert "찾지 못했" in rag.last_retrieval_warning()
 
-    # A config.local.yaml written for the old self-hosted server keeps working, with a hint.
-    cfg["rag"]["provider"] = "http"
+    # A provider name Sida does not know: the run continues and the warning names it.
+    cfg["rag"]["provider"] = "nope"
     assert rag.retrieve_passages(cfg, "regulation", "철도보호지구") == []
-    assert "'http'" in rag.last_retrieval_warning()
+    assert "'nope'" in rag.last_retrieval_warning()
 
 
 def test_warning_cleared_for_agent_without_collection(mock_config, tmp_path):

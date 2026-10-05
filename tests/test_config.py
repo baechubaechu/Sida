@@ -49,7 +49,7 @@ def _write_base(tmp_path):
     base = tmp_path / "config.yaml"
     base.write_text(
         "conductor:\n  provider: openrouter\n  model: m1\n"
-        "rag:\n  enabled: false\n  provider: http\n"
+        "rag:\n  enabled: false\n  provider: local_files\n"
         "agents:\n  - id: a\n  - id: b\n",
         encoding="utf-8",
     )
@@ -69,7 +69,7 @@ def test_load_config_overlays_local_file(tmp_path):
     )
     cfg = sida_config.load_config(base)
     assert cfg["conductor"] == {"provider": "ollama", "model": "m1"}  # sibling key kept
-    assert cfg["rag"] == {"enabled": True, "provider": "http"}
+    assert cfg["rag"] == {"enabled": True, "provider": "local_files"}
     assert [a["id"] for a in cfg["agents"]] == ["a", "b"]
 
 

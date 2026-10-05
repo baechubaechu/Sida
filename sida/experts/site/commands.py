@@ -12,7 +12,8 @@ if TYPE_CHECKING:
 
 SITE_FACTS_NOTE = (
     "[system] Site facts were looked up from the address and saved as site_facts.json "
-    "(parcel, zoning, statutory coverage/FAR limits). site_reader and regulation_checker now "
+    "(parcel, zoning, statutory coverage/FAR limits, the municipality's ordinance articles on "
+    "coverage/FAR). site_reader and regulation_checker now "
     "receive them; outputs of those experts produced before this are stale."
 )
 
@@ -23,7 +24,7 @@ def _print_site_facts(facts: dict) -> None:
 
 
 def cmd_site(session: Session, arg: str) -> str:
-    """`/site` shows saved site facts; `/site <address>` looks a parcel (or several) up."""
+    """`/site` shows saved facts, `/site 조례` the ordinance articles, `/site <address>` looks up."""
     from sida.console import prompt_line
 
     project = session.project
@@ -34,6 +35,10 @@ def cmd_site(session: Session, arg: str) -> str:
             _print_site_facts(facts)
         else:
             print(t("site_none"))
+        return "continue"
+    if query.lower() in {"조례", "ordinance"}:
+        text = site_facts.ordinance_text(site_facts.load_facts(project.path) or {})
+        print(text or t("site_ordinance_none"))
         return "continue"
 
     print(t("site_searching", query=query))
@@ -61,6 +66,9 @@ def cmd_site(session: Session, arg: str) -> str:
 
     print(t("site_fetching", n=len(picks)))
     facts = site_facts.build_facts(query, [candidates[i] for i in picks])
+    if facts["summary"]["zoning"]:
+        print(t("site_ordinance_fetching", body=facts["summary"]["municipality"]))
+        site_facts.attach_ordinance(facts)
     path = site_facts.save_facts(project.path, facts)
     print()
     _print_site_facts(facts)

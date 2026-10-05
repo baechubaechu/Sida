@@ -215,6 +215,7 @@ Commands:
   /state update     propose a state patch from the latest module (diff + confirm)
   /site             show site facts (parcel, zoning, statutory coverage / FAR limits)
   /site <address>   look up a lot-number address; pick one parcel or several to merge
+  /site ordinance   show the saved coverage / FAR articles of the municipality's planning ordinance
   /agents
   /status
   /setup
@@ -312,6 +313,7 @@ Module layout. The code is the `sida/` package: the shared core sits directly in
 | `hub_about.py` | hub `h`: about page listing the experts |
 | `hardware.py` | GPU detection (NVIDIA) and local-profile recommendation |
 | `workspace.py` | UI-agnostic project hub operations: list, look up, create |
+| `experts/regulation/ordinance.py` | finds the municipality's 도시·군계획 조례 on law.go.kr and quotes its 건폐율 / 용적률 articles as written, and reads the figure for the site's zone by fixed rules, shown next to the quoted line; follows "별표 N과 같다" into the annex file (`hwp.py` reads HWP) (stored in `site_facts.json` by `/site`, given to `regulation_checker`) |
 | `experts/site/landapi.py` | clients for the government land APIs (VWorld): parcel search, zoning, land characteristics |
 | `experts/site/site_facts.py` + `data/zoning_limits.yaml` (repo root) | site facts: parcels → one site, statutory coverage / FAR limits, items to verify; saved as `site_facts.json` and given to `site_reader` / `regulation_checker` |
 | `webapp.py` + `webui/` (repo root) | local web UI (FastAPI): JSON API under `/api`, HTML pages from `webui/templates`, styles in `webui/static` |
