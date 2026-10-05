@@ -134,6 +134,10 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
     app = FastAPI(title="Sida", docs_url=None, redoc_url=None)
     app.state.editing = EditingService()
     app.include_router(create_document_router(app.state.editing, load_config, core))
+    from sida.experts import expert_routers
+
+    for router in expert_routers(load_config, core):  # each domain's own JSON API
+        app.include_router(router)
     app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
     templates = Jinja2Templates(directory=WEB_DIR / "templates")
     templates.env.globals.update(t=t, local_time=local_time, project_url=project_url)

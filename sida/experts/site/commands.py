@@ -36,9 +36,38 @@ def cmd_site(session: Session, arg: str) -> str:
         else:
             print(t("site_none"))
         return "continue"
-    if query.lower() in {"조례", "ordinance"}:
-        text = site_facts.ordinance_text(site_facts.load_facts(project.path) or {})
-        print(text or t("site_ordinance_none"))
+    head, _, rest = query.partition(" ")
+    if head.lower() in {"조례", "ordinance"}:
+        facts = site_facts.load_facts(project.path) or {}
+        view = site_facts.ordinance_options(facts)
+        if not view["available"]:
+            print(t("site_ordinance_none"))
+        elif not rest.strip():
+            print(site_facts.describe_options(facts))
+            print(t("site_ordinance_hint"))
+        else:
+            wanted = rest.strip()
+            found = [a for a in view["articles"] if a["label"] == wanted]
+            found += [i for g in view["groups"] for i in g["items"] if i["label"] == wanted]
+            for article in found:
+                print(f"{article['label']} {article['title']}\n{article['text']}")
+            if not found:
+                print(t("site_ordinance_unknown", label=wanted))
+        return "continue"
+    choices = {
+        "숨김": ("dismissed", True, "site_ordinance_hidden"), "hide": ("dismissed", True, "site_ordinance_hidden"),
+        "표시": ("dismissed", False, "site_ordinance_shown"), "show": ("dismissed", False, "site_ordinance_shown"),
+        "원문": ("detailed", True, "site_ordinance_detailed"), "detail": ("detailed", True, "site_ordinance_detailed"),
+        "제목만": ("detailed", False, "site_ordinance_brief"), "brief": ("detailed", False, "site_ordinance_brief"),
+    }
+    if head.lower() in choices:
+        key, value, message = choices[head.lower()]
+        try:
+            site_facts.set_option(project.path, rest.strip(), **{key: value})
+        except ValueError:
+            print(t("site_ordinance_unknown", label=rest.strip()))
+            return "continue"
+        print(t(message, label=rest.strip()))
         return "continue"
 
     print(t("site_searching", query=query))
@@ -66,6 +95,9 @@ def cmd_site(session: Session, arg: str) -> str:
 
     print(t("site_fetching", n=len(picks)))
     facts = site_facts.build_facts(query, [candidates[i] for i in picks])
+    previous = site_facts.load_facts(project.path)
+    if previous and previous.get("ordinance"):
+        facts["ordinance"] = previous["ordinance"]  # carries what the designer hid
     if facts["summary"]["zoning"]:
         print(t("site_ordinance_fetching", body=facts["summary"]["municipality"]))
         site_facts.attach_ordinance(facts)

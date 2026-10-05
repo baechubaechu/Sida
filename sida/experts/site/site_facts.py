@@ -106,8 +106,163 @@ def attach_ordinance(facts: dict, *, http_get=None) -> dict:
             z["zone"]: ordinance.zone_values(found["articles"], z["zone"], zone_table[z["zone"]])
             for z in facts["summary"]["zoning"]
         }
+        # what the designer hid stays hidden when the same ordinance is looked up again
+        before = facts.get("ordinance") or {}
+        labels = {r["label"] for r in found["related"]}
+        for key in ("dismissed", "detailed"):
+            found[key] = [
+                x for x in before.get(key) or [] if before.get("name") == found["name"] and x in labels
+            ]
         facts["ordinance"] = found
     return facts
+
+
+GROUP_TITLES = {
+    "site": "대지 위치로 정해지는 것",
+    "design": "설계 내용으로 얻을 수 있는 완화",
+    "admin": "행정이 따로 지정하는 것",
+}
+GROUP_NOTES = {
+    "site": "대지가 그 지구·구역 안에 있으면 기본 수치보다 이 조문이 우선합니다.",
+    "design": "조건을 갖추면 받을 수 있는 선택지입니다. 적용된 수치가 아닙니다. 검토할 조문을 고르면 전문가가 원문을 읽습니다.",
+    "admin": "지자체가 구역을 지정했을 때만 적용됩니다. 지정 여부는 이 자료로 알 수 없으니 확인하세요.",
+}
+
+
+def _site_districts(facts: dict) -> list[str]:
+    """Names of the 지구·구역 the site lies in (not merely next to), without the parentheses."""
+    names = []
+    for d in facts["summary"]["districts"]:
+        if d["relation"] == "접함":
+            continue
+        name = re.sub(r"\(.*?\)", "", d["name"]).strip()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def _matched_districts(article_text: str, title: str, districts: list[str]) -> list[str]:
+    """Which of the site's districts this article is about ("자연경관지구" also as "경관지구")."""
+    haystack = re.sub(r"[\s·ㆍ]", "", title + article_text)
+    matched = []
+    for name in districts:
+        squashed = re.sub(r"[\s·ㆍ]", "", name)
+        short = re.sub(r"^(자연|시가지|특화|중심지미관|일반미관|역사문화미관)", "", squashed)
+        if len(squashed) >= 4 and (squashed in haystack or (len(short) >= 4 and short in haystack)):
+            matched.append(name)
+    return matched
+
+
+def ordinance_options(facts: dict | None) -> dict:
+    """
+    Everything the ordinance says about 건폐율 / 용적률 for this site, arranged for a designer:
+    the base figures per zone, then every other article in three groups (GROUP_TITLES).
+    Nothing is filtered out; an option the designer dismissed is marked, not removed.
+    "detailed" marks the options whose full text the designer wants the experts to read
+    (otherwise experts get the title only; see ordinance_text).
+    """
+    from sida.experts.regulation import ordinance
+
+    o = (facts or {}).get("ordinance") or {}
+    view = {
+        "available": bool(o.get("articles")),
+        "municipality": o.get("municipality", ""),
+        "name": o.get("name", ""),
+        "effective": o.get("effective", ""),
+        "error": ORDINANCE_ERRORS.get(o.get("error") or "") if o.get("error") else None,
+        "base": [],
+        "articles": [],
+        "groups": [],
+    }
+    if not facts or not o:
+        return view
+    for zone, values in (o.get("values") or {}).items():
+        view["base"].append({"zone": zone, "bcr": values.get("bcr"), "far": values.get("far")})
+    for a in o.get("articles") or []:
+        annex = a.get("annex") or {}
+        view["articles"].append(
+            {
+                "label": a["label"],
+                "title": a["title"],
+                "text": ordinance.readable(a["text"]),
+                "annex": {"label": annex.get("label"), "text": "\n".join(annex.get("lines") or [])} if annex else None,
+            }
+        )
+    districts = _site_districts(facts)
+    dismissed = set(o.get("dismissed") or [])
+    detailed = set(o.get("detailed") or [])
+    for group in ordinance.GROUPS:
+        items = []
+        for r in o.get("related") or []:
+            if r.get("group", ordinance.classify(r["title"])) != group:
+                continue
+            matched = _matched_districts(r.get("text", ""), r["title"], districts) if group == "site" else []
+            items.append(
+                {
+                    "id": r["label"],
+                    "label": r["label"],
+                    "title": r["title"],
+                    "text": ordinance.readable(r.get("text", "")),
+                    # site: True / False from the site's districts; design, admin: not knowable here
+                    "applies": bool(matched) if group == "site" else None,
+                    "matched": matched,
+                    "dismissed": r["label"] in dismissed,
+                    "detailed": r["label"] in detailed and r["label"] not in dismissed,
+                }
+            )
+        items.sort(key=lambda item: (item["applies"] is not True, item["dismissed"]))
+        view["groups"].append(
+            {"id": group, "title": GROUP_TITLES[group], "note": GROUP_NOTES[group], "items": items}
+        )
+    return view
+
+
+def set_option(
+    project_path: Path, option_id: str, *, dismissed: bool | None = None, detailed: bool | None = None
+) -> dict:
+    """
+    The designer's choice for one related article: `dismissed` hides it (experts do not even
+    get its title), `detailed` asks for its full text to be sent to the experts. None leaves a
+    setting as it is. Returns the new options view.
+    """
+    facts = load_facts(project_path)
+    o = (facts or {}).get("ordinance") or {}
+    if option_id not in {r["label"] for r in o.get("related") or []}:
+        raise ValueError(f"unknown ordinance article: {option_id}")
+    for key, value in (("dismissed", dismissed), ("detailed", detailed)):
+        if value is None:
+            continue
+        kept = [x for x in o.get(key) or [] if x != option_id]
+        o[key] = [*kept, option_id] if value else kept
+    save_facts(project_path, facts)
+    return ordinance_options(facts)
+
+
+def set_option_dismissed(project_path: Path, option_id: str, dismissed: bool) -> dict:
+    """Hide or restore one related article for this project. Returns the new options view."""
+    return set_option(project_path, option_id, dismissed=dismissed)
+
+
+def describe_options(facts: dict) -> str:
+    """The three groups as text, for the terminal ("" when there is no ordinance)."""
+    view = ordinance_options(facts)
+    if not view["available"]:
+        return ""
+    lines = [f"{view['name']} (시행 {view['effective']})"]
+    for group in view["groups"]:
+        lines.append(f"\n[{group['title']}] {group['note']}")
+        if not group["items"]:
+            lines.append("  (해당 조문 없음)")
+        for item in group["items"]:
+            mark = "숨김 " if item["dismissed"] else "원문 " if item["detailed"] else ""
+            if item["applies"] is True:
+                where = f" ← 이 대지 해당: {', '.join(item['matched'])}"
+            elif item["applies"] is False:
+                where = " (이 대지가 속한 지구·구역은 이 조문에 나오지 않음)"
+            else:
+                where = ""
+            lines.append(f"  {mark}{item['label']} {item['title']}{where}")
+    return "\n".join(lines)
 
 
 def parcel_zoning(parcel: dict, zone_names) -> list[str]:
@@ -417,22 +572,69 @@ def _ordinance_value_lines(facts: dict) -> list[str]:
 
 
 def ordinance_text(facts: dict) -> str:
-    """The quoted ordinance articles, for the designer and for the expert prompt ("" if none)."""
+    """
+    What the experts receive of the ordinance — only what concerns this site ("" if none):
+      - the base articles without the 호 of other 용도지역 (a table annex: the zone's row)
+      - the articles of districts the site lies in, cut to the 항 about 건폐율 / 용적률
+      - relaxations and tightening: titles, plus the full text of the ones the designer
+        marked "detailed". Dismissed ones are left out altogether.
+    The designer's own view (ordinance_options, /site 조례) always has every article in full.
+    """
+    from sida.experts.regulation import ordinance
+
     o = facts.get("ordinance") or {}
     if not o.get("articles"):
         return ""
+    zones = [z["zone"] for z in facts["summary"]["zoning"]]
+    all_zones = list(load_limits()["zones"])
     parts = []
     for a in o["articles"]:
-        parts.append(f"source: {o['name']} {a['label']} (시행 {o['effective']})\n{a['text']}")
+        body = ordinance.excerpt_for_zones(a["text"], zones, all_zones)
+        parts.append(f"source: {o['name']} {a['label']} (시행 {o['effective']})\n{body}")
         annex = a.get("annex") or {}
         if annex.get("lines"):
-            body = "\n".join(annex["lines"])
+            rows = {
+                f["quote"]
+                for values in (o.get("values") or {}).values()
+                for f in values.values()
+                if f and "표의 열" in f["quote"] and annex["label"] in f.get("label", "")
+            }
+            body = "\n".join(sorted(rows)) if rows else ordinance.excerpt_for_zones(
+                "\n".join(annex["lines"]), zones, all_zones
+            )
             parts.append(f"source: {o['name']} {annex['label']} (시행 {o['effective']})\n{body}")
         elif annex:
             parts.append(f"{annex['label']}: 파일을 읽지 못함(미확인) — 조례 원문에서 직접 확인")
-    if o.get("related"):
-        listed = ", ".join(f"{r['label']}({r['title']})" for r in o["related"])
-        parts.append(f"같은 조례의 관련 조문(원문 미포함, 해당하면 verify): {listed}")
+
+    view = ordinance_options(facts)
+    groups = {g["id"]: [i for i in g["items"] if not i["dismissed"]] for g in view["groups"]}
+    raw = {r["label"]: r.get("text", "") for r in o.get("related") or []}
+
+    applied = [i for i in groups["site"] if i["applies"]]
+    if applied:
+        body = "\n\n".join(
+            f"source: {o['name']} {i['label']} ({i['title']}) — 해당: {', '.join(i['matched'])}\n"
+            + ordinance.ratio_paragraphs(raw[i["label"]])
+            for i in applied
+        )
+        parts.append(f"[이 대지가 속한 지구·구역의 조문 — 기본 수치보다 우선함]\n{body}")
+
+    for group, heading, rule in (
+        ("design", "설계로 얻을 수 있는 완화(선택지)", "조건을 갖출 때만 가능. 적용된 것으로 계산하지 말 것"),
+        ("admin", "지자체가 구역을 지정했을 때만 적용", "지정 여부를 verify 항목으로 둘 것"),
+    ):
+        items = groups[group]
+        if not items:
+            continue
+        titles = ", ".join(f"{i['label']}({i['title']})" for i in items)
+        lines = [f"[{heading} — {rule}]", f"조문 목록: {titles}"]
+        full = [i for i in items if i["detailed"]]
+        if full:
+            lines.append("설계자가 검토를 요청한 조문의 원문:")
+            lines += [f"source: {o['name']} {i['label']} ({i['title']})\n{i['text']}" for i in full]
+        else:
+            lines.append("원문은 포함하지 않음. 조건을 추정하지 말고, 해당할 만한 조문은 번호로 가리켜 verify로 둘 것.")
+        parts.append("\n".join(lines))
     return "\n\n".join(parts)
 
 

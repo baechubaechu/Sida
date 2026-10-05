@@ -513,6 +513,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "site_fetching": "[site] Fetching zoning and land data for {n} parcel(s) ...",
         "site_saved": "[site] Saved: {path}",
         "site_ordinance_fetching": "[site] Looking up the planning ordinance of {body} (law.go.kr) ...",
+        "site_ordinance_hint": (
+            "\n/site ordinance <article>  full text, e.g. /site ordinance 제52조\n"
+            "/site detail <article>     have the experts read its full text (/site brief to undo)\n"
+            "/site hide <article>       leave it out altogether (/site show to undo)"
+        ),
+        "site_ordinance_detailed": "[site] {label}: experts now receive the full text.",
+        "site_ordinance_brief": "[site] {label}: experts receive the title only.",
+        "site_ordinance_unknown": "[site] No such article in the saved ordinance: {label}",
+        "site_ordinance_hidden": "[site] Hidden: {label}. Experts no longer receive it.",
+        "site_ordinance_shown": "[site] Shown again: {label}.",
         "site_ordinance_none": (
             "No ordinance articles are saved for this project. Look the site up with /site <address>; "
             "if the lookup failed, the reason is shown under /site."
@@ -549,7 +559,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "  /brief fields      update basic brief fields (other sections kept)\n"
             "  /site              show site facts (parcel, zoning, statutory limits)\n"
             "  /site <address>    look up a lot-number address and save its site facts\n"
-            "  /site ordinance    show the saved coverage / FAR articles of the local ordinance\n"
+            "  /site ordinance    list the local ordinance's coverage / FAR articles in three groups\n"
             "  /state             show project_state.md (Conductor memory)\n"
             "  /state edit        open project_state.md in your editor\n"
             "  /state update [id] propose a state update from a module output (diff + confirm)\n"
@@ -1066,6 +1076,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "site_fetching": "[site] 필지 {n}개의 용도지역과 토지 정보를 가져오는 중 ...",
         "site_saved": "[site] 저장됨: {path}",
         "site_ordinance_fetching": "[site] {body}의 도시·군계획 조례를 찾는 중 (법제처) ...",
+        "site_ordinance_hint": (
+            "\n/site 조례 <조문>   원문 보기. 예: /site 조례 제52조\n"
+            "/site 원문 <조문>   전문가가 이 조문의 원문을 읽게 하기 (되돌리기: /site 제목만 <조문>)\n"
+            "/site 숨김 <조문>   목록에서 아예 빼기 (되돌리기: /site 표시 <조문>)"
+        ),
+        "site_ordinance_detailed": "[site] {label}: 전문가에게 원문을 넘깁니다.",
+        "site_ordinance_brief": "[site] {label}: 전문가에게 제목만 넘깁니다.",
+        "site_ordinance_unknown": "[site] 저장된 조례에 그런 조문이 없습니다: {label}",
+        "site_ordinance_hidden": "[site] 숨김: {label}. 전문가에게 넘기지 않습니다.",
+        "site_ordinance_shown": "[site] 다시 표시: {label}.",
         "site_ordinance_none": (
             "이 프로젝트에 저장된 조례 조문이 없습니다. /site <주소>로 대지를 조회하세요. "
             "조회에 실패했다면 이유가 /site에 표시됩니다."
@@ -1102,7 +1122,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "  /brief fields      기본 항목만 다시 입력 (다른 섹션은 보존)\n"
             "  /site              대지 사실 보기 (필지, 용도지역, 법정 상한)\n"
             "  /site <주소>       지번 주소로 필지를 찾아 대지 사실을 저장\n"
-            "  /site 조례         저장된 조례의 건폐율·용적률 조문 원문 보기\n"
+            "  /site 조례         조례의 건폐율·용적률 조문을 세 묶음으로 보기\n"
             "  /state             project_state.md 보기 (Conductor 메모리)\n"
             "  /state edit        project_state.md 를 에디터로 열기\n"
             "  /state update [id] 모듈 결과로 상태 갱신안 제안 (diff 확인 후 적용)\n"

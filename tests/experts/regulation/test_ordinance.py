@@ -69,7 +69,13 @@ def test_lookup_quotes_the_two_base_articles(fake_ordinance):
     assert "\n②" in far["text"]  # paragraphs on their own lines
     related = {r["label"]: r["title"] for r in result["related"]}
     assert related["제52조"] == "건폐율의 완화" and "제54조의2" in related
-    assert "제49조" not in related and all("text" not in r for r in result["related"])
+    assert "제49조" not in related
+    groups = {r["label"]: r["group"] for r in result["related"]}
+    assert groups["제34조"] == "site"  # 자연ㆍ특화경관지구안에서의 건폐율
+    assert groups["제50조"] == "site"  # 그 밖의 용도지구ㆍ구역 등의 건폐율
+    assert groups["제52조"] == "design" and groups["제55조"] == "design"  # 완화
+    assert groups["제51조"] == "admin"  # 건폐율의 강화
+    assert all(r["text"] for r in result["related"])  # every related article keeps its text
 
 
 def test_lookup_reports_failures_instead_of_raising(fake_ordinance):
@@ -121,6 +127,16 @@ def test_pick_articles_leaves_relaxations_and_combined_titles_out():
     ]
     assert [r["label"] for r in related] == ["제19조", "제52조", "제56조"]
     assert ordinance.pick_articles([article("제1조", "목적")]) == ([], [])
+
+    # a district's article that sets a ratio only in its text (서울: "자연경관지구 안에서의 건축제한")
+    _, seoul = ordinance.pick_articles(
+        [
+            article("제34조", "자연경관지구 안에서의 건축제한", "① 건폐율은 30퍼센트 이하로 한다."),
+            article("제39조", "보호지구 안에서의 건축제한", "① 다음 건축물을 건축할 수 없다."),
+            article("제20조", "지구단위계획의 수립기준 등", "건폐율 완화 기준을 포함한다."),
+        ]
+    )
+    assert [(r["label"], r["group"]) for r in seoul] == [("제34조", "site")]
 
 
 # --- reading the figure for a zone (fixed rules, text taken from real ordinances) ----
@@ -310,3 +326,51 @@ def test_ordinance_body_lists_its_annexes(fake_ordinance):
     annexes = lawapi.ordinance_articles("1")["annexes"]
     assert [(a["label"], a["format"]) for a in annexes] == [("별표 27", "hwp"), ("별표 3의2", "pdf")]
     assert annexes[0]["url"].endswith("flSeq=1")
+
+
+def test_related_articles_fall_into_three_groups_by_title():
+    site = ["경관지구안에서의 건폐율", "방화지구 안에서의 건폐율의 완화", "그 밖의 용도지구ㆍ구역 등의 용적률",
+            "도시지역 내 지구단위계획구역에서의 건폐율 등의 완화적용", "성장관리계획구역에서의 건폐율 완화",
+            "경제자유구역안에서의 용적률 등", "그 밖의 건폐율", "기타 용도지구·구역 등의 용적률"]
+    design = ["건폐율의 완화", "공원 등에 인접한 대지에 대한 용적률의 완화", "장수명 주택의 용적률 완화",
+              "공지의 설치·조성후 제공할 경우의 용적률 완화", "「농지법」에 따라 허용되는 건축물의 건폐율 완화",
+              "생산녹지지역 등에서 기존 공장의 건폐율"]
+    admin = ["건폐율의 강화", "용적률의 강화", "용도지역 안에서의 건폐율 강화"]
+    assert {ordinance.classify(t) for t in site} == {"site"}
+    assert {ordinance.classify(t) for t in design} == {"design"}
+    assert {ordinance.classify(t) for t in admin} == {"admin"}
+
+
+def test_readable_puts_each_paragraph_and_item_on_its_own_line():
+    glued = ("제49조(용도지역안에서의 건폐율)① 다음 각 호와 같다.1. 제1종 전용주거지역 : 100분의 40"
+             "2. 제2종 전용주거지역 : 100분의 50② 제1항에도 불구하고 시장은 65퍼센트 이하로 한다.")
+    assert ordinance.readable(glued).split("\n") == [
+        "제49조(용도지역안에서의 건폐율)",
+        "① 다음 각 호와 같다.",
+        "  1. 제1종 전용주거지역 : 100분의 40",
+        "  2. 제2종 전용주거지역 : 100분의 50",
+        "② 제1항에도 불구하고 시장은 65퍼센트 이하로 한다.",
+    ]
+    plain = "제51조(건폐율의 강화) 40퍼센트까지 낮출 수 있다."
+    assert ordinance.readable(plain) == plain and ordinance.readable("") == ""
+
+
+def test_excerpt_keeps_the_sites_zone_lines_and_everything_that_is_not_a_zone_line():
+    zones = ["제1종전용주거지역", "제2종일반주거지역", "준주거지역", "일반공업지역"]
+    text = ("제49조(건폐율)① 다음 각 호와 같다.1. 제1종 전용주거지역 : 100분의 402. 제2종 일반주거지역 : 100분의 60"
+            "3. 준주거지역 : 100분의 604. 일 반 공 업 지 역 : 100분의 70② 다음 각 호의 경우는 완화한다."
+            "1. 정비사업2. 시장정비사업")
+    out = ordinance.excerpt_for_zones(text, ["제2종일반주거지역", "일반공업지역"], zones)
+    assert out.split("\n") == [
+        "제49조(건폐율)",
+        "① 다음 각 호와 같다.",
+        "  2. 제2종 일반주거지역 : 100분의 60",
+        "  4. 일 반 공 업 지 역 : 100분의 70",
+        "② 다음 각 호의 경우는 완화한다.",
+        "  1. 정비사업",
+        "  2. 시장정비사업",
+        "  (다른 용도지역의 호 2개 생략)",
+    ]
+    assert "생략" not in ordinance.excerpt_for_zones(text, zones, zones)
+    assert ordinance.ratio_paragraphs("제1조(목적) 건폐율을 정한다.") == "제1조(목적) 건폐율을 정한다."
+    assert "생략" not in ordinance.ratio_paragraphs("제2조(완화)① 건폐율 완화② 용적률 완화")

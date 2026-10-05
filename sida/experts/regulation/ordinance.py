@@ -66,8 +66,87 @@ def find_planning_ordinance(municipality: str, *, http_get=None, today: date | N
     return max(in_force or own, key=lambda h: h["effective"])
 
 
+# What decides whether a related article applies, checked in this order on the title.
+#   admin  — the municipality designates an area (강화); the designer cannot choose it
+#   site   — where the site is: a 지구 / 구역 it lies in
+#   design — what is built or given: a relaxation the design can qualify for
+GROUPS = ("site", "design", "admin")
+_ADMIN_WORDS = ("강화",)
+# "그 밖의 건폐율" (서울) lists the 지구·구역 rules without naming them in the title
+_SITE_WORDS = ("지구", "구역", "성장관리", "그밖", "기타")
+
+
+def classify(title: str) -> str:
+    """Group of a related article: "site" | "design" | "admin"."""
+    squashed = _squash(title)
+    if any(word in squashed for word in _ADMIN_WORDS):
+        return "admin"
+    if any(word in squashed for word in _SITE_WORDS):
+        return "site"
+    return "design"
+
+
+def readable(text: str) -> str:
+    """Article text with each 항 and each 호 on its own line (the API glues them together)."""
+    out: list[str] = []
+    for part in re.split(r"\s*(?=[①-⑳])", (text or "").strip()):
+        if not part:
+            continue
+        starts: list[int] = []
+        pos, n = 0, 1
+        while True:
+            match = re.compile(rf"{n}\.\s*(?=[^\d\s.,)])").search(part, pos)
+            if not match:
+                break
+            starts.append(match.start())
+            pos = match.end()
+            n += 1
+        head = part[: starts[0]].strip() if starts else part.strip()
+        if head:
+            out.append(head)
+        for index, start in enumerate(starts):
+            end = starts[index + 1] if index + 1 < len(starts) else len(part)
+            out.append("  " + part[start:end].strip())
+    return "\n".join(out)
+
+
+def excerpt_for_zones(text: str, zones: list[str], all_zones: list[str]) -> str:
+    """
+    `readable(text)` without the 호 that are about some other 용도지역. Everything else stays:
+    headings, the 호 of the site's own zones, and any 호 that is not a zone line at all.
+    """
+    mine = [_squash(z) for z in zones]
+    others = [_squash(z) for z in all_zones if _squash(z) not in mine]
+    kept: list[str] = []
+    dropped = 0
+    for line in readable(text).split("\n"):
+        item = re.match(r"\s+\d+\.\s*(.*)", line)
+        head = _squash(item.group(1)) if item else ""
+        if item and any(head.startswith(z) for z in others) and not any(head.startswith(z) for z in mine):
+            dropped += 1
+            continue
+        kept.append(line)
+    if dropped:
+        kept.append(f"  (다른 용도지역의 호 {dropped}개 생략)")
+    return "\n".join(kept)
+
+
+def ratio_paragraphs(text: str) -> str:
+    """The 항 of an article that mention 건폐율 or 용적률 (the whole article if it has no 항)."""
+    parts = re.split(r"\n(?=[①-⑳])", readable(text))
+    if len(parts) < 2:
+        return parts[0]
+    kept = [p for p in parts[1:] if any(word in p for word in KINDS.values())]
+    if not kept or len(kept) == len(parts) - 1:
+        return "\n".join(parts)
+    return "\n".join([parts[0], *kept, "(건폐율·용적률을 다루지 않는 항은 생략)"])
+
+
 def pick_articles(articles: list[dict]) -> tuple[list[dict], list[dict]]:
-    """(the base 건폐율 and 용적률 articles, other articles about either — title only)."""
+    """
+    (the base 건폐율 and 용적률 articles, every other article about either). The others
+    carry their text and a "group" (see classify): relaxations, district rules, tightening.
+    """
     base: dict[str, dict] = {}
     related: list[dict] = []
     for article in articles:
@@ -75,6 +154,11 @@ def pick_articles(articles: list[dict]) -> tuple[list[dict], list[dict]]:
         title = _squash(article["title"])
         kinds = [kind for kind, word in KINDS.items() if word in title]
         if not kinds:
+            # "자연경관지구 안에서의 건축제한" (서울): a district's article that sets a ratio
+            # in its text without saying so in its title
+            in_district = ("지구" in title or "구역" in title) and ("안에서" in title or "에서의" in title)
+            if in_district and any(word in article["text"] for word in KINDS.values()):
+                related.append({"label": article["label"], "title": article["title"], "group": "site", "text": article["text"]})
             continue
         kind = kinds[0]
         # "용도지역안에서의 건폐율", also "용도구역·지역·지구안에서의 건폐율" (여수시)
@@ -85,7 +169,14 @@ def pick_articles(articles: list[dict]) -> tuple[list[dict], list[dict]]:
         elif is_base and len(kinds) == 1 and kind not in base and article["text"]:
             base[kind] = {"kind": kind, **article}
         else:
-            related.append({"label": article["label"], "title": article["title"]})
+            related.append(
+                {
+                    "label": article["label"],
+                    "title": article["title"],
+                    "group": classify(article["title"]),
+                    "text": article["text"],
+                }
+            )
     return [base[k] for k in (*KINDS, "both") if k in base], related
 
 

@@ -20,3 +20,9 @@ def prompt_blocks(run: ExpertRun) -> list[PromptBlock]:
 
 
 COMMANDS = {"/site": cmd_site}
+
+
+def api_router(load_config, core):
+    from sida.experts.site.api import create_router
+
+    return create_router(load_config, core)
