@@ -329,3 +329,40 @@ def test_document_api_writes_keep_cross_site_guard(client, project):
         f"/api/projects/{project.name}/state-proposals", headers=headers,
         json={"agent": "site_reader"},
     ).status_code == 403
+
+
+# --- site domain API (sida/experts/site/api.py, registered through hooks.api_router) -----
+
+
+def test_site_ordinance_api_lists_groups_and_saves_dismissals(client, project, fake_vworld):
+    from sida.experts.site import landapi, site_facts
+
+    url = f"/api/projects/{project.name}/site/ordinance"
+    empty = client.get(url).json()
+    assert empty["available"] is False and empty["groups"] == []
+
+    parcel = landapi.search_parcels("경기도 군포시 금정동 689")[:1]
+    facts = site_facts.attach_ordinance(site_facts.build_facts("금정동 689-14", parcel))
+    site_facts.save_facts(project.path, facts)
+
+    body = client.get(url).json()
+    assert body["available"] and body["name"] == "군포시 도시계획 조례"
+    assert body["base"][0]["far"]["value"] == 350 and "100분의 350" in body["base"][0]["far"]["quote"]
+    assert [g["id"] for g in body["groups"]] == ["site", "design", "admin"]
+    design = {i["id"]: i for i in body["groups"][1]["items"]}
+    assert design["제52조"]["dismissed"] is False and "제52조(건폐율의 완화)" in design["제52조"]["text"]
+
+    r = client.put(f"{url}/options/제52조", json={"dismissed": True})
+    assert r.status_code == 200
+    assert {i["id"]: i for i in r.json()["groups"][1]["items"]}["제52조"]["dismissed"] is True
+    assert {i["id"]: i for i in client.get(url).json()["groups"][1]["items"]}["제52조"]["dismissed"] is True
+    assert client.put(f"{url}/options/제52조", json={"dismissed": False}).status_code == 200
+
+    picked = client.put(f"{url}/options/제52조", json={"detailed": True}).json()
+    item = {i["id"]: i for i in picked["groups"][1]["items"]}["제52조"]
+    assert item["detailed"] is True and item["dismissed"] is False
+    assert "source: 군포시 도시계획 조례 제52조" in site_facts.ordinance_block(site_facts.load_facts(project.path))
+
+    assert client.put(f"{url}/options/제999조", json={"dismissed": True}).status_code == 404
+    assert client.put(f"{url}/options/제52조", json={}).status_code == 422
+    assert client.get("/api/projects/nope/site/ordinance").status_code == 404

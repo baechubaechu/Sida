@@ -344,7 +344,15 @@ def test_ordinance_is_attached_and_quoted_for_regulatory_experts(one, fake_ordin
     assert "이 대지의 용도지역: 일반공업지역" in block
     assert "source: 군포시 도시계획 조례 제53조 (시행 2025-10-10)" in block
     assert "12. 일반공업지역 : 100분의 350 이하" in block
-    assert "관련 조문(원문 미포함" in block and "제52조(건폐율의 완화)" in block
+    # only this site's zone line is sent; the other 15 zones are left out and said so
+    assert "11. 전용공업지역" not in block and "(다른 용도지역의 호 15개 생략)" in block
+    assert "② 제1항에도 불구하고" in block  # the provisos after the list stay
+    # relaxations and tightening: titles only, until the designer asks for the text
+    assert "[설계로 얻을 수 있는 완화(선택지)" in block and "제52조(건폐율의 완화)" in block
+    assert "[지자체가 구역을 지정했을 때만 적용" in block and "제51조(건폐율의 강화)" in block
+    assert "source: 군포시 도시계획 조례 제52조" not in block and "원문은 포함하지 않음" in block
+    assert "제34조" not in block  # 경관지구 article: this site is not in one
+    assert len(block) < 3200
     assert "조례" not in "\n".join(site_facts.physical_lines(one))
 
 
@@ -388,7 +396,27 @@ def test_site_command_saves_and_shows_the_ordinance(make_session, fake_vworld, m
 
     dispatch(s, "/site 조례")
     out = capsys.readouterr().out
-    assert "source: 군포시 도시계획 조례 제49조" in out and "12. 일반공업지역 : 100분의 70 이하" in out
+    assert "[대지 위치로 정해지는 것]" in out and "[설계 내용으로 얻을 수 있는 완화]" in out
+    assert "[행정이 따로 지정하는 것]" in out and "제51조 건폐율의 강화" in out
+    assert "(이 대지가 속한 지구·구역은 이 조문에 나오지 않음)" in out
+
+    dispatch(s, "/site 조례 제49조")
+    assert "  12. 일반공업지역 : 100분의 70 이하" in capsys.readouterr().out
+    dispatch(s, "/site 조례 제999조")
+    assert "그런 조문이 없습니다" in capsys.readouterr().out
+
+    dispatch(s, "/site 숨김 제52조")
+    assert "제52조" in site_facts.load_facts(s.project.path)["ordinance"]["dismissed"]
+    dispatch(s, "/site 조례")
+    assert "숨김 제52조 건폐율의 완화" in capsys.readouterr().out
+    _answers(monkeypatch, "1")
+    dispatch(s, "/site 경기도 군포시 금정동 689")  # looking the site up again keeps the choice
+    assert site_facts.load_facts(s.project.path)["ordinance"]["dismissed"] == ["제52조"]
+    dispatch(s, "/site 표시 제52조")
+    assert site_facts.load_facts(s.project.path)["ordinance"]["dismissed"] == []
+    capsys.readouterr()
+    dispatch(s, "/site 숨김 제999조")
+    assert "그런 조문이 없습니다" in capsys.readouterr().out
 
 
 def test_ordinance_figures_are_shown_next_to_the_quoted_line(one, fake_ordinance):
@@ -409,3 +437,95 @@ def test_ordinance_figures_are_shown_next_to_the_quoted_line(one, fake_ordinance
     assert "법정 범위를 벗어나 표시하지 않음" in "\n".join(site_facts.regulatory_lines(one))
     values["far"] = None
     assert "용적률 — 조문과 별표에서 이 용도지역의 줄을 찾지 못함" in "\n".join(site_facts.regulatory_lines(one))
+
+
+# --- every related article, in three groups, dismissible ------------------------------
+
+
+def test_options_view_groups_every_article_and_marks_what_applies(one, fake_ordinance):
+    assert site_facts.ordinance_options(None)["available"] is False
+    assert site_facts.ordinance_options(one)["available"] is False  # not looked up yet
+
+    site_facts.attach_ordinance(one)
+    view = site_facts.ordinance_options(one)
+    assert view["available"] and view["name"] == "군포시 도시계획 조례" and view["error"] is None
+    assert view["base"][0]["zone"] == "일반공업지역" and view["base"][0]["bcr"]["value"] == 70
+    assert [a["label"] for a in view["articles"]] == ["제49조", "제53조"]
+    assert "\n  12. 일반공업지역 : 100분의 70 이하" in view["articles"][0]["text"]
+
+    groups = {g["id"]: g for g in view["groups"]}
+    assert list(groups) == ["site", "design", "admin"] and all(g["title"] and g["note"] for g in view["groups"])
+    listed = sorted(i["label"] for g in view["groups"] for i in g["items"])
+    assert listed == sorted(r["label"] for r in one["ordinance"]["related"])  # nothing filtered out
+    assert all(i["text"] for g in view["groups"] for i in g["items"])
+    assert all(i["applies"] is False for i in groups["site"]["items"])  # 금정동 689: no such district
+    assert all(i["applies"] is None for i in groups["design"]["items"] + groups["admin"]["items"])
+
+    # a site inside a 경관지구: that article applies, is named, and comes first
+    one["summary"]["districts"].append({"name": "자연경관지구", "relation": "포함"})
+    one["summary"]["districts"].append({"name": "취락지구", "relation": "접함"})  # next to: not in
+    site = {i["label"]: i for i in site_facts.ordinance_options(one)["groups"][0]["items"]}
+    assert site["제34조"]["applies"] is True and site["제34조"]["matched"] == ["자연경관지구"]
+    assert site["제50조"]["applies"] is False  # lists 취락지구, but the site is only next to one
+    assert next(iter(site)) == "제34조"
+    assert "이 대지가 속한 지구·구역의 조문" in site_facts.ordinance_block(one)
+    assert "제34조 (자연ㆍ특화경관지구안에서의 건폐율)" in site_facts.ordinance_block(one)
+
+
+def test_dismissed_options_are_marked_and_left_out_of_the_expert_block(project, one, fake_ordinance):
+    site_facts.save_facts(project.path, site_facts.attach_ordinance(one))
+    assert "제52조(건폐율의 완화)" in site_facts.ordinance_block(site_facts.load_facts(project.path))
+
+    view = site_facts.set_option_dismissed(project.path, "제52조", True)
+    item = next(i for g in view["groups"] for i in g["items"] if i["id"] == "제52조")
+    assert item["dismissed"] is True and item["text"]  # still listed, with its text
+    saved = site_facts.load_facts(project.path)
+    assert saved["ordinance"]["dismissed"] == ["제52조"]
+    assert "제52조(건폐율의 완화)" not in site_facts.ordinance_block(saved)  # not even its title
+    assert "제55조" in site_facts.ordinance_block(saved)  # the others are untouched
+
+    site_facts.set_option_dismissed(project.path, "제52조", True)  # twice is the same as once
+    assert site_facts.load_facts(project.path)["ordinance"]["dismissed"] == ["제52조"]
+    view = site_facts.set_option_dismissed(project.path, "제52조", False)
+    assert not any(i["dismissed"] for g in view["groups"] for i in g["items"])
+    with pytest.raises(ValueError):
+        site_facts.set_option_dismissed(project.path, "제49조", True)  # a base article cannot be hidden
+    with pytest.raises(ValueError):
+        site_facts.set_option_dismissed(project.path, "제999조", True)
+
+
+def test_experts_get_the_full_text_only_of_options_the_designer_picked(project, one, fake_ordinance):
+    site_facts.save_facts(project.path, site_facts.attach_ordinance(one))
+
+    view = site_facts.set_option(project.path, "제52조", detailed=True)
+    picked = next(i for g in view["groups"] for i in g["items"] if i["id"] == "제52조")
+    assert picked["detailed"] is True and picked["dismissed"] is False
+    block = site_facts.ordinance_block(site_facts.load_facts(project.path))
+    assert "설계자가 검토를 요청한 조문의 원문:" in block
+    assert "source: 군포시 도시계획 조례 제52조 (건폐율의 완화)" in block and "제52조(건폐율의 완화)\n①" in block
+    assert "source: 군포시 도시계획 조례 제55조" not in block and "제55조(" in block  # still title only
+
+    # hiding wins over picking; un-hiding brings the pick back
+    hidden = site_facts.set_option(project.path, "제52조", dismissed=True)
+    item = next(i for g in hidden["groups"] for i in g["items"] if i["id"] == "제52조")
+    assert item["dismissed"] is True and item["detailed"] is False
+    assert "건폐율의 완화" not in site_facts.ordinance_block(site_facts.load_facts(project.path))
+    site_facts.set_option(project.path, "제52조", dismissed=False)
+    assert "source: 군포시 도시계획 조례 제52조" in site_facts.ordinance_block(site_facts.load_facts(project.path))
+    site_facts.set_option(project.path, "제52조", detailed=False)
+    assert "원문은 포함하지 않음" in site_facts.ordinance_block(site_facts.load_facts(project.path))
+
+
+def test_applied_district_article_is_cut_to_the_paragraphs_about_ratios(one, fake_ordinance):
+    site_facts.attach_ordinance(one)
+    one["summary"]["districts"].append({"name": "자연경관지구", "relation": "포함"})
+    for r in one["ordinance"]["related"]:
+        if r["label"] == "제34조":
+            r["text"] = ("제34조(자연경관지구 안에서의 건축제한)① 다음 건축물을 건축하여서는 아니된다.1. 판매시설2. 공장"
+                         "② 건폐율은 30퍼센트 이하로 한다.③ 건축물의 높이는 3층 이하로 한다.")
+    block = site_facts.ordinance_block(one)
+    assert "— 해당: 자연경관지구" in block and "② 건폐율은 30퍼센트 이하로 한다." in block
+    assert "판매시설" not in block and "3층 이하" not in block
+    assert "(건폐율·용적률을 다루지 않는 항은 생략)" in block
+    full = site_facts.ordinance_options(one)["groups"][0]["items"][0]["text"]
+    assert "판매시설" in full and "3층 이하" in full  # the designer still sees all of it

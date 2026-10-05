@@ -215,7 +215,9 @@ Commands:
   /state update     propose a state patch from the latest module (diff + confirm)
   /site             show site facts (parcel, zoning, statutory coverage / FAR limits)
   /site <address>   look up a lot-number address; pick one parcel or several to merge
-  /site ordinance   show the saved coverage / FAR articles of the municipality's planning ordinance
+  /site ordinance   list every coverage / FAR article of the municipality's ordinance, in three groups
+  /site ordinance <article>   full text of one article
+  /site hide <article>        leave it out of what the experts receive (/site show to undo)
   /agents
   /status
   /setup
@@ -303,7 +305,7 @@ Module layout. The code is the `sida/` package: the shared core sits directly in
 | `state_updater.py` | project_state.md patch proposal (JSON call → diff → apply) |
 | `ollama_boot.py` | start Ollama, pull missing model, warm VRAM on session open |
 | `migrate.py` | rename legacy module files + sync Module Status on project open |
-| `experts/__init__.py` | how a domain plugs into the core: each `experts/<domain>/hooks.py` is discovered automatically and may provide `prompt_blocks(run)` (text for an expert's prompt) and `COMMANDS` (session slash commands) |
+| `experts/__init__.py` | how a domain plugs into the core: each `experts/<domain>/hooks.py` is discovered automatically and may provide `prompt_blocks(run)` (text for an expert's prompt), `COMMANDS` (session slash commands) and `api_router(...)` (JSON routes for the web UI) |
 | `experts/regulation/rag.py` | statute retrieval for regulation_checker / law search — 법제처 search (default) or local markdown |
 | `experts/regulation/lawapi.py` | client for the 법제처 OPEN API (law.go.kr): intelligent statute search |
 | `experts/regulation/law_search.py` | hub `l`: regulation Q&A without a project (retrieved articles + Conductor model) |

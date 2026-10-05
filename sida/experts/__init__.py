@@ -10,6 +10,9 @@ imports a domain by name and adding a domain touches no shared file. `hooks.py` 
   COMMANDS: dict[str, handler]
       Slash commands for the terminal session, e.g. {"/site": cmd_site}. A handler takes
       (session, argument string) and returns "continue", "close" or "quit".
+  api_router(load_config, core) -> fastapi.APIRouter
+      JSON routes of the domain for the web UI. `core(fn, ...)` runs a core function and
+      turns application errors into HTTP errors (see webapp.core).
 
 Folders are discovered automatically and called in alphabetical order.
 """
@@ -93,3 +96,13 @@ def expert_commands(hooks=None) -> dict[str, Callable]:
         for name, handler in (getattr(module, "COMMANDS", None) or {}).items():
             commands.setdefault(name.lower(), handler)
     return commands
+
+
+def expert_routers(load_config, core, hooks=None) -> list:
+    """The JSON API routers contributed by the domains (FastAPI routers), in domain order."""
+    routers = []
+    for _domain, module in domain_hooks() if hooks is None else hooks:
+        build = getattr(module, "api_router", None)
+        if build is not None:
+            routers.append(build(load_config, core))
+    return routers

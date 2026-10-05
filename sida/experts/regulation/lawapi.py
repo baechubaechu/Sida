@@ -21,6 +21,7 @@ Notes from real calls (2026-10):
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
@@ -263,8 +264,8 @@ def ordinance_articles(mst: str, *, http_get: HttpGet | None = None) -> dict:
         articles.append(
             {
                 "label": article_label(number[:4], number[4:6]) if len(number) == 6 else number,
-                "title": str(it.get("조제목") or "").strip(),
-                "text": tidy_article_text(text if isinstance(text, str) else ""),
+                "title": html.unescape(str(it.get("조제목") or "")).strip(),  # "&#8231;" in some titles
+                "text": tidy_article_text(html.unescape(text) if isinstance(text, str) else ""),
             }
         )
     annexes = []
