@@ -727,7 +727,7 @@ def build_worker_prompt(
     project_state: str | None = None,
     other_completed: list[str] | None = None,
     knowledge_block: str | None = None,
-    site_facts_block: str | None = None,
+    facts_block: str | None = None,
 ) -> str:
     from sida.i18n import get_language
 
@@ -755,17 +755,17 @@ PROJECT STATE (designer-curated memory — decisions, open questions, expert sta
         knowledge = f"""
 {knowledge_block.strip()}
 """
-    site = ""
-    if site_facts_block and site_facts_block.strip():
-        site = f"""
-{site_facts_block.strip()}
+    facts = ""
+    if facts_block and facts_block.strip():
+        facts = f"""
+{facts_block.strip()}
 """
     return f"""AGENT PROMPT:
 {agent_prompt}
 
 ORIGINAL PROJECT BRIEF:
 {project_brief}
-{site}{state_block}
+{facts}{state_block}
 RELEVANT EXPERT OUTPUTS:
 {previous_outputs}
 {others_block}{knowledge}
@@ -965,52 +965,34 @@ def run_worker_agent(
     else:
         blocks, other_completed = selected
     previous_outputs = "\n\n".join(blocks) if blocks else "(none yet)"
-    knowledge_block = ""
-    rag_note: str | None = None
+    from sida.experts import FACTS, KNOWLEDGE, ExpertRun, collect_prompt_blocks
     from sida.i18n import t
 
-    try:
-        from sida.experts.regulation.rag import (
-            build_retrieval_query,
-            last_retrieval_warning,
-            retrieve_for_agent,
-        )
-
-        query = build_retrieval_query(
-            project_brief, project_state=project_state, expert_outputs=previous_outputs
-        )
-        from sida.experts.site.site_facts import load_facts
-
-        knowledge_block = retrieve_for_agent(
-            config,
-            agent,
-            query,
+    # What each expert domain adds to this prompt (site facts, retrieved statutes, ...) comes
+    # from its sida/experts/<domain>/hooks.py — nothing domain-specific is written here.
+    extra = collect_prompt_blocks(
+        ExpertRun(
+            config=config,
+            agent=agent,
+            project_dir=output_dir.parent,
             project_brief=project_brief,
-            site_facts=load_facts(output_dir.parent),
+            project_state=project_state,
+            previous_outputs=previous_outputs,
+            warn=say,
         )
-        rag_note = last_retrieval_warning()
-    except Exception as exc:  # retrieval must never block the expert run
-        knowledge_block = ""
-        rag_note = t("rag_warn_error", reason=str(exc) or type(exc).__name__)
-    if rag_note:
-        say(rag_note)
+    )
+    facts_block = extra[FACTS]
+    knowledge_block = extra[KNOWLEDGE]
 
     # Local models silently drop the start of an over-long prompt (the agent role itself),
     # so trim expert outputs and retrieved knowledge to what the context window can hold.
-    try:
-        from sida.experts.site.site_facts import block_for_agent
-
-        site_block = block_for_agent(config, agent, output_dir.parent)
-    except Exception as exc:  # site facts must never block the expert run
-        site_block = ""
-        say(t("site_block_failed", reason=str(exc) or type(exc).__name__))
     fixed_prompt = build_worker_prompt(
         agent_prompt,
         project_brief,
         "",
         project_state=project_state,
         other_completed=other_completed,
-        site_facts_block=site_block or None,
+        facts_block=facts_block or None,
     )
     budget = worker_input_budget(rt, len(WORKER_SYSTEM) + len(fixed_prompt))
     if budget is not None:
@@ -1025,7 +1007,7 @@ def run_worker_agent(
         project_state=project_state,
         other_completed=other_completed,
         knowledge_block=knowledge_block or None,
-        site_facts_block=site_block or None,
+        facts_block=facts_block or None,
     )
 
     messages = [
