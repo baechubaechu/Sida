@@ -316,7 +316,11 @@ Module layout. The code is the `sida/` package: the shared core sits directly in
 | `experts/site/site_facts.py` + `data/zoning_limits.yaml` (repo root) | site facts: parcels → one site, statutory coverage / FAR limits, items to verify; saved as `site_facts.json` and given to `site_reader` / `regulation_checker` |
 | `webapp.py` + `webui/` (repo root) | local web UI (FastAPI): JSON API under `/api`, HTML pages from `webui/templates`, styles in `webui/static` |
 | `run.bat` (repo root) | Windows launcher: venv + deps + dispatch |
-| `harness.py` | config loading, providers (OpenRouter / OpenAI / Ollama / mock), worker runs, context budget |
+| `config.py` | `config.yaml` (team defaults) overlaid with `config.local.yaml` (this machine); the expert list and lookups |
+| `providers.py` | LLM providers (OpenRouter / OpenAI / Ollama / mock) behind one `chat()` call, with retries |
+| `runtime.py` | which provider, model and context size the Conductor and the workers run with (local profiles applied) |
+| `worker.py` | running one expert: the outputs it reads, its prompt, the local context budget, header check, saving |
+| `conductor_context.py` | what the Conductor is sent: prompt with the expert list, recent history, expert outputs |
 | `project.py` | project folder I/O, `project_state.md`, brief section patching |
 | `i18n.py` | UI strings — Korean default, English fallback |
 | `setup_env.py` | language + OpenRouter key setup |

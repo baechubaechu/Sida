@@ -25,22 +25,16 @@ from pathlib import Path
 from typing import Any
 
 from sida.conductor import ask_conductor
-from sida.harness import (
-    ROOT,
-    agent_by_id,
-    conductor_provider,
-    fail,
-    format_usage,
-    get_agents,
-    render_conductor_prompt,
-    resolve_agent,
-    run_worker_agent,
-    worker_provider,
-)
+from sida.conductor_context import render_conductor_prompt
+from sida.config import ROOT, agent_by_id, get_agents, resolve_agent
+from sida.errors import fail
 from sida.i18n import get_language
 from sida.project import Project, open_or_create
 from sida.project_documents import Document, DocumentConflict, read_document, save_document
+from sida.providers import format_usage
+from sida.runtime import conductor_provider, worker_provider
 from sida.state_revisions import content_revision, module_revisions
+from sida.worker import run_worker_agent
 
 MAX_READS_PER_TURN = 2
 READ_CHAR_LIMIT = 6000
@@ -285,7 +279,7 @@ def conductor_turn(session: Session, user_text: str | None, *, ephemeral: bool =
     A `run` action is returned (outcome "run"), not executed — the caller runs the expert.
     Provider errors are reported in the Turn, never raised.
     """
-    from sida.harness import LLMError
+    from sida.providers import LLMError
 
     extra: list[dict] | None = None
     reads = 0

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from sida import harness
+from sida import errors, providers, worker
 from sida.state_updater import write_state
 
 
@@ -33,9 +33,9 @@ def test_failed_project_save_preserves_previous_file(
         target = project.modules_dir / agents[0]["output"]
         target.write_text("# 이전 분석\n", encoding="utf-8")
         save = partial(
-            harness.run_worker_agent,
+            worker.run_worker_agent,
             "", mock_config, agents[0], project.read_brief(), [], project.modules_dir,
-            provider=harness.MockProvider(), notify=lambda _: None,
+            provider=providers.MockProvider(), notify=lambda _: None,
         )
     before = target.read_bytes()
     replace = os.replace
@@ -46,7 +46,7 @@ def test_failed_project_save_preserves_previous_file(
         return replace(source, destination)
 
     monkeypatch.setattr(os, "replace", reject_target)
-    with pytest.raises(harness.SidaError, match="simulated locked destination"):
+    with pytest.raises(errors.SidaError, match="simulated locked destination"):
         save()
     assert target.read_bytes() == before
     assert not list(target.parent.glob(".*.tmp"))
@@ -64,9 +64,9 @@ def test_backup_failure_prevents_overwrite(operation, project, mock_config, agen
         target = project.modules_dir / agents[0]["output"]
         target.write_text("previous output", encoding="utf-8")
         save = partial(
-            harness.run_worker_agent,
+            worker.run_worker_agent,
             "", mock_config, agents[0], project.read_brief(), [], project.modules_dir,
-            provider=harness.MockProvider(), notify=lambda _: None,
+            provider=providers.MockProvider(), notify=lambda _: None,
         )
     before = target.read_bytes()
     replace = os.replace
@@ -77,7 +77,7 @@ def test_backup_failure_prevents_overwrite(operation, project, mock_config, agen
         return replace(source, destination)
 
     monkeypatch.setattr(os, "replace", reject_backup)
-    with pytest.raises(harness.SidaError, match="backup disk failure"):
+    with pytest.raises(errors.SidaError, match="backup disk failure"):
         save()
     assert target.read_bytes() == before
     assert not list(project.path.rglob(".*.tmp"))
@@ -96,7 +96,7 @@ def test_atomic_write_failure_never_exposes_partial_content(tmp_path, monkeypatc
         raise OSError("simulated disk failure")
 
     monkeypatch.setattr(os, "fsync" if failure == "flush" else "replace", broken)
-    with pytest.raises(harness.SidaError, match="simulated disk failure"):
+    with pytest.raises(errors.SidaError, match="simulated disk failure"):
         atomic_write_text(target, "새 내용\n" * 1000)
     if existing:
         assert target.read_bytes() == b"old content"

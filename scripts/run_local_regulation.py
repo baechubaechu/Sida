@@ -14,16 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from sida import project as prj
+from sida.config import agent_by_id, get_agents, load_config
 from sida.console import configure_stdio
-from sida.harness import (
-    agent_by_id,
-    get_agents,
-    load_config,
-    resolve_worker_runtime,
-    run_worker_agent,
-    worker_provider,
-)
 from sida.ollama_boot import ensure_ollama_ready
+from sida.runtime import resolve_worker_runtime, worker_provider
+from sida.worker import run_worker_agent
 
 # Use whatever chat model is already on this machine (no long pull).
 LOCAL_MODEL = "qwen3.5:9b"

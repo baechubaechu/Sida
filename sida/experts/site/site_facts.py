@@ -20,8 +20,8 @@ from pathlib import Path
 
 import yaml
 
+from sida.config import ROOT
 from sida.experts.site import landapi
-from sida.harness import ROOT
 from sida.storage import atomic_write_text
 
 FACTS_FILE = "site_facts.json"

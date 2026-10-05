@@ -7,7 +7,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from sida import engine, harness, workspace
+from sida import config as sida_config
+from sida import engine, runtime, workspace
 from sida.project_documents import Document, DocumentConflict, read_document, save_document
 
 
@@ -47,7 +48,7 @@ class EditingService:
     def propose_state(self, config: dict, name: str, agent_id: str) -> PendingApproval | None:
         path, lock = self._path_and_lock(config, name)
         with lock:
-            agent = harness.agent_by_id(harness.get_agents(config), agent_id)
+            agent = sida_config.agent_by_id(sida_config.get_agents(config), agent_id)
             if agent is None:
                 raise ValueError(f"unknown expert: {agent_id}")
             output = path / "modules" / agent["output"]
@@ -55,7 +56,7 @@ class EditingService:
                 raise ValueError(f"module output missing: {agent_id}")
             # A replacement request invalidates the earlier proposal even if the new call fails.
             self._pending.pop(path, None)
-            api_key = harness.load_env(interactive=False, config=config)
+            api_key = runtime.load_env(interactive=False, config=config)
             session = engine.build_session(config, api_key, path)
             session.capture_notices = True
             proposal = engine.propose_state(session, agent)

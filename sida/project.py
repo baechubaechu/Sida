@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sida.harness import ROOT, SidaError, fail, load_config
+from sida.config import ROOT, load_config
+from sida.errors import SidaError, fail
 from sida.storage import atomic_write_text
 
 SESSION_FILE = "session.json"
@@ -44,7 +45,7 @@ def module_status_rows(agents: list[dict] | None = None) -> str:
     """`| id | pending | |` rows for every expert in config, grouped as configured."""
     if agents is None:
         try:
-            from sida.harness import get_agents
+            from sida.config import get_agents
 
             agents = get_agents(load_config())
         except SidaError:
@@ -328,7 +329,7 @@ def _run_migrations(project: Project) -> None:
     from sida.migrate import migrate_project
 
     try:
-        from sida.harness import get_agents
+        from sida.config import get_agents
 
         agents = get_agents(load_config())
     except SidaError:

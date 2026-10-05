@@ -326,7 +326,7 @@ def setup_openai_api_key(*, force: bool = False) -> str | None:
 
 def ensure_openai_api_key(*, interactive: bool = True) -> str:
     """Require OPENAI_API_KEY for modeling mode. Raises LLMError if cancelled."""
-    from sida.harness import LLMError
+    from sida.providers import LLMError
 
     _configure_stdio()
     key = read_openai_key_from_env()

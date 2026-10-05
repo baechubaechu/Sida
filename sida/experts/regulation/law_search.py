@@ -14,14 +14,9 @@ from sida.experts.regulation.rag import (
     rag_settings,
     retrieve_passages,
 )
-from sida.harness import (
-    LLMError,
-    conductor_provider,
-    load_env,
-    provider_chat,
-    resolve_conductor_runtime,
-)
 from sida.i18n import get_language, t
+from sida.providers import LLMError, provider_chat
+from sida.runtime import conductor_provider, load_env, resolve_conductor_runtime
 
 LAW_SYSTEM_KO = """당신은 한국 건축·도시계획 법령 정보 도우미입니다.
 프로젝트나 사이트 브리프 없이, 사용자가 물어본 법령·기준만 설명합니다.

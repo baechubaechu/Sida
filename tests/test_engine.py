@@ -6,8 +6,10 @@ import re
 
 import pytest
 
-from sida import engine, harness
-from sida.harness import LLMError, SidaError
+from sida import config as sida_config
+from sida import engine, errors
+from sida.errors import SidaError
+from sida.providers import LLMError
 from tests.conftest import ROOT
 
 NONE = 'ok\n```action\n{"type":"none"}\n```'
@@ -98,7 +100,7 @@ def test_turn_provider_error_is_returned_not_raised(core, capsys):
 
 def test_run_module_returns_result_and_events(core, capsys):
     s = core()
-    agent = harness.agent_by_id(s.agents, "site_reader")
+    agent = sida_config.agent_by_id(s.agents, "site_reader")
     run = engine.run_module(s, agent)
     assert run.path == s.output_dir / "11_site_reader.md" and run.path.exists()
     assert run.text.startswith("# Mock Output")
@@ -111,7 +113,7 @@ def test_run_module_returns_result_and_events(core, capsys):
 
 def test_run_module_failure_raises_and_saves_nothing(core):
     s = core(w_provider=Boom())
-    agent = harness.agent_by_id(s.agents, "site_reader")
+    agent = sida_config.agent_by_id(s.agents, "site_reader")
     with pytest.raises(LLMError):
         engine.run_module(s, agent)
     assert not (s.output_dir / "11_site_reader.md").exists()
@@ -125,7 +127,7 @@ def test_worker_warnings_become_notice_events_when_captured(core, monkeypatch, c
     s.project_brief = s.project_brief + "\n" + project_type  # gives the search something to ask
     s.config["rag"] = {"enabled": True, "provider": "lawgokr"}
     s.capture_notices = True
-    engine.run_module(s, harness.agent_by_id(s.agents, "regulation_checker"))
+    engine.run_module(s, sida_config.agent_by_id(s.agents, "regulation_checker"))
     notices = [d["message"] for k, d in s.events if k == "notice"]
     assert any("[rag]" in m for m in notices)
     assert capsys.readouterr().err == ""  # nothing leaked to the terminal
@@ -133,14 +135,14 @@ def test_worker_warnings_become_notice_events_when_captured(core, monkeypatch, c
     s2 = core()
     s2.project_brief = s.project_brief
     s2.config["rag"] = {"enabled": True, "provider": "lawgokr"}
-    engine.run_module(s2, harness.agent_by_id(s2.agents, "regulation_checker"))
+    engine.run_module(s2, sida_config.agent_by_id(s2.agents, "regulation_checker"))
     assert "notice" not in kinds(s2)
     assert "[rag]" in capsys.readouterr().err  # default: printed, as the CLI expects
 
 
 def test_state_proposal_is_separate_from_applying_it(core):
     s = core()
-    agent = harness.agent_by_id(s.agents, "site_reader")
+    agent = sida_config.agent_by_id(s.agents, "site_reader")
     engine.run_module(s, agent)
     before = s.project.read_state()
 
@@ -173,7 +175,7 @@ def test_state_proposal_none_when_nothing_changes(core, scripted):
 
 def test_run_records_for_action_and_command(core):
     s = core()
-    agent = harness.agent_by_id(s.agents, "site_reader")
+    agent = sida_config.agent_by_id(s.agents, "site_reader")
     engine.record_action_run(s, agent, state_updated=True)
     assert [m["role"] for m in s.history] == ["user"]
     assert s.history[0]["content"].endswith("has been updated with this module's takeaways.")
@@ -199,7 +201,7 @@ def test_build_session_opens_project_without_terminal(mock_config, project, caps
 
 def test_fail_raises_catchable_error_with_message(capsys):
     with pytest.raises(SidaError) as info:
-        harness.fail("브리프가 없습니다", code=3)
+        errors.fail("브리프가 없습니다", code=3)
     assert info.value.message == "브리프가 없습니다" and info.value.code == 3
     assert isinstance(info.value, Exception)
     assert not isinstance(info.value, SystemExit)
@@ -266,7 +268,7 @@ def test_editing_brief_refreshes_session_context(core, capsys):
 
 
 def test_identical_summary_for_new_module_version_still_needs_acceptance(core):
-    from sida.harness import modules_newer_than_state
+    from sida.conductor_context import modules_newer_than_state
 
     s = core()
     agent = s.agents[0]

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sida.harness import LLMError
+from sida.providers import LLMError
 from sida.session import conductor_turn, handle_action, opening_prompt
 
 NONE = 'ok\n```action\n{"type":"none"}\n```'

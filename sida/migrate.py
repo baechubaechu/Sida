@@ -131,7 +131,7 @@ def migrate_project(project, agents: list[dict] | None = None) -> list[str]:
 
     if agents is None:
         try:
-            from sida.harness import get_agents, load_config
+            from sida.config import get_agents, load_config
 
             agents = get_agents(load_config())
         except SidaError:

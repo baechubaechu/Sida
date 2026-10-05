@@ -18,7 +18,7 @@ from typing import Any
 
 import requests
 
-from sida.harness import ROOT
+from sida.config import ROOT
 
 ENV_PATH = ROOT / ".env"
 VWORLD_URL = "https://api.vworld.kr"

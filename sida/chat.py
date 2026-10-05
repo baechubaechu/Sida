@@ -10,7 +10,10 @@ Module layout (sida/; expert-specific code is under sida/experts/):
   conductor.py  Conductor message assembly + one LLM call
   briefs.py     brief.md authoring (guided fields / external editor)
   console.py    prompts, editor launch, UTF-8 stdio
-  harness.py    providers (OpenRouter / Ollama / mock), workers, context budget
+  config.py     config.yaml + config.local.yaml, the expert list
+  providers.py  LLM providers (OpenRouter / OpenAI / Ollama / mock)
+  runtime.py    provider / model / context size per role
+  worker.py     running one expert: inputs, prompt, context budget, saving
   project.py    project folder I/O
   i18n.py       UI strings (Korean default, English fallback)
   setup_env.py  language + API key setup
@@ -23,7 +26,7 @@ from pathlib import Path
 
 from sida.cli import cli_entrypoint
 from sida.console import configure_stdio
-from sida.harness import fail
+from sida.errors import fail
 from sida.hub import project_hub
 from sida.i18n import has_language, t
 from sida.project import list_projects, projects_dir
@@ -32,8 +35,9 @@ from sida.session import run_session
 
 def ensure_app_setup() -> None:
     """Language, run mode (first launch), API key if OpenRouter is used. No project creation."""
-    from sida.harness import load_config, needs_openrouter
+    from sida.config import load_config
     from sida.hub_settings import ensure_run_mode
+    from sida.runtime import needs_openrouter
     from sida.setup_env import ensure_api_key, prompt_language, read_api_key_from_env
 
     configure_stdio()

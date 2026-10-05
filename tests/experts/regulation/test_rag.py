@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from sida import harness
+from sida import config as sida_config
 from sida.experts.regulation import rag
-from sida.harness import build_worker_prompt, expected_headers, run_worker_agent
+from sida.worker import build_worker_prompt, expected_headers, run_worker_agent
 from tests.conftest import ROOT
 
 
@@ -80,7 +80,7 @@ def test_run_worker_injects_rag_when_enabled(mock_config, agents, project, scrip
         "agents": {"regulation_checker": "regulation"},
         "collections": {"regulation": {"path": "regulations", "top_k": 4, "max_chars": 3000}},
     }
-    reg = harness.agent_by_id(agents, "regulation_checker")
+    reg = sida_config.agent_by_id(agents, "regulation_checker")
     hs = expected_headers((ROOT / reg["file"]).read_text(encoding="utf-8"))
     assert "Sources Used" in hs
     provider = scripted(["\n\n".join(f"## {h}\n- x" for h in hs)])
@@ -103,7 +103,7 @@ def test_run_worker_injects_rag_when_enabled(mock_config, agents, project, scrip
 
 def test_run_worker_skips_rag_when_disabled(mock_config, agents, project, scripted):
     mock_config["rag"] = {"enabled": False}
-    reg = harness.agent_by_id(agents, "regulation_checker")
+    reg = sida_config.agent_by_id(agents, "regulation_checker")
     hs = expected_headers((ROOT / reg["file"]).read_text(encoding="utf-8"))
     provider = scripted(["\n\n".join(f"## {h}\n- x" for h in hs)])
     run_worker_agent(
@@ -170,7 +170,9 @@ def test_warning_cleared_for_agent_without_collection(mock_config, tmp_path):
 
 
 def test_worker_run_prints_rag_warning(mock_config, agents, project, monkeypatch, capsys, tmp_path):
-    from sida.harness import MockProvider, agent_by_id, run_worker_agent
+    from sida.config import agent_by_id
+    from sida.providers import MockProvider
+    from sida.worker import run_worker_agent
 
     _local_config(mock_config, tmp_path)  # on, but the corpus is empty
     brief = project.read_brief()

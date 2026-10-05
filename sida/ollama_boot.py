@@ -16,7 +16,8 @@ from typing import Any
 
 import requests
 
-from sida.harness import DEFAULT_OLLAMA_URL, LLMError, resolve_conductor_runtime
+from sida.providers import DEFAULT_OLLAMA_URL, LLMError
+from sida.runtime import resolve_conductor_runtime
 
 
 def ollama_boot_settings(config: dict) -> dict:

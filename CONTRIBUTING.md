@@ -68,7 +68,7 @@ git merge main
 # 충돌 파일을 열어 <<<<<<< ======= >>>>>>> 부분을 정리 → git add → git commit → git push
 ```
 
-큰 파일(`harness.py`, `i18n.py`, `conductor.py` 등)을 크게 고칠 때는 미리 팀에 알려 같은 파일을 동시에 수정하지 않도록 합니다.
+여러 작업이 거쳐 가는 파일(`i18n.py`, `worker.py`, `providers.py` 등)을 크게 고칠 때는 미리 팀에 알려 같은 파일을 동시에 수정하지 않도록 합니다.
 
 ## 작업 관리
 

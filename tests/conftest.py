@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sida import hardware, harness, i18n  # noqa: E402
+from sida import conductor_context, hardware, i18n, providers, runtime  # noqa: E402
+from sida import config as sida_config  # noqa: E402
 from sida import project as prj  # noqa: E402
 from sida.experts.regulation import lawapi  # noqa: E402
 from sida.experts.site import landapi  # noqa: E402
@@ -65,7 +66,9 @@ def fake_vworld(monkeypatch):
 @pytest.fixture(autouse=True)
 def isolated_settings(tmp_path, monkeypatch):
     """Never touch ~/Sida/settings.json or config.local.yaml during tests. Default language: ko."""
-    monkeypatch.setattr(harness, "LOCAL_CONFIG_PATH", tmp_path / "config.local.yaml")
+    monkeypatch.setattr(sida_config, "LOCAL_CONFIG_PATH", tmp_path / "config.local.yaml")
+    # Guard: if this ever stops redirecting, tests would write this machine's real settings.
+    assert sida_config.local_config_path() != ROOT / "config.local.yaml"
     # No real land-API calls or keys: tests pass fixtures through landapi._http_get.
     monkeypatch.setattr(landapi, "ENV_PATH", tmp_path / "no.env")
     monkeypatch.setenv("VWORLD_API_KEY", "test-key")
@@ -87,12 +90,13 @@ def isolated_settings(tmp_path, monkeypatch):
 @pytest.fixture
 def mock_config(tmp_path, monkeypatch):
     """Real config.yaml with providers switched to mock and projects_dir in tmp."""
-    cfg = copy.deepcopy(harness.load_config(ROOT / "config.yaml"))
+    cfg = copy.deepcopy(sida_config.load_config(ROOT / "config.yaml"))
     cfg["projects_dir"] = str(tmp_path / "projects")
     cfg["conductor"]["provider"] = "mock"
     cfg["worker"]["provider"] = "mock"
-    monkeypatch.setattr(harness, "load_config", lambda *a, **k: cfg)
-    monkeypatch.setattr(prj, "load_config", lambda *a, **k: cfg)
+    # every module that calls load_config by its own name gets the mock config
+    for module in (sida_config, runtime, prj):
+        monkeypatch.setattr(module, "load_config", lambda *a, **k: cfg)
     return cfg
 
 
@@ -109,7 +113,7 @@ def project(mock_config):
 @pytest.fixture
 def conductor_prompt(mock_config):
     template = (ROOT / "agents" / "00_conductor.md").read_text(encoding="utf-8")
-    return harness.render_conductor_prompt(template, mock_config)
+    return conductor_context.render_conductor_prompt(template, mock_config)
 
 
 class ScriptedProvider:
@@ -124,7 +128,7 @@ class ScriptedProvider:
     def chat(self, model, messages, temperature, max_tokens, **kw):
         self.calls.append({"model": model, "messages": messages, "kw": kw})
         if not self.replies:
-            raise harness.LLMError("script exhausted")
+            raise providers.LLMError("script exhausted")
         item = self.replies.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -151,8 +155,8 @@ def make_session(mock_config, agents, project, conductor_prompt):
             project_brief=project.read_brief(),
             previous_blocks=load_existing_outputs(agents, project.modules_dir),
             history=list(history or []),
-            c_provider=c_provider or harness.MockProvider(),
-            w_provider=w_provider or harness.MockProvider(),
+            c_provider=c_provider or providers.MockProvider(),
+            w_provider=w_provider or providers.MockProvider(),
             created=True,
         )
 

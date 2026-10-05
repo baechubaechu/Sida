@@ -9,7 +9,7 @@ from sida.experts.rhino.rhino_modeler import (
     require_gpt6_plus,
     run_modeling_turn,
 )
-from sida.harness import LLMError, gpt_major_version
+from sida.providers import LLMError, gpt_major_version
 
 
 def test_parse_rhino_plan_block():

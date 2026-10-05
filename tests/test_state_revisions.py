@@ -30,7 +30,7 @@ def test_updating_one_revision_preserves_other_accepted_revisions():
 
 
 def test_revision_records_are_hidden_from_model_context_and_diff(mock_config, agents, project):
-    from sida.harness import prepare_conductor_context
+    from sida.conductor_context import prepare_conductor_context
     from sida.state_updater import state_diff
 
     original = project.read_state()

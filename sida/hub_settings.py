@@ -14,18 +14,12 @@ import re
 from pathlib import Path
 from typing import Any
 
+from sida.config import CONFIG_PATH, load_config, local_config_path
 from sida.console import prompt_line
 from sida.experts.regulation.rag import key_missing, rag_settings
 from sida.hardware import detect_gpu, recommend_profile, vram_gb
-from sida.harness import (
-    CONFIG_PATH,
-    load_config,
-    local_config_path,
-    needs_openrouter,
-    resolve_conductor_runtime,
-    resolve_worker_runtime,
-)
 from sida.i18n import get_language, t
+from sida.runtime import needs_openrouter, resolve_conductor_runtime, resolve_worker_runtime
 
 PROVIDERS = ("ollama", "openrouter", "mock")
 PROFILES = ("local", "local_plus")

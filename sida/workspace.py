@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 from sida.briefs import BRIEF_FIELD_HEADINGS, build_brief_markdown
-from sida.harness import ROOT, get_agents
+from sida.config import ROOT, get_agents
 from sida.project import (
     SESSION_FILE,
     Project,

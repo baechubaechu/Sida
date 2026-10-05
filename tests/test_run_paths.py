@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from sida import run as run_mod
-from sida.harness import SidaError
+from sida.errors import SidaError
 from tests.conftest import ROOT
 
 

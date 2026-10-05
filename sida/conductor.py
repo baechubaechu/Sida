@@ -7,11 +7,8 @@ import json
 import re
 from pathlib import Path
 
-from sida.harness import (
-    conductor_provider,
-    prepare_conductor_context,
-    resolve_conductor_runtime,
-)
+from sida.conductor_context import prepare_conductor_context
+from sida.runtime import conductor_provider, resolve_conductor_runtime
 
 ACTION_RE = re.compile(r"```action\s*(\{.*?\})\s*```", re.DOTALL | re.IGNORECASE)
 
@@ -79,7 +76,7 @@ def _parse_recovered(raw: str, agents: list[dict]) -> dict:
     if kind not in ACTION_TYPES:
         return {"type": "none"}
     if kind in {"run", "read"}:
-        from sida.harness import resolve_agent
+        from sida.config import resolve_agent
 
         agent = resolve_agent(agents, str(data.get("agent") or data.get("module") or ""))
         if not agent:
@@ -112,8 +109,8 @@ def recover_action(provider, model: str, reply: str, agents: list[dict]) -> dict
     if not reply.strip():
         return {"type": "none"}
     try:
-        from sida.harness import provider_chat
         from sida.i18n import t
+        from sida.providers import provider_chat
 
         raw, _ = provider_chat(
             provider,
@@ -293,8 +290,8 @@ def ask_conductor(
         history_truncated=truncated,
     )
 
-    from sida.harness import provider_chat
     from sida.i18n import t
+    from sida.providers import provider_chat
 
     raw, usage = provider_chat(
         provider,
