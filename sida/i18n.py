@@ -278,6 +278,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "in the brief to search with. Look the site up with /site <address> first."
         ),
         "rag_warn_error": "[rag] Warning: retrieval failed ({reason}). Continuing without retrieved regulations.",
+        "expert_hook_failed": "[{domain}] Warning: could not prepare this domain's material ({reason}). Running without it.",
         "law_cleared": "Conversation cleared.",
         "law_no_session_context": (
             "No session context is kept — each question is already independent."
@@ -824,6 +825,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "검색어를 만들 수 없습니다. 먼저 /site <주소>로 대지를 조회하세요."
         ),
         "rag_warn_error": "[rag] 경고: 검색에 실패했습니다({reason}). 법규 검색 없이 진행합니다.",
+        "expert_hook_failed": "[{domain}] 경고: 이 영역의 자료를 준비하지 못했습니다({reason}). 해당 자료 없이 실행합니다.",
         "law_cleared": "대화를 비웠습니다.",
         "law_no_session_context": (
             "세션 컨텍스트를 쌓지 않습니다 — 질문마다 이미 독립입니다."
