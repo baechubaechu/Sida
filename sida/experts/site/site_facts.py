@@ -99,7 +99,9 @@ def attach_ordinance(facts: dict, *, http_get=None) -> dict:
     from sida.experts.regulation import ordinance  # the law.go.kr client lives with regulation
 
     body = facts["summary"].get("municipality")
-    if body and facts["summary"]["zoning"]:
+    if not (body and facts["summary"]["zoning"]):
+        facts.pop("ordinance", None)  # zoning unknown: an older site's ordinance must not linger
+    else:
         found = ordinance.lookup(body, http_get=http_get)
         zone_table = load_limits()["zones"]
         found["values"] = {
@@ -263,6 +265,66 @@ def describe_options(facts: dict) -> str:
                 where = ""
             lines.append(f"  {mark}{item['label']} {item['title']}{where}")
     return "\n".join(lines)
+
+
+def refresh(
+    project_path: Path, query: str, candidates: list[dict], *, http_get=None, progress=None
+) -> dict:
+    """
+    Look the chosen parcels up as one site, add the ordinance, save and return the facts.
+    The designer's earlier choices about ordinance articles are carried over. Used by the
+    terminal (/site) and the web API alike. `progress(municipality)` is called before the
+    ordinance lookup, which is the slow part.
+    """
+    facts = build_facts(query, candidates, http_get=http_get)
+    previous = load_facts(project_path)
+    if previous and previous.get("ordinance"):
+        facts["ordinance"] = previous["ordinance"]
+    if progress and facts["summary"]["zoning"]:
+        progress(facts["summary"]["municipality"])
+    attach_ordinance(facts)
+    save_facts(project_path, facts)
+    return facts
+
+
+def pick_candidates(candidates: list[dict], pnus: list[str]) -> list[dict]:
+    """The candidates with these PNUs, in the order asked. ValueError if one is not among them."""
+    by_pnu = {c["pnu"]: c for c in candidates}
+    wanted = list(dict.fromkeys(str(p) for p in pnus))
+    missing = [p for p in wanted if p not in by_pnu]
+    if not wanted or missing:
+        raise ValueError(f"parcel not among the search results: {', '.join(missing) or '(none given)'}")
+    return [by_pnu[p] for p in wanted]
+
+
+def site_view(facts: dict | None) -> dict:
+    """Saved site facts arranged for a screen: parcels, zoning with statutory limits, flags."""
+    if not facts:
+        return {"available": False, "query": "", "fetched_at": "", "parcels": [], "summary": None, "lines": []}
+    parcels = []
+    for p in facts["parcels"]:
+        ch = p.get("characteristics") or {}
+        parcels.append(
+            {
+                "pnu": p["pnu"],
+                "address": p.get("address", ""),
+                "road_address": p.get("road_address", ""),
+                "building": p.get("building", ""),
+                "area_m2": ch.get("area_m2"),
+                "land_category": ch.get("land_category", ""),
+                "use": ch.get("use", ""),
+                "road_side": ch.get("road_side", ""),
+                "errors": [e["what"] for e in p.get("errors") or []],
+            }
+        )
+    return {
+        "available": True,
+        "query": facts.get("query", ""),
+        "fetched_at": facts.get("fetched_at", ""),
+        "parcels": parcels,
+        "summary": facts["summary"],
+        "lines": describe(facts).replace("\n- ", "\n").removeprefix("- ").split("\n"),
+    }
 
 
 def parcel_zoning(parcel: dict, zone_names) -> list[str]:

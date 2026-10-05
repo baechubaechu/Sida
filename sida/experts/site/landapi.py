@@ -80,13 +80,7 @@ def _raise_for_code(code: str, message: str) -> None:
     raise LandApiError("bad_response", message or code)
 
 
-def search_parcels(
-    address: str, *, size: int = 10, http_get: HttpGet | None = None
-) -> list[dict]:
-    """
-    Parcels matching a lot-number address (지번 주소), best match first.
-    Each: {"pnu", "address", "road_address", "building", "x", "y"}. Empty list when none.
-    """
+def _search(query: str, category: str, size: int, http_get: HttpGet | None) -> list[dict]:
     key, _domain = vworld_credentials()
     data = (http_get or _http_get)(
         f"{VWORLD_URL}/req/search",
@@ -97,9 +91,9 @@ def search_parcels(
             "crs": "EPSG:4326",
             "size": size,
             "page": 1,
-            "query": address.strip(),
+            "query": query,
             "type": "address",
-            "category": "parcel",
+            "category": category,
             "format": "json",
             "key": key,
         },
@@ -111,23 +105,64 @@ def search_parcels(
     if status != "OK":
         error = response.get("error") or {}
         _raise_for_code(str(error.get("code") or status or "ERROR"), str(error.get("text") or ""))
-    out = []
-    for item in (response.get("result") or {}).get("items") or []:
-        addr = item.get("address") or {}
-        point = item.get("point") or {}
-        pnu = str(item.get("id") or "")
-        if len(pnu) != 19:
-            continue
-        out.append(
-            {
-                "pnu": pnu,
-                "address": str(addr.get("parcel") or ""),
-                "road_address": str(addr.get("road") or ""),
-                "building": str(addr.get("bldnm") or ""),
-                "x": str(point.get("x") or ""),
-                "y": str(point.get("y") or ""),
-            }
-        )
+    return (response.get("result") or {}).get("items") or []
+
+
+def _region_of_road_address(road: str) -> str:
+    """'경기도 군포시 공단로140번길 46 (당정동)' → '경기도 군포시' (everything before the road name)."""
+    region = []
+    for token in road.split():
+        if any(ch.isdigit() for ch in token) or token.endswith(("로", "길")):
+            break
+        region.append(token)
+    return " ".join(region)
+
+
+def search_parcels(
+    address: str, *, size: int = 10, http_get: HttpGet | None = None
+) -> list[dict]:
+    """
+    Parcels matching an address, best match first. A lot-number address (지번 주소) is tried
+    first; only when it matches nothing is the text tried as a road-name address (도로명 주소).
+    Each: {"pnu", "address", "road_address", "building", "x", "y", "matched_by"} where
+    matched_by is "parcel" or "road". Empty list when neither matches. Nothing is guessed or
+    corrected: a misspelt address finds nothing.
+    """
+    query = " ".join(address.split())
+    out: list[dict] = []
+    seen: set[str] = set()
+    for category in ("parcel", "road"):
+        for item in _search(query, category, size, http_get):
+            addr = item.get("address") or {}
+            point = item.get("point") or {}
+            pnu = str(item.get("id") or "")
+            if len(pnu) != 19 or pnu in seen:
+                continue
+            seen.add(pnu)
+            parcel, road = str(addr.get("parcel") or ""), str(addr.get("road") or "")
+            if category == "road":
+                # The road search matches loosely: "군포시 공단로 140" also returns 공단로 140 in
+                # other cities. Keep a hit only if it has every 시·군·구 the designer typed.
+                if any(token not in road for token in query.split() if token.endswith(("시", "군", "구"))):
+                    continue
+                # a road-name hit gives the lot number without its 시·군·구 (but with its 읍·면)
+                region = _region_of_road_address(road).split()
+                while region and region[-1] in parcel.split():
+                    region.pop()
+                parcel = " ".join([*region, parcel])
+            out.append(
+                {
+                    "pnu": pnu,
+                    "address": parcel,
+                    "road_address": road,
+                    "building": str(addr.get("bldnm") or ""),
+                    "x": str(point.get("x") or ""),
+                    "y": str(point.get("y") or ""),
+                    "matched_by": category,
+                }
+            )
+        if out:
+            break
     return out
 
 

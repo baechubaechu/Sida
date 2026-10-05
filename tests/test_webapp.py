@@ -366,3 +366,62 @@ def test_site_ordinance_api_lists_groups_and_saves_dismissals(client, project, f
     assert client.put(f"{url}/options/제999조", json={"dismissed": True}).status_code == 404
     assert client.put(f"{url}/options/제52조", json={}).status_code == 422
     assert client.get("/api/projects/nope/site/ordinance").status_code == 404
+
+
+def test_site_api_searches_looks_up_merged_parcels_and_reads_back(client, project, fake_vworld):
+    from sida.experts.site import site_facts
+
+    url = f"/api/projects/{project.name}/site"
+    assert client.get(url).json() == {
+        "available": False, "query": "", "fetched_at": "", "parcels": [], "summary": None, "lines": [],
+    }
+
+    found = client.post(f"{url}/parcels", json={"query": "  경기도 군포시 금정동 689 "}).json()
+    assert found["query"] == "경기도 군포시 금정동 689"
+    first, second = found["candidates"][:2]
+    assert first == {
+        "pnu": "4141010500106890014", "address": "경기도 군포시 금정동 689-14",
+        "road_address": first["road_address"], "building": first["building"], "matched_by": "parcel",
+    }
+    assert site_facts.load_facts(project.path) is None  # searching saves nothing
+
+    r = client.put(url, json={"query": "경기도 군포시 금정동 689", "pnus": [second["pnu"], first["pnu"]]})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["available"] and [p["pnu"] for p in body["parcels"]] == [second["pnu"], first["pnu"]]
+    assert body["summary"]["parcel_count"] == 2 and body["summary"]["municipality"] == "경기도 군포시"
+    assert body["summary"]["zoning"][0]["zone"] == "일반공업지역" and body["parcels"][0]["area_m2"]
+    assert any(line.startswith("조례값(일반공업지역): 건폐율 70% 이하") for line in body["lines"])
+    assert client.get(url).json() == body  # saved
+    assert client.get(f"{url}/ordinance").json()["name"] == "군포시 도시계획 조례"  # ordinance came with it
+
+    # the designer's choices survive looking the same site up again
+    client.put(f"{url}/ordinance/options/제52조", json={"dismissed": True})
+    client.put(url, json={"query": "경기도 군포시 금정동 689", "pnus": [first["pnu"]]})
+    assert site_facts.load_facts(project.path)["ordinance"]["dismissed"] == ["제52조"]
+    assert client.get(url).json()["summary"]["parcel_count"] == 1
+
+
+def test_site_api_reports_bad_requests_and_government_api_failures(client, project, fake_vworld, monkeypatch):
+    from sida.experts.site import site_facts
+    from sida.experts.site.landapi import LandApiError
+
+    url = f"/api/projects/{project.name}/site"
+    assert client.post(f"{url}/parcels", json={"query": "   "}).status_code == 400
+    assert client.post(f"{url}/parcels", json={}).status_code == 422
+    assert client.put(url, json={"query": "금정동 689", "pnus": ["0000000000000000000"]}).status_code == 400
+    assert client.put(url, json={"query": "금정동 689", "pnus": []}).status_code == 400
+    assert client.post("/api/projects/nope/site/parcels", json={"query": "금정동 689"}).status_code == 404
+    assert client.get("/api/projects/nope/site").status_code == 404
+
+    fake_vworld.overrides["search"] = LandApiError("invalid_key", "등록되지 않은 인증키입니다.")
+    r = client.post(f"{url}/parcels", json={"query": "금정동 689"})
+    assert r.status_code == 503 and "키를 거부" in r.json()["detail"] and "[site]" not in r.json()["detail"]
+    fake_vworld.overrides["search"] = LandApiError("over_limit", "")
+    assert client.post(f"{url}/parcels", json={"query": "금정동 689"}).status_code == 429
+    fake_vworld.overrides["search"] = LandApiError("network", "ConnectTimeout")
+    assert client.put(url, json={"query": "금정동 689", "pnus": ["4141010500106890014"]}).status_code == 502
+    monkeypatch.delenv("VWORLD_API_KEY")
+    del fake_vworld.overrides["search"]
+    assert client.post(f"{url}/parcels", json={"query": "금정동 689"}).status_code == 503
+    assert site_facts.load_facts(project.path) is None  # nothing was saved by any failed request

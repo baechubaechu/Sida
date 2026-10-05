@@ -1,0 +1,55 @@
+{
+ "response": {
+  "service": {
+   "name": "search",
+   "version": "2.0",
+   "operation": "search"
+  },
+  "status": "OK",
+  "record": {
+   "total": "2",
+   "current": "2"
+  },
+  "page": {
+   "total": "1",
+   "current": "1",
+   "size": "10"
+  },
+  "result": {
+   "crs": "EPSG:4326",
+   "type": "address",
+   "items": [
+    {
+     "id": "4141010200101810042",
+     "address": {
+      "zipcode": "15847",
+      "category": "road",
+      "road": "경기도 군포시 공단로140번길 46 (당정동)",
+      "parcel": "당정동 181-42",
+      "bldnm": "",
+      "bldnmdc": ""
+     },
+     "point": {
+      "x": "126.9547192570812",
+      "y": "37.357037891438715"
+     }
+    },
+    {
+     "id": "4141010200101810042",
+     "address": {
+      "zipcode": "15847",
+      "category": "road",
+      "road": "경기도 군포시 공단로140번길 46 (당정동)",
+      "parcel": "당정동 181-42",
+      "bldnm": "",
+      "bldnmdc": ""
+     },
+     "point": {
+      "x": "126.9547192570812",
+      "y": "37.357037891438715"
+     }
+    }
+   ]
+  }
+ }
+}
