@@ -4,7 +4,8 @@
 An address is resolved to one or more parcels (a site may merge several), each parcel's
 zoning and land characteristics are fetched, and the result is saved in the project as
 site_facts.json. Experts then receive it as a SITE FACTS block, so zoning and statutory
-limits come from data instead of model memory.
+limits come from data instead of model memory. `attach_ordinance` adds the municipality's
+도시·군계획 조례 articles on 건폐율 and 용적률, quoted as written.
 
 UI-agnostic like engine.py: no printing, no input. Looking facts up never raises for a
 single failed call — the failure is recorded on the parcel and shown as "미확인".
@@ -90,6 +91,25 @@ def build_facts(query: str, candidates: list[dict], *, http_get=None, now: datet
     }
 
 
+def attach_ordinance(facts: dict, *, http_get=None) -> dict:
+    """
+    Add facts["ordinance"]: the municipality's 도시·군계획 조례 and its 건폐율 / 용적률 articles.
+    A failed lookup is kept as {"error": kind} so it shows as 미확인 instead of being guessed.
+    """
+    from sida.experts.regulation import ordinance  # the law.go.kr client lives with regulation
+
+    body = facts["summary"].get("municipality")
+    if body and facts["summary"]["zoning"]:
+        found = ordinance.lookup(body, http_get=http_get)
+        zone_table = load_limits()["zones"]
+        found["values"] = {
+            z["zone"]: ordinance.zone_values(found["articles"], z["zone"], zone_table[z["zone"]])
+            for z in facts["summary"]["zoning"]
+        }
+        facts["ordinance"] = found
+    return facts
+
+
 def parcel_zoning(parcel: dict, zone_names) -> list[str]:
     """용도지역 of a parcel (zones this parcel lies in that have statutory limits)."""
     names = [z["name"] for z in parcel["zones"] if z["name"] in zone_names and z["relation"] != "접함"]
@@ -103,12 +123,18 @@ def parcel_zoning(parcel: dict, zone_names) -> list[str]:
 def municipality(address: str) -> str:
     """
     The body whose 도시계획조례 applies: '경기도 군포시 금정동 689-14' → '경기도 군포시',
-    '서울특별시 종로구 …' → '서울특별시' (구는 도시계획조례를 따로 두지 않음).
+    '서울특별시 종로구 …' → '서울특별시' (구·광역시의 군은 건폐율·용적률을 정하지 않음),
+    '제주특별자치도 제주시 …' → '제주특별자치도'.
     """
     tokens = address.split()
     if not tokens:
         return ""
-    if tokens[0].endswith("시"):  # 특별시·광역시·특별자치시
+    if tokens[0] == "전남광주통합특별시" and len(tokens) > 1:
+        # Merged in 2026; the ordinances are still those of the former bodies. A 구 is the
+        # former 광주광역시 (listed on law.go.kr as "(구)광주광역시"); a 시·군 keeps its own.
+        return "광주광역시" if tokens[1].endswith("구") else " ".join(tokens[:2])
+    if tokens[0].endswith("시") or tokens[0].startswith("제주"):
+        # 특별시·광역시·특별자치시, and 제주 (its 시 are not ordinance-making bodies)
         return tokens[0]
     if len(tokens) > 1 and tokens[1].endswith(("시", "군")):
         return " ".join(tokens[:2])
@@ -317,8 +343,10 @@ def regulatory_lines(facts: dict) -> list[str]:
         body = s["municipality"] or "해당 지자체"
         lines.append(
             f"위 수치는 법정 범위임({source.get('bcr', '')}, {source.get('far', '')}). "
-            f"실제 적용값은 {body} 도시계획조례가 이 범위 안에서 정하므로 verify."
+            f"실제 적용값은 {body} 도시계획조례가 이 범위 안에서 정함."
         )
+        lines.append(_ordinance_line(facts, body))
+        lines += _ordinance_value_lines(facts)
     if s["districts"]:
         lines.append(
             "그 밖의 지역·지구: " + ", ".join(f"{d['name']}({d['relation']})" for d in s["districts"])
@@ -329,6 +357,106 @@ def regulatory_lines(facts: dict) -> list[str]:
     lines += [f"확인 필요: {flag}" for flag in s["flags"]]
     lines += [m for m in _missing_lines(facts) if "토지이용계획" in m]
     return lines
+
+
+ORDINANCE_ERRORS = {
+    "not_found": "법제처 자치법규에서 도시·군계획 조례를 찾지 못함",
+    "no_articles": "조례는 찾았으나 건폐율·용적률 조문을 가려내지 못함",
+    "no_key": "법제처 인증값(LAW_OPEN_API_OC) 없음",
+    "denied": "법제처가 요청을 거부함",
+    "network": "법제처 연결 실패",
+    "bad_response": "법제처 응답이 예상과 다름",
+}
+
+
+def _ordinance_line(facts: dict, body: str) -> str:
+    o = facts.get("ordinance")
+    if not o:
+        return f"조례 조문: 조회하지 않음(미확인) — {body} 도시계획조례에서 직접 verify."
+    if not o.get("articles"):
+        why = ORDINANCE_ERRORS.get(o.get("error") or "", "조회 실패")
+        name = f"{o['name']} " if o.get("name") else ""
+        return f"조례 조문: {name}미확인({why}) — 수치를 추정하지 말고 verify 항목으로 둘 것."
+    cited = ", ".join(f"{a['label']}({a['title']})" for a in o["articles"])
+    kinds = {a["kind"] for a in o["articles"]}
+    missing = [w for k, w in (("bcr", "건폐율"), ("far", "용적률")) if k not in kinds and "both" not in kinds]
+    gap = f" {'·'.join(missing)} 조문은 가려내지 못함(미확인)." if missing else ""
+    return (
+        f"적용 조례: {o['name']} (시행 {o['effective'] or '시행일 미확인'}) — {cited}. 원문은 "
+        f"조례 블록에 있음.{gap} 지구단위계획·용도지구·완화 조문에 따라 달라질 수 있으므로 verify."
+    )
+
+
+def _figure_text(word: str, figure: dict | None) -> str:
+    """One ratio of one zone, as read from the ordinance, always next to the quoted line."""
+    if figure is None:
+        return f"{word} — 조문과 별표에서 이 용도지역의 줄을 찾지 못함, 미확인"
+    quote = figure["quote"] if len(figure["quote"]) <= 110 else figure["quote"][:110] + "…"
+    cited = f"{figure['label']} 「{quote}」"
+    if figure.get("out_of_range"):
+        return f"{word} — 읽은 값이 법정 범위를 벗어나 표시하지 않음, 원문 확인: {cited}"
+    if figure["value"] is None:
+        return f"{word} — 한 가지 수치로 정해져 있지 않음, 원문 확인: {cited}"
+    note = " (단서·예외가 붙어 있음 — 원문 확인)" if figure["conditional"] else ""
+    return f"{word} {figure['value']:,}% 이하{note}: {cited}"
+
+
+def _ordinance_value_lines(facts: dict) -> list[str]:
+    o = facts.get("ordinance") or {}
+    if not o.get("articles"):
+        return []
+    lines = []
+    for zone, values in (o.get("values") or {}).items():
+        if any(a["kind"] == "both" for a in o["articles"]) and not any(values.values()):
+            lines.append(f"조례값({zone}): 건폐율·용적률을 한 조문(또는 별표)에서 정함 — 수치를 읽지 못함, 원문 확인")
+            continue
+        lines.append(
+            f"조례값({zone}): " + "; ".join(_figure_text(word, values.get(kind)) for kind, word in (("bcr", "건폐율"), ("far", "용적률")))
+        )
+    return lines
+
+
+def ordinance_text(facts: dict) -> str:
+    """The quoted ordinance articles, for the designer and for the expert prompt ("" if none)."""
+    o = facts.get("ordinance") or {}
+    if not o.get("articles"):
+        return ""
+    parts = []
+    for a in o["articles"]:
+        parts.append(f"source: {o['name']} {a['label']} (시행 {o['effective']})\n{a['text']}")
+        annex = a.get("annex") or {}
+        if annex.get("lines"):
+            body = "\n".join(annex["lines"])
+            parts.append(f"source: {o['name']} {annex['label']} (시행 {o['effective']})\n{body}")
+        elif annex:
+            parts.append(f"{annex['label']}: 파일을 읽지 못함(미확인) — 조례 원문에서 직접 확인")
+    if o.get("related"):
+        listed = ", ".join(f"{r['label']}({r['title']})" for r in o["related"])
+        parts.append(f"같은 조례의 관련 조문(원문 미포함, 해당하면 verify): {listed}")
+    return "\n\n".join(parts)
+
+
+def ordinance_block(facts: dict) -> str:
+    """RETRIEVED KNOWLEDGE block with the ordinance articles as written, or ""."""
+    text = ordinance_text(facts)
+    if not text:
+        return ""
+    o = facts["ordinance"]
+    zones = ", ".join(z["zone"] for z in facts["summary"]["zoning"])
+    header = (
+        f"RETRIEVED KNOWLEDGE (local ordinance) — {o['municipality']}의 도시·군계획 조례 조문 원문 "
+        f"(법제처 자치법규, 조회일 {facts.get('fetched_at', '')[:10]}). 이 대지의 용도지역: {zones}. "
+        "Quote the line for that zone and cite the `source:`. The text is the ordinance as written. "
+        "SITE FACTS lists the figure read from it (조례값); where the two differ, the text wins. "
+        "Do not apply a relaxation clause unless the project clearly meets its condition."
+    )
+    return header + "\n\n" + text
+
+
+def block_kind(config: dict, agent: dict) -> str | None:
+    """Which SITE FACTS block this expert is mapped to ("physical" | "regulatory" | None)."""
+    mapping = ((config.get("site_facts") or {}).get("agents")) or DEFAULT_AGENT_BLOCKS
+    return mapping.get(str(agent.get("id") or ""))
 
 
 def facts_block(facts: dict, kind: str) -> str:
@@ -347,14 +475,21 @@ def facts_block(facts: dict, kind: str) -> str:
 
 def block_for_agent(config: dict, agent: dict, project_path: Path) -> str:
     """The SITE FACTS block this expert should receive, or "" (no facts / not mapped)."""
-    mapping = ((config.get("site_facts") or {}).get("agents")) or DEFAULT_AGENT_BLOCKS
-    kind = mapping.get(str(agent.get("id") or ""))
+    kind = block_kind(config, agent)
     if not kind:
         return ""
     facts = load_facts(project_path)
     if not facts:
         return ""
     return facts_block(facts, kind)
+
+
+def ordinance_block_for_agent(config: dict, agent: dict, project_path: Path) -> str:
+    """The ordinance articles for experts that get the regulatory block, or ""."""
+    if block_kind(config, agent) != "regulatory":
+        return ""
+    facts = load_facts(project_path)
+    return ordinance_block(facts) if facts else ""
 
 
 def describe(facts: dict) -> str:

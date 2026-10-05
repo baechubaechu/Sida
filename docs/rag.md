@@ -7,7 +7,9 @@ text** instead of numbers from model memory. Retrieval never raises: when it yie
 the run continues and a one-line `[rag]` warning says why.
 
 Parcel facts (zoning, statutory coverage / FAR limits) are a separate feature — see
-`sida/experts/site/site_facts.py` and `/site`. This document is only about finding statute articles.
+`sida/experts/site/site_facts.py` and `/site`. The municipality's planning ordinance (건폐율 / 용적률
+articles) is also fetched by `/site`, through `sida/experts/regulation/ordinance.py`, and does not
+depend on `rag.enabled`. This document is only about finding statute articles.
 
 ## Providers (`rag.provider` in `config.yaml`)
 
@@ -27,12 +29,9 @@ rag:
 
 ## Why 법제처 search is the default
 
-Sida used to query a self-hosted RAG server (a VPS with its own index of nine statutes).
-Compared on eight topical questions (2026-10), 법제처 search found the expected article in
-six and a related one in the other two; the self-hosted server found it in one. 법제처
-search also covers every statute, is always current, and needs no server, so the
-self-hosted client was removed. A `config.local.yaml` that still says `provider: http`
-gets a warning naming the unknown provider.
+법제처 search covers every statute, is always current, and needs no server of our own.
+On eight topical questions (2026-10) it found the expected article in six and a related
+one in the other two. An unknown `rag.provider` value gets a warning that names it.
 
 What to know about it (`lawapi.py` has the details):
 

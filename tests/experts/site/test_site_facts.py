@@ -313,3 +313,99 @@ def test_site_command_reports_key_and_no_match(make_session, fake_vworld, monkey
     del fake_vworld.overrides["search"]
     dispatch(s, "/site 금정동 689")
     assert "VWORLD_API_KEY가 없습니다" in capsys.readouterr().out
+
+
+# --- the municipality's ordinance ----------------------------------------------------
+
+
+def test_municipality_is_the_ordinance_making_body():
+    assert site_facts.municipality("제주특별자치도 제주시 연동 100") == "제주특별자치도"
+    assert site_facts.municipality("부산광역시 기장군 기장읍 1") == "부산광역시"
+    assert site_facts.municipality("강원특별자치도 평창군 평창읍 1") == "강원특별자치도 평창군"
+    assert site_facts.municipality("경기도 수원시 장안구 정자동 1") == "경기도 수원시"
+    assert site_facts.municipality("전남광주통합특별시 북구 용봉동 300") == "광주광역시"  # former body's ordinance
+    assert site_facts.municipality("전남광주통합특별시 여수시 학동 1") == "전남광주통합특별시 여수시"
+
+
+def test_ordinance_is_attached_and_quoted_for_regulatory_experts(one, fake_ordinance):
+    before = "\n".join(site_facts.regulatory_lines(one))
+    assert "조회하지 않음(미확인)" in before and site_facts.ordinance_block(one) == ""
+
+    site_facts.attach_ordinance(one)
+    assert one["ordinance"]["name"] == "군포시 도시계획 조례"
+    assert [c["query"] for c in fake_ordinance.calls if "query" in c] == ["군포시 도시계획 조례"]
+    line = "\n".join(site_facts.regulatory_lines(one))
+    assert "적용 조례: 군포시 도시계획 조례 (시행 2025-10-10)" in line
+    assert "제49조(용도지역안에서의 건폐율), 제53조(용도지역 안에서의 용적률)" in line
+    assert "건폐율 법정 상한 70%" in line  # the statutory range is still shown next to it
+
+    block = site_facts.ordinance_block(one)
+    assert block.startswith("RETRIEVED KNOWLEDGE (local ordinance)")
+    assert "이 대지의 용도지역: 일반공업지역" in block
+    assert "source: 군포시 도시계획 조례 제53조 (시행 2025-10-10)" in block
+    assert "12. 일반공업지역 : 100분의 350 이하" in block
+    assert "관련 조문(원문 미포함" in block and "제52조(건폐율의 완화)" in block
+    assert "조례" not in "\n".join(site_facts.physical_lines(one))
+
+
+def test_failed_ordinance_lookup_is_shown_as_unknown_not_guessed(one, fake_ordinance):
+    from sida.experts.regulation.lawapi import LawApiError
+
+    fake_ordinance.overrides["search"] = LawApiError("network", "ConnectTimeout")
+    site_facts.attach_ordinance(one)
+    line = "\n".join(site_facts.regulatory_lines(one))
+    assert "조례 조문: 미확인(법제처 연결 실패)" in line and "추정하지 말고" in line
+    assert site_facts.ordinance_block(one) == "" and site_facts.ordinance_text(one) == ""
+
+    fake_ordinance.overrides["search"] = '{"OrdinSearch": {"totalCnt": "0"}}'
+    site_facts.attach_ordinance(one)
+    assert "도시·군계획 조례를 찾지 못함" in "\n".join(site_facts.regulatory_lines(one))
+
+
+def test_only_the_regulatory_expert_receives_the_ordinance(
+    mock_config, agents, project, scripted, one, fake_ordinance
+):
+    mock_config["rag"] = {"enabled": False}  # works without statute search
+    site_facts.save_facts(project.path, site_facts.attach_ordinance(one))
+    reg = _run("regulation_checker", mock_config, agents, project, scripted)
+    site = _run("site_reader", mock_config, agents, project, scripted)
+    assert "RETRIEVED KNOWLEDGE (local ordinance)" in reg and "100분의 350 이하" in reg
+    assert reg.index("RELEVANT EXPERT OUTPUTS:") < reg.index("RETRIEVED KNOWLEDGE (local ordinance)")
+    assert "RETRIEVED KNOWLEDGE (local ordinance)" not in site and "100분의 350" not in site
+
+
+def test_site_command_saves_and_shows_the_ordinance(make_session, fake_vworld, monkeypatch, capsys):
+    s = make_session()
+    assert dispatch(s, "/site 조례") == "continue"
+    assert "저장된 조례 조문이 없습니다" in capsys.readouterr().out
+
+    _answers(monkeypatch, "1")
+    dispatch(s, "/site 경기도 군포시 금정동 689")
+    out = capsys.readouterr().out
+    assert "경기도 군포시의 도시·군계획 조례를 찾는 중" in out
+    assert "적용 조례: 군포시 도시계획 조례 (시행 2025-10-10)" in out
+    assert site_facts.load_facts(s.project.path)["ordinance"]["mst"] == "2077621"
+
+    dispatch(s, "/site 조례")
+    out = capsys.readouterr().out
+    assert "source: 군포시 도시계획 조례 제49조" in out and "12. 일반공업지역 : 100분의 70 이하" in out
+
+
+def test_ordinance_figures_are_shown_next_to_the_quoted_line(one, fake_ordinance):
+    site_facts.attach_ordinance(one)
+    values = one["ordinance"]["values"]["일반공업지역"]
+    assert values["bcr"]["value"] == 70 and values["far"]["value"] == 350
+    text = "\n".join(site_facts.regulatory_lines(one))
+    assert "조례값(일반공업지역): 건폐율 70% 이하: 제49조 「일반공업지역 : 100분의 70 이하」" in text
+    assert "용적률 350% 이하: 제53조 「일반공업지역 : 100분의 350 이하」" in text
+    assert "조례값" in site_facts.describe(one) and "조례값" not in "\n".join(site_facts.physical_lines(one))
+
+    # a proviso, an unclear item, an out-of-range reading and a missing line are all said so
+    values["far"] = {**values["far"], "conditional": True}
+    assert "용적률 350% 이하 (단서·예외가 붙어 있음 — 원문 확인)" in "\n".join(site_facts.regulatory_lines(one))
+    values["far"] = {**values["far"], "value": None}
+    assert "용적률 — 한 가지 수치로 정해져 있지 않음, 원문 확인: 제53조" in "\n".join(site_facts.regulatory_lines(one))
+    values["far"] = {**values["far"], "out_of_range": True}
+    assert "법정 범위를 벗어나 표시하지 않음" in "\n".join(site_facts.regulatory_lines(one))
+    values["far"] = None
+    assert "용적률 — 조문과 별표에서 이 용도지역의 줄을 찾지 못함" in "\n".join(site_facts.regulatory_lines(one))

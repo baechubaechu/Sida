@@ -66,7 +66,7 @@ pytest                    # 테스트 (tests/)
 - 줄바꿈은 LF로 통일한다(`.gitattributes`). Windows에서 CRLF 차이로 전체 파일이 변경된 것처럼 보이면 내용 변경이 아니다.
 - `i18n.py`, `worker.py`, `providers.py`처럼 여러 작업이 거쳐 가는 파일은 다른 사람(또는 다른 에이전트)과 동시에 크게 수정하지 않는다.
 - 이 저장소는 여러 에이전트를 함께 쓴다. 한 작업 폴더를 두 에이전트가 동시에 쓰면 브랜치 전환과 커밋 안 된 변경이 서로 섞인다. 작업 전에 `git status`와 현재 브랜치를 확인하고, 내가 만들지 않은 커밋 안 된 변경은 커밋하거나 되돌리지 말고 사용자에게 알린다.
-- 대지 사실(`sida/experts/site/`의 `site_facts.py`, `landapi.py`)은 정부 API에서 가져온 값만 담는다. 수치를 추정하거나 지어내지 않고, 가져오지 못한 항목은 "미확인"으로 둔다. 법정 수치 표(`data/zoning_limits.yaml`)를 고칠 때는 조문 원문과 대조하고 `verified` 날짜를 갱신한다.
+- 대지 사실(`sida/experts/site/`의 `site_facts.py`, `landapi.py`)은 정부 API에서 가져온 값만 담는다. 수치를 추정하거나 지어내지 않고, 가져오지 못한 항목은 "미확인"으로 둔다. 조례의 건폐율·용적률 수치는 조문(또는 별표)에서 정해진 규칙으로만 읽고(`sida/experts/regulation/ordinance.py`), 항상 원문 줄과 함께 보여 준다. 한 가지 수치로 읽히지 않거나 법정 범위를 벗어나면 수치를 내지 않는다. 법정 수치 표(`data/zoning_limits.yaml`)를 고칠 때는 조문 원문과 대조하고 `verified` 날짜를 갱신한다.
 - 테스트는 외부 API를 호출하지 않는다. `tests/conftest.py`가 `landapi._http_get`과 `lawapi._http_get`을 막아 두었고, 녹화한 응답(`tests/fixtures/landapi/`, `tests/fixtures/lawapi/`)을 쓴다.
 - 법제처 검색(`sida/experts/regulation/lawapi.py`)에는 짧은 질문만 보낸다. 브리프 전체처럼 긴 글을 보내면 결과가 없거나 무관한 조문이 나온다. 전문가용 검색어는 `rag.focus_queries`가 대지 사실과 브리프의 짧은 한국어 항목으로 만든다.
 - 규칙 파일: 공통 규칙은 이 파일(`AGENTS.md`), Claude Code는 `CLAUDE.md`(이 파일을 import), Cursor 전용 보충 규칙은 `.cursor/rules/`. 공통 규칙은 이 파일만 고친다.

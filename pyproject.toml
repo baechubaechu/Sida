@@ -11,6 +11,7 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
   "requests>=2.31,<3",
+  "olefile>=0.46,<1",
   "python-dotenv>=1.0,<2",
   "PyYAML>=6.0,<7",
   "fastapi>=0.110,<1",

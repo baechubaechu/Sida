@@ -512,6 +512,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "site_cancelled": "[site] Cancelled.",
         "site_fetching": "[site] Fetching zoning and land data for {n} parcel(s) ...",
         "site_saved": "[site] Saved: {path}",
+        "site_ordinance_fetching": "[site] Looking up the planning ordinance of {body} (law.go.kr) ...",
+        "site_ordinance_none": (
+            "No ordinance articles are saved for this project. Look the site up with /site <address>; "
+            "if the lookup failed, the reason is shown under /site."
+        ),
         "site_partial": "[site] Some items could not be retrieved; they are marked 미확인. Run /site <address> again later.",
         "site_err_no_key": (
             "[site] VWORLD_API_KEY is not set. Add VWORLD_API_KEY and VWORLD_DOMAIN to .env "
@@ -544,6 +549,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "  /brief fields      update basic brief fields (other sections kept)\n"
             "  /site              show site facts (parcel, zoning, statutory limits)\n"
             "  /site <address>    look up a lot-number address and save its site facts\n"
+            "  /site ordinance    show the saved coverage / FAR articles of the local ordinance\n"
             "  /state             show project_state.md (Conductor memory)\n"
             "  /state edit        open project_state.md in your editor\n"
             "  /state update [id] propose a state update from a module output (diff + confirm)\n"
@@ -1059,6 +1065,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "site_cancelled": "[site] 취소했습니다.",
         "site_fetching": "[site] 필지 {n}개의 용도지역과 토지 정보를 가져오는 중 ...",
         "site_saved": "[site] 저장됨: {path}",
+        "site_ordinance_fetching": "[site] {body}의 도시·군계획 조례를 찾는 중 (법제처) ...",
+        "site_ordinance_none": (
+            "이 프로젝트에 저장된 조례 조문이 없습니다. /site <주소>로 대지를 조회하세요. "
+            "조회에 실패했다면 이유가 /site에 표시됩니다."
+        ),
         "site_partial": "[site] 일부 항목을 가져오지 못해 '미확인'으로 표시했습니다. 나중에 /site <주소>로 다시 조회하세요.",
         "site_err_no_key": (
             "[site] VWORLD_API_KEY가 없습니다. .env에 VWORLD_API_KEY와 VWORLD_DOMAIN을 넣어 주세요 "
@@ -1091,6 +1102,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "  /brief fields      기본 항목만 다시 입력 (다른 섹션은 보존)\n"
             "  /site              대지 사실 보기 (필지, 용도지역, 법정 상한)\n"
             "  /site <주소>       지번 주소로 필지를 찾아 대지 사실을 저장\n"
+            "  /site 조례         저장된 조례의 건폐율·용적률 조문 원문 보기\n"
             "  /state             project_state.md 보기 (Conductor 메모리)\n"
             "  /state edit        project_state.md 를 에디터로 열기\n"
             "  /state update [id] 모듈 결과로 상태 갱신안 제안 (diff 확인 후 적용)\n"
