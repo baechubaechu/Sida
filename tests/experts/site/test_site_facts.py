@@ -529,3 +529,21 @@ def test_applied_district_article_is_cut_to_the_paragraphs_about_ratios(one, fak
     assert "(건폐율·용적률을 다루지 않는 항은 생략)" in block
     full = site_facts.ordinance_options(one)["groups"][0]["items"][0]["text"]
     assert "판매시설" in full and "3층 이하" in full  # the designer still sees all of it
+
+
+def test_refresh_saves_the_site_and_drops_an_ordinance_that_no_longer_fits(project, fake_vworld):
+    found = landapi.search_parcels("경기도 군포시 금정동 689")
+    facts = site_facts.refresh(project.path, "금정동 689", site_facts.pick_candidates(found, [P15, P14]))
+    assert [p["pnu"] for p in facts["parcels"]] == [P15, P14]
+    assert site_facts.load_facts(project.path) == facts and facts["ordinance"]["name"]
+    with pytest.raises(ValueError):
+        site_facts.pick_candidates(found, ["nope"])
+    with pytest.raises(ValueError):
+        site_facts.pick_candidates(found, [])
+
+    # zoning lookup fails this time: the old ordinance must not stay attached to unknown zoning
+    fake_vworld.overrides["getLandUseAttr"] = LandApiError("network", "ReadTimeout")
+    fake_vworld.overrides["getLandCharacteristics"] = LandApiError("network", "ReadTimeout")
+    again = site_facts.refresh(project.path, "금정동 689", site_facts.pick_candidates(found, [P14]))
+    assert again["summary"]["zoning"] == [] and "ordinance" not in again
+    assert site_facts.site_view(again)["available"] and site_facts.site_view(None)["available"] is False

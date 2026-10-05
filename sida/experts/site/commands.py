@@ -94,14 +94,13 @@ def cmd_site(session: Session, arg: str) -> str:
         return "continue"
 
     print(t("site_fetching", n=len(picks)))
-    facts = site_facts.build_facts(query, [candidates[i] for i in picks])
-    previous = site_facts.load_facts(project.path)
-    if previous and previous.get("ordinance"):
-        facts["ordinance"] = previous["ordinance"]  # carries what the designer hid
-    if facts["summary"]["zoning"]:
-        print(t("site_ordinance_fetching", body=facts["summary"]["municipality"]))
-        site_facts.attach_ordinance(facts)
-    path = site_facts.save_facts(project.path, facts)
+    facts = site_facts.refresh(
+        project.path,
+        query,
+        [candidates[i] for i in picks],
+        progress=lambda body: print(t("site_ordinance_fetching", body=body)),
+    )
+    path = site_facts.facts_path(project.path)
     print()
     _print_site_facts(facts)
     print()

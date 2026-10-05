@@ -21,6 +21,7 @@ def test_search_returns_parcels_with_pnu(fake_vworld):
         "building": "(주)혜창",
         "x": "126.94597762308629",
         "y": "37.37024989683182",
+        "matched_by": "parcel",
     }
     assert all(len(p["pnu"]) == 19 for p in parcels) and len(parcels) > 1
     url, params = fake_vworld.calls[0]
@@ -126,3 +127,40 @@ def test_http_get_gives_up_without_leaking_the_key(monkeypatch):
     with pytest.raises(LandApiError) as info:
         REAL_HTTP_GET("https://api.vworld.kr/x", {"key": "k"})
     assert info.value.kind == "bad_response"
+
+
+def test_road_name_address_is_tried_only_when_the_lot_number_search_finds_nothing(fake_vworld):
+    found = landapi.search_parcels("경기도 군포시 금정동 689")
+    assert all(p["matched_by"] == "parcel" for p in found)
+    assert [params["category"] for _url, params in fake_vworld.calls] == ["parcel"]  # no second call
+
+    fake_vworld.calls.clear()
+    road = landapi.search_parcels("  경기도 군포시   공단로140번길 46 ")
+    assert [params["category"] for _url, params in fake_vworld.calls] == ["parcel", "road"]
+    assert fake_vworld.calls[0][1]["query"] == "경기도 군포시 공단로140번길 46"  # spaces tidied
+    assert road == [
+        {
+            "pnu": "4141010200101810042",
+            "address": "경기도 군포시 당정동 181-42",  # 시·군 taken from the road address
+            "road_address": "경기도 군포시 공단로140번길 46 (당정동)",
+            "building": "",
+            "x": "126.9547192570812",
+            "y": "37.357037891438715",
+            "matched_by": "road",
+        }
+    ]  # the duplicate row is dropped
+
+    # the same road name in another city is not offered: the typed 시·군·구 must be in the hit
+    assert landapi.search_parcels("안양시 공단로140번길 46") == []
+    assert landapi.search_parcels("군포시 공단로140번길 46")[0]["pnu"] == "4141010200101810042"
+
+
+def test_misspelt_address_finds_nothing_and_region_is_read_from_road_addresses(fake_vworld):
+    fake_vworld.overrides["search"] = land_fixture("search_not_found.json")
+    assert landapi.search_parcels("경기도 군포시 금졍동 689-14") == []  # no correction, no guess
+    region = landapi._region_of_road_address
+    assert region("경기도 군포시 공단로140번길 46 (당정동)") == "경기도 군포시"
+    assert region("서울특별시 종로구 사직로 161") == "서울특별시 종로구"
+    assert region("경기도 양평군 양평읍 시민로 5") == "경기도 양평군 양평읍"
+    assert region("세종특별자치시 한누리대로 2130") == "세종특별자치시"
+    assert region("") == ""

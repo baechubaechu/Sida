@@ -503,8 +503,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "site_title": "Site facts (looked up {when}, query: {query})",
         "site_searching": "[site] Searching parcels for: {query}",
         "site_no_match": (
-            "[site] No parcel matched. Use a lot-number address (시·군·구 + 동 + 지번), "
-            "e.g. 경기도 군포시 금정동 689-14."
+            "[site] No parcel matched. Check the spelling and enter a lot-number address "
+            "(e.g. 경기도 군포시 금정동 689-14) or a road-name address with its city "
+            "(e.g. 경기도 군포시 공단로140번길 46)."
         ),
         "site_candidates": "[site] Parcels found:",
         "site_pick": "Parcel number(s) — commas to merge several into one site (Enter = 1, 0 = cancel): ",
@@ -520,6 +521,7 @@ STRINGS: dict[str, dict[str, str]] = {
         ),
         "site_ordinance_detailed": "[site] {label}: experts now receive the full text.",
         "site_ordinance_brief": "[site] {label}: experts receive the title only.",
+        "web_site_query_required": "Enter a lot-number address to search for.",
         "site_ordinance_unknown": "[site] No such article in the saved ordinance: {label}",
         "site_ordinance_hidden": "[site] Hidden: {label}. Experts no longer receive it.",
         "site_ordinance_shown": "[site] Shown again: {label}.",
@@ -1066,8 +1068,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "site_title": "대지 사실 ({when} 조회, 검색어: {query})",
         "site_searching": "[site] 필지 검색 중: {query}",
         "site_no_match": (
-            "[site] 맞는 필지가 없습니다. 지번 주소(시·군·구 + 동 + 지번)로 입력하세요. "
-            "예: 경기도 군포시 금정동 689-14"
+            "[site] 맞는 필지가 없습니다. 철자를 확인하고 지번 주소(예: 경기도 군포시 금정동 689-14)나 "
+            "시·군을 포함한 도로명 주소(예: 경기도 군포시 공단로140번길 46)로 입력하세요."
         ),
         "site_candidates": "[site] 찾은 필지:",
         "site_pick": "필지 번호 — 여러 필지를 하나의 대지로 합치려면 쉼표로 구분 (Enter = 1, 0 = 취소): ",
@@ -1083,6 +1085,7 @@ STRINGS: dict[str, dict[str, str]] = {
         ),
         "site_ordinance_detailed": "[site] {label}: 전문가에게 원문을 넘깁니다.",
         "site_ordinance_brief": "[site] {label}: 전문가에게 제목만 넘깁니다.",
+        "web_site_query_required": "검색할 지번 주소를 입력하세요.",
         "site_ordinance_unknown": "[site] 저장된 조례에 그런 조문이 없습니다: {label}",
         "site_ordinance_hidden": "[site] 숨김: {label}. 전문가에게 넘기지 않습니다.",
         "site_ordinance_shown": "[site] 다시 표시: {label}.",

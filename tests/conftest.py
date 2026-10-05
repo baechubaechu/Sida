@@ -85,6 +85,11 @@ def fake_vworld(monkeypatch, fake_ordinance):
                 raise value
             return value
         if op == "search":
+            if "공단로" in params["query"]:  # a road-name address: no lot-number match, one road match
+                road = params.get("category") == "road"
+                return land_fixture("search_road_gongdan.json" if road else "search_not_found.json")
+            if params.get("category") == "road":
+                return land_fixture("search_not_found.json")
             return land_fixture("search_geumjeong_689.json")
         path = LAND_FIXTURES / f"{op}_{params['pnu']}.json"
         if path.exists():
