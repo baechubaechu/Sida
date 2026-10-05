@@ -22,7 +22,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-from sida import harness, workspace
+from sida import config as sida_config
+from sida import errors, providers, runtime, workspace
 from sida.briefs import BRIEF_FIELD_HEADINGS
 from sida.cli import cli_entrypoint
 from sida.document_api import create_router as create_document_router
@@ -30,7 +31,7 @@ from sida.editing import EditingService
 from sida.i18n import get_language, t
 from sida.project_documents import DocumentConflict
 
-WEB_DIR = harness.ROOT / "webui"
+WEB_DIR = sida_config.ROOT / "webui"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost"})
@@ -59,14 +60,14 @@ def core(fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
         return fn(*args, **kwargs)
     except DocumentConflict as exc:
         raise HTTPException(status_code=409, detail=exc.message) from exc
-    except harness.LLMError as exc:
+    except providers.LLMError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except harness.SidaError as exc:
+    except errors.SidaError as exc:
         raise HTTPException(status_code=500, detail=exc.message) from exc
 
 
 def load_config() -> dict:
-    return core(harness.load_config)
+    return core(sida_config.load_config)
 
 
 def runtime_summary(config: dict) -> dict:
@@ -75,8 +76,8 @@ def runtime_summary(config: dict) -> dict:
     from sida.hub_settings import current_run_mode
     from sida.setup_env import read_api_key_from_env
 
-    conductor = harness.resolve_conductor_runtime(config)
-    worker = harness.resolve_worker_runtime(config)
+    conductor = runtime.resolve_conductor_runtime(config)
+    worker = runtime.resolve_worker_runtime(config)
     api_key = read_api_key_from_env()
     rag = rag_settings(config)
     return {
@@ -85,7 +86,7 @@ def runtime_summary(config: dict) -> dict:
         "worker": {"provider": worker["provider"], "model": worker["model"]},
         "rag_enabled": bool(rag["enabled"]),
         "warnings": {
-            "openrouter_key_missing": harness.needs_openrouter(config) and not api_key,
+            "openrouter_key_missing": runtime.needs_openrouter(config) and not api_key,
             "rag_key_missing": key_missing(rag),
         },
     }
@@ -93,7 +94,7 @@ def runtime_summary(config: dict) -> dict:
 
 def project_detail(config: dict, name: str) -> dict:
     path = workspace.find_project(config, name)
-    agents = harness.get_agents(config)
+    agents = sida_config.get_agents(config)
     summary = workspace.project_summary(path, agents)
     done = set(summary["completed"])
     brief_path = path / "brief.md"
@@ -206,7 +207,7 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
             project, created = core(workspace.create_project, config, body.name, body.fields)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        summary = workspace.project_summary(project.path, harness.get_agents(config))
+        summary = workspace.project_summary(project.path, sida_config.get_agents(config))
         return JSONResponse(
             {"project": summary, "created": created}, status_code=201 if created else 200
         )
@@ -215,7 +216,7 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
     def api_create_sample() -> JSONResponse:
         config = load_config()
         project, created = core(workspace.create_sample_project, config)
-        summary = workspace.project_summary(project.path, harness.get_agents(config))
+        summary = workspace.project_summary(project.path, sida_config.get_agents(config))
         return JSONResponse(
             {"project": summary, "created": created}, status_code=201 if created else 200
         )
@@ -266,7 +267,7 @@ def main(argv: list[str] | None = None) -> None:
         try:
             port = int(args[args.index("--port") + 1])
         except (IndexError, ValueError):
-            harness.fail("Usage: python webapp.py [--port 8765] [--no-browser]")
+            errors.fail("Usage: python webapp.py [--port 8765] [--no-browser]")
     configure_stdio()
     url = f"http://{DEFAULT_HOST}:{port}/"
     print(t("web_serving", url=url))

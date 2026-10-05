@@ -96,20 +96,20 @@ def _base(tmp_path):
 
 
 def test_save_config_patches_defaults_to_local_file_not_config_yaml():
-    from sida import harness
+    from sida import config as sida_config
     from tests.conftest import ROOT
 
     tracked = (ROOT / "config.yaml").read_text(encoding="utf-8")
     written = save_config_patches([("rag", "enabled", True)])
-    assert written == harness.LOCAL_CONFIG_PATH
+    assert written == sida_config.LOCAL_CONFIG_PATH
     assert "enabled: true" in written.read_text(encoding="utf-8")
     assert (ROOT / "config.yaml").read_text(encoding="utf-8") == tracked
-    cfg = harness.load_config()
+    cfg = sida_config.load_config()
     assert cfg["rag"]["enabled"] is True and cfg["rag"]["provider"] == "lawgokr"  # sibling kept
 
 
 def test_first_run_enter_picks_cloud_and_leaves_base_untouched(tmp_path, monkeypatch):
-    from sida import harness
+    from sida import config as sida_config
     from sida.hub_settings import choose_run_mode, current_run_mode
 
     base = _base(tmp_path)
@@ -117,11 +117,11 @@ def test_first_run_enter_picks_cloud_and_leaves_base_untouched(tmp_path, monkeyp
     assert choose_run_mode(config_path=base, first_run=True) == "cloud"
     assert base.read_text(encoding="utf-8") == SAMPLE
     assert (tmp_path / "config.local.yaml").exists()
-    assert current_run_mode(harness.load_config(base)) == "cloud"
+    assert current_run_mode(sida_config.load_config(base)) == "cloud"
 
 
 def test_run_mode_local_sets_both_roles_and_profile(tmp_path, monkeypatch):
-    from sida import harness
+    from sida import config as sida_config
     from sida.hub_settings import choose_run_mode, current_run_mode
 
     base = _base(tmp_path)
@@ -131,7 +131,7 @@ def test_run_mode_local_sets_both_roles_and_profile(tmp_path, monkeypatch):
     )
     _answers(monkeypatch, "2", "2")  # local, then profile local_plus
     assert choose_run_mode(config_path=base) == "local"
-    cfg = harness.load_config(base)
+    cfg = sida_config.load_config(base)
     assert cfg["conductor"]["provider"] == "ollama"
     assert cfg["worker"]["provider"] == "ollama"
     assert cfg["conductor"]["local_profile"] == "local_plus"
@@ -139,7 +139,7 @@ def test_run_mode_local_sets_both_roles_and_profile(tmp_path, monkeypatch):
 
     _answers(monkeypatch, "1")  # switch back later
     assert choose_run_mode(config_path=base) == "cloud"
-    assert current_run_mode(harness.load_config(base)) == "cloud"
+    assert current_run_mode(sida_config.load_config(base)) == "cloud"
 
 
 def test_run_mode_cancel_writes_nothing(tmp_path, monkeypatch):
@@ -165,7 +165,7 @@ def test_ensure_run_mode_asks_only_when_local_file_missing(tmp_path, monkeypatch
 
 
 def test_settings_menu_writes_local_file_only(tmp_path, monkeypatch):
-    from sida import harness
+    from sida import config as sida_config
     from sida.hub_settings import hub_settings_menu
 
     base = _base(tmp_path)
@@ -173,11 +173,12 @@ def test_settings_menu_writes_local_file_only(tmp_path, monkeypatch):
     cfg = hub_settings_menu(config_path=base)
     assert cfg["rag"]["enabled"] is True
     assert base.read_text(encoding="utf-8") == SAMPLE
-    assert harness.load_config(base)["rag"]["enabled"] is True
+    assert sida_config.load_config(base)["rag"]["enabled"] is True
 
 
 def test_run_mode_preselects_profile_the_gpu_can_run(tmp_path, monkeypatch, capsys):
-    from sida import hardware, harness
+    from sida import config as sida_config
+    from sida import hardware
     from sida.hub_settings import choose_run_mode
 
     base = _base(tmp_path)
@@ -190,7 +191,7 @@ def test_run_mode_preselects_profile_the_gpu_can_run(tmp_path, monkeypatch, caps
     assert choose_run_mode(config_path=base) == "local"
     assert "RTX 5070 Ti" in capsys.readouterr().out
     # SAMPLE says local, but a 16GB card gets local_plus pre-selected.
-    assert harness.load_config(base)["conductor"]["local_profile"] == "local_plus"
+    assert sida_config.load_config(base)["conductor"]["local_profile"] == "local_plus"
 
 
 def test_run_mode_recommends_cloud_for_small_gpu(tmp_path, monkeypatch, capsys):

@@ -7,10 +7,11 @@ Sida(시다) 저장소에서 작업하는 모든 AI 에이전트(Claude Code, Cu
 건축 설계 추론을 돕는 CLI 기반 LLM 워크플로. Conductor가 12개 전문가(`agents/*.md`)를 조합해 구조화된 Markdown 문서를 만든다. 최종 설계를 대신하지 않는다.
 
 - 진입점: `chat.py`(프로젝트 허브), `run.py`(비대화형 파이프라인), Windows는 `run.bat`. 저장소 최상위의 이 파일들은 `sida/`의 같은 이름 모듈을 실행하기만 한다.
-- 코드는 `sida/` 패키지에 있다. 공통 코어는 `sida/` 바로 아래에 둔다: `harness.py`, `conductor.py`, `engine.py`, `session.py`, `hub.py`, `i18n.py`(한국어 우선 UI 문자열) 등.
+- 코드는 `sida/` 패키지에 있다. 공통 코어는 `sida/` 바로 아래에 둔다: `config.py`(설정 읽기), `providers.py`(LLM 연결), `runtime.py`(역할별 모델·컨텍스트), `worker.py`(전문가 실행), `conductor.py`, `engine.py`, `session.py`, `hub.py`, `i18n.py`(한국어 우선 UI 문자열) 등.
+- 한 이름은 한 모듈에서만 가져온다. 다른 모듈의 것을 다시 내보내는 파일을 만들지 않는다. 가져오는 길이 둘이면 테스트의 바꿔치기(`monkeypatch`)가 실제 코드에 닿지 않는다. 특히 `sida.config.LOCAL_CONFIG_PATH`는 테스트가 임시 폴더로 돌려 두는 값이라, 다른 모듈에 복사해 두면 그 복사본은 이 PC의 실제 설정 파일을 가리킨다.
 - 한 전문가 영역에만 쓰이는 코드는 `sida/experts/<영역>/`에 둔다: `site/`(대지 사실, 정부 토지 API), `regulation/`(법령 검색), `rhino/`(Rhino 모델링). 테스트도 같은 구조로 `tests/experts/<영역>/`에 둔다. 새 전문가 기능은 공통 코어를 고치기보다 해당 영역 폴더에 만든다.
-- 영역은 자기 폴더의 `hooks.py`로 코어에 연결된다(설명은 `sida/experts/__init__.py`). 전문가 프롬프트에 넣을 자료는 `prompt_blocks(run)`으로, 세션 명령(`/site` 등)은 `COMMANDS`로 내놓는다. 폴더는 자동으로 발견되므로 등록할 곳이 없다. `harness.py`, `engine.py`, `conductor.py`, `session.py`, `commands.py`, `run.py`에서 `sida.experts.<영역>`을 직접 import하지 않는다(테스트가 막는다).
-- import는 패키지 경로로 쓴다: `from sida.harness import fail`, `from sida.experts.site import site_facts`.
+- 영역은 자기 폴더의 `hooks.py`로 코어에 연결된다(설명은 `sida/experts/__init__.py`). 전문가 프롬프트에 넣을 자료는 `prompt_blocks(run)`으로, 세션 명령(`/site` 등)은 `COMMANDS`로 내놓는다. 폴더는 자동으로 발견되므로 등록할 곳이 없다. 공통 코어(`worker.py`, `engine.py`, `conductor.py`, `session.py`, `commands.py`, `run.py` 등)에서 `sida.experts.<영역>`을 직접 import하지 않는다(테스트가 막는다).
+- import는 패키지 경로로 쓴다: `from sida.config import load_config`, `from sida.experts.site import site_facts`.
 - `engine.py`는 화면과 무관한 세션 코어다. `print`/`input`을 쓰지 않고, 값을 반환하고 진행 상황은 이벤트(`Session.emit`)로 알린다. 터미널 출력과 질문은 `session.py`에 둔다. 새 세션 로직은 `engine.py`에 넣는다.
 - 웹 UI(`webapp.py`, `webui/`)는 세 층이다: 코어 함수(`engine.py`, `workspace.py`) → JSON API(`/api/...`) → HTML 화면. 로직은 코어에 두고, 경로와 템플릿에는 넣지 않는다. 기능을 추가하면 JSON API와 그 테스트(`tests/test_webapp.py`)를 같이 만든다. 코어 함수는 경로에서 `core(...)`로 호출한다(`fail()`이 서버를 종료시키지 않게 하기 위해서다).
 - 설정: `config.yaml`은 팀 공통 기본값(클라우드, RAG 꺼짐)이다. PC별 설정은 Git이 무시하는 `config.local.yaml`에 두고, `load_config`가 그 값을 덮어쓴다. 허브 설정 메뉴와 첫 실행 질문은 `config.local.yaml`에만 쓴다. 개인 설정을 `config.yaml`에 커밋하지 않는다. 비밀값은 `.env`(키 목록은 `.env.example`)
@@ -63,7 +64,7 @@ pytest                    # 테스트 (tests/)
 - GitHub Push protection이 켜져 있어 API 키가 담긴 커밋은 push가 거부된다. 거부되면 해당 커밋에서 키를 제거하고 키를 재발급한다.
 - `.env`, API 키, `projects/`, `output/`의 개인 데이터는 절대 커밋하지 않는다(`.gitignore`에 등록됨).
 - 줄바꿈은 LF로 통일한다(`.gitattributes`). Windows에서 CRLF 차이로 전체 파일이 변경된 것처럼 보이면 내용 변경이 아니다.
-- `harness.py`, `i18n.py`, `conductor.py` 같은 큰 파일은 다른 사람(또는 다른 에이전트)과 동시에 크게 수정하지 않는다.
+- `i18n.py`, `worker.py`, `providers.py`처럼 여러 작업이 거쳐 가는 파일은 다른 사람(또는 다른 에이전트)과 동시에 크게 수정하지 않는다.
 - 이 저장소는 여러 에이전트를 함께 쓴다. 한 작업 폴더를 두 에이전트가 동시에 쓰면 브랜치 전환과 커밋 안 된 변경이 서로 섞인다. 작업 전에 `git status`와 현재 브랜치를 확인하고, 내가 만들지 않은 커밋 안 된 변경은 커밋하거나 되돌리지 말고 사용자에게 알린다.
 - 대지 사실(`sida/experts/site/`의 `site_facts.py`, `landapi.py`)은 정부 API에서 가져온 값만 담는다. 수치를 추정하거나 지어내지 않고, 가져오지 못한 항목은 "미확인"으로 둔다. 법정 수치 표(`data/zoning_limits.yaml`)를 고칠 때는 조문 원문과 대조하고 `verified` 날짜를 갱신한다.
 - 테스트는 외부 API를 호출하지 않는다. `tests/conftest.py`가 `landapi._http_get`과 `lawapi._http_get`을 막아 두었고, 녹화한 응답(`tests/fixtures/landapi/`, `tests/fixtures/lawapi/`)을 쓴다.

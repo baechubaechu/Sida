@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from sida import engine
+from sida.config import load_config
 from sida.console import configure_stdio
 from sida.engine import (  # noqa: F401  (re-exported: commands.py, tests and scripts import them here)
     MAX_READS_PER_TURN,
@@ -20,15 +21,11 @@ from sida.engine import (  # noqa: F401  (re-exported: commands.py, tests and sc
     module_completed_note,
     opening_prompt,
 )
-from sida.harness import (
-    LLMError,
-    fail,
-    load_config,
-    load_env,
-    resolve_conductor_runtime,
-)
+from sida.errors import fail
 from sida.i18n import t
 from sida.project import projects_dir
+from sida.providers import LLMError
+from sida.runtime import load_env, resolve_conductor_runtime
 
 # ---------------------------------------------------------------------------
 # Rendering engine events

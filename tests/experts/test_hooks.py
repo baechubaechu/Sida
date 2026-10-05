@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from sida import commands, experts, harness
+from sida import commands, experts, worker
 from sida.experts import FACTS, KNOWLEDGE, ExpertRun, PromptBlock
 from tests.conftest import ROOT
 
@@ -81,7 +81,11 @@ def test_unknown_slash_command_is_still_plain_chat(make_session):
     assert commands.dispatch(make_session(), "/nope 1") is None
 
 
-@pytest.mark.parametrize("module", ["harness", "engine", "conductor", "session", "commands", "run"])
+CORE = ["config", "providers", "runtime", "worker", "conductor_context"]
+CORE += ["engine", "conductor", "session", "commands", "run"]
+
+
+@pytest.mark.parametrize("module", CORE)
 def test_core_does_not_import_a_domain_by_name(module):
     source = (ROOT / "sida" / f"{module}.py").read_text(encoding="utf-8")
     domains = [p.name for p in (ROOT / "sida" / "experts").iterdir() if (p / "__init__.py").exists()]
@@ -91,7 +95,7 @@ def test_core_does_not_import_a_domain_by_name(module):
 
 
 def test_worker_prompt_places_facts_before_state_and_knowledge_after_outputs():
-    prompt = harness.build_worker_prompt(
+    prompt = worker.build_worker_prompt(
         "AGENT",
         "BRIEF",
         "OUTPUTS",

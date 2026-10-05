@@ -24,7 +24,7 @@ from collections.abc import Callable
 
 import requests
 
-from sida.harness import ROOT
+from sida.config import ROOT
 
 ENV_PATH = ROOT / ".env"
 SEARCH_URL = "https://www.law.go.kr/DRF/lawSearch.do"

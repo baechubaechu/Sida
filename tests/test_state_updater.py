@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from sida.harness import LLMError, MockProvider
 from sida.project import module_status_rows
+from sida.providers import LLMError, MockProvider
 from sida.state_updater import (
     StatePatch,
     apply_patch,

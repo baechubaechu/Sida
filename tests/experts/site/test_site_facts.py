@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from sida import harness
+from sida import config as sida_config
+from sida import worker
 from sida.commands import dispatch
 from sida.experts.site import landapi, site_facts
 from sida.experts.site.landapi import LandApiError
@@ -228,10 +229,10 @@ def test_parse_selection():
 
 
 def _run(agent_id, mock_config, agents, project, scripted):
-    agent = harness.agent_by_id(agents, agent_id)
-    headers = harness.expected_headers((ROOT / agent["file"]).read_text(encoding="utf-8"))
+    agent = sida_config.agent_by_id(agents, agent_id)
+    headers = worker.expected_headers((ROOT / agent["file"]).read_text(encoding="utf-8"))
     provider = scripted(["\n\n".join(f"## {h}\n- x" for h in headers)])
-    harness.run_worker_agent(
+    worker.run_worker_agent(
         "", mock_config, agent, project.read_brief(), [], project.modules_dir, provider=provider
     )
     return provider.calls[0]["messages"][1]["content"]

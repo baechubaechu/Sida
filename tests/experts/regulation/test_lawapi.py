@@ -5,7 +5,8 @@ from __future__ import annotations
 import pytest
 import requests
 
-from sida import harness
+from sida import config as sida_config
+from sida import worker
 from sida.experts.regulation import lawapi, rag
 from sida.experts.regulation.lawapi import LawApiError
 from sida.experts.site import site_facts
@@ -201,10 +202,10 @@ def test_focus_queries_skip_english_and_long_brief_lines():
 
 
 def _run_regulation(mock_config, agents, project, scripted):
-    agent = harness.agent_by_id(agents, "regulation_checker")
-    headers = harness.expected_headers((ROOT / agent["file"]).read_text(encoding="utf-8"))
+    agent = sida_config.agent_by_id(agents, "regulation_checker")
+    headers = worker.expected_headers((ROOT / agent["file"]).read_text(encoding="utf-8"))
     provider = scripted(["\n\n".join(f"## {h}\n- x" for h in headers)])
-    harness.run_worker_agent(
+    worker.run_worker_agent(
         "", mock_config, agent, project.read_brief(), [], project.modules_dir, provider=provider
     )
     return provider.calls[0]["messages"][1]["content"]

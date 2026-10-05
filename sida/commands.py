@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from sida.briefs import collect_brief_updates, edit_file_in_editor
-from sida.harness import resolve_agent
+from sida.config import resolve_agent
 from sida.i18n import t
 from sida.session import Session, run_module_command
 

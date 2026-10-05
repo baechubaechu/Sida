@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from sida.harness import ROOT
+from sida.config import ROOT
 
 # Agents that may receive a knowledge block. Config can override via
 # rag.agents: { regulation_checker: regulation, ... }.

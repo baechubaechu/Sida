@@ -8,17 +8,12 @@ import re
 from pathlib import Path
 from typing import Any
 
+from sida.config import ROOT
 from sida.console import ROLE_COLOR, paint, prompt_line
 from sida.experts.rhino.mcp_stdio import McpError
 from sida.experts.rhino.rhino_mcp import SAFE_TOOLS, open_rhino_mcp, resolve_mcp_command
-from sida.harness import (
-    ROOT,
-    LLMError,
-    gpt_major_version,
-    make_provider,
-    provider_chat,
-)
 from sida.i18n import get_language, t
+from sida.providers import LLMError, gpt_major_version, make_provider, provider_chat
 
 RHINO_BLOCK = re.compile(r"```rhino\s*(\{.*?\})\s*```", re.DOTALL | re.IGNORECASE)
 DEFAULT_MODEL = "gpt-6-astra"

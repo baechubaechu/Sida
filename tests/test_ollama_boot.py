@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from sida import ollama_boot as boot
-from sida.harness import LLMError
+from sida.providers import LLMError
 
 
 def test_model_is_present_matches_variants():

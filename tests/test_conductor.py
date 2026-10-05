@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from sida.conductor import ask_conductor, build_conductor_messages, parse_action
-from sida.harness import LLMError, MockProvider
+from sida.providers import LLMError, MockProvider
 
 
 def test_parse_action_variants():

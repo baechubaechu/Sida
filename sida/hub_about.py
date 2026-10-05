@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
+from sida.config import get_agents
 from sida.console import ROLE_COLOR, agent_look, paint, prompt_line
-from sida.harness import get_agents
 from sida.i18n import t
 
 PHASE_ORDER = (

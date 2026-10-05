@@ -5,7 +5,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from sida import harness, webapp
+from sida import config as sida_config
+from sida import errors, providers, runtime, webapp
 from sida.project import section_body
 
 
@@ -80,9 +81,9 @@ def test_api_runtime_reports_mode_and_missing_key(client, mock_config, monkeypat
 
 def test_core_failure_becomes_http_error_not_server_exit(client, monkeypatch, capsys):
     def broken(*_a, **_k):
-        harness.fail("config.yaml이 깨졌습니다")
+        errors.fail("config.yaml이 깨졌습니다")
 
-    monkeypatch.setattr(harness, "load_config", broken)
+    monkeypatch.setattr(sida_config, "load_config", broken)
     r = client.get("/api/projects")
     assert r.status_code == 500 and "config.yaml이 깨졌습니다" in r.json()["detail"]
     assert client.get("/api/health").status_code == 200
@@ -215,7 +216,7 @@ def test_document_api_rejects_bad_kind_and_missing_project(client, project):
 @pytest.fixture
 def state_api(client, project, agents, monkeypatch):
     # This feature never needs a real API key or provider in tests.
-    monkeypatch.setattr(harness, "load_env", lambda **_kw: "")
+    monkeypatch.setattr(runtime, "load_env", lambda **_kw: "")
     (project.modules_dir / agents[0]["output"]).write_text("analysis", encoding="utf-8")
     return client, f"/api/projects/{project.name}", agents[0]
 
@@ -299,7 +300,7 @@ def test_state_api_reports_provider_error_without_writing_state(state_api, proje
     before = project.state_path.read_bytes()
 
     def broken(*_args):
-        raise harness.LLMError("provider unavailable")
+        raise providers.LLMError("provider unavailable")
 
     monkeypatch.setattr(engine, "propose_state", broken)
     response = client.post(f"{base}/state-proposals", json={"agent": agent["id"]})

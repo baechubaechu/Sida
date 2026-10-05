@@ -7,21 +7,15 @@ import sys
 from pathlib import Path
 
 from sida.cli import cli_entrypoint
+from sida.config import agent_by_id, get_agents, get_paths, load_config
 from sida.console import configure_stdio
-from sida.harness import (
-    LLMError,
-    agent_by_id,
-    fail,
-    get_agents,
-    get_paths,
-    load_config,
-    load_env,
-    run_worker_agent,
-    worker_provider,
-)
+from sida.errors import fail
 from sida.i18n import get_language, t
 from sida.project import open_or_create
+from sida.providers import LLMError
+from sida.runtime import load_env, worker_provider
 from sida.state_updater import propose_state_patch, state_update_settings, write_state
+from sida.worker import run_worker_agent
 
 
 def _auto_update_state(config: dict, api_key: str, project, agent: dict, provider) -> None:

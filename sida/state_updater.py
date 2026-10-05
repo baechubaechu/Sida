@@ -15,14 +15,14 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
-from sida.harness import (
-    LLMError,
+from sida.project import Project
+from sida.providers import LLMError
+from sida.runtime import (
     conductor_provider,
     resolve_conductor_runtime,
     resolve_worker_runtime,
     worker_provider,
 )
-from sida.project import Project
 from sida.state_revisions import preserve_revisions, record_module_revision, without_revisions
 from sida.storage import atomic_write_text
 
@@ -296,8 +296,8 @@ def propose_state_patch(
         without_revisions(state_text), str(agent["id"]), str(agent.get("name", agent["id"])), module_output, lang=lang
     )
     from sida.console import agent_look
-    from sida.harness import provider_chat
     from sida.i18n import t
+    from sida.providers import provider_chat
 
     tag, accent = agent_look(agent.get("id"))
     labeled = f"[{tag}] {agent.get('name', agent['id'])}"

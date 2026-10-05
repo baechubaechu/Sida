@@ -6,10 +6,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from sida.briefs import collect_basic_brief
+from sida.config import ROOT, load_config
 from sida.console import prompt_line
 from sida.experts.regulation.law_search import run_law_search
 from sida.experts.rhino.rhino_modeler import run_rhino_modeler
-from sida.harness import ROOT, load_config
 from sida.hub_about import show_hub_about
 from sida.hub_settings import hub_settings_menu, settings_one_liner
 from sida.i18n import t
