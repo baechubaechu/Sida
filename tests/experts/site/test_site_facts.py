@@ -432,7 +432,7 @@ def test_ordinance_figures_are_shown_next_to_the_quoted_line(one, fake_ordinance
     values["far"] = {**values["far"], "conditional": True}
     assert "용적률 350% 이하 (단서·예외가 붙어 있음 — 원문 확인)" in "\n".join(site_facts.regulatory_lines(one))
     values["far"] = {**values["far"], "value": None}
-    assert "용적률 — 한 가지 수치로 정해져 있지 않음, 원문 확인: 제53조" in "\n".join(site_facts.regulatory_lines(one))
+    assert "용적률 — 수치를 규칙으로 읽지 못함(여러 수치, 소수 등), 원문 확인: 제53조" in "\n".join(site_facts.regulatory_lines(one))
     values["far"] = {**values["far"], "out_of_range": True}
     assert "법정 범위를 벗어나 표시하지 않음" in "\n".join(site_facts.regulatory_lines(one))
     values["far"] = None
