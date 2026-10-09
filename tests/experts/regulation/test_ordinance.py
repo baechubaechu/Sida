@@ -374,3 +374,54 @@ def test_excerpt_keeps_the_sites_zone_lines_and_everything_that_is_not_a_zone_li
     assert "생략" not in ordinance.excerpt_for_zones(text, zones, zones)
     assert ordinance.ratio_paragraphs("제1조(목적) 건폐율을 정한다.") == "제1조(목적) 건폐율을 정한다."
     assert "생략" not in ordinance.ratio_paragraphs("제2조(완화)① 건폐율 완화② 용적률 완화")
+
+
+# --- decimal figures: never read as a wrong whole number ------------------------------
+
+
+def test_decimal_percentages_give_no_figure_instead_of_a_wrong_one():
+    def read(line):
+        return ordinance.zone_figure(
+            f"① 다음 각 호와 같다.1. {line}2. 준주거지역 : 60퍼센트", "제2종일반주거지역"
+        )
+
+    for line in (
+        "제2종일반주거지역 : 62.5퍼센트 이하",  # was read as 5
+        "제2종일반주거지역 : 62.5% 이하",  # was read as 5
+        "제2종일반주거지역 : 100분의 62.5 이하",  # was read as 62
+        "제2종일반주거지역 : 1,250.5퍼센트",  # was read as 5
+    ):
+        figure = read(line)
+        assert figure["value"] is None, line
+        assert figure["quote"] == line  # the line itself is still shown
+
+    # a decimal that is a whole number is that number
+    assert read("제2종일반주거지역 : 60.0퍼센트 이하")["value"] == 60
+    assert read("제2종일반주거지역 : 100분의 60.00 이하")["value"] == 60
+    # the next item is still found right after a decimal figure
+    after = ordinance.zone_figure("① 같다.1. 제2종일반주거지역 : 62.5퍼센트2. 준주거지역 : 60퍼센트", "준주거지역")
+    assert after["value"] == 60
+    glued = ordinance.zone_figure("① 같다.1. 제2종일반주거지역 : 100분의 62.52. 준주거지역 : 100분의 60", "제2종일반주거지역")
+    assert glued["value"] is None and glued["quote"] == "제2종일반주거지역 : 100분의 62.5"
+
+    # the range check alone would not have caught 5%: it is a valid 건폐율
+    article = {"kind": "bcr", "label": "제1조", "text": "① 같다.1. 제2종일반주거지역 : 62.5퍼센트 이하"}
+    assert ordinance.zone_values([article], "제2종일반주거지역", RES2)["bcr"]["value"] is None
+
+
+def test_decimal_cells_in_an_annex_table_give_no_figure_for_that_cell():
+    lines = ["용도", "건폐율(%)", "용적률(%)", "제2종일반주거지역", "62.5", "250", "준주거지역", "60.0", "400"]
+    found = ordinance.table_figures(lines, "제2종일반주거지역")
+    assert found["bcr"]["value"] is None and found["far"]["value"] == 250
+    assert found["bcr"]["quote"].startswith("제2종일반주거지역 | 62.5 | 250")
+    whole = ordinance.table_figures(lines, "준주거지역")
+    assert (whole["bcr"]["value"], whole["far"]["value"]) == (60, 400)
+
+
+def test_a_date_left_in_the_line_is_not_a_decimal_figure():
+    # 경상남도 고성군: "…20퍼센트 이하[제목 개정 2013.01.01. 조 2095]" must still read as 20
+    line = "① 같다.1. 자연환경보전지역 : 20퍼센트 이하[제목 개정 2013.01.01. 조 2095]"
+    figure = ordinance.zone_figure(line, "자연환경보전지역")
+    assert figure["value"] == 20 and figure["quote"] == "자연환경보전지역 : 20퍼센트 이하"
+    dated = ordinance.zone_figure("① 같다.1. 준주거지역 : 60퍼센트 이하 2013.01.01. 시행", "준주거지역")
+    assert dated["value"] == 60

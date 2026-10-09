@@ -245,8 +245,13 @@ def follow_annex(article: dict, annexes: list[dict]) -> dict:
 # Reading the figure for one zone out of a quoted article
 # ---------------------------------------------------------------------------
 
-_TAG = re.compile(r"<[^<>]{0,80}>|[(\[](?:개정|신설|전문개정|본조신설|삭제)[^()\[\]]{0,80}[)\]]")
+_TAG = re.compile(r"<[^<>]{0,80}>|[(\[](?:제목\s*)?(?:개정|신설|전문개정|본조신설|삭제)[^()\[\]]{0,80}[)\]]")
 _NUMBER = re.compile(r"100분의\s*([\d,]+)|((?:\d+천)?[\d,]*\d|\d+천)\s*(?:퍼센트|%)")
+# Figures are read as whole numbers. "62.5퍼센트" must not be read as 5 (or "100분의 62.5" as
+# 62): a decimal gives no figure and the line is shown instead. "60.0" is simply 60.
+_WHOLE_DECIMAL = re.compile(r"(?<=\d)\.0+(?!\d)")
+# Only a decimal that is part of the figure itself; a date left in the line ("2013.01.01.") is not one.
+_DECIMAL = re.compile(r"\d\.\d+\s*(?:퍼센트|%)|100분의\s*[\d,]+\.\d")
 _SUBITEM = re.compile(r"가\.\s*\S")  # 목 (가. 나. 다.) always start at 가; glued like "이하가. 아파트"
 
 
@@ -287,7 +292,7 @@ def zone_figure(article_text: str, zone: str) -> dict | None:
     The 호 of `article_text` that names `zone`, and the percentage it states.
     {"value": int | None, "quote": str, "conditional": bool} — value is None when the item
     does not state exactly one readable base figure (sub-items, several figures before any
-    proviso, no figure). None when the zone is not listed at all.
+    proviso, a decimal figure, no figure). None when the zone is not listed at all.
     """
     text = _TAG.sub("", article_text or "")
     name = r"\s*".join(map(re.escape, zone))
@@ -296,9 +301,10 @@ def zone_figure(article_text: str, zone: str) -> dict | None:
         if not match:
             continue
         rest = item[match.end() :]
-        base = re.split(r"다만|단,|\(", rest, maxsplit=1)[0]
+        base = _WHOLE_DECIMAL.sub("", re.split(r"다만|단,|\(", rest, maxsplit=1)[0])
         figures = [_number(m) for m in _NUMBER.finditer(base)]
-        value = figures[0] if len(figures) == 1 and not _SUBITEM.search(base) else None
+        clear = len(figures) == 1 and not _SUBITEM.search(base) and not _DECIMAL.search(base)
+        value = figures[0] if clear else None
         return {
             "value": value,
             "quote": " ".join(item.split()),
@@ -307,14 +313,15 @@ def zone_figure(article_text: str, zone: str) -> dict | None:
     return None
 
 
-_PLAIN_NUMBER = re.compile(r"^((?:\d+천)?[\d,]*\d|\d+천)\s*(?:퍼센트|%)?\s*(?:이하)?$")
+_PLAIN_NUMBER = re.compile(r"^((?:\d+천)?[\d,]*\d|\d+천)(\.\d+)?\s*(?:퍼센트|%)?\s*(?:이하)?$")
 
 
 def table_figures(lines: list[str], zone: str) -> dict[str, dict]:
     """
     Figures for `zone` from an annex laid out as a table (one cell per line): the header
     cells "건폐율(%)" / "용적률(%)" give the column order, and the cells right after the
-    zone's name give the values. {} when the table is not shaped like that.
+    zone's name give the values. {} when the table is not shaped like that. A decimal cell
+    gives no figure for that cell (value None), with the row still quoted.
     """
     order: list[str] = []
     for line in lines:
@@ -339,7 +346,8 @@ def table_figures(lines: list[str], zone: str) -> dict[str, dict]:
             if "천" in raw:
                 thousands, rest = raw.split("천", 1)
                 raw = str(int(thousands or 1) * 1000 + int(rest or 0))
-            cells.append((int(raw), following.strip()))
+            decimal = bool(match.group(2)) and bool(match.group(2).strip(".0"))
+            cells.append((None if decimal else int(raw), following.strip()))
         if len(cells) != len(order):
             return {}
         header = ", ".join(KINDS[k] for k in order)

@@ -613,7 +613,7 @@ def _figure_text(word: str, figure: dict | None) -> str:
     if figure.get("out_of_range"):
         return f"{word} — 읽은 값이 법정 범위를 벗어나 표시하지 않음, 원문 확인: {cited}"
     if figure["value"] is None:
-        return f"{word} — 한 가지 수치로 정해져 있지 않음, 원문 확인: {cited}"
+        return f"{word} — 수치를 규칙으로 읽지 못함(여러 수치, 소수 등), 원문 확인: {cited}"
     note = " (단서·예외가 붙어 있음 — 원문 확인)" if figure["conditional"] else ""
     return f"{word} {figure['value']:,}% 이하{note}: {cited}"
 
