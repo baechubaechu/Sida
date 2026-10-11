@@ -1,0 +1,58 @@
+{
+ "_note": "손으로 만든 자료(브이월드 데이터 API 문서의 응답 모양). python scripts/record_landapi_regions.py로 실제 응답을 녹화해 덮어쓸 것.",
+ "response": {
+  "service": {
+   "name": "data",
+   "version": "2.0",
+   "operation": "GetFeature",
+   "time": "10(ms)"
+  },
+  "status": "OK",
+  "record": {
+   "total": "3",
+   "current": "3"
+  },
+  "page": {
+   "total": "1",
+   "current": "1",
+   "size": "1000"
+  },
+  "result": {
+   "featureCollection": {
+    "type": "FeatureCollection",
+    "features": [
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41410",
+       "full_nm": "경기도 군포시",
+       "sig_kor_nm": "군포시",
+       "sig_eng_nm": "Gunpo-si"
+      },
+      "id": "LT_C_ADSIGG_INFO.1"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41111",
+       "full_nm": "경기도 수원시 장안구",
+       "sig_kor_nm": "수원시 장안구",
+       "sig_eng_nm": "Jangan-gu"
+      },
+      "id": "LT_C_ADSIGG_INFO.2"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41830",
+       "full_nm": "경기도 양평군",
+       "sig_kor_nm": "양평군",
+       "sig_eng_nm": "Yangpyeong-gun"
+      },
+      "id": "LT_C_ADSIGG_INFO.3"
+     }
+    ]
+   }
+  }
+ }
+}

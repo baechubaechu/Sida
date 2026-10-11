@@ -164,3 +164,114 @@ def test_misspelt_address_finds_nothing_and_region_is_read_from_road_addresses(f
     assert region("경기도 양평군 양평읍 시민로 5") == "경기도 양평군 양평읍"
     assert region("세종특별자치시 한누리대로 2130") == "세종특별자치시"
     assert region("") == ""
+
+
+# --- step-by-step address selection (data API: address lists and lot numbers) ------------
+
+
+def _data_calls(fake_vworld) -> list[dict]:
+    return [params for url, params in fake_vworld.calls if url.endswith("/req/data")]
+
+
+def test_regions_walk_from_province_to_ri(fake_vworld):
+    provinces = landapi.regions()
+    assert any(r == {"code": "41", "name": "경기도", "full_name": "경기도", "has_ri": False, "dong_code": ""}
+               for r in provinces)
+    assert [r["name"] for r in provinces] == sorted(r["name"] for r in provinces)
+    first = _data_calls(fake_vworld)[0]
+    assert first["data"] == "LT_C_ADSIDO_INFO" and first["geomFilter"] and "attrFilter" not in first
+    assert first["geometry"] == "false" and first["key"] == "test-key"
+
+    cities = landapi.regions("41")
+    assert all(len(r["code"]) == 5 and r["code"].startswith("41") and r["dong_code"] == "" for r in cities)
+    assert {"code": "41410", "full_name": "경기도 군포시"}.items() <= next(
+        r for r in cities if r["name"] == "군포시").items()
+    assert _data_calls(fake_vworld)[-1]["attrFilter"] == "sig_cd:like:41"
+
+    dongs = {r["name"]: r for r in landapi.regions("41410")}
+    # a 동's lots are under its own code + "00": 금정동 689-14 is PNU 4141010500 1 0689 0014
+    assert dongs["금정동"] == {
+        "code": "41410105", "name": "금정동", "full_name": "경기도 군포시 금정동",
+        "has_ri": False, "dong_code": "4141010500",
+    }
+
+    towns = sorted((r for r in landapi.regions("41830") if r["has_ri"]), key=lambda r: r["code"])
+    assert towns and all(r["name"].endswith(("읍", "면")) and r["dong_code"] == "" for r in towns)
+    villages = landapi.regions(towns[0]["code"])
+    assert villages and all(
+        r["dong_code"] == r["code"] and len(r["code"]) == 10 and r["code"].startswith(towns[0]["code"])
+        for r in villages
+    )
+
+
+def test_regions_are_kept_in_memory(fake_vworld):
+    assert landapi.regions("41410") == landapi.regions("41410")
+    assert len(_data_calls(fake_vworld)) == 1
+    landapi.clear_cache()
+    landapi.regions("41410")
+    assert len(_data_calls(fake_vworld)) == 2
+
+
+def test_regions_keep_only_children_of_the_parent_and_read_every_page():
+    def feature(code, name):
+        return {"type": "Feature", "properties": {"sig_cd": code, "sig_kor_nm": name, "full_nm": f"경기도 {name}"}}
+
+    pages = {
+        1: [feature("41410", "군포시"), feature("11410", "서대문구"), feature("41410", "군포시")],
+        2: [feature("41830", "양평군"), feature("4183", "잘린코드"), feature("41111", "")],
+    }
+
+    def http_get(url, params):
+        return {"response": {"status": "OK", "page": {"total": "2", "current": str(params["page"])},
+                             "result": {"featureCollection": {"features": pages[params["page"]]}}}}
+
+    found = landapi.regions("41", http_get=http_get)
+    assert [(r["code"], r["name"]) for r in found] == [("41410", "군포시"), ("41830", "양평군")]
+
+
+def test_regions_refuse_malformed_codes_without_calling(fake_vworld):
+    for bad in ("4", "414", "41410105xx", "abcde", "4141010500"):
+        with pytest.raises(ValueError):
+            landapi.regions(bad)
+    assert fake_vworld.calls == []
+
+
+def test_regions_report_a_rejected_key(fake_vworld):
+    fake_vworld.overrides["data"] = land_fixture("data_bad_key.json")
+    with pytest.raises(LandApiError) as info:
+        landapi.regions("41")
+    assert info.value.kind == "invalid_key"
+    del fake_vworld.overrides["data"]
+    assert landapi.regions("41")  # a failure is not remembered
+
+
+def test_find_lots_builds_the_pnu_from_the_parts(fake_vworld):
+    lots = landapi.find_lots("4141010500", 689)
+    assert _data_calls(fake_vworld)[-1]["attrFilter"] == "pnu:like:414101050010689"
+    assert lots and all(lot["pnu"].startswith("414101050010689") and lot["matched_by"] == "lot" for lot in lots)
+    assert [lot["pnu"] for lot in lots] == sorted(lot["pnu"] for lot in lots)
+    assert PNU in [lot["pnu"] for lot in lots]
+
+    assert landapi.find_lots("4141010500", 689, 14) == [{
+        "pnu": PNU, "address": "경기도 군포시 금정동 689-14", "road_address": "", "building": "",
+        "matched_by": "lot",
+    }]
+    assert _data_calls(fake_vworld)[-1]["attrFilter"] == f"pnu:=:{PNU}"
+
+    assert landapi.find_lots("4141010500", 689, mountain=True) == []  # 산 689 does not exist there
+    assert _data_calls(fake_vworld)[-1]["attrFilter"] == "pnu:like:414101050020689"
+    assert landapi.find_lots("4141010500", 9999, 9999) == []
+
+
+def test_find_lots_refuses_parts_out_of_range(fake_vworld):
+    for args in (("41410105", 689), ("4141010500", 0), ("4141010500", 10000), ("4141010500", 1, 10000)):
+        with pytest.raises(ValueError):
+            landapi.find_lots(*args)
+    assert fake_vworld.calls == []
+
+
+def test_parcel_by_pnu(fake_vworld):
+    assert landapi.parcel_by_pnu(PNU)["address"] == "경기도 군포시 금정동 689-14"
+    assert landapi.parcel_by_pnu("4141010500199999999") is None
+    with pytest.raises(ValueError):
+        landapi.parcel_by_pnu("414101050010689")

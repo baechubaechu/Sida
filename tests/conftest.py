@@ -72,7 +72,7 @@ def fake_ordinance(monkeypatch):
 
 @pytest.fixture
 def fake_vworld(monkeypatch, fake_ordinance):
-    """Serve recorded VWorld responses (금정동 689) instead of the network; records calls."""
+    """Serve recorded VWorld responses (금정동 689, address lists) instead of the network; records calls."""
     calls: list[tuple[str, dict]] = []
     overrides: dict[str, object] = {}
 
@@ -84,6 +84,10 @@ def fake_vworld(monkeypatch, fake_ordinance):
             if isinstance(value, Exception):
                 raise value
             return value
+        if op == "data":  # the data API: address lists and lot numbers, by layer and filter
+            value = str(params.get("attrFilter") or "").rsplit(":", 1)[-1]
+            path = LAND_FIXTURES / f"data_{params['data']}{'_' + value if value else ''}.json"
+            return land_fixture(path.name if path.exists() else "data_not_found.json")
         if op == "search":
             if "공단로" in params["query"]:  # a road-name address: no lot-number match, one road match
                 road = params.get("category") == "road"
@@ -113,6 +117,7 @@ def isolated_settings(tmp_path, monkeypatch):
     monkeypatch.setenv("VWORLD_API_KEY", "test-key")
     monkeypatch.setenv("VWORLD_DOMAIN", "http://localhost:8765")
     monkeypatch.setattr(landapi, "_http_get", _no_network)
+    landapi.clear_cache()
     monkeypatch.setattr(lawapi, "ENV_PATH", tmp_path / "no.env")
     monkeypatch.setenv("LAW_OPEN_API_OC", "test-oc")
     monkeypatch.setattr(lawapi, "_http_get", _no_network)

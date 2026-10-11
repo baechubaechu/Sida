@@ -1,0 +1,48 @@
+{
+ "_note": "손으로 만든 자료(브이월드 데이터 API 문서의 응답 모양). python scripts/record_landapi_regions.py로 실제 응답을 녹화해 덮어쓸 것.",
+ "response": {
+  "service": {
+   "name": "data",
+   "version": "2.0",
+   "operation": "GetFeature",
+   "time": "10(ms)"
+  },
+  "status": "OK",
+  "record": {
+   "total": "2",
+   "current": "2"
+  },
+  "page": {
+   "total": "1",
+   "current": "1",
+   "size": "1000"
+  },
+  "result": {
+   "featureCollection": {
+    "type": "FeatureCollection",
+    "features": [
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_cd": "41830250",
+       "full_nm": "경기도 양평군 양평읍",
+       "emd_kor_nm": "양평읍",
+       "emd_eng_nm": "Yangpyeong-eup"
+      },
+      "id": "LT_C_ADEMD_INFO.1"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_cd": "41830310",
+       "full_nm": "경기도 양평군 강상면",
+       "emd_kor_nm": "강상면",
+       "emd_eng_nm": "Gangsang-myeon"
+      },
+      "id": "LT_C_ADEMD_INFO.2"
+     }
+    ]
+   }
+  }
+ }
+}
