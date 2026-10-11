@@ -14,6 +14,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from sida.i18n import agent_name
+
 # ANSI / xterm-256 friendly names. Values are SGR params after ESC[.
 _FG = {
     "dim": "2",
@@ -153,7 +155,7 @@ def agent_badge(agent: dict | str, *, stream=None) -> str:
     """Colored `[TAG] Name` for module banners."""
     if isinstance(agent, dict):
         aid = str(agent.get("id") or "")
-        name = str(agent.get("name") or aid)
+        name = agent_name(agent)
     else:
         aid = str(agent)
         name = aid

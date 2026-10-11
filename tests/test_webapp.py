@@ -53,6 +53,8 @@ def test_api_sample_and_detail(client, agents):
     assert detail["brief"].startswith("#")
     assert [e["id"] for e in detail["experts"]] == [a["id"] for a in agents]
     assert not any(e["done"] for e in detail["experts"])
+    # Screens show the Korean name; config.yaml `name` stays English for the models.
+    assert detail["experts"][0]["name"] == "대지 분석가"
 
 
 def test_api_unknown_project_is_404(client):

@@ -93,3 +93,21 @@ def test_paint_force_color(monkeypatch):
     monkeypatch.setenv("FORCE_COLOR", "1")
     out = paint("hi", "cyan")
     assert out.startswith("\033[") and out.endswith("\033[0m") and "hi" in out
+
+
+def test_agent_name_is_korean_on_screen_and_english_in_config():
+    agent = {"id": "site_reader", "name": "Site Reader"}
+    assert i18n.agent_name(agent) == "대지 분석가"
+    i18n.set_language("en")
+    assert i18n.agent_name(agent) == "Site Reader"
+    i18n.set_language("ko")
+    # unknown ids fall back to the config name, then the id
+    assert i18n.agent_name({"id": "new_expert", "name": "New Expert"}) == "New Expert"
+    assert i18n.agent_name({"id": "new_expert"}) == "new_expert"
+
+
+def test_agent_badge_uses_screen_name():
+    from sida.console import agent_badge
+
+    badge = agent_badge({"id": "design_critic", "name": "Design Critic"})
+    assert "설계 비평가" in badge and "Design Critic" not in badge

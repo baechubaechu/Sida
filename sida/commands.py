@@ -11,7 +11,7 @@ from collections.abc import Callable
 
 from sida.briefs import collect_brief_updates, edit_file_in_editor
 from sida.config import resolve_agent
-from sida.i18n import t
+from sida.i18n import agent_name, t
 from sida.session import Session, run_module_command
 
 Outcome = str  # "continue" | "close" | "quit"
@@ -28,7 +28,7 @@ def print_help(agents: list[dict]) -> None:
     print()
     print(t("help_modules"))
     for agent in agents:
-        print(f"  {agent.get('id'):<24} {agent.get('name')}")
+        print(f"  {agent.get('id'):<24} {agent_name(agent)}")
 
 
 def _print_file(title: str, body: str) -> None:

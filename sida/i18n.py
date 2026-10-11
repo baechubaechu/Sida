@@ -708,51 +708,51 @@ STRINGS: dict[str, dict[str, str]] = {
             "Enter 를 누르면 허브로 돌아갑니다."
         ),
         "about_back": "허브로 돌아가려면 Enter: ",
-        "worker_name_site_reader": "사이트 리더",
+        "worker_name_site_reader": "대지 분석가",
         "worker_desc_site_reader": (
-            "지리·공간으로 사이트 읽기 — 시스템, 충돌, 기회 (법규 분석은 하지 않음)."
+            "지리·공간으로 대지 읽기 — 시스템, 충돌, 기회 (법규 분석은 하지 않음)."
         ),
         "worker_name_program_analyst": "프로그램 분석가",
         "worker_desc_program_analyst": (
             "이용자·리듬, 프로그램 구성, 인접성, 공·사 그라데이션."
         ),
-        "worker_name_regulation_checker": "법규 검토",
+        "worker_name_regulation_checker": "법규 검토자",
         "worker_desc_regulation_checker": (
-            "사이트·프로그램이 건드리는 법령, 검증 목록, 구속력 있는 한계, 인센티브 (기본 KR)."
+            "대지·프로그램이 건드리는 법령, 검증 목록, 구속력 있는 한계, 인센티브 (기본 KR)."
         ),
-        "worker_name_precedent_scout": "선례 스카우트",
+        "worker_name_precedent_scout": "선례 연구자",
         "worker_desc_precedent_scout": (
             "문제에 맞는 선례·유형 — 배울 점과 베끼면 안 되는 점."
         ),
-        "worker_name_concept_framer": "개념 프레이머",
+        "worker_name_concept_framer": "개념 정리자",
         "worker_desc_concept_framer": (
             "디자이너 의도를 검증 가능한 개념·작동 전략으로 다듬음."
         ),
-        "worker_name_constraint_mapper": "제약 매퍼",
+        "worker_name_constraint_mapper": "제약 정리자",
         "worker_desc_constraint_mapper": (
-            "하드/소프트 제약, 우선순위, 긴장 — 사이트·프로그램·법규를 합침."
+            "하드/소프트 제약, 우선순위, 긴장 — 대지·프로그램·법규를 합침."
         ),
         "worker_name_synthesizer": "종합자",
         "worker_desc_synthesizer": (
             "전문가 결과 정리 — 합의, 모순, 지금 결정할 것."
         ),
-        "worker_name_spatial_reviewer": "공간 검토",
+        "worker_name_spatial_reviewer": "공간 검토자",
         "worker_desc_spatial_reviewer": (
             "말한 공간조직 점검 — 동선, 단면, 경계, 프로그램 배치."
         ),
-        "worker_name_systems_advisor": "시스템 자문",
+        "worker_name_systems_advisor": "시스템 자문가",
         "worker_desc_systems_advisor": (
             "구조·외피·설비·피난 질문과 트레이드오프 (치수 산정 없음)."
         ),
-        "worker_name_design_critic": "디자인 크리틱",
+        "worker_name_design_critic": "설계 비평가",
         "worker_desc_design_critic": (
             "핵심 문제에 대한 심사위원식 비평."
         ),
-        "worker_name_representation_planner": "표현 기획",
+        "worker_name_representation_planner": "표현 계획자",
         "worker_desc_representation_planner": (
             "개념을 증명하고 약점을 드러낼 다이어그램·도면·모델 계획."
         ),
-        "worker_name_presentation_editor": "발표 편집",
+        "worker_name_presentation_editor": "발표 편집자",
         "worker_desc_presentation_editor": (
             "리뷰·포트폴리오 스토리, 구성, 예상 질문."
         ),
@@ -1214,3 +1214,11 @@ def t(key: str, **kwargs: object) -> str:
     if kwargs:
         return text.format(**kwargs)
     return text
+
+
+def agent_name(agent: dict) -> str:
+    """Expert name shown to the user. config.yaml `name` is what the models see; screens use this."""
+    aid = str(agent.get("id") or "")
+    key = f"worker_name_{aid}"
+    name = t(key)
+    return name if name != key else str(agent.get("name") or aid)

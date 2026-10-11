@@ -28,7 +28,7 @@ from sida.briefs import BRIEF_FIELD_HEADINGS
 from sida.cli import cli_entrypoint
 from sida.document_api import create_router as create_document_router
 from sida.editing import EditingService
-from sida.i18n import get_language, t
+from sida.i18n import agent_name, get_language, t
 from sida.project_documents import DocumentConflict
 
 WEB_DIR = sida_config.ROOT / "webui"
@@ -104,7 +104,7 @@ def project_detail(config: dict, name: str) -> dict:
         "experts": [
             {
                 "id": a["id"],
-                "name": a.get("name", a["id"]),
+                "name": agent_name(a),
                 "phase": a.get("phase", ""),
                 "done": a["id"] in done,
             }
