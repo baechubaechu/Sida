@@ -1,16 +1,15 @@
 {
- "_note": "손으로 만든 자료(브이월드 데이터 API 문서의 응답 모양). python scripts/record_landapi_regions.py로 실제 응답을 녹화해 덮어쓸 것.",
  "response": {
   "service": {
    "name": "data",
    "version": "2.0",
    "operation": "GetFeature",
-   "time": "10(ms)"
+   "time": "24(ms)"
   },
   "status": "OK",
   "record": {
-   "total": "2",
-   "current": "2"
+   "total": "12",
+   "current": "12"
   },
   "page": {
    "total": "1",
@@ -20,26 +19,132 @@
   "result": {
    "featureCollection": {
     "type": "FeatureCollection",
+    "bbox": [
+     0.0,
+     0.0,
+     -1.0,
+     -1.0
+    ],
     "features": [
      {
       "type": "Feature",
       "properties": {
-       "li_cd": "4183025021",
+       "li_eng_nm": "Yanggeun-ri",
        "full_nm": "경기도 양평군 양평읍 양근리",
        "li_kor_nm": "양근리",
-       "li_eng_nm": "Yanggeun-ri"
+       "li_cd": "4183025021"
       },
-      "id": "LT_C_ADRI_INFO.1"
+      "id": "LT_C_ADRI_INFO.13755"
      },
      {
       "type": "Feature",
       "properties": {
-       "li_cd": "4183025022",
+       "li_eng_nm": "Obin-ri",
        "full_nm": "경기도 양평군 양평읍 오빈리",
        "li_kor_nm": "오빈리",
-       "li_eng_nm": "Obin-ri"
+       "li_cd": "4183025022"
       },
-      "id": "LT_C_ADRI_INFO.2"
+      "id": "LT_C_ADRI_INFO.13756"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "li_eng_nm": "Sinae-ri",
+       "full_nm": "경기도 양평군 양평읍 신애리",
+       "li_kor_nm": "신애리",
+       "li_cd": "4183025023"
+      },
+      "id": "LT_C_ADRI_INFO.13758"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "li_eng_nm": "Deokpyeong-ri",
+       "full_nm": "경기도 양평군 양평읍 덕평리",
+       "li_kor_nm": "덕평리",
+       "li_cd": "4183025024"
+      },
+      "id": "LT_C_ADRI_INFO.13759"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "li_eng_nm": "Gongheung-ri",
+       "full_nm": "경기도 양평군 양평읍 공흥리",
+       "li_kor_nm": "공흥리",
+       "li_cd": "4183025025"
+      },
+      "id": "LT_C_ADRI_INFO.13760"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "li_eng_nm": "Baegan-ri",
+       "full_nm": "경기도 양평군 양평읍 백안리",
+       "li_kor_nm": "백안리",
+       "li_cd": "4183025026"
+      },
+      "id": "LT_C_ADRI_INFO.13761"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "li_eng_nm": "Dogok-ri",
+       "full_nm": "경기도 양평군 양평읍 도곡리",
+       "li_kor_nm": "도곡리",
+       "li_cd": "4183025027"
+      },
+      "id": "LT_C_ADRI_INFO.13762"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "li_eng_nm": "Daeheung-ri",
+       "full_nm": "경기도 양평군 양평읍 대흥리",
+       "li_kor_nm": "대흥리",
+       "li_cd": "4183025028"
+      },
+      "id": "LT_C_ADRI_INFO.13763"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "li_eng_nm": "Bongseong-ri",
+       "full_nm": "경기도 양평군 양평읍 봉성리",
+       "li_kor_nm": "봉성리",
+       "li_cd": "4183025029"
+      },
+      "id": "LT_C_ADRI_INFO.13764"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "li_eng_nm": "Wondeok-ri",
+       "full_nm": "경기도 양평군 양평읍 원덕리",
+       "li_kor_nm": "원덕리",
+       "li_cd": "4183025030"
+      },
+      "id": "LT_C_ADRI_INFO.13765"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "li_eng_nm": "Hoehyeon-ri",
+       "full_nm": "경기도 양평군 양평읍 회현리",
+       "li_kor_nm": "회현리",
+       "li_cd": "4183025031"
+      },
+      "id": "LT_C_ADRI_INFO.13767"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "li_eng_nm": "Changdae-ri",
+       "full_nm": "경기도 양평군 양평읍 창대리",
+       "li_kor_nm": "창대리",
+       "li_cd": "4183025032"
+      },
+      "id": "LT_C_ADRI_INFO.13768"
      }
     ]
    }

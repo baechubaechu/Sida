@@ -1,11 +1,10 @@
 {
- "_note": "손으로 만든 자료(브이월드 데이터 API 문서의 응답 모양). python scripts/record_landapi_regions.py로 실제 응답을 녹화해 덮어쓸 것.",
  "response": {
   "service": {
    "name": "data",
    "version": "2.0",
    "operation": "GetFeature",
-   "time": "2(ms)"
+   "time": "4(ms)"
   },
   "status": "ERROR",
   "error": {

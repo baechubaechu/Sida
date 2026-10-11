@@ -1,16 +1,15 @@
 {
- "_note": "손으로 만든 자료(브이월드 데이터 API 문서의 응답 모양). python scripts/record_landapi_regions.py로 실제 응답을 녹화해 덮어쓸 것.",
  "response": {
   "service": {
    "name": "data",
    "version": "2.0",
    "operation": "GetFeature",
-   "time": "10(ms)"
+   "time": "54(ms)"
   },
   "status": "OK",
   "record": {
-   "total": "3",
-   "current": "3"
+   "total": "47",
+   "current": "47"
   },
   "page": {
    "total": "1",
@@ -20,36 +19,482 @@
   "result": {
    "featureCollection": {
     "type": "FeatureCollection",
+    "bbox": [
+     0.0,
+     0.0,
+     -1.0,
+     -1.0
+    ],
     "features": [
      {
       "type": "Feature",
       "properties": {
-       "sig_cd": "41410",
-       "full_nm": "경기도 군포시",
-       "sig_kor_nm": "군포시",
-       "sig_eng_nm": "Gunpo-si"
+       "sig_cd": "41111",
+       "sig_eng_nm": "Jangan-gu, Suwon-si",
+       "full_nm": "경기도 수원시 장안구",
+       "sig_kor_nm": "수원시 장안구"
       },
-      "id": "LT_C_ADSIGG_INFO.1"
+      "id": "LT_C_ADSIGG_INFO.28"
      },
      {
       "type": "Feature",
       "properties": {
-       "sig_cd": "41111",
-       "full_nm": "경기도 수원시 장안구",
-       "sig_kor_nm": "수원시 장안구",
-       "sig_eng_nm": "Jangan-gu"
+       "sig_cd": "41113",
+       "sig_eng_nm": "Gwonseon-gu, Suwon-si",
+       "full_nm": "경기도 수원시 권선구",
+       "sig_kor_nm": "수원시 권선구"
       },
-      "id": "LT_C_ADSIGG_INFO.2"
+      "id": "LT_C_ADSIGG_INFO.29"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41115",
+       "sig_eng_nm": "Paldal-gu, Suwon-si",
+       "full_nm": "경기도 수원시 팔달구",
+       "sig_kor_nm": "수원시 팔달구"
+      },
+      "id": "LT_C_ADSIGG_INFO.30"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41117",
+       "sig_eng_nm": "Yeongtong-gu, Suwon-si",
+       "full_nm": "경기도 수원시 영통구",
+       "sig_kor_nm": "수원시 영통구"
+      },
+      "id": "LT_C_ADSIGG_INFO.31"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41131",
+       "sig_eng_nm": "Sujeong-gu, Seongnam-si",
+       "full_nm": "경기도 성남시 수정구",
+       "sig_kor_nm": "성남시 수정구"
+      },
+      "id": "LT_C_ADSIGG_INFO.32"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41133",
+       "sig_eng_nm": "Jungwon-gu, Seongnam-si",
+       "full_nm": "경기도 성남시 중원구",
+       "sig_kor_nm": "성남시 중원구"
+      },
+      "id": "LT_C_ADSIGG_INFO.33"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41135",
+       "sig_eng_nm": "Bundang-gu, Seongnam-si",
+       "full_nm": "경기도 성남시 분당구",
+       "sig_kor_nm": "성남시 분당구"
+      },
+      "id": "LT_C_ADSIGG_INFO.34"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41150",
+       "sig_eng_nm": "Uijeongbu-si",
+       "full_nm": "경기도 의정부시",
+       "sig_kor_nm": "의정부시"
+      },
+      "id": "LT_C_ADSIGG_INFO.35"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41171",
+       "sig_eng_nm": "Manan-gu, Anyang-si",
+       "full_nm": "경기도 안양시 만안구",
+       "sig_kor_nm": "안양시 만안구"
+      },
+      "id": "LT_C_ADSIGG_INFO.36"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41173",
+       "sig_eng_nm": "Dongan-gu, Anyang-si",
+       "full_nm": "경기도 안양시 동안구",
+       "sig_kor_nm": "안양시 동안구"
+      },
+      "id": "LT_C_ADSIGG_INFO.37"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41192",
+       "sig_eng_nm": "Wonmi-gu, Bucheon-si",
+       "full_nm": "경기도 부천시 원미구",
+       "sig_kor_nm": "부천시 원미구"
+      },
+      "id": "LT_C_ADSIGG_INFO.38"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41194",
+       "sig_eng_nm": "Sosa-gu, Bucheon-si",
+       "full_nm": "경기도 부천시 소사구",
+       "sig_kor_nm": "부천시 소사구"
+      },
+      "id": "LT_C_ADSIGG_INFO.39"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41196",
+       "sig_eng_nm": "Ojeong-gu, Bucheon-si",
+       "full_nm": "경기도 부천시 오정구",
+       "sig_kor_nm": "부천시 오정구"
+      },
+      "id": "LT_C_ADSIGG_INFO.40"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41210",
+       "sig_eng_nm": "Gwangmyeong-si",
+       "full_nm": "경기도 광명시",
+       "sig_kor_nm": "광명시"
+      },
+      "id": "LT_C_ADSIGG_INFO.41"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41220",
+       "sig_eng_nm": "Pyeongtaek-si",
+       "full_nm": "경기도 평택시",
+       "sig_kor_nm": "평택시"
+      },
+      "id": "LT_C_ADSIGG_INFO.42"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41250",
+       "sig_eng_nm": "Dongducheon-si",
+       "full_nm": "경기도 동두천시",
+       "sig_kor_nm": "동두천시"
+      },
+      "id": "LT_C_ADSIGG_INFO.43"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41271",
+       "sig_eng_nm": "Sangnok-gu, Ansan-si",
+       "full_nm": "경기도 안산시 상록구",
+       "sig_kor_nm": "안산시 상록구"
+      },
+      "id": "LT_C_ADSIGG_INFO.44"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41273",
+       "sig_eng_nm": "Danwon-gu, Ansan-si",
+       "full_nm": "경기도 안산시 단원구",
+       "sig_kor_nm": "안산시 단원구"
+      },
+      "id": "LT_C_ADSIGG_INFO.45"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41281",
+       "sig_eng_nm": "Deogyang-gu, Goyang-si",
+       "full_nm": "경기도 고양시 덕양구",
+       "sig_kor_nm": "고양시 덕양구"
+      },
+      "id": "LT_C_ADSIGG_INFO.46"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41285",
+       "sig_eng_nm": "Ilsandong-gu, Goyang-si",
+       "full_nm": "경기도 고양시 일산동구",
+       "sig_kor_nm": "고양시 일산동구"
+      },
+      "id": "LT_C_ADSIGG_INFO.47"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41287",
+       "sig_eng_nm": "Ilsanseo-gu, Goyang-si",
+       "full_nm": "경기도 고양시 일산서구",
+       "sig_kor_nm": "고양시 일산서구"
+      },
+      "id": "LT_C_ADSIGG_INFO.48"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41290",
+       "sig_eng_nm": "Gwacheon-si",
+       "full_nm": "경기도 과천시",
+       "sig_kor_nm": "과천시"
+      },
+      "id": "LT_C_ADSIGG_INFO.49"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41310",
+       "sig_eng_nm": "Guri-si",
+       "full_nm": "경기도 구리시",
+       "sig_kor_nm": "구리시"
+      },
+      "id": "LT_C_ADSIGG_INFO.50"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41360",
+       "sig_eng_nm": "Namyangju-si",
+       "full_nm": "경기도 남양주시",
+       "sig_kor_nm": "남양주시"
+      },
+      "id": "LT_C_ADSIGG_INFO.51"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41370",
+       "sig_eng_nm": "Osan-si",
+       "full_nm": "경기도 오산시",
+       "sig_kor_nm": "오산시"
+      },
+      "id": "LT_C_ADSIGG_INFO.52"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41390",
+       "sig_eng_nm": "Siheung-si",
+       "full_nm": "경기도 시흥시",
+       "sig_kor_nm": "시흥시"
+      },
+      "id": "LT_C_ADSIGG_INFO.53"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41410",
+       "sig_eng_nm": "Gunpo-si",
+       "full_nm": "경기도 군포시",
+       "sig_kor_nm": "군포시"
+      },
+      "id": "LT_C_ADSIGG_INFO.54"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41430",
+       "sig_eng_nm": "Uiwang-si",
+       "full_nm": "경기도 의왕시",
+       "sig_kor_nm": "의왕시"
+      },
+      "id": "LT_C_ADSIGG_INFO.55"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41450",
+       "sig_eng_nm": "Hanam-si",
+       "full_nm": "경기도 하남시",
+       "sig_kor_nm": "하남시"
+      },
+      "id": "LT_C_ADSIGG_INFO.56"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41461",
+       "sig_eng_nm": "Cheoin-gu, Yongin-si",
+       "full_nm": "경기도 용인시 처인구",
+       "sig_kor_nm": "용인시 처인구"
+      },
+      "id": "LT_C_ADSIGG_INFO.57"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41463",
+       "sig_eng_nm": "Giheung-gu, Yongin-si",
+       "full_nm": "경기도 용인시 기흥구",
+       "sig_kor_nm": "용인시 기흥구"
+      },
+      "id": "LT_C_ADSIGG_INFO.58"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41465",
+       "sig_eng_nm": "Suji-gu, Yongin-si",
+       "full_nm": "경기도 용인시 수지구",
+       "sig_kor_nm": "용인시 수지구"
+      },
+      "id": "LT_C_ADSIGG_INFO.59"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41480",
+       "sig_eng_nm": "Paju-si",
+       "full_nm": "경기도 파주시",
+       "sig_kor_nm": "파주시"
+      },
+      "id": "LT_C_ADSIGG_INFO.60"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41500",
+       "sig_eng_nm": "Icheon-si",
+       "full_nm": "경기도 이천시",
+       "sig_kor_nm": "이천시"
+      },
+      "id": "LT_C_ADSIGG_INFO.61"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41550",
+       "sig_eng_nm": "Anseong-si",
+       "full_nm": "경기도 안성시",
+       "sig_kor_nm": "안성시"
+      },
+      "id": "LT_C_ADSIGG_INFO.62"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41570",
+       "sig_eng_nm": "Gimpo-si",
+       "full_nm": "경기도 김포시",
+       "sig_kor_nm": "김포시"
+      },
+      "id": "LT_C_ADSIGG_INFO.63"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41591",
+       "sig_eng_nm": "Manse-gu, Hwaseong-si",
+       "full_nm": "경기도 화성시 만세구",
+       "sig_kor_nm": "화성시 만세구"
+      },
+      "id": "LT_C_ADSIGG_INFO.64"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41593",
+       "sig_eng_nm": "Hyohaeng-gu, Hwaseong-si",
+       "full_nm": "경기도 화성시 효행구",
+       "sig_kor_nm": "화성시 효행구"
+      },
+      "id": "LT_C_ADSIGG_INFO.65"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41595",
+       "sig_eng_nm": "Byeongjeom-gu, Hwaseong-si",
+       "full_nm": "경기도 화성시 병점구",
+       "sig_kor_nm": "화성시 병점구"
+      },
+      "id": "LT_C_ADSIGG_INFO.66"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41597",
+       "sig_eng_nm": "Dongtan-gu, Hwaseong-si",
+       "full_nm": "경기도 화성시 동탄구",
+       "sig_kor_nm": "화성시 동탄구"
+      },
+      "id": "LT_C_ADSIGG_INFO.67"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41610",
+       "sig_eng_nm": "Gwangju-si",
+       "full_nm": "경기도 광주시",
+       "sig_kor_nm": "광주시"
+      },
+      "id": "LT_C_ADSIGG_INFO.68"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41630",
+       "sig_eng_nm": "Yangju-si",
+       "full_nm": "경기도 양주시",
+       "sig_kor_nm": "양주시"
+      },
+      "id": "LT_C_ADSIGG_INFO.69"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41650",
+       "sig_eng_nm": "Pocheon-si",
+       "full_nm": "경기도 포천시",
+       "sig_kor_nm": "포천시"
+      },
+      "id": "LT_C_ADSIGG_INFO.70"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41670",
+       "sig_eng_nm": "Yeoju-si",
+       "full_nm": "경기도 여주시",
+       "sig_kor_nm": "여주시"
+      },
+      "id": "LT_C_ADSIGG_INFO.71"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41800",
+       "sig_eng_nm": "Yeoncheon-gun",
+       "full_nm": "경기도 연천군",
+       "sig_kor_nm": "연천군"
+      },
+      "id": "LT_C_ADSIGG_INFO.72"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "41820",
+       "sig_eng_nm": "Gapyeong-gun",
+       "full_nm": "경기도 가평군",
+       "sig_kor_nm": "가평군"
+      },
+      "id": "LT_C_ADSIGG_INFO.73"
      },
      {
       "type": "Feature",
       "properties": {
        "sig_cd": "41830",
+       "sig_eng_nm": "Yangpyeong-gun",
        "full_nm": "경기도 양평군",
-       "sig_kor_nm": "양평군",
-       "sig_eng_nm": "Yangpyeong-gun"
+       "sig_kor_nm": "양평군"
       },
-      "id": "LT_C_ADSIGG_INFO.3"
+      "id": "LT_C_ADSIGG_INFO.74"
      }
     ]
    }

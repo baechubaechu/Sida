@@ -1,11 +1,10 @@
 {
- "_note": "손으로 만든 자료(브이월드 데이터 API 문서의 응답 모양). python scripts/record_landapi_regions.py로 실제 응답을 녹화해 덮어쓸 것.",
  "response": {
   "service": {
    "name": "data",
    "version": "2.0",
    "operation": "GetFeature",
-   "time": "10(ms)"
+   "time": "22(ms)"
   },
   "status": "OK",
   "record": {
@@ -20,17 +19,26 @@
   "result": {
    "featureCollection": {
     "type": "FeatureCollection",
+    "bbox": [
+     0.0,
+     0.0,
+     -1.0,
+     -1.0
+    ],
     "features": [
      {
       "type": "Feature",
       "properties": {
+       "gosi_year": "2025",
        "pnu": "4141010500106890015",
-       "jibun": "689-15장",
-       "bonbun": "0689",
-       "bubun": "0015",
-       "addr": "경기도 군포시 금정동 689-15"
+       "jibun": "689-15 장",
+       "bonbun": "689",
+       "bubun": "15장",
+       "addr": "경기도 군포시 금정동 689-15",
+       "gosi_month": "01",
+       "jiga": "2149000"
       },
-      "id": "LP_PA_CBND_BUBUN.1"
+      "id": "LP_PA_CBND_BUBUN.11898229"
      }
     ]
    }
