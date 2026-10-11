@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from sida import config as sida_config
 from sida import errors, providers, runtime, webapp
 from sida.project import section_body
+from tests.conftest import land_fixture
 
 
 @pytest.fixture
@@ -424,4 +425,69 @@ def test_site_api_reports_bad_requests_and_government_api_failures(client, proje
     monkeypatch.delenv("VWORLD_API_KEY")
     del fake_vworld.overrides["search"]
     assert client.post(f"{url}/parcels", json={"query": "금정동 689"}).status_code == 503
+    assert site_facts.load_facts(project.path) is None  # nothing was saved by any failed request
+
+
+def test_address_selection_api_walks_to_a_lot_and_saves_it_by_pnu(client, project, fake_vworld):
+    from sida.experts.site import site_facts
+
+    provinces = client.get("/api/site/regions").json()
+    assert provinces["parent"] == "" and provinces["level"] == "sido"
+    assert "경기도" in [r["name"] for r in provinces["regions"]]
+    cities = client.get("/api/site/regions", params={"parent": "41"}).json()
+    assert cities["level"] == "sigungu" and "군포시" in [r["name"] for r in cities["regions"]]
+    dongs = client.get("/api/site/regions", params={"parent": "41410"}).json()
+    dong = next(r for r in dongs["regions"] if r["name"] == "금정동")
+    assert dongs["level"] == "emd" and dong["dong_code"] == "4141010500" and dong["has_ri"] is False
+
+    lots = client.get("/api/site/lots", params={"dong_code": dong["dong_code"], "main": 689}).json()
+    assert lots["lot"] == "689" and lots["dong_code"] == "4141010500"
+    pnus = [c["pnu"] for c in lots["candidates"]]
+    assert "4141010500106890014" in pnus and all(c["matched_by"] == "lot" for c in lots["candidates"])
+    one = client.get("/api/site/lots", params={"dong_code": "4141010500", "main": 689, "sub": 14}).json()
+    assert one["lot"] == "689-14" and [c["pnu"] for c in one["candidates"]] == ["4141010500106890014"]
+    mountain = client.get("/api/site/lots", params={"dong_code": "4141010500", "main": 689, "mountain": True})
+    assert mountain.json()["lot"] == "산 689" and mountain.json()["candidates"] == []
+    assert site_facts.load_facts(project.path) is None  # choosing saves nothing
+
+    # 조회해 저장 by PNU alone: no address search, the parcels are taken as chosen
+    url = f"/api/projects/{project.name}/site"
+    chosen = ["4141010500106890015", "4141010500106890014"]
+    r = client.put(url, json={"pnus": chosen})
+    assert r.status_code == 200
+    body = r.json()
+    assert [p["pnu"] for p in body["parcels"]] == chosen
+    assert body["query"] == "경기도 군포시 금정동 689-15, 경기도 군포시 금정동 689-14"
+    assert body["summary"]["municipality"] == "경기도 군포시" and body["summary"]["parcel_count"] == 2
+    assert body["summary"]["zoning"][0]["zone"] == "일반공업지역"
+    assert not [u for u, _ in fake_vworld.calls if u.endswith("/req/search")]
+    assert client.get(url).json() == body
+
+
+def test_address_selection_api_reports_bad_requests(client, project, fake_vworld):
+    from sida.experts.site import site_facts
+
+    for parent in ("4", "414", "abcde", "4141010500"):
+        r = client.get("/api/site/regions", params={"parent": parent})
+        assert r.status_code == 400 and "지역 코드" in r.json()["detail"]
+    lots = "/api/site/lots"
+    assert client.get(lots, params={"dong_code": "41410105", "main": 689}).status_code == 400
+    assert client.get(lots, params={"dong_code": "4141010500", "main": 0}).status_code == 400
+    assert client.get(lots, params={"dong_code": "4141010500", "main": 1, "sub": 10000}).status_code == 400
+    assert client.get(lots, params={"dong_code": "4141010500", "main": "육팔구"}).status_code == 422
+    assert client.get(lots, params={"dong_code": "4141010500"}).status_code == 422
+    assert fake_vworld.calls == []
+
+    url = f"/api/projects/{project.name}/site"
+    assert client.put(url, json={"pnus": []}).status_code == 400
+    r = client.put(url, json={"pnus": ["414101050010689"]})
+    assert r.status_code == 400 and "19자리" in r.json()["detail"]
+    r = client.put(url, json={"query": "  ", "pnus": ["4141010500199999999"]})
+    assert r.status_code == 400 and "4141010500199999999" in r.json()["detail"]
+    assert client.put("/api/projects/nope/site", json={"pnus": ["4141010500106890014"]}).status_code == 404
+
+    fake_vworld.overrides["data"] = land_fixture("data_bad_key.json")
+    r = client.get("/api/site/regions", params={"parent": "41"})
+    assert r.status_code == 503 and "키를 거부" in r.json()["detail"]
+    assert client.put(url, json={"pnus": ["4141010500106890014"]}).status_code == 503
     assert site_facts.load_facts(project.path) is None  # nothing was saved by any failed request

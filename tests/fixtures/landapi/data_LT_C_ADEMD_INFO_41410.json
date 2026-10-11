@@ -1,0 +1,123 @@
+{
+ "response": {
+  "service": {
+   "name": "data",
+   "version": "2.0",
+   "operation": "GetFeature",
+   "time": "26(ms)"
+  },
+  "status": "OK",
+  "record": {
+   "total": "9",
+   "current": "9"
+  },
+  "page": {
+   "total": "1",
+   "current": "1",
+   "size": "1000"
+  },
+  "result": {
+   "featureCollection": {
+    "type": "FeatureCollection",
+    "bbox": [
+     0.0,
+     0.0,
+     -1.0,
+     -1.0
+    ],
+    "features": [
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Dangjeong-dong",
+       "emd_kor_nm": "당정동",
+       "full_nm": "경기도 군포시 당정동",
+       "emd_cd": "41410102"
+      },
+      "id": "LT_C_ADEMD_INFO.1040"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Bugok-dong",
+       "emd_kor_nm": "부곡동",
+       "full_nm": "경기도 군포시 부곡동",
+       "emd_cd": "41410103"
+      },
+      "id": "LT_C_ADEMD_INFO.1041"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Sanbon-dong",
+       "emd_kor_nm": "산본동",
+       "full_nm": "경기도 군포시 산본동",
+       "emd_cd": "41410104"
+      },
+      "id": "LT_C_ADEMD_INFO.1042"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Dang-dong",
+       "emd_kor_nm": "당동",
+       "full_nm": "경기도 군포시 당동",
+       "emd_cd": "41410101"
+      },
+      "id": "LT_C_ADEMD_INFO.1076"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Geumjeong-dong",
+       "emd_kor_nm": "금정동",
+       "full_nm": "경기도 군포시 금정동",
+       "emd_cd": "41410105"
+      },
+      "id": "LT_C_ADEMD_INFO.1077"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Dundae-dong",
+       "emd_kor_nm": "둔대동",
+       "full_nm": "경기도 군포시 둔대동",
+       "emd_cd": "41410106"
+      },
+      "id": "LT_C_ADEMD_INFO.1078"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Sokdal-dong",
+       "emd_kor_nm": "속달동",
+       "full_nm": "경기도 군포시 속달동",
+       "emd_cd": "41410107"
+      },
+      "id": "LT_C_ADEMD_INFO.1079"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Daeyami-dong",
+       "emd_kor_nm": "대야미동",
+       "full_nm": "경기도 군포시 대야미동",
+       "emd_cd": "41410108"
+      },
+      "id": "LT_C_ADEMD_INFO.1081"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Domagyo-dong",
+       "emd_kor_nm": "도마교동",
+       "full_nm": "경기도 군포시 도마교동",
+       "emd_cd": "41410109"
+      },
+      "id": "LT_C_ADEMD_INFO.1082"
+     }
+    ]
+   }
+  }
+ }
+}

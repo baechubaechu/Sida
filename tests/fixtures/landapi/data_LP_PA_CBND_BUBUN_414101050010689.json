@@ -1,0 +1,551 @@
+{
+ "response": {
+  "service": {
+   "name": "data",
+   "version": "2.0",
+   "operation": "GetFeature",
+   "time": "25(ms)"
+  },
+  "status": "OK",
+  "record": {
+   "total": "37",
+   "current": "37"
+  },
+  "page": {
+   "total": "1",
+   "current": "1",
+   "size": "1000"
+  },
+  "result": {
+   "featureCollection": {
+    "type": "FeatureCollection",
+    "bbox": [
+     0.0,
+     0.0,
+     -1.0,
+     -1.0
+    ],
+    "features": [
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890017",
+       "jibun": "689-17 장",
+       "bonbun": "689",
+       "bubun": "17장",
+       "addr": "경기도 군포시 금정동 689-17",
+       "gosi_month": "01",
+       "jiga": "2169000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898003"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890022",
+       "jibun": "689-22장",
+       "bonbun": "689",
+       "bubun": "22장",
+       "addr": "경기도 군포시 금정동 689-22",
+       "gosi_month": "01",
+       "jiga": "2149000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898036"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890003",
+       "jibun": "689-3장",
+       "bonbun": "689",
+       "bubun": "3장",
+       "addr": "경기도 군포시 금정동 689-3",
+       "gosi_month": "01",
+       "jiga": "2087000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898156"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890031",
+       "jibun": "689-31장",
+       "bonbun": "689",
+       "bubun": "31장",
+       "addr": "경기도 군포시 금정동 689-31",
+       "gosi_month": "01",
+       "jiga": "2149000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898191"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890049",
+       "jibun": "689-49 장",
+       "bonbun": "689",
+       "bubun": "49장",
+       "addr": "경기도 군포시 금정동 689-49",
+       "gosi_month": "01",
+       "jiga": "675500"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898210"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890008",
+       "jibun": "689-8장",
+       "bonbun": "689",
+       "bubun": "8장",
+       "addr": "경기도 군포시 금정동 689-8",
+       "gosi_month": "01",
+       "jiga": "2169000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898214"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890005",
+       "jibun": "689-5장",
+       "bonbun": "689",
+       "bubun": "5장",
+       "addr": "경기도 군포시 금정동 689-5",
+       "gosi_month": "01",
+       "jiga": "2067000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898226"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890006",
+       "jibun": "689-6장",
+       "bonbun": "689",
+       "bubun": "6장",
+       "addr": "경기도 군포시 금정동 689-6",
+       "gosi_month": "01",
+       "jiga": "2087000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898227"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890014",
+       "jibun": "689-14 장",
+       "bonbun": "689",
+       "bubun": "14장",
+       "addr": "경기도 군포시 금정동 689-14",
+       "gosi_month": "01",
+       "jiga": "2149000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898228"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890015",
+       "jibun": "689-15 장",
+       "bonbun": "689",
+       "bubun": "15장",
+       "addr": "경기도 군포시 금정동 689-15",
+       "gosi_month": "01",
+       "jiga": "2149000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898229"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890018",
+       "jibun": "689-18장",
+       "bonbun": "689",
+       "bubun": "18장",
+       "addr": "경기도 군포시 금정동 689-18",
+       "gosi_month": "01",
+       "jiga": "2169000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898230"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890020",
+       "jibun": "689-20장",
+       "bonbun": "689",
+       "bubun": "20장",
+       "addr": "경기도 군포시 금정동 689-20",
+       "gosi_month": "01",
+       "jiga": "2149000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898231"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890021",
+       "jibun": "689-21 장",
+       "bonbun": "689",
+       "bubun": "21장",
+       "addr": "경기도 군포시 금정동 689-21",
+       "gosi_month": "01",
+       "jiga": "2149000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898232"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890053",
+       "jibun": "689-53 장",
+       "bonbun": "689",
+       "bubun": "53장",
+       "addr": "경기도 군포시 금정동 689-53",
+       "gosi_month": "01",
+       "jiga": "2192000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898237"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890024",
+       "jibun": "689-24장",
+       "bonbun": "689",
+       "bubun": "24장",
+       "addr": "경기도 군포시 금정동 689-24",
+       "gosi_month": "01",
+       "jiga": "675500"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898239"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890025",
+       "jibun": "689-25장",
+       "bonbun": "689",
+       "bubun": "25장",
+       "addr": "경기도 군포시 금정동 689-25",
+       "gosi_month": "01",
+       "jiga": "2192000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898240"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890026",
+       "jibun": "689-26장",
+       "bonbun": "689",
+       "bubun": "26장",
+       "addr": "경기도 군포시 금정동 689-26",
+       "gosi_month": "01",
+       "jiga": "2149000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898241"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890027",
+       "jibun": "689-27장",
+       "bonbun": "689",
+       "bubun": "27장",
+       "addr": "경기도 군포시 금정동 689-27",
+       "gosi_month": "01",
+       "jiga": "2169000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898242"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890028",
+       "jibun": "689-28장",
+       "bonbun": "689",
+       "bubun": "28장",
+       "addr": "경기도 군포시 금정동 689-28",
+       "gosi_month": "01",
+       "jiga": "2169000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898243"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890029",
+       "jibun": "689-29 장",
+       "bonbun": "689",
+       "bubun": "29장",
+       "addr": "경기도 군포시 금정동 689-29",
+       "gosi_month": "01",
+       "jiga": "2149000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898244"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890030",
+       "jibun": "689-30장",
+       "bonbun": "689",
+       "bubun": "30장",
+       "addr": "경기도 군포시 금정동 689-30",
+       "gosi_month": "01",
+       "jiga": "2192000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898245"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890032",
+       "jibun": "689-32 장",
+       "bonbun": "689",
+       "bubun": "32장",
+       "addr": "경기도 군포시 금정동 689-32",
+       "gosi_month": "01",
+       "jiga": "2128000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898246"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890033",
+       "jibun": "689-33장",
+       "bonbun": "689",
+       "bubun": "33장",
+       "addr": "경기도 군포시 금정동 689-33",
+       "gosi_month": "01",
+       "jiga": "2149000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898247"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890034",
+       "jibun": "689-34 장",
+       "bonbun": "689",
+       "bubun": "34장",
+       "addr": "경기도 군포시 금정동 689-34",
+       "gosi_month": "01",
+       "jiga": "2192000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898248"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890036",
+       "jibun": "689-36장",
+       "bonbun": "689",
+       "bubun": "36장",
+       "addr": "경기도 군포시 금정동 689-36",
+       "gosi_month": "01",
+       "jiga": "2149000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898249"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890038",
+       "jibun": "689-38장",
+       "bonbun": "689",
+       "bubun": "38장",
+       "addr": "경기도 군포시 금정동 689-38",
+       "gosi_month": "01",
+       "jiga": "675500"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898250"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890039",
+       "jibun": "689-39 장",
+       "bonbun": "689",
+       "bubun": "39장",
+       "addr": "경기도 군포시 금정동 689-39",
+       "gosi_month": "01",
+       "jiga": "2149000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898251"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890040",
+       "jibun": "689-40장",
+       "bonbun": "689",
+       "bubun": "40장",
+       "addr": "경기도 군포시 금정동 689-40",
+       "gosi_month": "01",
+       "jiga": "2108000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898252"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890041",
+       "jibun": "689-41 장",
+       "bonbun": "689",
+       "bubun": "41장",
+       "addr": "경기도 군포시 금정동 689-41",
+       "gosi_month": "01",
+       "jiga": "2067000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898253"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890045",
+       "jibun": "689-45 주",
+       "bonbun": "689",
+       "bubun": "45주",
+       "addr": "경기도 군포시 금정동 689-45",
+       "gosi_month": "01",
+       "jiga": "2067000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898255"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890046",
+       "jibun": "689-46장",
+       "bonbun": "689",
+       "bubun": "46장",
+       "addr": "경기도 군포시 금정동 689-46",
+       "gosi_month": "01",
+       "jiga": "675500"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898256"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890047",
+       "jibun": "689-47장",
+       "bonbun": "689",
+       "bubun": "47장",
+       "addr": "경기도 군포시 금정동 689-47",
+       "gosi_month": "01",
+       "jiga": "2149000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898257"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890051",
+       "jibun": "689-51 장",
+       "bonbun": "689",
+       "bubun": "51장",
+       "addr": "경기도 군포시 금정동 689-51",
+       "gosi_month": "01",
+       "jiga": "2128000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898258"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890052",
+       "jibun": "689-52 장",
+       "bonbun": "689",
+       "bubun": "52장",
+       "addr": "경기도 군포시 금정동 689-52",
+       "gosi_month": "01",
+       "jiga": "2149000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898259"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890054",
+       "jibun": "689-54 도",
+       "bonbun": "689",
+       "bubun": "54도",
+       "addr": "경기도 군포시 금정동 689-54",
+       "gosi_month": "01",
+       "jiga": "1181000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898260"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890055",
+       "jibun": "689-55 공",
+       "bonbun": "689",
+       "bubun": "55공",
+       "addr": "경기도 군포시 금정동 689-55",
+       "gosi_month": "01",
+       "jiga": "1181000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898261"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "gosi_year": "2025",
+       "pnu": "4141010500106890059",
+       "jibun": "689-59 차",
+       "bonbun": "689",
+       "bubun": "59차",
+       "addr": "경기도 군포시 금정동 689-59",
+       "gosi_month": "01",
+       "jiga": "3764000"
+      },
+      "id": "LP_PA_CBND_BUBUN.11898262"
+     }
+    ]
+   }
+  }
+ }
+}

@@ -23,6 +23,7 @@ import yaml
 
 from sida.config import ROOT
 from sida.experts.site import landapi
+from sida.i18n import t
 from sida.storage import atomic_write_text
 
 FACTS_FILE = "site_facts.json"
@@ -295,6 +296,26 @@ def pick_candidates(candidates: list[dict], pnus: list[str]) -> list[dict]:
     if not wanted or missing:
         raise ValueError(f"parcel not among the search results: {', '.join(missing) or '(none given)'}")
     return [by_pnu[p] for p in wanted]
+
+
+def candidates_for_pnus(pnus: list[str], *, http_get=None) -> list[dict]:
+    """
+    Parcels chosen by PNU alone (e.g. from the step-by-step address selection), in the order
+    asked. ValueError if none is given, one is malformed, or one is not a real parcel.
+    """
+    wanted = list(dict.fromkeys(str(p).strip() for p in pnus))
+    if not wanted:
+        raise ValueError(t("web_site_pnus_required"))
+    for pnu in wanted:
+        if len(pnu) != 19 or not pnu.isdigit():
+            raise ValueError(t("web_site_pnu_bad", pnu=pnu))
+    found = []
+    for pnu in wanted:
+        parcel = landapi.parcel_by_pnu(pnu, http_get=http_get)
+        if parcel is None:
+            raise ValueError(t("web_site_pnu_unknown", pnu=pnu))
+        found.append(parcel)
+    return found
 
 
 def site_view(facts: dict | None) -> dict:

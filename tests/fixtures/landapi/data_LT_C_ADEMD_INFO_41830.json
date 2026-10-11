@@ -1,0 +1,153 @@
+{
+ "response": {
+  "service": {
+   "name": "data",
+   "version": "2.0",
+   "operation": "GetFeature",
+   "time": "52(ms)"
+  },
+  "status": "OK",
+  "record": {
+   "total": "12",
+   "current": "12"
+  },
+  "page": {
+   "total": "1",
+   "current": "1",
+   "size": "1000"
+  },
+  "result": {
+   "featureCollection": {
+    "type": "FeatureCollection",
+    "bbox": [
+     0.0,
+     0.0,
+     -1.0,
+     -1.0
+    ],
+    "features": [
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Seojong-myeon",
+       "emd_kor_nm": "서종면",
+       "full_nm": "경기도 양평군 서종면",
+       "emd_cd": "41830350"
+      },
+      "id": "LT_C_ADEMD_INFO.14"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Yangpyeong-eup",
+       "emd_kor_nm": "양평읍",
+       "full_nm": "경기도 양평군 양평읍",
+       "emd_cd": "41830250"
+      },
+      "id": "LT_C_ADEMD_INFO.1490"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Gangsang-myeon",
+       "emd_kor_nm": "강상면",
+       "full_nm": "경기도 양평군 강상면",
+       "emd_cd": "41830310"
+      },
+      "id": "LT_C_ADEMD_INFO.1491"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Gangha-myeon",
+       "emd_kor_nm": "강하면",
+       "full_nm": "경기도 양평군 강하면",
+       "emd_cd": "41830320"
+      },
+      "id": "LT_C_ADEMD_INFO.1492"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Yangseo-myeon",
+       "emd_kor_nm": "양서면",
+       "full_nm": "경기도 양평군 양서면",
+       "emd_cd": "41830330"
+      },
+      "id": "LT_C_ADEMD_INFO.1493"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Danwol-myeon",
+       "emd_kor_nm": "단월면",
+       "full_nm": "경기도 양평군 단월면",
+       "emd_cd": "41830360"
+      },
+      "id": "LT_C_ADEMD_INFO.15"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Cheongun-myeon",
+       "emd_kor_nm": "청운면",
+       "full_nm": "경기도 양평군 청운면",
+       "emd_cd": "41830370"
+      },
+      "id": "LT_C_ADEMD_INFO.16"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Yangdong-myeon",
+       "emd_kor_nm": "양동면",
+       "full_nm": "경기도 양평군 양동면",
+       "emd_cd": "41830380"
+      },
+      "id": "LT_C_ADEMD_INFO.32"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Jipyeong-myeon",
+       "emd_kor_nm": "지평면",
+       "full_nm": "경기도 양평군 지평면",
+       "emd_cd": "41830395"
+      },
+      "id": "LT_C_ADEMD_INFO.33"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Yongmun-myeon",
+       "emd_kor_nm": "용문면",
+       "full_nm": "경기도 양평군 용문면",
+       "emd_cd": "41830400"
+      },
+      "id": "LT_C_ADEMD_INFO.34"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Gaegun-myeon",
+       "emd_kor_nm": "개군면",
+       "full_nm": "경기도 양평군 개군면",
+       "emd_cd": "41830410"
+      },
+      "id": "LT_C_ADEMD_INFO.35"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "emd_eng_nm": "Okcheon-myeon",
+       "emd_kor_nm": "옥천면",
+       "full_nm": "경기도 양평군 옥천면",
+       "emd_cd": "41830340"
+      },
+      "id": "LT_C_ADEMD_INFO.8"
+     }
+    ]
+   }
+  }
+ }
+}
