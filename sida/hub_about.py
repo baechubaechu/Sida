@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from sida.config import get_agents
 from sida.console import ROLE_COLOR, agent_look, paint, prompt_line
-from sida.i18n import t
+from sida.i18n import agent_name, t
 
 PHASE_ORDER = (
     "analysis",
@@ -26,11 +26,8 @@ def _phase_label(phase: str) -> str:
 def worker_label(agent: dict) -> tuple[str, str]:
     """Return (display_name, description) in the current UI language."""
     aid = str(agent.get("id") or "")
-    name_key = f"worker_name_{aid}"
     desc_key = f"worker_desc_{aid}"
-    name = t(name_key)
-    if name == name_key:
-        name = str(agent.get("name") or aid)
+    name = agent_name(agent)
     desc = t(desc_key)
     if desc == desc_key:
         desc = str(agent.get("desc") or "").strip() or "—"

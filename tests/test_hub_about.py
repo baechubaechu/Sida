@@ -15,7 +15,7 @@ def test_format_about_lists_workers(mock_config):
 def test_worker_label_follows_language(agents):
     i18n.set_language("ko")
     name, desc = worker_label(agents[0])  # site_reader
-    assert "사이트" in name or "리더" in name
+    assert name == "대지 분석가"
     assert "지리" in desc or "공간" in desc
     i18n.set_language("en")
     name_en, desc_en = worker_label(agents[0])
