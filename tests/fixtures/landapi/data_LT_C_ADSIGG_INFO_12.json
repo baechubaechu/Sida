@@ -1,0 +1,53 @@
+{
+ "response": {
+  "service": {
+   "name": "data",
+   "version": "2.0",
+   "operation": "GetFeature",
+   "time": "54(ms)"
+  },
+  "status": "OK",
+  "record": {
+   "total": "2",
+   "current": "2"
+  },
+  "page": {
+   "total": "1",
+   "current": "1",
+   "size": "1000"
+  },
+  "result": {
+   "featureCollection": {
+    "type": "FeatureCollection",
+    "bbox": [
+     0.0,
+     0.0,
+     -1.0,
+     -1.0
+    ],
+    "features": [
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "12300",
+       "sig_eng_nm": "Buk-gu",
+       "full_nm": "전남광주통합특별시 북구",
+       "sig_kor_nm": "북구"
+      },
+      "id": "LT_C_ADSIGG_INFO.134"
+     },
+     {
+      "type": "Feature",
+      "properties": {
+       "sig_cd": "12780",
+       "sig_eng_nm": "Gangjin-gun",
+       "full_nm": "전남광주통합특별시 강진군",
+       "sig_kor_nm": "강진군"
+      },
+      "id": "LT_C_ADSIGG_INFO.143"
+     }
+    ]
+   }
+  }
+ }
+}

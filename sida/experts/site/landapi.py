@@ -340,6 +340,50 @@ def _ned(operation: str, root_key: str, pnu: str, http_get: HttpGet | None) -> l
     return [f for f in fields if isinstance(f, dict)]
 
 
+# 옛 광주(29)·전남(46)의 시·군·구 코드. 전남광주통합특별시(시·도 12) 이후 브이월드의 토지이용계획 API는
+# 새 필지 번호만, 토지특성 API는 옛 번호만 받는다(2026-10-11 실제 호출로 확인). 새 코드는 시·군·구
+# 이름으로 찾는다: 이름은 27곳이 겹치지 않는다.
+_FORMER_SIGUNGU = {
+    "목포시": "46110", "여수시": "46130", "순천시": "46150", "나주시": "46170", "광양시": "46230",
+    "담양군": "46710", "곡성군": "46720", "구례군": "46730", "고흥군": "46770", "보성군": "46780",
+    "화순군": "46790", "장흥군": "46800", "강진군": "46810", "해남군": "46820", "영암군": "46830",
+    "무안군": "46840", "함평군": "46860", "영광군": "46870", "장성군": "46880", "완도군": "46890",
+    "진도군": "46900", "신안군": "46910",
+    "동구": "29110", "서구": "29140", "남구": "29155", "북구": "29170", "광산구": "29200",
+}  # fmt: skip
+_MERGED_SIDO = "12"
+
+
+def _other_numbering(pnu: str, http_get: HttpGet | None) -> str | None:
+    """The same parcel's PNU under the other 시·도 numbering (옛 46/29 ↔ 새 12), or None."""
+    former_codes = {code: name for name, code in _FORMER_SIGUNGU.items()}
+    head = pnu[:5]
+    if not (pnu.startswith(_MERGED_SIDO) or head in former_codes):
+        return None
+    try:
+        merged = regions(_MERGED_SIDO, http_get=http_get)
+    except LandApiError:
+        return None
+    if pnu.startswith(_MERGED_SIDO):
+        name = next((r["name"] for r in merged if r["code"] == head), "")
+        other = _FORMER_SIGUNGU.get(name)
+    else:
+        name = former_codes[head]
+        other = next((r["code"] for r in merged if r["name"] == name), None)
+    return f"{other}{pnu[5:]}" if other else None
+
+
+def _ned_either_numbering(
+    operation: str, root_key: str, pnu: str, http_get: HttpGet | None
+) -> list[dict]:
+    """`_ned` for this PNU; when it has no rows, once more under the other 시·도 numbering."""
+    rows = _ned(operation, root_key, pnu, http_get)
+    if rows:
+        return rows
+    other = _other_numbering(pnu, http_get)
+    return _ned(operation, root_key, other, http_get) if other else rows
+
+
 def land_use(pnu: str, *, http_get: HttpGet | None = None) -> list[dict]:
     """
     토지이용계획: zones and districts on a parcel, duplicates removed, API order kept.
@@ -347,7 +391,7 @@ def land_use(pnu: str, *, http_get: HttpGet | None = None) -> list[dict]:
     """
     seen: set[tuple[str, str]] = set()
     out = []
-    for f in _ned("getLandUseAttr", "landUses", pnu, http_get):
+    for f in _ned_either_numbering("getLandUseAttr", "landUses", pnu, http_get):
         name = str(f.get("prposAreaDstrcCodeNm") or "").strip()
         relation = str(f.get("cnflcAtNm") or "").strip()
         if not name or (name, relation) in seen:
@@ -370,7 +414,7 @@ def land_characteristics(pnu: str, *, http_get: HttpGet | None = None) -> dict |
     {"year", "land_category", "area_m2", "zone1", "zone2", "use", "terrain_height",
      "terrain_shape", "road_side", "official_price", "updated"}
     """
-    rows = _ned("getLandCharacteristics", "landCharacteristicss", pnu, http_get)
+    rows = _ned_either_numbering("getLandCharacteristics", "landCharacteristicss", pnu, http_get)
     if not rows:
         return None
     latest = max(rows, key=lambda f: (str(f.get("stdrYear") or ""), str(f.get("stdrMt") or "")))
