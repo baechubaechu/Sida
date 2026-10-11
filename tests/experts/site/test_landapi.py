@@ -275,3 +275,39 @@ def test_parcel_by_pnu(fake_vworld):
     assert landapi.parcel_by_pnu("4141010500199999999") is None
     with pytest.raises(ValueError):
         landapi.parcel_by_pnu("414101050010689")
+
+
+NEW_PNU = "1278025024100010000"  # 강진읍 교촌리 1 under 전남광주통합특별시 (새 코드 12780)
+OLD_PNU = "4681025024100010000"  # the same parcel under the former 전라남도 (옛 코드 46810)
+
+
+def test_land_use_for_an_old_pnu_asks_again_under_the_new_numbering(fake_vworld):
+    # 브이월드의 토지이용계획 API는 통합 후 새 번호만 받는다: 옛 번호로 저장된 필지도 용도지역이 나와야 한다.
+    zones = landapi.land_use(OLD_PNU)
+    assert zones and zones[0]["name"]
+    pnus = [params.get("pnu") for _url, params in fake_vworld.calls if params.get("pnu")]
+    assert pnus == [OLD_PNU, NEW_PNU]
+
+
+def test_land_characteristics_for_a_new_pnu_asks_again_under_the_old_numbering(fake_vworld):
+    # 토지특성 API는 옛 번호만 받는다: 새 번호의 필지도 면적·공시지가가 나와야 한다.
+    ch = landapi.land_characteristics(NEW_PNU)
+    assert ch and ch["area_m2"] and ch["official_price"]
+    pnus = [params.get("pnu") for _url, params in fake_vworld.calls if params.get("pnu")]
+    assert pnus == [NEW_PNU, OLD_PNU]
+
+
+def test_other_numbering_is_not_tried_when_the_first_has_rows_or_the_region_is_unaffected(fake_vworld):
+    assert landapi.land_use(NEW_PNU)
+    assert [p["pnu"] for _u, p in fake_vworld.calls if "pnu" in p] == [NEW_PNU]  # no second call
+    fake_vworld.calls.clear()
+    assert landapi.land_characteristics("9999999999999999999") is None  # not 12/46/29: no region lookup
+    assert [p["pnu"] for _u, p in fake_vworld.calls if "pnu" in p] == ["9999999999999999999"]
+    assert not any(u.endswith("/req/data") for u, _p in fake_vworld.calls)
+
+
+def test_former_sigungu_codes_cover_every_merged_region():
+    # 새 시·군·구 이름과 옛 코드 표가 어긋나면 그 지역만 조용히 토지특성이 빠진다.
+    assert len(landapi._FORMER_SIGUNGU) == 27
+    assert len(set(landapi._FORMER_SIGUNGU.values())) == 27
+    assert all(c.startswith(("46", "29")) and len(c) == 5 for c in landapi._FORMER_SIGUNGU.values())
