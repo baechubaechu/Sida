@@ -118,6 +118,26 @@ def _region_of_road_address(road: str) -> str:
     return " ".join(region)
 
 
+# Common short names of 특별시·광역시·특별자치시 → the names VWorld writes in road addresses.
+# Used only to compare a typed name with a hit; the query itself is sent as typed. "광주시" is
+# also a 시 in 경기도, so a hit there keeps matching by its own name.
+_SIDO_SHORT_NAMES = {
+    "서울시": ("서울특별시",),
+    "부산시": ("부산광역시",),
+    "대구시": ("대구광역시",),
+    "인천시": ("인천광역시",),
+    "광주시": ("광주광역시", "전남광주통합특별시"),
+    "대전시": ("대전광역시",),
+    "울산시": ("울산광역시",),
+    "세종시": ("세종특별자치시",),
+}
+
+
+def _has_region(road: str, typed: str) -> bool:
+    """True if the road address contains the typed 시·군·구 (or the full name of a 시 short name)."""
+    return any(name in road for name in (typed, *_SIDO_SHORT_NAMES.get(typed, ())))
+
+
 def search_parcels(
     address: str, *, size: int = 10, http_get: HttpGet | None = None
 ) -> list[dict]:
@@ -142,8 +162,10 @@ def search_parcels(
             parcel, road = str(addr.get("parcel") or ""), str(addr.get("road") or "")
             if category == "road":
                 # The road search matches loosely: "군포시 공단로 140" also returns 공단로 140 in
-                # other cities. Keep a hit only if it has every 시·군·구 the designer typed.
-                if any(token not in road for token in query.split() if token.endswith(("시", "군", "구"))):
+                # other cities. Keep a hit only if it has every 시·군·구 the designer typed
+                # ("서울시" counts as 서울특별시).
+                typed = [token for token in query.split() if token.endswith(("시", "군", "구"))]
+                if not all(_has_region(road, token) for token in typed):
                     continue
                 # a road-name hit gives the lot number without its 시·군·구 (but with its 읍·면)
                 region = _region_of_road_address(road).split()

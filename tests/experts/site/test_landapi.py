@@ -155,6 +155,41 @@ def test_road_name_address_is_tried_only_when_the_lot_number_search_finds_nothin
     assert landapi.search_parcels("군포시 공단로140번길 46")[0]["pnu"] == "4141010200101810042"
 
 
+def _road_hits(*roads: tuple[str, str, str]):
+    """A road-name search reply (shape as recorded) with the given (pnu, road, parcel) hits."""
+    items = [
+        {"id": pnu, "address": {"category": "road", "road": road, "parcel": parcel, "bldnm": ""},
+         "point": {"x": "127", "y": "37.5"}}
+        for pnu, road, parcel in roads
+    ]
+
+    def http_get(url, params):
+        if params["category"] == "parcel":
+            return land_fixture("search_not_found.json")
+        return {"response": {"status": "OK", "result": {"items": items}}}
+
+    return http_get
+
+
+def test_road_search_accepts_short_names_of_special_and_metropolitan_cities():
+    seoul = _road_hits(("1168010100107370000", "서울특별시 강남구 테헤란로 152 (역삼동)", "역삼동 737"))
+    for typed in ("서울시 강남구 테헤란로 152", "서울특별시 강남구 테헤란로 152", "강남구 테헤란로 152"):
+        found = landapi.search_parcels(typed, http_get=seoul)
+        assert [p["address"] for p in found] == ["서울특별시 강남구 역삼동 737"], typed
+    # the short name still has to be the right city, and every other typed 시·군·구 still counts
+    assert landapi.search_parcels("부산시 강남구 테헤란로 152", http_get=seoul) == []
+    assert landapi.search_parcels("서울시 서초구 테헤란로 152", http_get=seoul) == []
+
+    # "광주시" is also a 시 in 경기도: a hit in either one is kept
+    gwangju = _road_hits(
+        ("2917010100100010000", "광주광역시 북구 무등로 1 (중흥동)", "중흥동 1"),
+        ("4161010100100010000", "경기도 광주시 무등로 1 (경안동)", "경안동 1"),
+        ("2611010100100010000", "부산광역시 중구 무등로 1 (중앙동)", "중앙동 1"),
+    )
+    found = landapi.search_parcels("광주시 무등로 1", http_get=gwangju)
+    assert [p["pnu"][:2] for p in found] == ["29", "41"]
+
+
 def test_misspelt_address_finds_nothing_and_region_is_read_from_road_addresses(fake_vworld):
     fake_vworld.overrides["search"] = land_fixture("search_not_found.json")
     assert landapi.search_parcels("경기도 군포시 금졍동 689-14") == []  # no correction, no guess
