@@ -732,8 +732,10 @@ def ordinance_block(facts: dict) -> str:
         f"RETRIEVED KNOWLEDGE (local ordinance) — {o['municipality']}의 도시·군계획 조례 조문 원문 "
         f"(법제처 자치법규, 조회일 {facts.get('fetched_at', '')[:10]}). 이 대지의 용도지역: {zones}. "
         "Quote the line for that zone and cite the `source:`. The text is the ordinance as written. "
-        "SITE FACTS lists the figure read from it (조례값); where the two differ, the text wins. "
-        "Do not apply a relaxation clause unless the project clearly meets its condition."
+        "The ratios for this site were read from it by fixed rules and are listed in SITE FACTS "
+        "(조례값): use only those figures and never read a ratio out of this text yourself. Where "
+        "SITE FACTS marks a ratio 미확인 or 원문 확인, state no number — quote the line and list it "
+        "as verify. Do not apply a relaxation clause unless the project clearly meets its condition."
     )
     return header + "\n\n" + text
 

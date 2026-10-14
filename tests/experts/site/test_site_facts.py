@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -9,6 +10,7 @@ import pytest
 from sida import config as sida_config
 from sida import worker
 from sida.commands import dispatch
+from sida.experts.regulation import lawapi
 from sida.experts.site import landapi, site_facts
 from sida.experts.site.landapi import LandApiError
 from tests.conftest import ROOT
@@ -380,6 +382,83 @@ def test_only_the_regulatory_expert_receives_the_ordinance(
     assert "RETRIEVED KNOWLEDGE (local ordinance)" in reg and "100분의 350 이하" in reg
     assert reg.index("RELEVANT EXPERT OUTPUTS:") < reg.index("RETRIEVED KNOWLEDGE (local ordinance)")
     assert "RETRIEVED KNOWLEDGE (local ordinance)" not in site and "100분의 350" not in site
+
+
+def test_experts_are_told_to_take_ratios_only_from_the_rule_read_figures(
+    mock_config, agents, project, scripted, one, fake_ordinance
+):
+    """The model must not read 건폐율·용적률 out of the quoted text where the rules gave no figure."""
+    mock_config["rag"] = {"enabled": False}
+    site_facts.save_facts(project.path, site_facts.attach_ordinance(one))
+    reg = _run("regulation_checker", mock_config, agents, project, scripted)
+    assert "text wins" not in reg
+    ordinance = reg[reg.index("RETRIEVED KNOWLEDGE (local ordinance)") :]
+    assert "never read a ratio out of this text yourself" in ordinance
+    assert "state no number" in ordinance
+    assert "use only the figures SITE FACTS gives" in reg  # the task rules of every expert
+    assert "Never read one out of a\nquoted article" in reg  # regulation_checker's own prompt
+
+
+def _aisearch(query: str, n: int, chars: int) -> str:
+    """A law.go.kr 지능형 검색 reply with `n` long statute articles of its own for `query`."""
+    items = [
+        {"법령명": f"{query} 법{i}", "조문번호": str(i + 1), "조문가지번호": "00", "조문제목": "제목",
+         "조문내용": "가" * chars, "시행일자": "20260101"}
+        for i in range(n)
+    ]
+    return json.dumps({"aiSearch": {"법령조문": items}}, ensure_ascii=False)
+
+
+def _run_local(mock_config, agents, project, scripted, num_ctx):
+    """regulation_checker on a local model with statute search on; (prompt, warnings)."""
+    mock_config["rag"] = {
+        "enabled": True, "provider": "lawgokr", "agents": {"regulation_checker": "regulation"},
+        "top_k": 12, "max_chars": 30000,
+    }
+    mock_config["worker"] = {**mock_config["worker"], "provider": "ollama", "num_ctx": num_ctx}
+    agent = sida_config.agent_by_id(agents, "regulation_checker")
+    headers = worker.expected_headers((ROOT / agent["file"]).read_text(encoding="utf-8"))
+    provider = scripted(["\n\n".join(f"## {h}\n- x" for h in headers)])
+    warnings: list[str] = []
+    worker.run_worker_agent(
+        "", mock_config, agent, project.read_brief(), [], project.modules_dir,
+        provider=provider, notify=warnings.append,
+    )
+    return provider.calls[0]["messages"][1]["content"], warnings
+
+
+def test_local_model_trims_statute_search_before_the_site_ordinance(
+    mock_config, agents, project, scripted, one, fake_ordinance, monkeypatch
+):
+    site_facts.save_facts(project.path, site_facts.attach_ordinance(one))
+    monkeypatch.setattr(
+        lawapi, "_http_get",
+        lambda url, params: _aisearch(params["query"], 6, 1700)
+        if params.get("target") == "aiSearch"
+        else fake_ordinance(url, params),
+    )
+    prompt, warnings = _run_local(mock_config, agents, project, scripted, 16384)  # local_plus
+    assert "trimmed to fit the local model context" in prompt  # the inputs did not fit
+    ordinance = prompt.index("RETRIEVED KNOWLEDGE (local ordinance)")
+    assert "100분의 350 이하" in prompt[ordinance:]  # the zone's line survived
+    search = prompt.index("RETRIEVED KNOWLEDGE (regulation)")
+    assert ordinance < search < prompt.index("trimmed to fit")  # the cut fell on the search results
+    assert not any("조례 원문" in w for w in warnings)
+
+
+def test_designer_is_told_when_the_ordinance_itself_is_cut(
+    mock_config, agents, project, scripted, one, fake_ordinance, monkeypatch
+):
+    site_facts.save_facts(project.path, site_facts.attach_ordinance(one))
+    monkeypatch.setattr(
+        lawapi, "_http_get",
+        lambda url, params: _aisearch(params["query"], 6, 1700)
+        if params.get("target") == "aiSearch"
+        else fake_ordinance(url, params),
+    )
+    # the 8GB profile: even the ordinance alone does not fit next to the agent prompt and brief
+    _prompt, warnings = _run_local(mock_config, agents, project, scripted, 8192)
+    assert any("조례 원문" in w and "잘렸습니다" in w for w in warnings)
 
 
 def test_site_command_saves_and_shows_the_ordinance(make_session, fake_vworld, monkeypatch, capsys):

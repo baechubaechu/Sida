@@ -86,7 +86,8 @@ Produce the output for this expert in Markdown.
 Follow the output format defined in the agent prompt, every header, in order.
 Do not invent project facts not included in the brief, site facts, project state, expert outputs, or retrieved knowledge.
 When SITE FACTS are present, they come from government land records: use them as given and prefer them over the brief where the two differ (say so).
-When RETRIEVED KNOWLEDGE is present, prefer it for numeric limits and cite `source:` paths; still mark uncertain items as verify.
+When RETRIEVED KNOWLEDGE is present, prefer it over model memory for statutes and cite `source:` paths; still mark uncertain items as verify.
+Never read a building-coverage (건폐율) or floor-area (용적률) ratio for this site out of quoted text yourself: use only the figures SITE FACTS gives. Where SITE FACTS marks a ratio 미확인 or 원문 확인, state no number for it — quote the line and list it as verify.
 If information is missing, mark it as missing information.
 End with the Handoff section: name which experts should look next and what they should check.
 """
@@ -274,12 +275,12 @@ def run_worker_agent(
     else:
         blocks, other_completed = selected
     previous_outputs = "\n\n".join(blocks) if blocks else "(none yet)"
-    from sida.experts import FACTS, KNOWLEDGE, ExpertRun, collect_prompt_blocks
+    from sida.experts import FACTS, KNOWLEDGE, ExpertRun, collect_prompt_parts, join_blocks
     from sida.i18n import t
 
     # What each expert domain adds to this prompt (site facts, retrieved statutes, ...) comes
     # from its sida/experts/<domain>/hooks.py — nothing domain-specific is written here.
-    extra = collect_prompt_blocks(
+    extra = collect_prompt_parts(
         ExpertRun(
             config=config,
             agent=agent,
@@ -290,8 +291,8 @@ def run_worker_agent(
             warn=say,
         )
     )
-    facts_block = extra[FACTS]
-    knowledge_block = extra[KNOWLEDGE]
+    facts_block = join_blocks(extra[FACTS])
+    knowledge_block = join_blocks(extra[KNOWLEDGE])
 
     # Local models silently drop the start of an over-long prompt (the agent role itself),
     # so trim expert outputs and retrieved knowledge to what the context window can hold.
@@ -309,6 +310,10 @@ def run_worker_agent(
         if trimmed:
             previous_outputs = "\n\n".join(blocks) if blocks else "(none yet)"
             say(t("worker_input_trimmed", name=name, n=trimmed, ctx=rt["num_ctx"]))
+            # Name the project material that did not fit whole (e.g. the site's ordinance).
+            cut = [b.label for b in extra[KNOWLEDGE] if b.label and b.text not in knowledge_block]
+            if cut:
+                say(t("worker_block_cut", name=name, what=", ".join(cut), ctx=rt["num_ctx"]))
     full_prompt = build_worker_prompt(
         agent_prompt,
         project_brief,

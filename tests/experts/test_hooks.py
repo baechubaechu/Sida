@@ -49,6 +49,18 @@ def test_blocks_are_joined_per_slot_in_domain_order_and_blanks_dropped():
     assert warnings == []
 
 
+def test_higher_priority_blocks_come_first_within_a_slot():
+    hooks = [
+        ("a", hook(prompt_blocks=lambda run: [PromptBlock("search A", KNOWLEDGE)])),
+        ("b", hook(prompt_blocks=lambda run: [PromptBlock("general B", KNOWLEDGE)])),
+        ("c", hook(prompt_blocks=lambda run: [PromptBlock("site C", KNOWLEDGE, priority=10, label="C")])),
+    ]
+    parts = experts.collect_prompt_parts(make_run([]), hooks)
+    assert [b.text for b in parts[KNOWLEDGE]] == ["site C", "search A", "general B"]
+    assert parts[KNOWLEDGE][0].label == "C"
+    assert experts.collect_prompt_blocks(make_run([]), hooks)[KNOWLEDGE] == "site C\n\nsearch A\n\ngeneral B"
+
+
 def test_failing_hook_warns_and_the_other_domains_still_contribute():
     def boom(run):
         raise RuntimeError("no network")
