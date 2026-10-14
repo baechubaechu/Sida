@@ -16,7 +16,12 @@ def prompt_blocks(run: ExpertRun) -> list[PromptBlock]:
     except Exception as exc:  # site facts must never block the expert run
         run.warn(t("site_block_failed", reason=str(exc) or type(exc).__name__))
         return []
-    return [PromptBlock(text, FACTS), PromptBlock(ordinance, KNOWLEDGE)]
+    # The site's own ordinance goes ahead of general statute search results, so a local
+    # model's context trims the search results first.
+    return [
+        PromptBlock(text, FACTS),
+        PromptBlock(ordinance, KNOWLEDGE, priority=10, label=t("prompt_label_ordinance")),
+    ]
 
 
 COMMANDS = {"/site": cmd_site}

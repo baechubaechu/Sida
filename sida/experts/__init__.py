@@ -7,6 +7,8 @@ imports a domain by name and adding a domain touches no shared file. `hooks.py` 
       Text to add to an expert's prompt (site facts, retrieved statutes, ...). Called for
       every expert run; return [] for experts the domain has nothing for. Report problems
       with `run.warn(message)` and carry on — a hook must not stop the expert run.
+      Within a slot, blocks with a higher `priority` come first; a local model's context
+      trims a slot from its end, so the material that matters most should come first.
   COMMANDS: dict[str, handler]
       Slash commands for the terminal session, e.g. {"/site": cmd_site}. A handler takes
       (session, argument string) and returns "continue", "close" or "quit".
@@ -22,7 +24,7 @@ from __future__ import annotations
 import importlib
 import pkgutil
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from types import ModuleType
@@ -49,6 +51,11 @@ class ExpertRun:
 class PromptBlock:
     text: str
     slot: str = FACTS
+    # Higher first within the slot (same priority: domain order). Material about this very
+    # project should outrank general search results, which are what gets trimmed first.
+    priority: int = 0
+    # What the designer is told was cut when the block does not fit a local model ("" = unnamed).
+    label: str = ""
 
 
 @lru_cache(maxsize=1)
@@ -67,11 +74,11 @@ def domain_hooks() -> tuple[tuple[str, ModuleType], ...]:
     return tuple(found)
 
 
-def collect_prompt_blocks(run: ExpertRun, hooks=None) -> dict[str, str]:
-    """Ask every domain for prompt text; returns the joined text per slot ("" when none)."""
+def collect_prompt_parts(run: ExpertRun, hooks=None) -> dict[str, list[PromptBlock]]:
+    """Ask every domain for prompt text; the non-blank blocks per slot, highest priority first."""
     from sida.i18n import t
 
-    parts: dict[str, list[str]] = {slot: [] for slot in SLOTS}
+    parts: dict[str, list[PromptBlock]] = {slot: [] for slot in SLOTS}
     for domain, module in domain_hooks() if hooks is None else hooks:
         provide = getattr(module, "prompt_blocks", None)
         if provide is None:
@@ -85,8 +92,19 @@ def collect_prompt_blocks(run: ExpertRun, hooks=None) -> dict[str, str]:
             run.warn(t("expert_hook_failed", domain=domain, reason=str(exc) or type(exc).__name__))
             continue
         for block in blocks:
-            parts[block.slot].append(block.text.strip())
-    return {slot: "\n\n".join(texts) for slot, texts in parts.items()}
+            parts[block.slot].append(replace(block, text=block.text.strip()))
+    for blocks in parts.values():
+        blocks.sort(key=lambda b: -b.priority)  # stable: domain order within a priority
+    return parts
+
+
+def join_blocks(blocks: list[PromptBlock]) -> str:
+    return "\n\n".join(b.text for b in blocks)
+
+
+def collect_prompt_blocks(run: ExpertRun, hooks=None) -> dict[str, str]:
+    """Ask every domain for prompt text; returns the joined text per slot ("" when none)."""
+    return {slot: join_blocks(blocks) for slot, blocks in collect_prompt_parts(run, hooks).items()}
 
 
 def expert_commands(hooks=None) -> dict[str, Callable]:

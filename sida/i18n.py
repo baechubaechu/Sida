@@ -482,6 +482,11 @@ STRINGS: dict[str, dict[str, str]] = {
             "[module] {name}: trimmed {n} input(s) to fit the local model context "
             "(num_ctx={ctx}). Use cloud mode or a larger profile for full inputs."
         ),
+        "worker_block_cut": (
+            "[module] {name}: {what} did not fit the local model context (num_ctx={ctx}) and "
+            "was cut. Do not rely on this output for it; use cloud mode or a larger profile."
+        ),
+        "prompt_label_ordinance": "the ordinance text",
         "unknown_agent": "Unknown agent: {agent}",
         "run_usage": "Usage: /run <agent_id>",
         # --- info commands
@@ -1053,6 +1058,11 @@ STRINGS: dict[str, dict[str, str]] = {
             "[module] {name}: 로컬 모델 컨텍스트(num_ctx={ctx})에 맞추려고 입력 {n}개를 줄였습니다. "
             "전체 입력을 쓰려면 클라우드 모드나 더 큰 프로필을 쓰세요."
         ),
+        "worker_block_cut": (
+            "[module] {name}: {what}이 로컬 모델 컨텍스트(num_ctx={ctx})에 다 들어가지 않아 잘렸습니다. "
+            "이 결과의 해당 내용은 믿지 말고 클라우드 모드나 더 큰 프로필로 다시 실행하세요."
+        ),
+        "prompt_label_ordinance": "조례 원문",
         "unknown_agent": "알 수 없는 모듈: {agent}",
         "run_usage": "사용법: /run <agent_id>",
         # --- info commands

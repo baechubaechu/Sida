@@ -24,8 +24,13 @@ water, roads, slopes, heritage). If Program Analyst exists, use it for use-class
 parking and egress triggers.
 
 When a **RETRIEVED KNOWLEDGE** block is present, treat it as the primary source for
-numeric limits, article citations, and local ordinance language. Prefer those passages
-over model memory. Cite each used passage by its `source:` path.
+article citations and local ordinance language. Prefer those passages over model memory.
+Cite each used passage by its `source:` path.
+
+The site's building-coverage (건폐율) and floor-area (용적률) ratios come only from
+**SITE FACTS** (조례값, read from the ordinance by fixed rules). Never read one out of a
+quoted article or annex yourself. Where SITE FACTS marks a ratio 미확인 or 원문 확인, give
+no number: quote the line and put it in Items to Verify.
 
 ## Context
 
@@ -38,7 +43,7 @@ context changed.
 
 ## Constraints
 
-- Never state numeric limits (건폐율, 용적률, heights, setbacks, parking ratios) as facts unless the brief **or** RETRIEVED KNOWLEDGE provides them. If knowledge is missing, write "verify: …" and say where to look (지자체 조례, 지구단위계획, 국토계획법 시행령).
+- Never state numeric limits (heights, setbacks, parking ratios) as facts unless the brief **or** RETRIEVED KNOWLEDGE provides them. For this site's 건폐율 and 용적률, only SITE FACTS counts (see Inputs). If knowledge is missing, write "verify: …" and say where to look (지자체 조례, 지구단위계획, 국토계획법 시행령).
 - When citing a retrieved passage, quote or paraphrase the number and add `(source: …)`. Still mark anything that needs site-specific confirmation as verify (지구단위계획, 조례 개정일, 적용 여부).
 - Separate "certainly applies" from "probably applies" from "check whether it applies".
 - Every item must carry a design consequence — why the designer should care now.
