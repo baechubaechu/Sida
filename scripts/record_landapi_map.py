@@ -98,11 +98,11 @@ def main() -> None:
     z, tx, ty = 17, 111755, 50847
     probe_image("WMTS Base", f"https://api.vworld.kr/req/wmts/1.0.0/{{key}}/Base/{z}/{ty}/{tx}.png")
     probe_image("WMTS Satellite", f"https://api.vworld.kr/req/wmts/1.0.0/{{key}}/Satellite/{z}/{ty}/{tx}.jpeg")
-    bbox = "14131412,4490691,14131712,4490991"  # EPSG:3857, 300 m around 금정동 689-14
+    bbox = "14131487,4490766,14131637,4490916"  # EPSG:3857, 150 m (zoom 18) around 금정동 689-14
     probe_image("WMS lp_pa_cbnd_bubun", "https://api.vworld.kr/req/wms", {
         "SERVICE": "WMS", "REQUEST": "GetMap", "VERSION": "1.3.0", "LAYERS": "lp_pa_cbnd_bubun",
         "STYLES": "lp_pa_cbnd_bubun", "CRS": "EPSG:3857", "BBOX": bbox, "WIDTH": 256, "HEIGHT": 256,
-        "FORMAT": "image/png", "TRANSPARENT": "true", "KEY": "{key}", "DOMAIN": "{domain}",
+        "FORMAT": "image/png", "TRANSPARENT": "true", "KEY": "{key}",  # no DOMAIN: refused with a Referer
     })
 
 
