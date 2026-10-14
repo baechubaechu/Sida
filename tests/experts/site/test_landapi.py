@@ -346,3 +346,35 @@ def test_former_sigungu_codes_cover_every_merged_region():
     assert len(landapi._FORMER_SIGUNGU) == 27
     assert len(set(landapi._FORMER_SIGUNGU.values())) == 27
     assert all(c.startswith(("46", "29")) and len(c) == 5 for c in landapi._FORMER_SIGUNGU.values())
+
+
+# --- map: parcel boundary shapes and the parcel at a clicked point ------------------------
+
+
+def test_parcel_shape_is_the_recorded_boundary_in_lon_lat(fake_vworld):
+    shape = landapi.parcel_shape(PNU)
+    assert shape["type"] == "MultiPolygon"
+    ring = shape["coordinates"][0][0]
+    assert ring[0] == [126.94594267669507, 37.3700295146347] and ring[0] == ring[-1]  # closed ring
+    assert all(126.94 < lon < 126.95 and 37.36 < lat < 37.38 for lon, lat in ring)  # lon first
+    params = _data_calls(fake_vworld)[-1]
+    assert params["attrFilter"] == f"pnu:=:{PNU}" and params["geometry"] == "true" and params["crs"] == "EPSG:4326"
+
+    assert landapi.parcel_shape("4141010500199999999") is None  # no such parcel
+    with pytest.raises(ValueError):
+        landapi.parcel_shape("41410105001068900")
+
+
+def test_parcel_at_finds_the_parcel_under_a_map_point(fake_vworld):
+    found = landapi.parcel_at(126.945978, 37.37025)  # inside 689-14 (recorded reply)
+    assert {k: v for k, v in found.items() if k != "shape"} == {
+        "pnu": PNU, "address": "경기도 군포시 금정동 689-14", "road_address": "", "building": "",
+        "matched_by": "map",
+    }
+    assert found["shape"] == landapi.parcel_shape(PNU)
+    assert _data_calls(fake_vworld)[0]["geomFilter"] == "POINT(126.945978 37.37025)"
+
+    assert landapi.parcel_at(125.0, 34.0) is None  # the sea: VWorld answers NOT_FOUND
+    for lon, lat in ((0, 0), (37.37, 126.94), (140.0, 37.0)):  # outside Korea, or lat/lon swapped
+        with pytest.raises(ValueError):
+            landapi.parcel_at(lon, lat)
