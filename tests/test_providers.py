@@ -113,7 +113,7 @@ def test_ollama_empty_content_with_thinking_is_retryable(monkeypatch):
 
 
 def test_mock_worker_matches_output_format():
-    prompt = (ROOT / "agents" / "31_constraint_mapper.md").read_text(encoding="utf-8")
+    prompt = (ROOT / "agents" / "41_spatial_reviewer.md").read_text(encoding="utf-8")
     full = worker.build_worker_prompt(prompt, "## Site\nbrief has headers too", "(none yet)")
     out, _ = MockProvider().chat("m", [{"role": "user", "content": full}], 0, 10, role="worker")
     assert missing_headers(out, expected_headers(prompt)) == []

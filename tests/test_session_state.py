@@ -32,8 +32,8 @@ def test_run_command_auto_mode(make_session, monkeypatch):
     s = make_session()
     s.config["state_update"] = {"mode": "auto"}
     monkeypatch.setattr("builtins.input", lambda *_: (_ for _ in ()).throw(AssertionError("no prompt in auto")))
-    assert dispatch(s, "/run constraint_mapper") == "continue"
-    assert "| constraint_mapper | done |" in s.project.read_state()
+    assert dispatch(s, "/run spatial_reviewer") == "continue"
+    assert "| spatial_reviewer | done |" in s.project.read_state()
 
 
 def test_off_mode_never_calls_model(make_session, scripted):

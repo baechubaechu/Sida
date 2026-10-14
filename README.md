@@ -5,7 +5,7 @@ A CLI-based LLM workflow for architectural design reasoning.
 **시다**는 한국 건축 현장에서 조수·보조를 부르는 말입니다.  
 이 도구도 건물을 대신 설계하지 않고, 설계자의 추론을 옆에서 돕는 조수처럼 동작합니다.
 
-Instead of using one model as a general generator, the workflow divides design reasoning into twelve narrow **experts** — site, program, regulation, precedent, concept, constraints, synthesis, spatial review, systems, critique, representation, presentation — coordinated by a Conductor. Experts are independent lenses: any of them can run alone, in any order, and a `synthesizer` reconciles them. See `docs/experts.md`.
+Instead of using one model as a general generator, the workflow divides design reasoning into ten narrow **experts** — site, program, regulation, precedent, concept, spatial review, systems, critique, representation, presentation — coordinated by a Conductor. Experts are independent lenses: any of them can run alone, in any order, and the Conductor lays out the conditions, conflicts, and decisions they add up to. See `docs/experts.md`.
 
 The output is not a final design. It is a set of structured Markdown documents that help clarify site issues, program demands, regulatory agenda, the concept's claims, constraints, unresolved problems, representation needs, and presentation structure.
 
@@ -23,15 +23,17 @@ Design is not linear. A project may be led by its site, by an idea, by the progr
 regulation — so there is no fixed pipeline. Instead:
 
 ```txt
-                 analysis                concept        synthesis
+                 analysis                concept
 Brief ──┬─ site_reader ─────────┐
-        ├─ program_analyst ─────┤                     ┌─ constraint_mapper
-        ├─ regulation_checker ──┼─→ concept_framer ──→┤
-        └─ precedent_scout ─────┘                     └─ synthesizer ─→ decisions
-                                                            │
-        development: spatial_reviewer, systems_advisor ←────┤
-        critique:    design_critic                     ←────┤
+        ├─ program_analyst ─────┤
+        ├─ regulation_checker ──┼─→ concept_framer ──┐
+        └─ precedent_scout ─────┘                    │
+                                                     │
+        development: spatial_reviewer, systems_advisor ←─┤
+        critique:    design_critic                     ←─┤
         communication: representation_planner, presentation_editor
+
+Conductor: conditions (hard/soft), conflicts between experts, decisions required now
 ```
 
 - Every expert declares `inputs` (which prior outputs it reads) and ends with a **Handoff**
@@ -242,8 +244,9 @@ Outputs go to the same `projects/<name>/modules/` layout.
 
 ## Experts
 
-File numbers are grouped by phase (1x analysis, 2x concept, 3x synthesis, 4x development,
-5x critique, 6x communication). They are not an execution order.
+File numbers are grouped by phase (1x analysis, 2x concept, 4x development, 5x critique,
+6x communication). They are not an execution order. There is no 3x: putting the lenses
+together is the Conductor's job.
 
 | Expert | Phase | What it does | Reads |
 |---|---|---|---|
@@ -252,13 +255,11 @@ File numbers are grouped by phase (1x analysis, 2x concept, 3x synthesis, 4x dev
 | `regulation_checker` | analysis | governing frameworks (KR default), what to verify, binding constraints, incentives | site, program |
 | `precedent_scout` | analysis | precedents/typologies matched to the problem — lesson and caution | concept, site |
 | `concept_framer` | concept | sharpen the designer's idea into a testable concept and operative strategy | site, program, precedent |
-| `constraint_mapper` | synthesis | hard/soft constraints, priorities, tensions | site, program, regulation |
-| `synthesizer` | synthesis | convergences, conflicts between experts, decisions required now, stale views | all |
-| `spatial_reviewer` | development | test the described organization: circulation, section, thresholds, program fit | concept, constraints, site, program |
-| `systems_advisor` | development | structure / envelope / services / egress questions and trade-offs — no sizing | spatial, constraints, regulation, site |
+| `spatial_reviewer` | development | test the described organization: circulation, section, thresholds, program fit | concept, site, program, regulation |
+| `systems_advisor` | development | structure / envelope / services / egress questions and trade-offs — no sizing | spatial, regulation, site, program |
 | `design_critic` | critique | jury-style critique against the core problem | all |
 | `representation_planner` | communication | diagrams, drawings, models that prove the concept and test weak points | concept, spatial, critic, site |
-| `presentation_editor` | communication | review / portfolio story, structure, anticipated questions | concept, synthesis, critic, representation |
+| `presentation_editor` | communication | review / portfolio story, structure, anticipated questions | concept, critic, representation |
 
 Each expert has a narrow lens, declared inputs, a fixed Markdown output format ending in
 `## Handoff`, and constraints on what it must not do (none of them designs the building).
@@ -271,7 +272,7 @@ expert list and the `project_state.md` Module Status table are generated from co
 - Does not generate drawings, models, or a finished design
 - Quality depends on the brief and the chosen model
 - `regulation_checker` and `precedent_scout` produce verification agendas, not facts — numbers and named works must be checked by the designer. Statute retrieval is off by default; turned on, it searches 법제처 (law.go.kr) directly and needs only `LAW_OPEN_API_OC` in `.env` (`docs/rag.md`).
-- In local mode, long inputs are trimmed to fit the model's context window (a notice is printed); `synthesizer` and `design_critic` read every output and are affected most.
+- In local mode, long inputs are trimmed to fit the model's context window (a notice is printed); `design_critic` reads every output and is affected most.
 - Opening an old project auto-renames `01_*.md` module files to the new `11_` / `31_` / … names and adds missing Module Status rows.
 - No web UI or database
 

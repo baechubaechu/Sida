@@ -4,6 +4,7 @@
 - Rename legacy module files (01_site_reader.md → 11_site_reader.md, …)
 - Rename matching stems under modules/_history/
 - Ensure project_state.md Module Status has a row for every current expert
+- Drop the never-run rows of retired experts
 """
 
 from __future__ import annotations
@@ -22,6 +23,10 @@ LEGACY_MODULE_FILES: dict[str, str] = {
     "04_representation_planner.md": "61_representation_planner.md",
     "05_presentation_editor.md": "62_presentation_editor.md",
 }
+
+# Experts taken out of config. Their job (conditions, conflicts, decisions) moved to the
+# Conductor. A row that never ran is dropped; one that ran keeps its takeaway as a record.
+RETIRED_EXPERTS = ("constraint_mapper", "synthesizer")
 
 _ROW_RE = re.compile(r"^\|\s*([a-z0-9_]+)\s*\|", re.MULTILINE)
 _TABLE_TAIL = re.compile(
@@ -120,6 +125,24 @@ def ensure_module_status_rows(state_text: str, agents: list[dict]) -> tuple[str,
     return state_text.rstrip() + "\n" + table, missing
 
 
+def drop_retired_rows(state_text: str, agents: list[dict]) -> tuple[str, list[str]]:
+    """Remove `pending` Module Status rows of retired experts (unless config still has them)."""
+    current = {str(a.get("id")) for a in agents}
+    retired = [aid for aid in RETIRED_EXPERTS if aid not in current]
+    if not retired:
+        return state_text, []
+    removed: list[str] = []
+
+    def drop(m: re.Match) -> str:
+        removed.append(m.group(1))
+        return ""
+
+    pattern = re.compile(
+        rf"^\|\s*({'|'.join(retired)})\s*\|\s*pending\s*\|[^\n]*\n?", re.MULTILINE
+    )
+    return pattern.sub(drop, state_text), removed
+
+
 def migrate_project(project, agents: list[dict] | None = None) -> list[str]:
     """
     Apply all upgrades for one project. Safe to call repeatedly.
@@ -145,6 +168,11 @@ def migrate_project(project, agents: list[dict] | None = None) -> list[str]:
     state = project.state_path.read_text(encoding="utf-8")
     new_state, added = ensure_module_status_rows(state, agents or [])
     if added:
-        atomic_write_text(project.state_path, new_state)
         notes.append("state Module Status + " + ", ".join(added))
+    if agents:
+        new_state, removed = drop_retired_rows(new_state, agents)
+        if removed:
+            notes.append("state Module Status - " + ", ".join(removed))
+    if new_state != state:
+        atomic_write_text(project.state_path, new_state)
     return notes

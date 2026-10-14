@@ -16,7 +16,7 @@ def test_select_agents_default_is_all(mock_config):
 
 def test_select_agents_by_path(mock_config):
     ids = [a["id"] for a in run_mod._select_agents(mock_config, "review_prep")]
-    assert ids == ["synthesizer", "design_critic", "representation_planner", "presentation_editor"]
+    assert ids == ["design_critic", "representation_planner", "presentation_editor"]
 
 
 def test_select_agents_unknown_path_fails(mock_config):
@@ -36,7 +36,6 @@ def test_run_path_writes_only_path_outputs(mock_config, monkeypatch):
     modules = projects[0] / "modules"
     written = sorted(p.name for p in modules.glob("*.md"))
     assert written == [
-        "32_synthesizer.md",
         "51_design_critic.md",
         "61_representation_planner.md",
         "62_presentation_editor.md",

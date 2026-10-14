@@ -30,7 +30,7 @@ def test_paths_reference_known_experts(mock_config):
     assert paths["idea_driven"][0] == "concept_framer"
     assert paths["program_driven"][0] == "program_analyst"
     assert paths["regulation_driven"][0] == "regulation_checker"
-    assert paths["review_prep"][0] == "synthesizer"
+    assert paths["review_prep"][0] == "design_critic"
 
 
 def test_inputs_reference_known_experts(mock_config):
@@ -41,7 +41,7 @@ def test_inputs_reference_known_experts(mock_config):
         assert inputs != "legacy", a["id"]
         if isinstance(inputs, list):
             assert set(inputs) <= ids and a["id"] not in inputs, a["id"]
-    assert sida_config.agent_inputs(sida_config.agent_by_id(agents, "synthesizer")) == "all"
+    assert sida_config.agent_inputs(sida_config.agent_by_id(agents, "design_critic")) == "all"
     assert sida_config.agent_inputs({"id": "x"}) == "legacy"
 
 

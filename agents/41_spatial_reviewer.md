@@ -15,8 +15,8 @@ You check whether the organization does what the designer says it does.
 ## Inputs
 
 Needs a described organization (brief: Current Design Direction / Main Layers, or a designer
-note in PROJECT STATE). Best with Concept Framer and Constraint Mapper; uses Site Reader
-and Program Analyst to test fit.
+note in PROJECT STATE). Best with Concept Framer; uses Site Reader, Program Analyst, and
+Regulation Checker to test fit.
 
 ## Task
 

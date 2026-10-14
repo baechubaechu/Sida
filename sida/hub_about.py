@@ -10,7 +10,6 @@ from sida.i18n import agent_name, t
 PHASE_ORDER = (
     "analysis",
     "concept",
-    "synthesis",
     "development",
     "critique",
     "communication",

@@ -27,7 +27,7 @@
 
 ## Open Questions
 
-- 단면교차 지점을 역사 내부 vs. 외부 연결부 중 어디에 둘지 — core parti — constraint_mapper 전에 필요
+- 단면교차 지점을 역사 내부 vs. 외부 연결부 중 어디에 둘지 — core parti — spatial_reviewer 전에 필요
 - 하천(수계)과의 시각·동선 연결을 실제 대지에서 가능한지 — site scale — 실측·조감 필요
 - 환승층과 체류층 수직 중첩 시 소음·보안 제약 — program — 역사 운영 기준 확인 필요
 
@@ -46,8 +46,6 @@
 | regulation_checker | pending | 철도안전법·하천법·역세권 용도지역 확인 |
 | precedent_scout | pending | |
 | concept_framer | pending | "빠름/느림 레이어"가 슬로건인지 검증 |
-| constraint_mapper | pending | site + program + regulation 이후 |
-| synthesizer | pending | 3개 이상 완료 후 |
 | spatial_reviewer | pending | 단면교차 위치 정해진 뒤 |
 | systems_advisor | pending | |
 | design_critic | pending | |
@@ -68,5 +66,5 @@
 
 ## Next Focus
 
-- constraint_mapper 실행 — hard/soft constraint와 tension 표로 정리
+- Conductor에게 조건·결정 정리 요청 — hard/soft 조건과 tension 표로 정리
 - 단면교차 후보 2–3곳 sketch 전 missing info (실측) 리스트업
