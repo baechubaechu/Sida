@@ -84,9 +84,13 @@ def fake_vworld(monkeypatch, fake_ordinance):
             if isinstance(value, Exception):
                 raise value
             return value
-        if op == "data":  # the data API: address lists and lot numbers, by layer and filter
+        if op == "data":  # the data API: address lists, lot numbers and shapes, by layer and filter
             value = str(params.get("attrFilter") or "").rsplit(":", 1)[-1]
-            path = LAND_FIXTURES / f"data_{params['data']}{'_' + value if value else ''}.json"
+            geom = str(params.get("geomFilter") or "")
+            if not value and geom.startswith("POINT("):  # a map click
+                value = "at_" + "_".join(geom[6:-1].split())
+            suffix = "_geom" if params.get("geometry") == "true" else ""
+            path = LAND_FIXTURES / f"data_{params['data']}{'_' + value if value else ''}{suffix}.json"
             return land_fixture(path.name if path.exists() else "data_not_found.json")
         if op == "search":
             if "공단로" in params["query"]:  # a road-name address: no lot-number match, one road match

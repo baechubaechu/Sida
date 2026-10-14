@@ -479,6 +479,75 @@ def test_address_selection_api_walks_to_a_lot_and_saves_it_by_pnu(client, projec
     assert client.get(url).json() == body
 
 
+def test_map_api_finds_a_clicked_parcel_and_gives_boundary_shapes(client, project, fake_vworld):
+    at = client.get("/api/site/parcel-at", params={"lon": 126.945978, "lat": 37.37025}).json()
+    assert at["lon"] == 126.945978 and at["lat"] == 37.37025
+    [hit] = at["candidates"]
+    assert hit["pnu"] == "4141010500106890014" and hit["matched_by"] == "map"
+    assert hit["shape"]["type"] == "MultiPolygon"
+    sea = client.get("/api/site/parcel-at", params={"lon": 125.0, "lat": 34.0})
+    assert sea.status_code == 200 and sea.json()["candidates"] == []
+
+    shapes = client.get("/api/site/shapes", params=[
+        ("pnu", "4141010500106890014"), ("pnu", "4141010500106890015"), ("pnu", "4141010500199999999"),
+    ]).json()["shapes"]
+    assert [s["pnu"] for s in shapes] == ["4141010500106890014", "4141010500106890015", "4141010500199999999"]
+    assert shapes[0]["shape"] == hit["shape"] and shapes[1]["shape"]["type"] == "MultiPolygon"
+    assert shapes[2]["shape"] is None  # no such parcel
+
+    # the saved site keeps each parcel's boundary, so the map needs no new call when reopened
+    url = f"/api/projects/{project.name}/site"
+    body = client.put(url, json={"pnus": ["4141010500106890014"]}).json()
+    assert body["parcels"][0]["shape"] == hit["shape"]
+    fake_vworld.calls.clear()
+    assert client.get(url).json()["parcels"][0]["shape"] == hit["shape"] and fake_vworld.calls == []
+
+
+def test_map_layers_give_the_browser_tile_addresses_without_the_domain(client, fake_vworld, monkeypatch):
+    layers = client.get("/api/site/map").json()
+    assert layers["base"]["url"] == "https://api.vworld.kr/req/wmts/1.0.0/test-key/Base/{z}/{y}/{x}.png"
+    cadastral = layers["cadastral"]
+    assert cadastral["url"] == "https://api.vworld.kr/req/wms" and cadastral["params"]["key"] == "test-key"
+    assert cadastral["params"]["version"] == "1.3.0" and cadastral["params"]["layers"] == "lp_pa_cbnd_bubun"
+    # a browser sends a Referer; VWorld refuses the key when a domain comes with it
+    assert "domain" not in {k.lower() for k in cadastral["params"]}
+    assert cadastral["min_zoom"] == 18  # the 지적 layer is empty below this
+    assert fake_vworld.calls == []  # nothing is fetched by the server
+
+    monkeypatch.delenv("VWORLD_API_KEY")
+    assert client.get("/api/site/map").status_code == 503
+
+
+def test_map_api_reports_bad_requests(client, fake_vworld):
+    from sida.experts.site.landapi import LandApiError
+
+    r = client.get("/api/site/parcel-at", params={"lon": 37.37025, "lat": 126.945978})  # swapped
+    assert r.status_code == 400 and "한국 밖" in r.json()["detail"]
+    assert client.get("/api/site/parcel-at", params={"lon": 126.9}).status_code == 422
+    assert client.get("/api/site/shapes").status_code == 400
+    r = client.get("/api/site/shapes", params={"pnu": "414101050010689"})
+    assert r.status_code == 400 and "19자리" in r.json()["detail"]
+    many = [("pnu", f"41410105001{n:08d}") for n in range(51)]
+    assert client.get("/api/site/shapes", params=many).status_code == 400
+    assert fake_vworld.calls == []
+
+    fake_vworld.overrides["data"] = LandApiError("network", "timeout")
+    assert client.get("/api/site/parcel-at", params={"lon": 126.945978, "lat": 37.37025}).status_code == 502
+
+
+def test_site_lookup_still_saves_when_the_boundary_call_fails(client, project, fake_vworld, monkeypatch):
+    from sida.experts.site import landapi, site_facts
+    from sida.experts.site.landapi import LandApiError
+
+    def down(pnu, **kwargs):
+        raise LandApiError("network", "timeout")
+
+    monkeypatch.setattr(landapi, "parcel_shape", down)
+    body = client.put(f"/api/projects/{project.name}/site", json={"pnus": ["4141010500106890014"]}).json()
+    assert body["parcels"][0]["shape"] is None and body["parcels"][0]["errors"] == []  # not a missing fact
+    assert body["summary"]["missing"] == [] and site_facts.load_facts(project.path)
+
+
 def test_address_selection_api_reports_bad_requests(client, project, fake_vworld):
     from sida.experts.site import site_facts
 

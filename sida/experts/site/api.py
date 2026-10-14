@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from sida import workspace
 from sida.experts.site import landapi, site_facts
 from sida.i18n import t
 from sida.project import load_project
+
+MAX_SHAPES = 50  # parcels per shape request: a merged site is a handful, not a 동
 
 # What went wrong with the government API → HTTP status for the screen.
 _LAND_STATUS = {"no_key": 503, "invalid_key": 503, "over_limit": 429, "network": 502, "bad_response": 502}
@@ -68,6 +72,30 @@ def _address_router() -> APIRouter:
             raise HTTPException(status_code=400, detail=t("web_site_lot_bad")) from exc
         lot = ("산 " if mountain else "") + (f"{main}-{sub}" if sub else str(main))
         return {"dong_code": dong_code, "lot": lot, "candidates": candidates}
+
+    @router.get("/map")
+    def get_map() -> dict:
+        return _land(landapi.map_layers)
+
+    @router.get("/parcel-at")
+    def get_parcel_at(lon: float, lat: float) -> dict:
+        try:
+            found = _land(landapi.parcel_at, lon, lat)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=t("web_site_point_bad", lon=lon, lat=lat)) from exc
+        return {"lon": lon, "lat": lat, "candidates": [found] if found else []}
+
+    @router.get("/shapes")
+    def get_shapes(pnu: Annotated[list[str] | None, Query()] = None) -> dict:
+        pnus = list(dict.fromkeys(p.strip() for p in pnu or [] if p.strip()))
+        if not pnus:
+            raise HTTPException(status_code=400, detail=t("web_site_pnus_required"))
+        if len(pnus) > MAX_SHAPES:
+            raise HTTPException(status_code=400, detail=t("web_site_shapes_limit", n=MAX_SHAPES))
+        bad = next((p for p in pnus if len(p) != 19 or not p.isdigit()), None)
+        if bad:
+            raise HTTPException(status_code=400, detail=t("web_site_pnu_bad", pnu=bad))
+        return {"shapes": [{"pnu": p, "shape": _land(landapi.parcel_shape, p)} for p in pnus]}
 
     return router
 

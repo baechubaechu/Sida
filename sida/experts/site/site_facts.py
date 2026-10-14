@@ -76,6 +76,7 @@ def lookup_parcel(candidate: dict, *, http_get=None) -> dict:
         "building": candidate.get("building", ""),
         "zones": [],
         "characteristics": None,
+        "shape": None,  # boundary for the map; not a fact, so a failed call is not an error
         "errors": [],
     }
     try:
@@ -86,6 +87,10 @@ def lookup_parcel(candidate: dict, *, http_get=None) -> dict:
         parcel["characteristics"] = landapi.land_characteristics(parcel["pnu"], http_get=http_get)
     except landapi.LandApiError as exc:
         parcel["errors"].append({"what": "characteristics", "kind": exc.kind})
+    try:
+        parcel["shape"] = landapi.parcel_shape(parcel["pnu"], http_get=http_get)
+    except landapi.LandApiError:
+        pass
     return parcel
 
 
@@ -356,6 +361,7 @@ def site_view(facts: dict | None) -> dict:
                 "land_category": ch.get("land_category", ""),
                 "use": ch.get("use", ""),
                 "road_side": ch.get("road_side", ""),
+                "shape": p.get("shape"),
                 "errors": [e["what"] for e in p.get("errors") or []],
             }
         )

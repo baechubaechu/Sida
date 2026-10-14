@@ -210,10 +210,15 @@ def clear_cache() -> None:
     _region_cache.clear()
 
 
-def _features(
-    layer: str, http_get: HttpGet | None, *, attr_filter: str = "", geom_filter: str = ""
+def _feature_list(
+    layer: str,
+    http_get: HttpGet | None,
+    *,
+    attr_filter: str = "",
+    geom_filter: str = "",
+    geometry: bool = False,
 ) -> list[dict]:
-    """Attribute rows of a VWorld data-API layer (no geometry), every page."""
+    """Features of a VWorld data-API layer, every page. Without `geometry`, no shapes are sent."""
     key, domain = vworld_credentials()
     params = {
         "service": "data",
@@ -223,7 +228,7 @@ def _features(
         "domain": domain,
         "format": "json",
         "crs": "EPSG:4326",
-        "geometry": "false",
+        "geometry": "true" if geometry else "false",
         "attribute": "true",
         "size": PAGE_SIZE,
     }
@@ -231,26 +236,34 @@ def _features(
         params["attrFilter"] = attr_filter
     if geom_filter:
         params["geomFilter"] = geom_filter
-    rows: list[dict] = []
+    features: list[dict] = []
     page = 1
     while True:
         data = (http_get or _http_get)(f"{VWORLD_URL}/req/data", {**params, "page": page})
         response = (data or {}).get("response") or {}
         status = str(response.get("status") or "")
         if status == "NOT_FOUND":
-            return rows
+            return features
         if status != "OK":
             error = response.get("error") or {}
             _raise_for_code(str(error.get("code") or status or "ERROR"), str(error.get("text") or ""))
         collection = (response.get("result") or {}).get("featureCollection") or {}
-        rows += [f.get("properties") or {} for f in collection.get("features") or [] if isinstance(f, dict)]
+        features += [f for f in collection.get("features") or [] if isinstance(f, dict)]
         try:
             pages = int((response.get("page") or {}).get("total") or 1)
         except ValueError:
             pages = 1
         if page >= pages:
-            return rows
+            return features
         page += 1
+
+
+def _features(
+    layer: str, http_get: HttpGet | None, *, attr_filter: str = "", geom_filter: str = ""
+) -> list[dict]:
+    """Attribute rows of a VWorld data-API layer (no geometry), every page."""
+    found = _feature_list(layer, http_get, attr_filter=attr_filter, geom_filter=geom_filter)
+    return [f.get("properties") or {} for f in found]
 
 
 def regions(parent: str = "", *, http_get: HttpGet | None = None) -> list[dict]:
@@ -463,4 +476,99 @@ def land_characteristics(pnu: str, *, http_get: HttpGet | None = None) -> dict |
         "road_side": named(latest.get("roadSideCodeNm")),
         "official_price": number(latest.get("pblntfPclnd")),
         "updated": str(latest.get("lastUpdtDt") or ""),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Map: parcel boundary shapes, and the parcel at a clicked point
+# ---------------------------------------------------------------------------
+
+# The area a map point may be in (the same box the 시·도 list is asked with).
+KOREA_LON = (124.0, 132.0)
+KOREA_LAT = (33.0, 39.0)
+
+
+def _shape(feature: dict) -> dict | None:
+    """The feature's GeoJSON geometry (lon/lat) if it is a polygon, else None."""
+    geometry = feature.get("geometry") or {}
+    if geometry.get("type") not in ("Polygon", "MultiPolygon") or not geometry.get("coordinates"):
+        return None
+    return {"type": geometry["type"], "coordinates": geometry["coordinates"]}
+
+
+def parcel_shape(pnu: str, *, http_get: HttpGet | None = None) -> dict | None:
+    """
+    The boundary of the parcel with this 19-digit PNU as a GeoJSON geometry (Polygon or
+    MultiPolygon, [lon, lat] in EPSG:4326, as VWorld gives it), or None if there is none.
+    """
+    pnu = (pnu or "").strip()
+    if len(pnu) != 19 or not pnu.isdigit():
+        raise ValueError(f"not a 19-digit PNU: {pnu!r}")
+    for feature in _feature_list("LP_PA_CBND_BUBUN", http_get, attr_filter=f"pnu:=:{pnu}", geometry=True):
+        if str((feature.get("properties") or {}).get("pnu") or "") == pnu:
+            return _shape(feature)
+    return None
+
+
+def parcel_at(lon: float, lat: float, *, http_get: HttpGet | None = None) -> dict | None:
+    """
+    The parcel under a map point (`lon`, `lat` in EPSG:4326), for picking parcels by clicking a
+    map: {"pnu", "address", "road_address", "building", "matched_by": "map", "shape"} (no road
+    address or building name: this layer has neither), or None where there is no parcel.
+    ValueError for a point outside Korea.
+    """
+    lon, lat = float(lon), float(lat)
+    if not (KOREA_LON[0] <= lon <= KOREA_LON[1] and KOREA_LAT[0] <= lat <= KOREA_LAT[1]):
+        raise ValueError(f"point outside Korea: {lon}, {lat}")
+    for feature in _feature_list("LP_PA_CBND_BUBUN", http_get, geom_filter=f"POINT({lon} {lat})", geometry=True):
+        props = feature.get("properties") or {}
+        pnu = str(props.get("pnu") or "")
+        if len(pnu) == 19:
+            return {
+                "pnu": pnu,
+                "address": " ".join(str(props.get("addr") or "").split()),
+                "road_address": "",
+                "building": "",
+                "matched_by": "map",
+                "shape": _shape(feature),
+            }
+    return None
+
+
+# Map images the browser loads straight from VWorld (2026-10-14 실제 호출로 확인):
+# - background tiles (WMTS "Base"): plain z/y/x PNG tiles.
+# - 지적 lines (WMS lp_pa_cbnd_bubun, VERSION 1.3.0 only): no DOMAIN parameter, because a browser
+#   sends a Referer and VWorld refuses the key when both come (INCORRECT_KEY). The layer draws
+#   nothing below zoom 18 (an empty PNG), and its images come back opaque even with
+#   TRANSPARENT=true, so the screen shows it from zoom 18 and half see-through.
+WMTS_BASE = "https://api.vworld.kr/req/wmts/1.0.0/{key}/Base/{z}/{y}/{x}.png"
+WMS_URL = "https://api.vworld.kr/req/wms"
+CADASTRAL_MIN_ZOOM = 18
+
+
+def map_layers() -> dict:
+    """
+    What a map screen needs to show the background and the 지적 lines, with the key filled in.
+    The key is visible to the browser; fine while the web UI runs on the designer's own PC.
+    Raises LandApiError('no_key') without a key.
+    """
+    key, _domain = vworld_credentials()
+    return {
+        "base": {"url": WMTS_BASE.replace("{key}", key), "attribution": "VWorld"},
+        "cadastral": {
+            "url": WMS_URL,
+            "params": {
+                "service": "WMS",
+                "request": "GetMap",
+                "version": "1.3.0",
+                "layers": "lp_pa_cbnd_bubun",
+                "styles": "lp_pa_cbnd_bubun",
+                "format": "image/png",
+                "transparent": "true",
+                "key": key,
+            },
+            "crs": "EPSG:3857",
+            "min_zoom": CADASTRAL_MIN_ZOOM,
+            "opacity": 0.5,
+        },
     }
