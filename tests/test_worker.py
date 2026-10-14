@@ -88,8 +88,8 @@ def test_select_input_blocks_filters_by_declaration(mock_config, agents, project
     assert others == ["representation_planner"]
     assert blocks[0].startswith("### Site Reader (site_reader)")
 
-    synth = sida_config.agent_by_id(agents, "synthesizer")  # all
-    blocks, others = worker.select_input_blocks(agents, synth, out)
+    critic = sida_config.agent_by_id(agents, "design_critic")  # all
+    blocks, others = worker.select_input_blocks(agents, critic, out)
     assert len(blocks) == 3 and others == []
 
     # own output is never fed back
@@ -104,10 +104,10 @@ def test_worker_prompt_includes_state_and_other_completed():
     full = worker.build_worker_prompt(
         "AGENT", "BRIEF", "(none yet)",
         project_state="## Meta\n- **Phase**: concept",
-        other_completed=["design_critic", "synthesizer"],
+        other_completed=["design_critic", "spatial_reviewer"],
     )
     assert "PROJECT STATE" in full and "**Phase**: concept" in full
-    assert "OTHER COMPLETED EXPERTS" in full and "design_critic, synthesizer" in full
+    assert "OTHER COMPLETED EXPERTS" in full and "design_critic, spatial_reviewer" in full
     assert "Handoff" in full
     bare = worker.build_worker_prompt("AGENT", "BRIEF", "(none yet)")
     assert "PROJECT STATE" not in bare and "OTHER COMPLETED" not in bare
@@ -190,10 +190,10 @@ def test_local_worker_prompt_fits_context_and_reports_trimming(
     rt = resolve_worker_runtime(mock_config)
     for a in agents[:6]:
         (project.modules_dir / a["output"]).write_text(
-            f"# {a['name']}\n\n" + "내용 " * 2500 + "\n## Handoff\n- → synthesizer: 확인\n",
+            f"# {a['name']}\n\n" + "내용 " * 2500 + "\n## Handoff\n- → design_critic: 확인\n",
             encoding="utf-8",
         )
-    agent = agent_by_id(agents, "synthesizer")  # inputs: all
+    agent = agent_by_id(agents, "design_critic")  # inputs: all
     provider = scripted([_valid_output(agent)])
     run_worker_agent(
         "", mock_config, agent, project.read_brief(), [], project.modules_dir,
@@ -204,7 +204,7 @@ def test_local_worker_prompt_fits_context_and_reports_trimming(
     assert sent <= (rt["num_ctx"] - rt["max_tokens"]) * worker.CHARS_PER_TOKEN
     prompt = provider.calls[0]["messages"][1]["content"]
     assert prompt.startswith("AGENT PROMPT:")  # role is intact
-    assert prompt.count("→ synthesizer: 확인") == 6  # every Handoff survived
+    assert prompt.count("→ design_critic: 확인") == 6  # every Handoff survived
     assert "[module]" in capsys.readouterr().err
 
 
@@ -213,7 +213,7 @@ def test_cloud_worker_prompt_is_never_trimmed(mock_config, agents, project, scri
 
     body = "# Site Reader\n\n" + "내용 " * 20000
     (project.modules_dir / "11_site_reader.md").write_text(body, encoding="utf-8")
-    agent = agent_by_id(agents, "synthesizer")
+    agent = agent_by_id(agents, "design_critic")
     provider = scripted([_valid_output(agent)])
     run_worker_agent(
         "", mock_config, agent, project.read_brief(), [], project.modules_dir, provider=provider

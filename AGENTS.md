@@ -4,7 +4,7 @@ Sida(시다) 저장소에서 작업하는 모든 AI 에이전트(Claude Code, Cu
 
 ## 프로젝트 요약
 
-건축 설계 추론을 돕는 CLI 기반 LLM 워크플로. Conductor가 12개 전문가(`agents/*.md`)를 조합해 구조화된 Markdown 문서를 만든다. 최종 설계를 대신하지 않는다.
+건축 설계 추론을 돕는 CLI 기반 LLM 워크플로. Conductor가 10개 전문가(`agents/*.md`)를 조합해 구조화된 Markdown 문서를 만든다. 최종 설계를 대신하지 않는다.
 
 - 진입점: `chat.py`(프로젝트 허브), `run.py`(비대화형 파이프라인), Windows는 `run.bat`. 저장소 최상위의 이 파일들은 `sida/`의 같은 이름 모듈을 실행하기만 한다.
 - 코드는 `sida/` 패키지에 있다. 공통 코어는 `sida/` 바로 아래에 둔다: `config.py`(설정 읽기), `providers.py`(LLM 연결), `runtime.py`(역할별 모델·컨텍스트), `worker.py`(전문가 실행), `conductor.py`, `engine.py`, `session.py`, `hub.py`, `i18n.py`(한국어 우선 UI 문자열) 등.

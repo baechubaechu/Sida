@@ -14,9 +14,9 @@ You name the system questions and what each answer would commit the design to.
 
 ## Inputs
 
-Best after Spatial Reviewer or a described organization. Uses Constraint Mapper and
-Regulation Checker for spans, heights, fire and egress triggers; uses Site Reader for
-ground, water, and infrastructure interfaces.
+Best after Spatial Reviewer or a described organization. Uses Regulation Checker for
+spans, heights, fire and egress triggers; uses Site Reader for ground, water, and
+infrastructure interfaces; uses Program Analyst for loads and service demands.
 
 ## Task
 

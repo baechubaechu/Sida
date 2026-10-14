@@ -25,16 +25,19 @@
    끌려가지 않음).
 3. **모두 Handoff로 끝난다.** 각 출력의 마지막 섹션은 `## Handoff` — "→ regulation_checker:
    철도 인접 이격 확인" 식으로 다음에 볼 전문가를 지목한다. 이것이 조합의 연결고리다.
-4. **synthesizer가 조합한다.** 완료된 출력 전부와 project_state를 읽어 수렴·충돌·지금 내려야
-   할 결정·낡은 뷰를 정리한다. 3개 이상 완료 시, 또는 출력이 충돌할 때, 리뷰 전.
+4. **Conductor가 조합한다.** 조건(hard/soft와 출처)·전문가 간 충돌·지금 내려야 할 결정·낡은
+   뷰를 Conductor가 대화 안에서 정리한다. 3개 이상 완료 시, 출력이 충돌할 때, 설계자가 요청할 때.
+   2026-10-10 회의에서 이 일을 하던 `constraint_mapper`와 `synthesizer`를 빼고 Conductor로 옮겼다
+   (`agents/00_conductor.md`의 "Conditions and decisions").
 5. **경로는 제안이다.** `paths`는 출발점별 권장 순서일 뿐이다. Conductor는 브리프의
    `Primary Driver`와 설계자가 실제로 막힌 지점으로 진입 전문가를 고른다.
 6. **설정이 곧 목록이다.** Conductor 프롬프트의 전문가 목록과 project_state.md의 Module Status
    표는 `config.yaml`에서 생성된다. 전문가 추가 = 프롬프트 파일 1개 + `agents:` 항목 1개.
 
-## 전문가 12개
+## 전문가 10개
 
-번호는 단계 그룹이다 (1x 분석, 2x 개념, 3x 통합, 4x 전개, 5x 비평, 6x 전달). 실행 순서가 아니다.
+번호는 단계 그룹이다 (1x 분석, 2x 개념, 4x 전개, 5x 비평, 6x 전달). 실행 순서가 아니다.
+3x(통합)는 비어 있다. 조합은 Conductor가 한다.
 
 | id | 단계 | 무엇을 하나 | 하지 않는 것 |
 |---|---|---|---|
@@ -43,8 +46,6 @@
 | `regulation_checker` | 분석 | 적용 법령(한국 기본), 확인 항목 표(왜/어디서), 형태를 묶을 제약, 인센티브 | 수치를 사실로 단정 — 항상 "verify" |
 | `precedent_scout` | 분석 | 문제 기준 선례 3–6개: 문제·수법·교훈·주의. 불확실하면 이름 대신 유형 | 형태 복제 권고, 사실 발명 |
 | `concept_framer` | 개념 | 설계자의 의도를 한 문장 개념 + 작동 전략 + 증명해야 할 주장 + 클리셰 위험 | 개념 대체, 형태 제안 |
-| `constraint_mapper` | 통합 | 사이트+프로그램+법규 → hard/soft, 공간 관계, 우선순위, 긴장 (출처 렌즈 표기) | 수치 발명 |
-| `synthesizer` | 통합 | 전문가 간 수렴·충돌, 지금 결정할 것(옵션·비용·근거), 이번 주 우선순위, 낡은/빠진 뷰 | 새 분석 추가 |
 | `spatial_reviewer` | 전개 | 설계자가 기술한 조직(레이어·단면·동선·경계·프로그램 배치)의 논리 검증, 약점별 검증 도면 | 대안 설계, 취향 판단 |
 | `systems_advisor` | 전개 | 구조·외피·환경·설비·피난 질문과 옵션별 트레이드오프, 지금 안 정하면 잠기는 결정 | 치수·하중·수치 |
 | `design_critic` | 비평 | 심사위원 시점: 핵심 문제에 답하는가, 모순, 약한 가정, 빠진 표현, 다음 행동 | 일반론 |
@@ -55,11 +56,11 @@
 
 | 경로 | 언제 | 순서 |
 |---|---|---|
-| `site_driven` | 인프라·지형·수변이 문제를 만든다 | site_reader → program_analyst → regulation_checker → constraint_mapper → concept_framer → design_critic |
+| `site_driven` | 인프라·지형·수변이 문제를 만든다 | site_reader → program_analyst → regulation_checker → concept_framer → design_critic |
 | `idea_driven` | 개념이 먼저 있고 근거를 만들어야 한다 | concept_framer → precedent_scout → site_reader → program_analyst → spatial_reviewer → design_critic |
-| `program_driven` | 사용자·운영·구성이 복잡하다 | program_analyst → site_reader → regulation_checker → constraint_mapper → concept_framer → spatial_reviewer |
-| `regulation_driven` | 법규가 형태를 거의 결정한다 | regulation_checker → program_analyst → site_reader → constraint_mapper → spatial_reviewer → systems_advisor |
-| `review_prep` | 크리틱·심사 직전 | synthesizer → design_critic → representation_planner → presentation_editor |
+| `program_driven` | 사용자·운영·구성이 복잡하다 | program_analyst → site_reader → regulation_checker → concept_framer → spatial_reviewer |
+| `regulation_driven` | 법규가 형태를 거의 결정한다 | regulation_checker → program_analyst → site_reader → spatial_reviewer → systems_advisor |
+| `review_prep` | 크리틱·심사 직전 | design_critic → representation_planner → presentation_editor |
 
 경로는 `python run.py --path <name> brief.md`로 통째로 돌릴 수 있지만, 대화 세션에서는 Conductor가
 한 번에 하나씩, 필요할 때만 제안한다.
@@ -75,9 +76,9 @@
   ├─ site_reader (inputs: concept_framer 읽음) → Handoff → regulation_checker: "철도 인접 이격"
   ├─ regulation_checker (inputs: site_reader, program_analyst — 후자 없음 → 명시)
   │
-  ├─ 3개 완료 → Conductor가 synthesizer 제안
-  │     synthesizer: 충돌 — Concept Framer의 "지상 연속 보행" vs Regulation Checker의 "철도 이격 verify"
-  │                  결정 — 단면 교차 위치: 역사 내부 / 외부 연결부 (옵션·비용·근거)
+  ├─ 3개 완료 → Conductor가 조건·결정을 정리
+  │     충돌 — Concept Framer의 "지상 연속 보행" vs Regulation Checker의 "철도 이격 verify"
+  │     결정 — 단면 교차 위치: 역사 내부 / 외부 연결부 (옵션·비용·근거)
   │
   └─ 설계자 결정 → project_state.md Confirmed Decisions
         → spatial_reviewer가 그 결정을 전제로 조직 검증
@@ -93,6 +94,6 @@ Conductor는 전체 출력이 아니라 상태 파일의 takeaway와 Handoff 힌
   `enabled: true` 로 켠다.
 - `precedent_scout`는 모델 지식에 의존한다. 유명한 작품 위주로 제한하고 모두 `(verify)`를 붙인다.
 - `spatial_reviewer`는 텍스트로 기술된 조직만 검토한다. 도면·이미지 입력은 아직 없다.
-- 워커 출력이 12종으로 늘었으므로 `synthesizer`와 `design_critic`(inputs: all)은 컨텍스트가 크다.
+- `design_critic`(inputs: all)은 완료된 출력을 모두 읽으므로 컨텍스트가 크다.
   워커는 클라우드 모델(gpt-4o-mini, 128K)이 기본이라 문제 없지만, 워커까지 로컬로 돌릴 때는
   `MODULE_CHAR_LIMIT`류의 절단이 필요하다.

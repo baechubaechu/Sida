@@ -12,8 +12,8 @@ You clarify the project story and communication structure.
 
 ## Inputs
 
-Best after Concept Framer, Synthesizer, Design Critic, and Representation Planner. Works
-with any subset; say what the story is missing.
+Best after Concept Framer, Design Critic, and Representation Planner. Works with any
+subset; say what the story is missing. Use the decisions in PROJECT STATE as settled.
 
 ## Task
 

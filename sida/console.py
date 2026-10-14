@@ -42,8 +42,6 @@ AGENT_LOOK: dict[str, tuple[str, str]] = {
     "regulation_checker": ("RC", "yellow"),
     "precedent_scout": ("PS", "magenta"),
     "concept_framer": ("CF", "bright_magenta"),
-    "constraint_mapper": ("CM", "bright_yellow"),
-    "synthesizer": ("SY", "bright_white"),
     "spatial_reviewer": ("SP", "green"),
     "systems_advisor": ("SA", "bright_green"),
     "design_critic": ("DC", "bright_red"),

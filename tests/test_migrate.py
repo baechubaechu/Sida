@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from sida.migrate import (
     LEGACY_MODULE_FILES,
+    drop_retired_rows,
     ensure_module_status_rows,
     existing_module_ids,
     migrate_project,
@@ -134,3 +135,36 @@ def test_load_project_runs_migration(mock_config, tmp_path, monkeypatch, agents,
     assert "| program_analyst | pending | |" in state
     out = capsys.readouterr().out
     assert "migrate" in out.lower() or "갱신" in out
+
+
+def test_retired_experts_lose_only_their_never_run_rows(tmp_path, agents):
+    root = tmp_path / "proj"
+    (root / "modules").mkdir(parents=True)
+    (root / "modules" / "31_constraint_mapper.md").write_text("MAP", encoding="utf-8")
+    state_path = root / "project_state.md"
+    state_path.write_text(
+        "# Project State\n\n## Module Status\n\n"
+        "| Module | Status | Key takeaway |\n"
+        "|--------|--------|--------------|\n"
+        "| site_reader | done | x |\n"
+        "| constraint_mapper | done | 철도 이격이 지배 |\n"
+        "| synthesizer | pending | |\n\n"
+        "## Missing Information\n\n-\n",
+        encoding="utf-8",
+    )
+
+    class P:
+        modules_dir = root / "modules"
+        state_path = root / "project_state.md"
+
+    notes = migrate_project(P(), agents)
+    state = state_path.read_text(encoding="utf-8")
+    assert "| synthesizer |" not in state  # never ran: nothing to keep
+    assert "| constraint_mapper | done | 철도 이격이 지배 |" in state  # ran: kept as a record
+    assert (root / "modules" / "31_constraint_mapper.md").read_text(encoding="utf-8") == "MAP"
+    assert "## Missing Information" in state and any("- synthesizer" in n for n in notes)
+    assert migrate_project(P(), agents) == []  # idempotent
+
+    # a config that still has the expert keeps its row
+    kept, removed = drop_retired_rows("| synthesizer | pending | |\n", [{"id": "synthesizer"}])
+    assert removed == [] and "synthesizer" in kept

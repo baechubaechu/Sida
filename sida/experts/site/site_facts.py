@@ -18,6 +18,7 @@ import re
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 
@@ -26,8 +27,17 @@ from sida.experts.site import landapi
 from sida.i18n import t
 from sida.storage import atomic_write_text
 
+if TYPE_CHECKING:
+    from sida.project import Project
+
 FACTS_FILE = "site_facts.json"
 FACTS_VERSION = 1
+STALE_NOTE = (
+    "[system] Site facts were looked up from the address and saved as site_facts.json "
+    "(parcel, zoning, statutory coverage/FAR limits, the municipality's ordinance articles on "
+    "coverage/FAR). site_reader and regulation_checker now "
+    "receive them; outputs of those experts produced before this are stale."
+)
 LIMITS_PATH = ROOT / "data" / "zoning_limits.yaml"
 
 # Which block an expert receives. Config can override via site_facts.agents.
@@ -286,6 +296,17 @@ def refresh(
     attach_ordinance(facts)
     save_facts(project_path, facts)
     return facts
+
+
+def note_lookup(project: Project, query: str, history: list[dict]) -> None:
+    """
+    Tell the Conductor the site was looked up: a transcript line, and a note in its history that
+    site_reader and regulation_checker outputs made before this are stale. Saves the history.
+    The terminal passes its live session history; the web API passes the saved one.
+    """
+    project.append_transcript("System", f"Looked up site facts: {query}")
+    history.append({"role": "user", "content": STALE_NOTE})
+    project.save_history(history)
 
 
 def pick_candidates(candidates: list[dict], pnus: list[str]) -> list[dict]:

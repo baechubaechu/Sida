@@ -120,3 +120,11 @@ def test_render_conductor_prompt_lists_every_expert_and_path(mock_config):
     assert "site_driven: site_reader → program_analyst" in rendered
     assert "reads all completed outputs" in rendered
     assert "**analysis**" in rendered and "**communication**" in rendered
+
+
+def test_conductor_lays_out_conditions_and_decisions_itself(conductor_prompt):
+    # 10/10 agreement: no constraint_mapper / synthesizer; their job is the Conductor's
+    assert "constraint_mapper" not in conductor_prompt and "synthesizer" not in conductor_prompt
+    assert "## Conditions and decisions" in conductor_prompt
+    for part in ("hard", "Conflicts", "Decisions required now", "Stale or missing views"):
+        assert part in conductor_prompt

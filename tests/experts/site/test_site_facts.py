@@ -283,7 +283,8 @@ def test_site_command_looks_up_merged_parcels_and_saves(make_session, fake_vworl
 
     facts = site_facts.load_facts(s.project.path)
     assert [p["pnu"] for p in facts["parcels"]] == [P14, P15]
-    assert s.history[-1]["content"].startswith("[system] Site facts were looked up")
+    assert s.history[-1] == {"role": "user", "content": site_facts.STALE_NOTE}
+    assert s.project.load_history()[-1]["content"] == site_facts.STALE_NOTE  # saved for resume
 
     assert dispatch(s, "/site") == "continue"  # shows what was saved, no new lookup
     assert "금정동 689-15" in capsys.readouterr().out

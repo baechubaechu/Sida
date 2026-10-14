@@ -125,7 +125,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "about_workers_title": "Workers (inside a design project)",
         "about_phase_analysis": "analysis — what is given",
         "about_phase_concept": "concept — what the designer claims",
-        "about_phase_synthesis": "synthesis — put lenses together",
         "about_phase_development": "development — does the scheme work",
         "about_phase_critique": "critique",
         "about_phase_communication": "communication",
@@ -153,14 +152,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "worker_name_concept_framer": "Concept Framer",
         "worker_desc_concept_framer": (
             "Sharpen the designer's idea into a testable concept and operative strategy."
-        ),
-        "worker_name_constraint_mapper": "Constraint Mapper",
-        "worker_desc_constraint_mapper": (
-            "Hard/soft constraints, priorities, tensions — site + program + regulation."
-        ),
-        "worker_name_synthesizer": "Synthesizer",
-        "worker_desc_synthesizer": (
-            "Reconcile expert outputs — convergences, conflicts, decisions needed now."
         ),
         "worker_name_spatial_reviewer": "Spatial Reviewer",
         "worker_desc_spatial_reviewer": (
@@ -704,7 +695,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "about_workers_title": "워커 (설계 프로젝트 안)",
         "about_phase_analysis": "analysis — 주어진 것 읽기",
         "about_phase_concept": "concept — 디자이너의 주장",
-        "about_phase_synthesis": "synthesis — 렌즈 합치기",
         "about_phase_development": "development — 안이 성립하는지",
         "about_phase_critique": "critique — 비평",
         "about_phase_communication": "communication — 표현·발표",
@@ -732,14 +722,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "worker_name_concept_framer": "개념 정리자",
         "worker_desc_concept_framer": (
             "디자이너 의도를 검증 가능한 개념·작동 전략으로 다듬음."
-        ),
-        "worker_name_constraint_mapper": "제약 정리자",
-        "worker_desc_constraint_mapper": (
-            "하드/소프트 제약, 우선순위, 긴장 — 대지·프로그램·법규를 합침."
-        ),
-        "worker_name_synthesizer": "종합자",
-        "worker_desc_synthesizer": (
-            "전문가 결과 정리 — 합의, 모순, 지금 결정할 것."
         ),
         "worker_name_spatial_reviewer": "공간 검토자",
         "worker_desc_spatial_reviewer": (

@@ -10,13 +10,6 @@ from sida.i18n import t
 if TYPE_CHECKING:
     from sida.session import Session
 
-SITE_FACTS_NOTE = (
-    "[system] Site facts were looked up from the address and saved as site_facts.json "
-    "(parcel, zoning, statutory coverage/FAR limits, the municipality's ordinance articles on "
-    "coverage/FAR). site_reader and regulation_checker now "
-    "receive them; outputs of those experts produced before this are stale."
-)
-
 
 def _print_site_facts(facts: dict) -> None:
     print(t("site_title", when=facts.get("fetched_at", "")[:10], query=facts.get("query", "")))
@@ -107,7 +100,6 @@ def cmd_site(session: Session, arg: str) -> str:
     print(t("site_saved", path=str(path)))
     if facts["summary"]["missing"]:
         print(t("site_partial"))
-    project.append_transcript("System", f"Looked up site facts: {query}")
-    session.history.append({"role": "user", "content": SITE_FACTS_NOTE})
+    site_facts.note_lookup(project, query, session.history)
     session.persist()
     return "continue"

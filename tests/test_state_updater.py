@@ -18,7 +18,7 @@ from tests.conftest import ROOT
 
 TEMPLATE = (ROOT / "templates" / "project_state.md").read_text(encoding="utf-8").replace(
     "{{MODULE_ROWS}}",
-    module_status_rows([{"id": "site_reader"}, {"id": "constraint_mapper"}, {"id": "design_critic"}]),
+    module_status_rows([{"id": "site_reader"}, {"id": "spatial_reviewer"}, {"id": "design_critic"}]),
 )
 
 
@@ -71,7 +71,7 @@ def test_replace_section_bullets_keeps_comment():
 def test_update_module_row_and_meta():
     new = update_module_row(TEMPLATE, "site_reader", "done", "takeaway | with pipe")
     assert "| site_reader | done | takeaway / with pipe |" in new
-    assert "| constraint_mapper | pending | |" in new
+    assert "| spatial_reviewer | pending | |" in new
     new = update_module_row(new, "new_agent", "done", "x")
     assert "| new_agent | done | x |" in new
     new = update_meta_line(new, "Last updated", "2026-09-04")

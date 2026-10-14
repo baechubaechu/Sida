@@ -39,8 +39,8 @@ def test_handle_action_run_failure_is_not_fatal(make_session, capsys):
             raise LLMError("down")
 
     s = make_session(w_provider=Boom())
-    assert handle_action(s, {"type": "run", "agent": "constraint_mapper"}) == "continue"
-    assert not (s.output_dir / "31_constraint_mapper.md").exists()
+    assert handle_action(s, {"type": "run", "agent": "spatial_reviewer"}) == "continue"
+    assert not (s.output_dir / "41_spatial_reviewer.md").exists()
     assert s.history == []
     assert "down" in capsys.readouterr().out
 

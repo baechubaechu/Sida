@@ -157,8 +157,8 @@ def test_recovery_exit_and_read_paths(mock_config, agents, project, conductor_pr
     from sida.conductor import _parse_recovered, recover_action
 
     assert _parse_recovered('{"type":"exit"}', agents) == {"type": "exit", "recovered": True}
-    assert _parse_recovered('{"type":"read","module":"constraint mapper"}', agents) == {
-        "type": "read", "module": "constraint_mapper", "recovered": True}
+    assert _parse_recovered('{"type":"read","module":"spatial reviewer"}', agents) == {
+        "type": "read", "module": "spatial_reviewer", "recovered": True}
     assert _parse_recovered('{"type":"teleport"}', agents) == {"type": "none"}
     assert _parse_recovered("[1]", agents) == {"type": "none"}
     # exit needs no agent mention
