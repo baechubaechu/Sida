@@ -533,3 +533,42 @@ def parcel_at(lon: float, lat: float, *, http_get: HttpGet | None = None) -> dic
                 "shape": _shape(feature),
             }
     return None
+
+
+# Map images the browser loads straight from VWorld (2026-10-14 실제 호출로 확인):
+# - background tiles (WMTS "Base"): plain z/y/x PNG tiles.
+# - 지적 lines (WMS lp_pa_cbnd_bubun, VERSION 1.3.0 only): no DOMAIN parameter, because a browser
+#   sends a Referer and VWorld refuses the key when both come (INCORRECT_KEY). The layer draws
+#   nothing below zoom 18 (an empty PNG), and its images come back opaque even with
+#   TRANSPARENT=true, so the screen shows it from zoom 18 and half see-through.
+WMTS_BASE = "https://api.vworld.kr/req/wmts/1.0.0/{key}/Base/{z}/{y}/{x}.png"
+WMS_URL = "https://api.vworld.kr/req/wms"
+CADASTRAL_MIN_ZOOM = 18
+
+
+def map_layers() -> dict:
+    """
+    What a map screen needs to show the background and the 지적 lines, with the key filled in.
+    The key is visible to the browser; fine while the web UI runs on the designer's own PC.
+    Raises LandApiError('no_key') without a key.
+    """
+    key, _domain = vworld_credentials()
+    return {
+        "base": {"url": WMTS_BASE.replace("{key}", key), "attribution": "VWorld"},
+        "cadastral": {
+            "url": WMS_URL,
+            "params": {
+                "service": "WMS",
+                "request": "GetMap",
+                "version": "1.3.0",
+                "layers": "lp_pa_cbnd_bubun",
+                "styles": "lp_pa_cbnd_bubun",
+                "format": "image/png",
+                "transparent": "true",
+                "key": key,
+            },
+            "crs": "EPSG:3857",
+            "min_zoom": CADASTRAL_MIN_ZOOM,
+            "opacity": 0.5,
+        },
+    }

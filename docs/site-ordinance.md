@@ -50,6 +50,26 @@
 
 필지는 찾았지만 일부 항목(용도지역, 토지 특성, 조례)을 가져오지 못한 경우는 오류가 아닙니다. 200으로 저장되고, 그 항목이 "미확인"으로 표시됩니다(`summary.missing`, `parcels[].errors`).
 
+### 지도
+
+주소를 고르면 지도에 그 필지를 보여 주고, 지도를 클릭해 필지를 고르거나 여러 필지를 합칠 수 있게 하는 API입니다. 프로젝트와 무관하고 아무것도 저장하지 않습니다. 로직은 `sida/experts/site/landapi.py`(`map_layers`, `parcel_at`, `parcel_shape`)에 있습니다. 좌표는 모두 경도·위도(EPSG:4326)이고 `[경도, 위도]` 순서입니다.
+
+| 용도 | 메서드·경로 | 요청 | 응답 |
+|---|---|---|---|
+| 지도 이미지 주소 | `GET /api/site/map` | 없음 | `{base: {url, attribution}, cadastral: {url, params, crs, min_zoom, opacity}}` |
+| 지도 클릭으로 필지 찾기 | `GET /api/site/parcel-at?lon=126.945978&lat=37.37025` | 클릭한 지점 | `{lon, lat, candidates: [필지]}` (0개 또는 1개) |
+| 고른 필지들의 경계 | `GET /api/site/shapes?pnu=…&pnu=…` | 필지 번호(최대 50개) | `{shapes: [{pnu, shape}]}` |
+
+- 지도 화면은 Leaflet을 스크립트로 불러 쓰면 됩니다(빌드 없음).
+  - 배경: `L.tileLayer(base.url)`. 브라우저가 브이월드에서 직접 받습니다.
+  - 지적도 선: `L.tileLayer.wms(cadastral.url, {...cadastral.params, minZoom: cadastral.min_zoom, opacity: cadastral.opacity})`. 줌 18보다 작으면 브이월드가 빈 이미지를 주므로 그 아래에서는 켜지 않습니다. 투명 옵션을 줘도 이미지가 불투명하게 오므로 반투명으로 겹칩니다.
+  - `cadastral.params`에는 `domain`이 없습니다. 브라우저는 Referer를 보내는데, 브이월드는 Referer와 `domain`이 같이 오면 키를 거부합니다(2026-10-14 실제 호출로 확인).
+- 지도 이미지 주소에는 브이월드 키가 들어 있어 브라우저에 보입니다. 자기 PC에서만 도는 지금은 괜찮지만, 여러 사람이 접속하게 되면 서버가 지도를 대신 받아 전달해야 합니다.
+- 필지: 1번 후보와 같은 모양에 `shape`가 더 있습니다(`{pnu, address, road_address, building, matched_by: "map", shape}`). 클릭한 곳이 도로·하천처럼 필지가 아니면 `candidates: []`입니다.
+- `shape`는 GeoJSON 도형(`{type: "MultiPolygon", coordinates}`)입니다. `L.geoJSON(shape)`으로 그대로 그립니다. 없는 필지는 `shape: null`입니다.
+- 고른 필지를 2번(`PUT /api/projects/{name}/site`)에 `{pnus: [...]}`로 보내 저장하면, 저장된 대지 사실의 `parcels[].shape`에 경계가 함께 저장됩니다. 다시 열 때는 브이월드를 부르지 않고 이것으로 그립니다. 경계만 가져오지 못한 경우 `shape`는 `null`이고 오류로 치지 않습니다.
+- 오류: 한국 밖의 지점(위도·경도를 바꿔 넣은 경우 포함)이나 형식이 틀린 필지 번호는 400, 그 밖에는 위 표와 같습니다.
+
 ### 대지 사실 모양
 
 ```json
@@ -60,7 +80,7 @@
   "parcels": [
     {"pnu": "4141010500106890014", "address": "경기도 군포시 금정동 689-14", "road_address": "…",
      "building": "…", "area_m2": 1014.3, "land_category": "공장용지", "use": "공업용",
-     "road_side": "소로한면", "errors": []}
+     "road_side": "소로한면", "shape": {"type": "MultiPolygon", "coordinates": ["…"]}, "errors": []}
   ],
   "summary": {
     "parcel_count": 1, "municipality": "경기도 군포시", "total_area_m2": 1014.3, "area_complete": true,

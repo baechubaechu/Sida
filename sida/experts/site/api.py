@@ -73,6 +73,10 @@ def _address_router() -> APIRouter:
         lot = ("산 " if mountain else "") + (f"{main}-{sub}" if sub else str(main))
         return {"dong_code": dong_code, "lot": lot, "candidates": candidates}
 
+    @router.get("/map")
+    def get_map() -> dict:
+        return _land(landapi.map_layers)
+
     @router.get("/parcel-at")
     def get_parcel_at(lon: float, lat: float) -> dict:
         try:

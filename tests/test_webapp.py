@@ -503,6 +503,21 @@ def test_map_api_finds_a_clicked_parcel_and_gives_boundary_shapes(client, projec
     assert client.get(url).json()["parcels"][0]["shape"] == hit["shape"] and fake_vworld.calls == []
 
 
+def test_map_layers_give_the_browser_tile_addresses_without_the_domain(client, fake_vworld, monkeypatch):
+    layers = client.get("/api/site/map").json()
+    assert layers["base"]["url"] == "https://api.vworld.kr/req/wmts/1.0.0/test-key/Base/{z}/{y}/{x}.png"
+    cadastral = layers["cadastral"]
+    assert cadastral["url"] == "https://api.vworld.kr/req/wms" and cadastral["params"]["key"] == "test-key"
+    assert cadastral["params"]["version"] == "1.3.0" and cadastral["params"]["layers"] == "lp_pa_cbnd_bubun"
+    # a browser sends a Referer; VWorld refuses the key when a domain comes with it
+    assert "domain" not in {k.lower() for k in cadastral["params"]}
+    assert cadastral["min_zoom"] == 18  # the 지적 layer is empty below this
+    assert fake_vworld.calls == []  # nothing is fetched by the server
+
+    monkeypatch.delenv("VWORLD_API_KEY")
+    assert client.get("/api/site/map").status_code == 503
+
+
 def test_map_api_reports_bad_requests(client, fake_vworld):
     from sida.experts.site.landapi import LandApiError
 
