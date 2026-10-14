@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sida import workspace
 from sida.experts.site import landapi, site_facts
 from sida.i18n import t
+from sida.project import load_project
 
 # What went wrong with the government API → HTTP status for the screen.
 _LAND_STATUS = {"no_key": 503, "invalid_key": 503, "over_limit": 429, "network": 502, "bad_response": 502}
@@ -103,7 +104,10 @@ def _project_router(load_config, core) -> APIRouter:
                 query = ", ".join(c["address"] or c["pnu"] for c in chosen)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return site_facts.site_view(core(site_facts.refresh, path, query, chosen))
+        facts = core(site_facts.refresh, path, query, chosen)
+        project = core(load_project, path)
+        core(site_facts.note_lookup, project, query, project.load_history())
+        return site_facts.site_view(facts)
 
     @router.get("/ordinance")
     def get_ordinance(name: str) -> dict:

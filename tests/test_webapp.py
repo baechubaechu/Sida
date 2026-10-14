@@ -405,6 +405,19 @@ def test_site_api_searches_looks_up_merged_parcels_and_reads_back(client, projec
     assert client.get(url).json()["summary"]["parcel_count"] == 1
 
 
+def test_site_api_lookup_tells_the_conductor_earlier_site_outputs_are_stale(client, project, fake_vworld):
+    from sida.experts.site import site_facts
+
+    project.save_history([{"role": "user", "content": "대지부터 보자"}, {"role": "assistant", "content": "네"}])
+    url = f"/api/projects/{project.name}/site"
+    assert client.put(url, json={"query": "경기도 군포시 금정동 689", "pnus": ["4141010500106890014"]}).status_code == 200
+
+    history = project.load_history()
+    assert history[:2] == [{"role": "user", "content": "대지부터 보자"}, {"role": "assistant", "content": "네"}]
+    assert history[2:] == [{"role": "user", "content": site_facts.STALE_NOTE}]  # same note as terminal /site
+    assert "Looked up site facts: 경기도 군포시 금정동 689" in project.transcript_path.read_text(encoding="utf-8")
+
+
 def test_site_api_reports_bad_requests_and_government_api_failures(client, project, fake_vworld, monkeypatch):
     from sida.experts.site import site_facts
     from sida.experts.site.landapi import LandApiError
