@@ -249,3 +249,21 @@ def test_worker_gets_project_state_without_comments(mock_config, agents, project
     assert "| site_reader | pending |" in prompt  # content kept
     assert "<!--" not in prompt
     assert project.read_state() == state  # the file itself is untouched
+
+
+def test_worker_revision_sends_the_request_with_the_previous_output(mock_config, agents, project, scripted):
+    prompt = (ROOT / "agents" / "11_site_reader.md").read_text(encoding="utf-8")
+    good = "\n\n".join(f"## {h}\n- x" for h in expected_headers(prompt))
+    out = project.modules_dir
+    (out / "11_site_reader.md").write_text("## Site Conditions\n- 이전 결과\n", encoding="utf-8")
+
+    provider = scripted([good, good])
+    run_worker_agent("", mock_config, agents[0], "brief", [], out, provider=provider)
+    assert "DESIGNER REVISION REQUEST" not in provider.calls[0]["messages"][-1]["content"]
+
+    run_worker_agent(
+        "", mock_config, agents[0], "brief", [], out, provider=provider, revision="북측 도로를 더 자세히"
+    )
+    sent = provider.calls[1]["messages"][-1]["content"]
+    assert "DESIGNER REVISION REQUEST" in sent and "북측 도로를 더 자세히" in sent
+    assert "YOUR PREVIOUS OUTPUT" in sent and "- x" in sent  # the output being revised

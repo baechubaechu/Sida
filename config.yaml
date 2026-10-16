@@ -137,6 +137,7 @@ modeling:
 #   desc    — one line the Conductor shows / uses for routing
 #   inputs  — prior outputs this expert reads when present ("all" = every completed output).
 #             Other completed outputs are listed by name only, to save context.
+#   chat    — false: no separate expert chat on the web screen (default true)
 # File/output numbering is grouped by phase (1x analysis, 2x concept, 4x development,
 # 5x critique, 6x communication) — it is not an execution order. 3x is unused: putting the
 # lenses together (conditions, conflicts, decisions) is the Conductor's job, not an expert's.
@@ -150,6 +151,7 @@ agents:
     phase: analysis
     desc: geographic/spatial site reading — systems, conflicts, opportunities (not codes)
     inputs: [program_analyst, concept_framer]
+    chat: false  # government records: changes go through the site lookup, not a chat
 
   - id: program_analyst
     file: agents/12_program_analyst.md
