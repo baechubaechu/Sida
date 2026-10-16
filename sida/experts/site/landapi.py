@@ -29,6 +29,8 @@ HttpGet = Callable[[str, dict], Any]  # (url, params) → parsed JSON
 
 
 class LandApiError(Exception):
+    MESSAGE_PREFIX = "site_err_"  # i18n key of the message: MESSAGE_PREFIX + kind
+
     def __init__(self, kind: str, detail: str = ""):
         super().__init__(f"{kind}: {detail}" if detail else kind)
         self.kind = kind

@@ -16,11 +16,12 @@ from sida import conductor_context, hardware, i18n, providers, runtime  # noqa: 
 from sida import config as sida_config  # noqa: E402
 from sida import project as prj  # noqa: E402
 from sida.experts.regulation import lawapi  # noqa: E402
-from sida.experts.site import landapi  # noqa: E402
+from sida.experts.site import datago, landapi  # noqa: E402
 
 REAL_HTTP_GET = landapi._http_get  # the autouse fixture below replaces it for every test
 REAL_LAW_HTTP_GET = lawapi._http_get
 LAW_FIXTURES = ROOT / "tests" / "fixtures" / "lawapi"
+DATAGO_FIXTURES = ROOT / "tests" / "fixtures" / "datago"
 
 
 def _no_network(url, params):
@@ -71,7 +72,63 @@ def fake_ordinance(monkeypatch):
 
 
 @pytest.fixture
-def fake_vworld(monkeypatch, fake_ordinance):
+def fake_datago(monkeypatch):
+    """
+    Serve recorded data.go.kr replies (금정동 689-14/15, 토지이음 for 일반공업지역 UQA320 and
+    과밀억제권역 UBA100) as (status, raw bytes); records calls. `overrides[op]` replaces one
+    operation's reply: (status, bytes), a fixture file name, or an exception.
+    """
+    calls: list[tuple[str, dict]] = []
+    overrides: dict[str, object] = {}
+    uses = {"단독주택": "house", "공장": "factory", "근린생활시설": "neighborhood", "업무시설": "office"}
+
+    def read(name: str) -> tuple[int, bytes]:
+        status = 403 if "badkey" in name else 200
+        return status, (DATAGO_FIXTURES / name).read_bytes()
+
+    def http_get(url, params):
+        calls.append((url, dict(params)))
+        op = url.rsplit("/", 1)[-1]
+        if op in overrides:
+            value = overrides[op]
+            if isinstance(value, Exception):
+                raise value
+            return read(value) if isinstance(value, str) else value
+        if op == "DTsearchLunCd":
+            name = uses.get(params["landUseNm"])
+            return read(f"lun_{name}.xml") if name else (200, EMPTY_EUM)
+        if op == "DTarLandUseInfo":
+            codes = params["ucodeList"].split(",")
+            name = uses.get(params["landUseNm"])
+            if "UQA320" not in codes or name not in {"house", "factory"}:
+                return 200, EMPTY_EUM
+            multi = "_multi" if "UBA100" in codes and name == "factory" else ""
+            return read(f"arlanduse_{name}{multi}.xml")
+        if op == "DTluLawInfo":
+            codes = params["ucodeList"].split(",")
+            if "UQA320" not in codes:
+                return 200, EMPTY_EUM
+            return read("lulaw_multi.xml" if "UBA100" in codes else "lulaw_UQA320.xml")
+        if op == "getBrTitleInfo":
+            lot = f"{int(params['bun'])}_{int(params['ji'])}"
+            path = DATAGO_FIXTURES / f"brtitle_{lot}.json"
+            return read(path.name if path.exists() else "brtitle_none.json")
+        raise AssertionError(f"unexpected data.go.kr call: {url}")
+
+    monkeypatch.setattr(datago, "_http_get", http_get)
+    http_get.calls = calls
+    http_get.overrides = overrides
+    return http_get
+
+
+EMPTY_EUM = (
+    "<response><header><resultCode>0</resultCode><resultMsg>OK</resultMsg></header>"
+    "<body><items></items><totalCount>0</totalCount></body></response>"
+).encode("cp949")
+
+
+@pytest.fixture
+def fake_vworld(monkeypatch, fake_ordinance, fake_datago):
     """Serve recorded VWorld responses (금정동 689, address lists) instead of the network; records calls."""
     calls: list[tuple[str, dict]] = []
     overrides: dict[str, object] = {}
@@ -126,6 +183,9 @@ def isolated_settings(tmp_path, monkeypatch):
     monkeypatch.setenv("LAW_OPEN_API_OC", "test-oc")
     monkeypatch.setattr(lawapi, "_http_get", _no_network)
     monkeypatch.setattr(lawapi, "_http_get_bytes", lambda url: _no_network(url, {}))
+    monkeypatch.setattr(datago, "ENV_PATH", tmp_path / "no.env")
+    monkeypatch.setenv("DATA_GO_KR_API_KEY", "test-key")
+    monkeypatch.setattr(datago, "_http_get", _no_network)
     lawapi.clear_cache()
     # No real nvidia-smi calls: tests that need a GPU patch query_nvidia_smi themselves.
     monkeypatch.setattr(hardware, "query_nvidia_smi", lambda: None)
