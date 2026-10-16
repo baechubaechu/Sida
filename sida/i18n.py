@@ -507,6 +507,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "site_pick": "Parcel number(s) — commas to merge several into one site (Enter = 1, 0 = cancel): ",
         "site_pick_invalid": "[site] Enter numbers from the list, e.g. 1 or 1,2.",
         "site_cancelled": "[site] Cancelled.",
+        "site_use_checking": "[site] Checking whether {name} may be built (토지이음) ...",
+        "site_use_removed": "[site] Forgot the planned use {name}.",
         "site_fetching": "[site] Fetching zoning and land data for {n} parcel(s) ...",
         "site_saved": "[site] Saved: {path}",
         "site_ordinance_fetching": "[site] Looking up the planning ordinance of {body} (law.go.kr) ...",
@@ -526,6 +528,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "web_site_lot_bad": "The main lot number is 1-9999 and the sub number 0-9999.",
         "web_site_point_bad": "That point is outside Korea: {lon}, {lat}",
         "web_site_shapes_limit": "Ask for at most {n} parcels at a time.",
+        "web_site_none": "Look the site up first: no site facts are saved for this project.",
+        "web_site_use_required": "Enter a planned use, such as 공장 or 단독주택.",
+        "web_site_use_unknown": "That use has not been checked for this site: {name}",
+        "web_site_use_not_found": "토지이음 has no use named exactly {name}. Close names: {names}",
+        "web_site_use_no_match": "토지이음 has no use name containing {name}.",
         "site_ordinance_unknown": "[site] No such article in the saved ordinance: {label}",
         "site_ordinance_hidden": "[site] Hidden: {label}. Experts no longer receive it.",
         "site_ordinance_shown": "[site] Shown again: {label}.",
@@ -545,6 +552,17 @@ STRINGS: dict[str, dict[str, str]] = {
         "site_err_over_limit": "[site] VWorld daily request limit reached. Try again tomorrow.",
         "site_err_network": "[site] Could not reach VWorld ({detail}). Check the connection and try again.",
         "site_err_bad_response": "[site] Unexpected reply from VWorld ({detail}).",
+        "datago_err_no_key": (
+            "[site] DATA_GO_KR_API_KEY is not set. Add the data.go.kr key (the decoded one) to .env "
+            "(see docs/dev-setup.md)."
+        ),
+        "datago_err_invalid_key": (
+            "[site] data.go.kr rejected the key ({detail}). The key may have expired, or the service "
+            "(토지이음 or 건축물대장) is not approved for it yet."
+        ),
+        "datago_err_over_limit": "[site] data.go.kr daily request limit reached. Try again tomorrow.",
+        "datago_err_network": "[site] Could not reach data.go.kr ({detail}). Check the connection and try again.",
+        "datago_err_bad_response": "[site] Unexpected reply from data.go.kr ({detail}).",
         "site_block_failed": "[site] Could not read site_facts.json ({reason}); running without site facts.",
         "state_proposing": "[state] Proposing project_state.md update from {agent} ...",
         "state_propose_failed": "[state] Could not propose an update: {reason}. Edit with /state edit.",
@@ -566,6 +584,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "  /site              show site facts (parcel, zoning, statutory limits)\n"
             "  /site <address>    look up a lot-number address and save its site facts\n"
             "  /site ordinance    list the local ordinance's coverage / FAR articles in three groups\n"
+            "  /site use <use>    check whether a planned use may be built (토지이음; /site unuse <use> forgets it)\n"
             "  /state             show project_state.md (Conductor memory)\n"
             "  /state edit        open project_state.md in your editor\n"
             "  /state update [id] propose a state update from a module output (diff + confirm)\n"
@@ -1075,6 +1094,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "site_pick": "필지 번호 — 여러 필지를 하나의 대지로 합치려면 쉼표로 구분 (Enter = 1, 0 = 취소): ",
         "site_pick_invalid": "[site] 목록의 번호를 입력하세요. 예: 1 또는 1,2",
         "site_cancelled": "[site] 취소했습니다.",
+        "site_use_checking": "[site] {name}을(를) 지을 수 있는지 조회하는 중 (토지이음) ...",
+        "site_use_removed": "[site] 계획 용도 {name}을(를) 지웠습니다.",
         "site_fetching": "[site] 필지 {n}개의 용도지역과 토지 정보를 가져오는 중 ...",
         "site_saved": "[site] 저장됨: {path}",
         "site_ordinance_fetching": "[site] {body}의 도시·군계획 조례를 찾는 중 (법제처) ...",
@@ -1094,6 +1115,11 @@ STRINGS: dict[str, dict[str, str]] = {
         "web_site_lot_bad": "본번은 1~9999, 부번은 0~9999 사이의 숫자입니다.",
         "web_site_point_bad": "한국 밖의 지점입니다: {lon}, {lat}",
         "web_site_shapes_limit": "필지는 한 번에 {n}개까지 요청할 수 있습니다.",
+        "web_site_none": "먼저 대지를 조회하세요. 이 프로젝트에 저장된 대지 사실이 없습니다.",
+        "web_site_use_required": "계획 용도를 입력하세요. 예: 공장, 단독주택",
+        "web_site_use_unknown": "이 대지에서 조회한 적 없는 용도입니다: {name}",
+        "web_site_use_not_found": "토지이음에 정확히 '{name}'인 용도가 없습니다. 비슷한 이름: {names}",
+        "web_site_use_no_match": "토지이음에 '{name}'이 들어간 용도 이름이 없습니다.",
         "site_ordinance_unknown": "[site] 저장된 조례에 그런 조문이 없습니다: {label}",
         "site_ordinance_hidden": "[site] 숨김: {label}. 전문가에게 넘기지 않습니다.",
         "site_ordinance_shown": "[site] 다시 표시: {label}.",
@@ -1113,6 +1139,17 @@ STRINGS: dict[str, dict[str, str]] = {
         "site_err_over_limit": "[site] 브이월드 하루 호출 한도를 넘었습니다. 내일 다시 시도하세요.",
         "site_err_network": "[site] 브이월드에 연결하지 못했습니다({detail}). 연결을 확인하고 다시 시도하세요.",
         "site_err_bad_response": "[site] 브이월드 응답이 예상과 다릅니다({detail}).",
+        "datago_err_no_key": (
+            "[site] DATA_GO_KR_API_KEY가 없습니다. .env에 공공데이터포털 키(Decoding 키)를 넣어 주세요 "
+            "(docs/dev-setup.md 참고)."
+        ),
+        "datago_err_invalid_key": (
+            "[site] 공공데이터포털이 키를 거부했습니다({detail}). 키가 만료됐거나, 이 서비스(토지이음 또는 "
+            "건축물대장)의 활용 신청이 아직 승인되지 않았을 수 있습니다."
+        ),
+        "datago_err_over_limit": "[site] 공공데이터포털 하루 호출 한도를 넘었습니다. 내일 다시 시도하세요.",
+        "datago_err_network": "[site] 공공데이터포털에 연결하지 못했습니다({detail}). 연결을 확인하고 다시 시도하세요.",
+        "datago_err_bad_response": "[site] 공공데이터포털 응답이 예상과 다릅니다({detail}).",
         "site_block_failed": "[site] site_facts.json을 읽지 못했습니다({reason}). 대지 사실 없이 실행합니다.",
         "state_proposing": "[state] {agent} 결과로 project_state.md 갱신안을 만드는 중 ...",
         "state_propose_failed": "[state] 갱신안을 만들지 못했습니다: {reason}. /state edit 로 직접 수정하세요.",
@@ -1134,6 +1171,7 @@ STRINGS: dict[str, dict[str, str]] = {
             "  /site              대지 사실 보기 (필지, 용도지역, 법정 상한)\n"
             "  /site <주소>       지번 주소로 필지를 찾아 대지 사실을 저장\n"
             "  /site 조례         조례의 건폐율·용적률 조문을 세 묶음으로 보기\n"
+            "  /site 용도 <용도>  계획 용도를 지을 수 있는지 조회 (토지이음; 지우기: /site 용도삭제 <용도>)\n"
             "  /state             project_state.md 보기 (Conductor 메모리)\n"
             "  /state edit        project_state.md 를 에디터로 열기\n"
             "  /state update [id] 모듈 결과로 상태 갱신안 제안 (diff 확인 후 적용)\n"

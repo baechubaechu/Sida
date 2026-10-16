@@ -17,7 +17,10 @@ def _print_site_facts(facts: dict) -> None:
 
 
 def cmd_site(session: Session, arg: str) -> str:
-    """`/site` shows saved facts, `/site 조례` the ordinance articles, `/site <address>` looks up."""
+    """
+    `/site` shows saved facts, `/site 조례` the ordinance articles, `/site 용도 <use>` checks a
+    planned use, `/site <address>` looks up.
+    """
     from sida.console import prompt_line
 
     project = session.project
@@ -47,6 +50,26 @@ def cmd_site(session: Session, arg: str) -> str:
             if not found:
                 print(t("site_ordinance_unknown", label=wanted))
         return "continue"
+    if head.lower() in {"용도", "use"}:
+        print(t("site_use_checking", name=rest.strip()))
+        try:
+            facts = site_facts.check_use(project.path, rest)
+        except ValueError as exc:
+            print(f"[site] {exc}")
+            return "continue"
+        except landapi.LandApiError as exc:
+            print(t(exc.MESSAGE_PREFIX + exc.kind, detail=exc.detail))
+            return "continue"
+        print("\n".join(site_facts.use_lines(facts)))
+        return "continue"
+    if head.lower() in {"용도삭제", "unuse"}:
+        try:
+            site_facts.remove_use(project.path, rest.strip())
+        except ValueError as exc:
+            print(f"[site] {exc}")
+            return "continue"
+        print(t("site_use_removed", name=rest.strip()))
+        return "continue"
     choices = {
         "숨김": ("dismissed", True, "site_ordinance_hidden"), "hide": ("dismissed", True, "site_ordinance_hidden"),
         "표시": ("dismissed", False, "site_ordinance_shown"), "show": ("dismissed", False, "site_ordinance_shown"),
@@ -67,7 +90,7 @@ def cmd_site(session: Session, arg: str) -> str:
     try:
         candidates = landapi.search_parcels(query)
     except landapi.LandApiError as exc:
-        print(t(f"site_err_{exc.kind}", detail=exc.detail))
+        print(t(exc.MESSAGE_PREFIX + exc.kind, detail=exc.detail))
         return "continue"
     if not candidates:
         print(t("site_no_match"))

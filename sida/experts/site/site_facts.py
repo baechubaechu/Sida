@@ -5,7 +5,10 @@ An address is resolved to one or more parcels (a site may merge several), each p
 zoning and land characteristics are fetched, and the result is saved in the project as
 site_facts.json. Experts then receive it as a SITE FACTS block, so zoning and statutory
 limits come from data instead of model memory. `attach_ordinance` adds the municipality's
-도시·군계획 조례 articles on 건폐율 and 용적률, quoted as written.
+도시·군계획 조례 articles on 건폐율 and 용적률, quoted as written. From data.go.kr come the
+buildings on the 건축물대장, the articles behind the zones' building limits
+(`attach_restrictions`) and, for a use the designer names, whether it may be built
+(`check_use`).
 
 UI-agnostic like engine.py: no printing, no input. Looking facts up never raises for a
 single failed call — the failure is recorded on the parcel and shown as "미확인".
@@ -23,7 +26,7 @@ from typing import TYPE_CHECKING
 import yaml
 
 from sida.config import ROOT
-from sida.experts.site import landapi
+from sida.experts.site import datago, landapi
 from sida.i18n import t
 from sida.storage import atomic_write_text
 
@@ -35,7 +38,8 @@ FACTS_VERSION = 1
 STALE_NOTE = (
     "[system] Site facts were looked up from the address and saved as site_facts.json "
     "(parcel, zoning, statutory coverage/FAR limits, the municipality's ordinance articles on "
-    "coverage/FAR). site_reader and regulation_checker now "
+    "coverage/FAR, registered buildings, the articles behind the zones' building limits). "
+    "site_reader and regulation_checker now "
     "receive them; outputs of those experts produced before this are stale."
 )
 LIMITS_PATH = ROOT / "data" / "zoning_limits.yaml"
@@ -76,6 +80,7 @@ def lookup_parcel(candidate: dict, *, http_get=None) -> dict:
         "building": candidate.get("building", ""),
         "zones": [],
         "characteristics": None,
+        "buildings": None,  # 건축물대장 표제부; [] = none registered, None = not retrieved
         "shape": None,  # boundary for the map; not a fact, so a failed call is not an error
         "errors": [],
     }
@@ -87,6 +92,10 @@ def lookup_parcel(candidate: dict, *, http_get=None) -> dict:
         parcel["characteristics"] = landapi.land_characteristics(parcel["pnu"], http_get=http_get)
     except landapi.LandApiError as exc:
         parcel["errors"].append({"what": "characteristics", "kind": exc.kind})
+    try:
+        parcel["buildings"] = datago.buildings(parcel["pnu"])
+    except landapi.LandApiError as exc:
+        parcel["errors"].append({"what": "buildings", "kind": exc.kind})
     try:
         parcel["shape"] = landapi.parcel_shape(parcel["pnu"], http_get=http_get)
     except landapi.LandApiError:
@@ -132,6 +141,89 @@ def attach_ordinance(facts: dict, *, http_get=None) -> dict:
                 x for x in before.get(key) or [] if before.get("name") == found["name"] and x in labels
             ]
         facts["ordinance"] = found
+    return facts
+
+
+def zone_codes_by_area(facts: dict) -> dict[str, list[str]]:
+    """
+    Codes of the zones and districts the site lies in (not merely next to), per 시·군·구 code
+    (the first five digits of the PNU), in API order.
+    """
+    out: dict[str, list[str]] = {}
+    for parcel in facts["parcels"]:
+        codes = out.setdefault(parcel["pnu"][:5], [])
+        for zone in parcel.get("zones") or []:
+            if zone.get("code") and zone.get("relation") != "접함" and zone["code"] not in codes:
+                codes.append(zone["code"])
+    return {area: codes for area, codes in out.items() if codes}
+
+
+def attach_restrictions(facts: dict) -> dict:
+    """
+    Add facts["restrictions"]: per 시·군·구, the statute and ordinance articles behind the
+    building limits of the site's zones (토지이음). A failed call is kept as {"error": kind}.
+    """
+    entries = []
+    for area, codes in zone_codes_by_area(facts).items():
+        entry = {"area": area, "codes": codes, "laws": [], "error": None}
+        try:
+            entry["laws"] = datago.zone_laws(area, codes)
+        except landapi.LandApiError as exc:
+            entry["error"] = exc.kind
+        entries.append(entry)
+    facts["restrictions"] = entries
+    return facts
+
+
+def use_check(facts: dict, name: str, *, now: datetime | None = None) -> dict:
+    """Whether the use `name` (an exact 토지이음 use name) may be built in each of the site's zones."""
+    stamp = (now or datetime.now().astimezone()).replace(microsecond=0)
+    entry = {"name": name, "checked_at": stamp.isoformat(), "zones": [], "error": None}
+    try:
+        for area, codes in zone_codes_by_area(facts).items():
+            entry["zones"] += [{"area": area, **z} for z in datago.use_rules(area, codes, name)]
+    except landapi.LandApiError as exc:
+        entry["error"] = exc.kind
+        entry["zones"] = []
+    return entry
+
+
+def check_use(project_path: Path, name: str) -> dict:
+    """
+    Look up whether `name` may be built on the saved site, keep it in facts["uses"] (replacing
+    an earlier check of the same use) and return the facts. ValueError without a saved site,
+    or when `name` is not a use name 토지이음 knows (the message lists the close ones).
+    LandApiError when the use names cannot be searched.
+    """
+    name = " ".join((name or "").split())
+    if not name:
+        raise ValueError(t("web_site_use_required"))
+    facts = load_facts(project_path)
+    if facts is None:
+        raise ValueError(t("web_site_none"))
+    known = [u["name"] for u in datago.search_uses(name)]
+    if name not in known:
+        if known:
+            raise ValueError(t("web_site_use_not_found", name=name, names=", ".join(known[:10])))
+        raise ValueError(t("web_site_use_no_match", name=name))
+    entry = use_check(facts, name)
+    uses = [u for u in facts.get("uses") or [] if u["name"] != name]
+    facts["uses"] = uses + [entry]
+    save_facts(project_path, facts)
+    return facts
+
+
+def remove_use(project_path: Path, name: str) -> dict:
+    """Forget a checked use. ValueError if the site or that use is not saved."""
+    facts = load_facts(project_path)
+    if facts is None:
+        raise ValueError(t("web_site_none"))
+    uses = facts.get("uses") or []
+    kept = [u for u in uses if u["name"] != name]
+    if len(kept) == len(uses):
+        raise ValueError(t("web_site_use_unknown", name=name))
+    facts["uses"] = kept
+    save_facts(project_path, facts)
     return facts
 
 
@@ -299,6 +391,9 @@ def refresh(
     if progress and facts["summary"]["zoning"]:
         progress(facts["summary"]["municipality"])
     attach_ordinance(facts)
+    attach_restrictions(facts)
+    # Uses checked for the earlier site are checked again against the new zoning.
+    facts["uses"] = [use_check(facts, u["name"]) for u in (previous or {}).get("uses") or []]
     save_facts(project_path, facts)
     return facts
 
@@ -347,7 +442,10 @@ def candidates_for_pnus(pnus: list[str], *, http_get=None) -> list[dict]:
 def site_view(facts: dict | None) -> dict:
     """Saved site facts arranged for a screen: parcels, zoning with statutory limits, flags."""
     if not facts:
-        return {"available": False, "query": "", "fetched_at": "", "parcels": [], "summary": None, "lines": []}
+        return {
+            "available": False, "query": "", "fetched_at": "", "parcels": [], "summary": None,
+            "restrictions": [], "uses": [], "lines": [],
+        }
     parcels = []
     for p in facts["parcels"]:
         ch = p.get("characteristics") or {}
@@ -362,6 +460,7 @@ def site_view(facts: dict | None) -> dict:
                 "use": ch.get("use", ""),
                 "road_side": ch.get("road_side", ""),
                 "shape": p.get("shape"),
+                "buildings": p.get("buildings"),
                 "errors": [e["what"] for e in p.get("errors") or []],
             }
         )
@@ -371,6 +470,8 @@ def site_view(facts: dict | None) -> dict:
         "fetched_at": facts.get("fetched_at", ""),
         "parcels": parcels,
         "summary": facts["summary"],
+        "restrictions": facts.get("restrictions") or [],
+        "uses": facts.get("uses") or [],
         "lines": describe(facts).replace("\n- ", "\n").removeprefix("- ").split("\n"),
     }
 
@@ -570,7 +671,11 @@ def _roads_line(facts: dict) -> str | None:
 
 
 def _missing_lines(facts: dict) -> list[str]:
-    labels = {"land_use": "토지이용계획(용도지역·지구)", "characteristics": "토지 특성"}
+    labels = {
+        "land_use": "토지이용계획(용도지역·지구)",
+        "characteristics": "토지 특성",
+        "buildings": "건축물대장",
+    }
     return [
         f"조회 실패(미확인): {m['address'] or m['pnu']}의 {labels.get(m['what'], m['what'])}"
         for m in facts["summary"]["missing"]
@@ -583,7 +688,149 @@ def physical_lines(facts: dict) -> list[str]:
     road = _roads_line(facts)
     if road:
         lines.append(road)
-    lines += [m for m in _missing_lines(facts) if "토지 특성" in m]
+    lines += building_lines(facts, ratios=False)
+    lines += [m for m in _missing_lines(facts) if "토지 특성" in m or "건축물대장" in m]
+    return lines
+
+
+def _number(value, unit: str, digits: int = 2) -> str | None:
+    if value is None:
+        return None
+    text = f"{value:,.{digits}f}".rstrip("0").rstrip(".")
+    return f"{text}{unit}"
+
+
+def _building_text(b: dict, ratios: bool) -> str:
+    head = b.get("name") or "건물 이름 없음"
+    if b.get("dong"):
+        head += f" {b['dong']}"
+    if b.get("main_or_annex") and b["main_or_annex"] != "주건축물":
+        head += f"({b['main_or_annex']})"
+    parts = [x for x in (b.get("purpose"), b.get("structure")) if x]
+    if b.get("floors_above") is not None:
+        floors = f"지상 {b['floors_above']}층"
+        if b.get("floors_below"):
+            floors += f"·지하 {b['floors_below']}층"
+        parts.append(floors)
+    figures = [("연면적", "total_floor_area_m2", "㎡")]
+    if ratios:
+        figures += [("건폐율", "bcr", "%"), ("용적률", "far", "%")]
+    for word, key, unit in figures:
+        value = _number(b.get(key), unit)
+        if value:
+            parts.append(f"{word} {value}")
+    approved = b.get("approved") or ""
+    if len(approved) == 8 and approved.isdigit():
+        parts.append(f"사용승인 {approved[:4]}-{approved[4:6]}-{approved[6:]}")
+    return f"{head} — " + ", ".join(parts) if parts else head
+
+
+def building_lines(facts: dict, *, ratios: bool = True) -> list[str]:
+    """
+    Registered buildings per parcel (건축물대장 표제부, as registered). `ratios` adds the
+    registered 건폐율 / 용적률 (left out of the physical block: code figures are not site_reader's).
+    """
+    lines = []
+    many = len(facts["parcels"]) > 1
+    for i, parcel in enumerate(facts["parcels"], start=1):
+        buildings = parcel.get("buildings")
+        if buildings is None:
+            continue  # not retrieved: listed with the other failed calls
+        where = f", 필지 {i}" if many else ""
+        if not buildings:
+            lines.append(f"기존 건축물(건축물대장{where}): 등록된 건축물 없음")
+        for b in buildings:
+            lines.append(f"기존 건축물(건축물대장{where}): {_building_text(b, ratios)}")
+    return lines
+
+
+_TITLE_RE = re.compile(r"^(제\d+조(?:의\d+)?\([^)]*\))")
+_ANNEX_RE = re.compile(r"^(\[별표[^\]]*\])\s*(?:<[^>]*>)?\s*")
+
+
+def law_title(text: str) -> str:
+    """'제71조(용도지역안에서의 건축제한) …' → '제71조(용도지역안에서의 건축제한)'; 별표 keeps its title."""
+    match = _TITLE_RE.match(text)
+    if match:
+        return match.group(1)
+    match = _ANNEX_RE.match(text)
+    if match:
+        rest = text[match.end():]
+        title = rest.split("(")[0].strip() if "(" in rest else rest
+        return f"{match.group(1)} {title[:60]}".strip()
+    return text if len(text) <= 60 else text[:60] + "…"
+
+
+def _law_titles(laws: list[dict], local: bool) -> str:
+    """Article titles of one side (national or local); zones are named when there are several."""
+    many_zones = len({z for law in laws for z in law["zones"]}) > 1
+    out = []
+    for law in laws:
+        if law["local"] != local:
+            continue
+        title = law_title(law["text"])
+        if many_zones:
+            title += f"[{', '.join(law['zones'])}]"
+        out.append(title)
+    return ", ".join(out)
+
+
+def restriction_lines(facts: dict) -> list[str]:
+    """The articles behind the zones' building limits, national and local apart."""
+    entries = facts.get("restrictions")
+    if entries is None:
+        return []
+    body = facts["summary"].get("municipality") or "지자체"
+    lines = []
+    for entry in entries:
+        if entry.get("error"):
+            lines.append("건축제한 근거 조문(토지이음): 조회 실패(미확인)")
+            continue
+        if not entry["laws"]:
+            lines.append("건축제한 근거 조문(토지이음): 해당 조문 없음")
+            continue
+        national, local = _law_titles(entry["laws"], False), _law_titles(entry["laws"], True)
+        if national:
+            lines.append(f"건축제한 근거 조문(토지이음, 국가 법령 — 응답에 법령 이름 없음): {national}")
+        if local:
+            lines.append(f"건축제한 근거 조문(토지이음, {body} 조례): {local}")
+    return lines
+
+
+def use_lines(facts: dict) -> list[str]:
+    """Whether the uses the designer named may be built, zone by zone, provisos as written."""
+    uses = facts.get("uses")
+    if uses is None:
+        return []
+    if not uses:
+        return ["건축 가능 여부(토지이음 행위제한): 계획 용도를 정해 조회하지 않음 — 미확인"]
+    lines = []
+    for use in uses:
+        head = f"건축 가능 여부({use['name']}, 토지이음 행위제한)"
+        if use.get("error"):
+            lines.append(f"{head}: 조회 실패(미확인)")
+            continue
+        if not use["zones"]:
+            lines.append(f"{head}: 이 용도에 대한 행위제한 정보가 없음(미확인)")
+            continue
+        parts = []
+        for zone in use["zones"]:
+            acts = ", ".join(f"{a['act']} {a['result']}" for a in zone["acts"]) or "행위 정보 없음"
+            parts.append(f"{zone['zone']} — {acts}")
+        lines.append(f"{head}: " + "; ".join(parts))
+        defined = {
+            u["law"] for zone in use["zones"] for a in zone["acts"] for u in a["uses"]
+            if u.get("law") and u.get("name") == use["name"]
+        }
+        if defined:
+            lines.append(f"  용도 정의({use['name']}): {', '.join(sorted(defined))}")
+        seen: set[str] = set()
+        for zone in use["zones"]:
+            for act in zone["acts"]:
+                for condition in act["conditions"]:
+                    if condition not in seen:
+                        seen.add(condition)
+                        lines.append(f"  단서({zone['zone']} {act['act']}): {condition}")
     return lines
 
 
@@ -619,8 +866,11 @@ def regulatory_lines(facts: dict) -> list[str]:
     road = _roads_line(facts)
     if road:
         lines.append(road)
+    lines += use_lines(facts)
+    lines += restriction_lines(facts)
+    lines += building_lines(facts)
     lines += [f"확인 필요: {flag}" for flag in s["flags"]]
-    lines += [m for m in _missing_lines(facts) if "토지이용계획" in m]
+    lines += [m for m in _missing_lines(facts) if "토지이용계획" in m or "건축물대장" in m]
     return lines
 
 

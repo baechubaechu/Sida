@@ -376,7 +376,8 @@ def test_site_api_searches_looks_up_merged_parcels_and_reads_back(client, projec
 
     url = f"/api/projects/{project.name}/site"
     assert client.get(url).json() == {
-        "available": False, "query": "", "fetched_at": "", "parcels": [], "summary": None, "lines": [],
+        "available": False, "query": "", "fetched_at": "", "parcels": [], "summary": None,
+        "restrictions": [], "uses": [], "lines": [],
     }
 
     found = client.post(f"{url}/parcels", json={"query": "  경기도 군포시 금정동 689 "}).json()
@@ -403,6 +404,41 @@ def test_site_api_searches_looks_up_merged_parcels_and_reads_back(client, projec
     client.put(url, json={"query": "경기도 군포시 금정동 689", "pnus": [first["pnu"]]})
     assert site_facts.load_facts(project.path)["ordinance"]["dismissed"] == ["제52조"]
     assert client.get(url).json()["summary"]["parcel_count"] == 1
+
+
+def test_site_uses_api_searches_checks_and_forgets_planned_uses(client, project, fake_vworld, fake_datago):
+    from sida.experts.site import site_facts
+
+    found = client.get("/api/site/uses", params={"q": " 단독주택 "}).json()
+    assert found == {"query": "단독주택", "uses": found["uses"]} and found["uses"][0]["name"] == "단독주택"
+    assert client.get("/api/site/uses", params={"q": " "}).status_code == 400
+
+    url = f"/api/projects/{project.name}/site"
+    r = client.post(f"{url}/uses", json={"name": "공장"})
+    assert r.status_code == 400 and "먼저 대지를 조회" in r.json()["detail"]
+
+    site = client.put(url, json={"query": "경기도 군포시 금정동 689", "pnus": ["4141010500106890014"]}).json()
+    assert site["uses"] == [] and site["restrictions"][0]["laws"]
+    assert site["parcels"][0]["buildings"][0]["name"] == "(주)혜창"
+
+    body = client.post(f"{url}/uses", json={"name": "공장"}).json()
+    assert [u["name"] for u in body["uses"]] == ["공장"]
+    assert [z["zone"] for z in body["uses"][0]["zones"]] == ["과밀억제권역", "일반공업지역"]
+    assert any(line.startswith("건축 가능 여부(공장, 토지이음 행위제한)") for line in body["lines"])
+    assert client.get(url).json() == body  # saved
+
+    r = client.post(f"{url}/uses", json={"name": "우주정거장"})
+    assert r.status_code == 400 and "우주정거장" in r.json()["detail"]
+
+    assert client.delete(f"{url}/uses/공장").json()["uses"] == []
+    assert client.delete(f"{url}/uses/공장").status_code == 404
+    assert site_facts.load_facts(project.path)["uses"] == []
+
+    fake_datago.overrides["DTsearchLunCd"] = "arlanduse_badkey.json"
+    r = client.post(f"{url}/uses", json={"name": "공장"})
+    assert r.status_code == 503 and r.json()["detail"].startswith("공공데이터포털이 키를 거부했습니다")
+    assert client.get("/api/site/uses", params={"q": "공장"}).status_code == 503
+    assert client.post("/api/projects/nope/site/uses", json={"name": "공장"}).status_code == 404
 
 
 def test_site_api_lookup_tells_the_conductor_earlier_site_outputs_are_stale(client, project, fake_vworld):

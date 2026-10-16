@@ -627,3 +627,177 @@ def test_refresh_saves_the_site_and_drops_an_ordinance_that_no_longer_fits(proje
     again = site_facts.refresh(project.path, "금정동 689", site_facts.pick_candidates(found, [P14]))
     assert again["summary"]["zoning"] == [] and "ordinance" not in again
     assert site_facts.site_view(again)["available"] and site_facts.site_view(None)["available"] is False
+
+
+# --- data.go.kr: buildings, articles behind the limits, planned uses ---------------
+
+
+def test_lookup_adds_the_registered_buildings(one):
+    (building,) = one["parcels"][0]["buildings"]
+    assert building["name"] == "(주)혜창" and building["purpose"] == "공장" and building["floors_above"] == 4
+    physical = site_facts.facts_block(one, "physical")
+    regulatory = site_facts.facts_block(one, "regulatory")
+    line = "기존 건축물(건축물대장): (주)혜창 — 공장, 철근콘크리트구조, 지상 4층·지하 1층, 연면적 2,687.92㎡"
+    assert line + ", 사용승인 2003-02-04" in physical
+    # The registered ratios go to the regulatory experts only.
+    assert line + ", 건폐율 69.84%, 용적률 203.87%, 사용승인 2003-02-04" in regulatory
+    assert site_facts.site_view(one)["parcels"][0]["buildings"] == [building]
+
+
+def test_merged_site_names_the_parcel_of_each_building(merged):
+    physical = site_facts.facts_block(merged, "physical")
+    assert "기존 건축물(건축물대장, 필지 1): (주)혜창" in physical
+    assert "기존 건축물(건축물대장, 필지 2): (주)아이리스코리아 — 창고시설" in physical
+
+
+def test_building_register_empty_or_failed_is_said_so(fake_vworld, fake_datago):
+    fake_datago.overrides["getBrTitleInfo"] = "brtitle_none.json"
+    empty = site_facts.build_facts("금정동 689-14", candidates(P14), now=NOW)
+    assert empty["parcels"][0]["buildings"] == []
+    assert "기존 건축물(건축물대장): 등록된 건축물 없음" in site_facts.facts_block(empty, "physical")
+
+    fake_datago.overrides["getBrTitleInfo"] = LandApiError("network", "ReadTimeout")
+    failed = site_facts.build_facts("금정동 689-14", candidates(P14), now=NOW)
+    assert failed["parcels"][0]["buildings"] is None
+    assert {"pnu": P14, "address": "경기도 군포시 금정동 689-14", "what": "buildings", "kind": "network"} in (
+        failed["summary"]["missing"]
+    )
+    physical = site_facts.facts_block(failed, "physical")
+    assert "조회 실패(미확인): 경기도 군포시 금정동 689-14의 건축물대장" in physical
+    assert "기존 건축물" not in physical  # no building is made up
+    assert failed["summary"]["total_area_m2"] == 1014.3  # the land records still came
+
+
+def test_articles_behind_the_limits_are_listed_national_and_local(one, fake_datago):
+    site_facts.attach_restrictions(one)
+    (entry,) = one["restrictions"]
+    assert entry["area"] == "41410" and entry["error"] is None and "UQA320" in entry["codes"]
+    _url, params = next(c for c in fake_datago.calls if c[0].endswith("/DTluLawInfo"))
+    assert params["areaCd"] == "41410"
+    block = site_facts.facts_block(one, "regulatory")
+    national = next(line for line in block.split("\n") if "국가 법령" in line)
+    local = next(line for line in block.split("\n") if "경기도 군포시 조례" in line)
+    assert "제71조(용도지역안에서의 건축제한)[일반공업지역]" in national
+    assert "[별표 1의2] 과밀억제권역 안에서의 공장의 신설·증설 또는 이전이 허용되는 경우[과밀억제권역]" in national
+    assert "제14조(건축자재업종)[과밀억제권역]" in national and "<개정" not in national  # title only
+    assert local.endswith("제32조(용도지역안에서의 건축제한)[일반공업지역], [별표 12] 일반공업지역 안에서 건축할 수 있는 건축물[일반공업지역]")
+
+
+def test_failed_article_lookup_is_unknown(one, fake_datago):
+    fake_datago.overrides["DTluLawInfo"] = LandApiError("over_limit")
+    site_facts.attach_restrictions(one)
+    assert one["restrictions"][0]["error"] == "over_limit" and one["restrictions"][0]["laws"] == []
+    assert "건축제한 근거 조문(토지이음): 조회 실패(미확인)" in site_facts.facts_block(one, "regulatory")
+
+
+def test_zone_codes_skip_adjacent_districts_and_group_by_area(fake_vworld):
+    facts = site_facts.build_facts("금정동 689", candidates(P14, P15), now=NOW)
+    codes = site_facts.zone_codes_by_area(facts)
+    assert list(codes) == ["41410"] and len(codes["41410"]) == len(set(codes["41410"]))
+    adjacent = {z["code"] for p in facts["parcels"] for z in p["zones"] if z["relation"] == "접함"}
+    assert adjacent and not adjacent & set(codes["41410"])
+
+
+def test_planned_use_is_checked_zone_by_zone_with_provisos(project, one, fake_datago):
+    site_facts.save_facts(project.path, one)
+    facts = site_facts.check_use(project.path, " 공장 ")
+    (use,) = facts["uses"]
+    assert use["name"] == "공장" and use["error"] is None
+    assert [(z["zone"], [a["result"] for a in z["acts"]]) for z in use["zones"]] == [
+        ("과밀억제권역", ["금지", "금지"]),
+        ("일반공업지역", ["가능"]),
+    ]
+    assert site_facts.load_facts(project.path)["uses"] == [use]
+    block = site_facts.facts_block(facts, "regulatory")
+    assert (
+        "건축 가능 여부(공장, 토지이음 행위제한): 과밀억제권역 — 업종변경 금지, 신설·증설·이전 금지; "
+        "일반공업지역 — 건축 가능"
+    ) in block
+    assert "단서(과밀억제권역 업종변경): 다만, 「산업집적활성화 및 공장설립에 관한 법률 시행령」 제26조" in block
+    assert "용도 정의(공장): 건축법 시행령 별표 1 제17호" in block
+
+    # The same use again replaces the earlier check; another one is added after it.
+    site_facts.check_use(project.path, "공장")
+    facts = site_facts.check_use(project.path, "단독주택")
+    assert [u["name"] for u in facts["uses"]] == ["공장", "단독주택"]
+    assert "건축 가능 여부(단독주택, 토지이음 행위제한): 일반공업지역 — 건축 금지" in site_facts.facts_block(
+        facts, "regulatory"
+    )
+
+    facts = site_facts.remove_use(project.path, "공장")
+    assert [u["name"] for u in facts["uses"]] == ["단독주택"]
+    with pytest.raises(ValueError, match="조회한 적 없는 용도"):
+        site_facts.remove_use(project.path, "공장")
+
+
+def test_planned_use_must_be_a_name_the_api_knows(project, one, fake_datago):
+    with pytest.raises(ValueError, match="먼저 대지를 조회"):
+        site_facts.check_use(project.path, "공장")
+    site_facts.save_facts(project.path, one)
+    with pytest.raises(ValueError, match="계획 용도를 입력"):
+        site_facts.check_use(project.path, "  ")
+    with pytest.raises(ValueError, match="들어간 용도 이름이 없습니다"):
+        site_facts.check_use(project.path, "우주정거장")
+    fake_datago.overrides["DTsearchLunCd"] = "lun_factory.xml"
+    with pytest.raises(ValueError, match="비슷한 이름: 공장, "):
+        site_facts.check_use(project.path, "공장건물")
+    assert "uses" not in site_facts.load_facts(project.path)  # nothing saved
+
+
+def test_failed_use_check_is_kept_as_unknown(project, one, fake_datago):
+    site_facts.save_facts(project.path, one)
+    fake_datago.overrides["DTarLandUseInfo"] = LandApiError("network", "ReadTimeout")
+    (use,) = site_facts.check_use(project.path, "공장")["uses"]
+    assert use["error"] == "network" and use["zones"] == []
+    assert "건축 가능 여부(공장, 토지이음 행위제한): 조회 실패(미확인)" in site_facts.facts_block(
+        site_facts.load_facts(project.path), "regulatory"
+    )
+
+
+def test_refresh_attaches_the_articles_and_checks_the_uses_again(project, fake_vworld, fake_datago):
+    found = landapi.search_parcels("경기도 군포시 금정동 689")
+    facts = site_facts.refresh(project.path, "금정동 689", site_facts.pick_candidates(found, [P14]))
+    assert facts["uses"] == [] and facts["restrictions"][0]["laws"]
+    assert "건축 가능 여부(토지이음 행위제한): 계획 용도를 정해 조회하지 않음 — 미확인" in site_facts.facts_block(
+        facts, "regulatory"
+    )
+    site_facts.check_use(project.path, "단독주택")
+    before = len([c for c in fake_datago.calls if c[0].endswith("/DTarLandUseInfo")])
+    again = site_facts.refresh(project.path, "금정동 689", site_facts.pick_candidates(found, [P15, P14]))
+    assert [u["name"] for u in again["uses"]] == ["단독주택"] and again["uses"][0]["zones"]
+    assert len([c for c in fake_datago.calls if c[0].endswith("/DTarLandUseInfo")]) == before + 1
+    view = site_facts.site_view(again)
+    assert view["uses"] == again["uses"] and view["restrictions"] == again["restrictions"]
+
+
+def test_facts_saved_before_data_go_kr_still_render(one):
+    for parcel in one["parcels"]:
+        del parcel["buildings"]
+    regulatory = site_facts.facts_block(one, "regulatory")
+    physical = site_facts.facts_block(one, "physical")
+    assert "기존 건축물" not in physical + regulatory
+    assert "건축 가능 여부" not in regulatory and "건축제한 근거 조문" not in regulatory
+    view = site_facts.site_view(one)
+    assert view["uses"] == [] and view["restrictions"] == [] and view["parcels"][0]["buildings"] is None
+
+
+def test_site_use_command_checks_and_forgets_a_planned_use(make_session, one, fake_datago, monkeypatch, capsys):
+    s = make_session()
+    dispatch(s, "/site 용도 공장")
+    assert "먼저 대지를 조회" in capsys.readouterr().out
+
+    site_facts.save_facts(s.project.path, one)
+    dispatch(s, "/site 용도 공장")
+    out = capsys.readouterr().out
+    assert "건축 가능 여부(공장, 토지이음 행위제한): 과밀억제권역 — 업종변경 금지" in out
+    assert [u["name"] for u in site_facts.load_facts(s.project.path)["uses"]] == ["공장"]
+
+    monkeypatch.delenv("DATA_GO_KR_API_KEY")
+    dispatch(s, "/site use 단독주택")
+    assert "DATA_GO_KR_API_KEY가 없습니다" in capsys.readouterr().out
+
+    dispatch(s, "/site 용도삭제 공장")
+    assert "공장을(를) 지웠습니다" in capsys.readouterr().out
+    assert site_facts.load_facts(s.project.path)["uses"] == []
+    dispatch(s, "/site unuse 공장")
+    assert "조회한 적 없는 용도" in capsys.readouterr().out

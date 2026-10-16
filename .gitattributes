@@ -5,3 +5,4 @@
 *.jpg binary
 *.pdf binary
 *.hwp binary
+tests/fixtures/datago/*.xml binary

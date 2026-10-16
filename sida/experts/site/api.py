@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from sida import workspace
-from sida.experts.site import landapi, site_facts
+from sida.experts.site import datago, landapi, site_facts
 from sida.i18n import t
 from sida.project import load_project
 
@@ -27,6 +27,10 @@ class SiteLookup(BaseModel):
     pnus: list[str]
 
 
+class UseCheck(BaseModel):
+    name: str
+
+
 class OptionState(BaseModel):
     dismissed: bool | None = None
     detailed: bool | None = None
@@ -37,7 +41,7 @@ def _land(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
     except landapi.LandApiError as exc:
-        detail = t(f"site_err_{exc.kind}", detail=exc.detail).removeprefix("[site] ")
+        detail = t(exc.MESSAGE_PREFIX + exc.kind, detail=exc.detail).removeprefix("[site] ")
         raise HTTPException(status_code=_LAND_STATUS.get(exc.kind, 502), detail=detail) from exc
 
 
@@ -97,6 +101,13 @@ def _address_router() -> APIRouter:
             raise HTTPException(status_code=400, detail=t("web_site_pnu_bad", pnu=bad))
         return {"shapes": [{"pnu": p, "shape": _land(landapi.parcel_shape, p)} for p in pnus]}
 
+    @router.get("/uses")
+    def get_uses(q: str = "") -> dict:
+        query = " ".join(q.split())
+        if not query:
+            raise HTTPException(status_code=400, detail=t("web_site_use_required"))
+        return {"query": query, "uses": _land(datago.search_uses, query)}
+
     return router
 
 
@@ -151,6 +162,23 @@ def _project_router(load_config, core) -> APIRouter:
             return core(
                 site_facts.set_option, path, option_id, dismissed=body.dismissed, detailed=body.detailed
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/uses")
+    def check_use(name: str, body: UseCheck) -> dict:
+        path = core(workspace.find_project, load_config(), name)
+        try:
+            facts = _land(core, site_facts.check_use, path, body.name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return site_facts.site_view(facts)
+
+    @router.delete("/uses/{use}")
+    def remove_use(name: str, use: str) -> dict:
+        path = core(workspace.find_project, load_config(), name)
+        try:
+            return site_facts.site_view(core(site_facts.remove_use, path, use))
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
