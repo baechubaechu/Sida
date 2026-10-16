@@ -391,19 +391,23 @@ def converse(session: Session, user_text: str | None, *, ephemeral: bool = False
     return turn
 
 
-def run_expert(session: Session, agent: dict, *, mode: str | None = None) -> ExpertRun:
+def run_expert(
+    session: Session, agent: dict, *, mode: str | None = None, revision: str | None = None
+) -> ExpertRun:
     """Run one expert, then settle_state. A failed run is reported ("module_failed"), not raised."""
     try:
-        run = run_module(session, agent)
+        run = run_module(session, agent, revision=revision)
     except LLMError as exc:
         session.send("module_failed", agent=agent, reason=str(exc))
         return ExpertRun(agent=agent, run=None, error=str(exc))
     return ExpertRun(agent=agent, run=run, state=settle_state(session, agent, mode=mode))
 
 
-def run_expert_command(session: Session, agent: dict, user_text: str) -> ExpertRun:
+def run_expert_command(
+    session: Session, agent: dict, user_text: str, *, revision: str | None = None
+) -> ExpertRun:
     """The designer ran an expert directly (no Conductor call): run, settle state, record."""
-    result = run_expert(session, agent)
+    result = run_expert(session, agent, revision=revision)
     if result.run is not None:
         record_command_run(session, agent, user_text, state_updated=_state_updated(result))
     return result
@@ -418,8 +422,11 @@ def _state_updated(result: ExpertRun) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def run_module(session: Session, agent: dict) -> ModuleRun:
-    """Run one expert and refresh cached outputs. Raises LLMError; nothing is saved then."""
+def run_module(session: Session, agent: dict, *, revision: str | None = None) -> ModuleRun:
+    """
+    Run one expert and refresh cached outputs. Raises LLMError; nothing is saved then.
+    `revision` is a designer change request the expert applies to its current output.
+    """
     session.send("module_started", agent=agent)
     notify = None
     if session.capture_notices:
@@ -437,6 +444,7 @@ def run_module(session: Session, agent: dict) -> ModuleRun:
         provider=session.w_provider,
         project_state=session.project.read_state(),
         notify=notify,
+        revision=revision,
     )
     session.refresh_modules()
     path = session.output_dir / agent["output"]
@@ -615,7 +623,7 @@ def history_messages(history: list[dict]) -> list[dict]:
             name = content[len(_READ_PREFIX):].split(" ", 1)[0]
             messages.append({"role": "system", "event": "read", "agent": name, "text": content})
         elif role == "user" and content.startswith(_RUN_COMMAND_PREFIX):
-            agent = content[len(_RUN_COMMAND_PREFIX):].strip()
+            agent = (content[len(_RUN_COMMAND_PREFIX):].split() or [""])[0]
             messages.append(
                 {"role": "system", "event": "run_requested", "agent": agent, "text": content}
             )

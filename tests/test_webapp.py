@@ -710,3 +710,58 @@ def test_session_rejects_bad_requests(session_api, mock_config):
     other = create_blank_project("other", config=mock_config)
     job = client.post(f"{base}/session/experts/site_reader/run").json()["job"]
     assert client.get(f"/api/projects/{other.name}/session/jobs/{job['id']}").status_code == 404
+
+
+def test_expert_chat_api_answers_and_revises(session_api, monkeypatch):
+    from sida import engine
+    from tests.test_expert_chat import REVISE, ChatProvider
+
+    client, base, _conductor = session_api
+    provider = ChatProvider([REVISE])
+    monkeypatch.setattr(engine, "worker_provider", lambda *_a: provider)
+    url = f"{base}/experts/program_analyst/chat"
+
+    empty = client.get(url).json()
+    assert empty["chat"] is True and empty["messages"] == [] and empty["name"]
+
+    job = finished_job(client, base, client.post(url, json={"text": "더 자세히"}))
+    assert job["status"] == "done" and job["kind"] == "expert_chat"
+    kinds = [e["kind"] for e in job["events"]]
+    assert kinds[:3] == ["expert_reply", "module_started", "module_saved"]
+    assert kinds[-1] == "state_proposed"
+    assert [m["role"] for m in client.get(url).json()["messages"]] == ["user", "expert", "system"]
+    # The main chat shows the revision run as a completed expert.
+    main = client.get(f"{base}/session").json()["messages"]
+    assert main[-1]["event"] == "module_completed" and main[-1]["agent"] == "program_analyst"
+
+
+def test_expert_chat_api_rejects_experts_without_chat(session_api):
+    client, base, _conductor = session_api
+    site = client.get(f"{base}/experts/site_reader/chat").json()
+    assert site["chat"] is False
+    assert client.post(f"{base}/experts/site_reader/chat", json={"text": "안녕"}).status_code == 400
+    assert client.post(f"{base}/experts/program_analyst/chat", json={"text": " "}).status_code == 400
+    assert client.get(f"{base}/experts/nope/chat").status_code == 404
+    experts = {e["id"]: e["chat"] for e in client.get(f"{base}/session").json()["experts"]}
+    assert experts["site_reader"] is False and experts["program_analyst"] is True
+
+
+def test_session_expert_run_with_revision_request(session_api, monkeypatch):
+    from sida import engine
+    from tests.test_expert_chat import ChatProvider
+
+    client, base, _conductor = session_api
+    provider = ChatProvider([])
+    monkeypatch.setattr(engine, "worker_provider", lambda *_a: provider)
+    finished_job(client, base, client.post(f"{base}/session/experts/site_reader/run"))
+    job = finished_job(client, base, client.post(
+        f"{base}/session/experts/site_reader/run", json={"revision": "북측 도로를 더 자세히"},
+    ))
+    assert job["status"] == "done"
+    worker_calls = [c for c in provider.calls if c["role"] == "worker"]
+    assert "북측 도로를 더 자세히" in worker_calls[-1]["messages"][-1]["content"]
+    messages = client.get(f"{base}/session").json()["messages"]
+    assert messages[-2] | {"text": ""} == {
+        "role": "system", "event": "run_requested", "agent": "site_reader",
+        "name": "대지 분석가", "text": "",
+    }

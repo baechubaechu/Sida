@@ -1,6 +1,6 @@
-# 세션 화면 API (Conductor 대화, 전문가 실행)
+# 세션 화면 API (Conductor 대화, 전문가 실행, 전문가 채팅)
 
-웹 UI 2단계 ② 세션 화면이 쓰는 JSON API입니다. 화면은 이 API에 `fetch`로 붙이면 됩니다. 로직은 `sida/engine.py`, 작업 관리는 `sida/session_jobs.py`, 경로는 `sida/session_api.py`에 있습니다.
+웹 UI 2단계 ② 세션 화면이 쓰는 JSON API입니다. 화면은 이 API에 `fetch`로 붙이면 됩니다. 로직은 `sida/engine.py`와 `sida/expert_chat.py`, 작업 관리는 `sida/session_jobs.py`, 경로는 `sida/session_api.py`에 있습니다.
 
 ## 동작 방식
 
@@ -19,7 +19,9 @@
 | `GET /session` | | `{messages, job, experts, proposal}` |
 | `POST /session/opening` | 본문 없음 | `202 {job}`. Conductor의 첫 인사. 화면을 열었을 때 `messages`가 비어 있으면 부르세요 |
 | `POST /session/messages` | `{text}` | `202 {job}` |
-| `POST /session/experts/{agent}/run` | 본문 없음 | `202 {job}`. 설계자가 전문가를 직접 실행(CLI의 `/run`). Conductor를 부르지 않음 |
+| `POST /session/experts/{agent}/run` | 본문 없음, 또는 `{revision}` | `202 {job}`. 설계자가 전문가를 직접 실행(CLI의 `/run`). Conductor를 부르지 않음. `revision`을 주면 전문가가 지금 결과를 그 요청대로 고쳐 씀("Request revision") |
+| `GET /experts/{agent}/chat` | | `{agent, name, chat, messages, job}`. 전문가 채팅 기록 |
+| `POST /experts/{agent}/chat` | `{text}` | `202 {job}`. 전문가에게 메시지. `chat`이 `false`인 전문가는 `400` |
 | `GET /session/jobs/{id}` | `?after=0` | `{id, kind, agent, status, running_agent, error, started_at, finished_at, events}` |
 | `GET /modules/{agent}` | | `{agent, name, phase, content, updated_at}`. 전문가 결과 문서(Markdown 원문). 아직 실행 전이면 `404` |
 
@@ -30,7 +32,7 @@
   - `event: "run_requested"`: 설계자가 직접 실행을 누른 자리.
   - `event: "read"`: Conductor가 결과 문서를 읽은 자리. 작은 안내 줄 정도면 됩니다.
 - `job`: 실행 중인 작업. 없으면 `null`. 화면을 새로 열었을 때 값이 있으면 그 작업을 `after=0`부터 이어서 조회하세요.
-- `experts`: 우측 전문가 패널용 목록. `{id, name, phase, done, updated_at, status}`이고 `status`는 `idle`(실행 전), `running`(실행 중), `review`(설계 상태 반영 승인을 기다림), `done`입니다.
+- `experts`: 우측 전문가 패널용 목록. `{id, name, phase, done, updated_at, chat, status}`이고 `chat`은 전문가 채팅이 있는지, `status`는 `idle`(실행 전), `running`(실행 중), `review`(설계 상태 반영 승인을 기다림), `done`입니다.
 - `proposal`: 기다리는 설계 상태 반영안 `{id, agent, diff}`. 없으면 `null`.
 
 ## 이벤트
@@ -40,6 +42,7 @@
 | kind | data | 화면에서 |
 |---|---|---|
 | `conductor_reply` | `text, usage` | Conductor 말풍선 |
+| `expert_reply` | `agent, text, usage` | 전문가 채팅의 전문가 말풍선 |
 | `module_started` | `agent` | **알림**: "대지 분석가 실행을 시작합니다". 우측 패널의 해당 전문가를 실행 중으로 |
 | `module_saved` | `agent, path, preview, truncated` | **알림**: "대지 분석가 결과가 나왔습니다". 분석 카드, 미리보기(`preview`) |
 | `module_failed` | `agent, reason` | **알림**: 실패, 저장된 것 없음 |
@@ -66,11 +69,17 @@ Conductor가 전문가를 알아서 실행하므로, 설계자가 놓치지 않�
 
 - 문서는 `GET /modules/{agent}`입니다.
 - "Approve analysis"는 `POST /state-proposals/{proposal.id}/apply`, 건너뛰기는 `.../skip`입니다([state-editing.md](state-editing.md)). 해당 전문가의 `status`가 `review`일 때만 버튼을 켜세요.
-- "Request revision"과 전문가별 채팅은 다음 작업입니다(아래).
+- "Request revision"은 수정 요청을 입력받아 `POST /session/experts/{agent}/run`에 `{revision: "..."}`로 보냅니다. 채팅이 없는 전문가도 쓸 수 있습니다.
 
-## 다음: 전문가별 화면과 채팅
+## 전문가별 화면과 채팅
 
-2026-10-16 지훈 결정: 전문가마다 전용 화면을 두고, 그 아래에 전문가와 따로 이야기하는 채팅 세션을 둡니다. 대화가 필요 없는 전문가는 채팅을 두지 않습니다. 메인 Conductor 대화와는 기록을 따로 저장합니다. 이 API는 다음 PR에서 추가합니다.
+2026-10-16 지훈 결정: 전문가마다 전용 화면을 두고, 그 아래에 전문가와 따로 이야기하는 채팅을 둡니다. Figma 초안 왼쪽의 "CONVERSATIONS" 목록(Main Chat 아래 전문가 대화)에 해당합니다.
+
+- 채팅 기록은 Conductor 대화와 따로 저장됩니다(`chats/<전문가 id>.json`). 전문가는 자기 역할, 브리프, 설계 상태, 자기 결과 문서를 보고 답합니다.
+- 설계자가 결과를 바꿔 달라고 하면 전문가가 무엇을 고칠지 한두 문장으로 답하고, 같은 작업 안에서 결과 문서를 다시 씁니다. 이벤트는 `expert_reply` 다음에 `module_started`, `module_saved`, `state_proposed`가 이어지고, 메인 대화에도 `module_completed` 줄이 남아 Conductor가 알게 됩니다. 채팅 기록에는 `{role: "system", event: "revised"}` 줄이 남습니다.
+- 채팅 `messages`의 `role`은 `user`, `expert`, `system`입니다.
+- `chat`이 `false`인 전문가는 채팅 칸을 숨기고 전용 화면과 수정 요청 버튼만 둡니다. 지금은 대지 분석가만 꺼져 있습니다. 결과가 정부 데이터에서 온 사실이라, 바꿀 일은 대지 조회 화면에서 합니다. 끄고 켜는 것은 `config.yaml`의 전문가 항목 `chat: false`입니다.
+- 작업은 메인 대화와 같은 줄을 씁니다. 한 프로젝트에서 메인 대화든 전문가 채팅이든 작업 하나만 돌고, 작업 조회도 같은 `GET /session/jobs/{id}`입니다.
 
 ## 예시
 
@@ -99,4 +108,4 @@ async function send(project, text) {
 
 ## 오류
 
-오류 응답은 `{detail: "메시지"}`입니다. 400은 빈 메시지나 없는 전문가, 404는 프로젝트·작업·결과 문서 없음, 409는 실행 중인 작업이 있음, 422는 요청 형식 오류입니다. 모델 오류는 HTTP 오류가 아니라 작업의 `status: "failed"`와 `error`로 옵니다.
+오류 응답은 `{detail: "메시지"}`입니다. 400은 빈 메시지, 없는 전문가, 채팅이 꺼진 전문가에게 보낸 메시지, 404는 프로젝트·작업·결과 문서 없음, 409는 실행 중인 작업이 있음, 422는 요청 형식 오류입니다. 모델 오류는 HTTP 오류가 아니라 작업의 `status: "failed"`와 `error`로 옵니다.

@@ -37,6 +37,7 @@ def build_worker_prompt(
     other_completed: list[str] | None = None,
     knowledge_block: str | None = None,
     facts_block: str | None = None,
+    revision_block: str | None = None,
 ) -> str:
     from sida.i18n import get_language
 
@@ -77,7 +78,7 @@ ORIGINAL PROJECT BRIEF:
 {facts}{state_block}
 RELEVANT EXPERT OUTPUTS:
 {previous_outputs}
-{others_block}{knowledge}
+{others_block}{knowledge}{revision_block or ""}
 LANGUAGE:
 {language_rule}
 
@@ -91,6 +92,26 @@ Never read a building-coverage (건폐율) or floor-area (용적률) ratio for t
 If information is missing, mark it as missing information.
 End with the Handoff section: name which experts should look next and what they should check.
 """
+
+
+def _revision_block(revision: str | None, output_path: Path) -> str | None:
+    """The designer's change request plus the output it applies to (None without a request)."""
+    if not revision or not revision.strip():
+        return None
+    try:
+        previous = output_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        previous = ""
+    block = f"""
+DESIGNER REVISION REQUEST (apply it; keep what it does not touch):
+{revision.strip()}
+"""
+    if previous:
+        block += f"""
+YOUR PREVIOUS OUTPUT (rewrite it in full with the request applied):
+{previous}
+"""
+    return block
 
 
 def select_input_blocks(
@@ -234,8 +255,12 @@ def run_worker_agent(
     provider=None,
     project_state: str | None = None,
     notify=None,
+    revision: str | None = None,
 ) -> str:
     """Run one expert. Raises LLMError on provider failure.
+
+    `revision` is the designer's change request: the expert rewrites its current output
+    with it (the previous version is archived as usual).
 
     Experts with an `inputs` declaration receive only the listed completed outputs
     (read from output_dir); other completed experts are named but not included.
@@ -275,6 +300,7 @@ def run_worker_agent(
     else:
         blocks, other_completed = selected
     previous_outputs = "\n\n".join(blocks) if blocks else "(none yet)"
+    revision_block = _revision_block(revision, output_dir / output_name)
     from sida.experts import FACTS, KNOWLEDGE, ExpertRun, collect_prompt_parts, join_blocks
     from sida.i18n import t
 
@@ -303,6 +329,7 @@ def run_worker_agent(
         project_state=project_state,
         other_completed=other_completed,
         facts_block=facts_block or None,
+        revision_block=revision_block,
     )
     budget = worker_input_budget(rt, len(WORKER_SYSTEM) + len(fixed_prompt))
     if budget is not None:
@@ -322,6 +349,7 @@ def run_worker_agent(
         other_completed=other_completed,
         knowledge_block=knowledge_block or None,
         facts_block=facts_block or None,
+        revision_block=revision_block,
     )
 
     messages = [

@@ -14,6 +14,10 @@ class Message(BaseModel):
     text: str
 
 
+class Run(BaseModel):
+    revision: str | None = None
+
+
 def create_router(jobs: SessionJobs, load_config, core) -> APIRouter:
     router = APIRouter(prefix="/api/projects/{name}")
 
@@ -43,8 +47,17 @@ def create_router(jobs: SessionJobs, load_config, core) -> APIRouter:
         return started(call(jobs.start_message, load_config(), name, body.text))
 
     @router.post("/session/experts/{agent}/run")
-    def run_expert(name: str, agent: str) -> JSONResponse:
-        return started(call(jobs.start_expert, load_config(), name, agent))
+    def run_expert(name: str, agent: str, body: Run | None = None) -> JSONResponse:
+        revision = body.revision if body is not None else None
+        return started(call(jobs.start_expert, load_config(), name, agent, revision))
+
+    @router.get("/experts/{agent}/chat")
+    def get_chat(name: str, agent: str) -> dict:
+        return call(jobs.chat, load_config(), name, agent)
+
+    @router.post("/experts/{agent}/chat")
+    def chat(name: str, agent: str, body: Message) -> JSONResponse:
+        return started(call(jobs.start_expert_chat, load_config(), name, agent, body.text))
 
     @router.get("/session/jobs/{job_id}")
     def job(name: str, job_id: str, after: int = 0) -> dict:

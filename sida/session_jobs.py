@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from sida import config as sida_config
-from sida import engine, errors, runtime, workspace
+from sida import engine, errors, expert_chat, runtime, workspace
 from sida.editing import EditingService
 from sida.i18n import agent_name
 from sida.project_documents import DocumentConflict
@@ -42,7 +42,7 @@ def start_thread(work: Callable[[], None]) -> None:
 class Job:
     id: str
     project: Path
-    kind: str  # "opening" | "message" | "expert"
+    kind: str  # "opening" | "message" | "expert" | "expert_chat"
     agent: str | None = None
     status: str = "running"  # "running" | "done" | "failed"
     running_agent: str | None = None  # the expert being run right now, if any
@@ -120,6 +120,19 @@ class SessionJobs:
             "proposal": proposal,
         }
 
+    def chat(self, config: dict, name: str, agent_id: str) -> dict:
+        """One expert's own chat, plus the project's running job (shared with the main chat)."""
+        path = workspace.find_project(config, name).resolve()
+        agent = _agent(config, agent_id, LookupError)
+        job = self._active.get(path)
+        return {
+            "agent": agent["id"],
+            "name": agent_name(agent),
+            "chat": expert_chat.chat_enabled(agent),
+            "messages": expert_chat.chat_messages(expert_chat.load_chat(path, agent)),
+            "job": job.view() if job is not None else None,
+        }
+
     def job(self, config: dict, name: str, job_id: str, after: int = 0) -> dict:
         path = workspace.find_project(config, name).resolve()
         job = self._jobs.get(job_id)
@@ -138,11 +151,20 @@ class SessionJobs:
             raise ValueError("empty message")
         return self._start(config, name, "message", text=text)
 
-    def start_expert(self, config: dict, name: str, agent_id: str) -> Job:
-        agent = sida_config.agent_by_id(sida_config.get_agents(config), agent_id)
-        if agent is None:
-            raise ValueError(f"unknown expert: {agent_id}")
-        return self._start(config, name, "expert", agent=agent)
+    def start_expert(
+        self, config: dict, name: str, agent_id: str, revision: str | None = None
+    ) -> Job:
+        agent = _agent(config, agent_id, ValueError)
+        return self._start(config, name, "expert", agent=agent, text=(revision or "").strip())
+
+    def start_expert_chat(self, config: dict, name: str, agent_id: str, text: str) -> Job:
+        agent = _agent(config, agent_id, LookupError)
+        if not expert_chat.chat_enabled(agent):
+            raise ValueError(f"chat is off for this expert: {agent_id}")
+        text = (text or "").strip()
+        if not text:
+            raise ValueError("empty message")
+        return self._start(config, name, "expert_chat", agent=agent, text=text)
 
     def _start(
         self, config: dict, name: str, kind: str, *, text: str = "", agent: dict | None = None
@@ -174,8 +196,13 @@ class SessionJobs:
                 error = turn.error
             elif job.kind == "message":
                 error = engine.converse(session, text).error
+            elif job.kind == "expert_chat":
+                reply = expert_chat.expert_chat(session, agent, text)
+                error = reply.run.error if reply.run is not None else None
             else:
-                error = engine.run_expert_command(session, agent, f"/run {agent['id']}").error
+                command = f"/run {agent['id']} {text}".rstrip()
+                result = engine.run_expert_command(session, agent, command, revision=text or None)
+                error = result.error
         except (LLMError, errors.SidaError) as exc:
             error = getattr(exc, "message", None) or str(exc)
         except Exception as exc:  # a bug must still end the job, or the project stays busy
@@ -225,6 +252,13 @@ class SessionJobs:
             job.add(kind, out)
 
         return emit
+
+
+def _agent(config: dict, agent_id: str, missing: type[Exception]) -> dict:
+    agent = sida_config.agent_by_id(sida_config.get_agents(config), agent_id)
+    if agent is None:
+        raise missing(f"unknown expert: {agent_id}")
+    return agent
 
 
 def _relative(path: Path, root: Path) -> str:

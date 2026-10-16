@@ -145,6 +145,7 @@ def expert_entries(config: dict, path: Path) -> list[dict]:
             "phase": agent.get("phase", ""),
             "done": output.exists(),
             "updated_at": _modified_at(output) if output.exists() else "",
+            "chat": bool(agent.get("chat", True)),
         })
     return rows
 
