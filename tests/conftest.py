@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sida import conductor_context, hardware, i18n, providers, runtime  # noqa: E402
+from sida import conductor_context, hardware, i18n, providers, runtime, settings  # noqa: E402
 from sida import config as sida_config  # noqa: E402
 from sida import project as prj  # noqa: E402
 from sida.experts.regulation import lawapi  # noqa: E402
@@ -184,6 +184,7 @@ def isolated_settings(tmp_path, monkeypatch):
     monkeypatch.setattr(lawapi, "_http_get", _no_network)
     monkeypatch.setattr(lawapi, "_http_get_bytes", lambda url: _no_network(url, {}))
     monkeypatch.setattr(datago, "ENV_PATH", tmp_path / "no.env")
+    monkeypatch.setattr(settings, "ENV_PATH", tmp_path / "settings.env")  # the settings screen writes keys here
     monkeypatch.setenv("DATA_GO_KR_API_KEY", "test-key")
     monkeypatch.setattr(datago, "_http_get", _no_network)
     lawapi.clear_cache()

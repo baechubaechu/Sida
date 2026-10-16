@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-from sida.hub_settings import (
-    save_config_patches,
-    set_section_key,
-    settings_one_liner,
-    settings_summary,
-)
+from sida.hub_settings import settings_one_liner, settings_summary
+from sida.settings import save_config_patches, set_section_key
 
 SAMPLE = """\
 provider: openrouter
@@ -110,7 +106,8 @@ def test_save_config_patches_defaults_to_local_file_not_config_yaml():
 
 def test_first_run_enter_picks_cloud_and_leaves_base_untouched(tmp_path, monkeypatch):
     from sida import config as sida_config
-    from sida.hub_settings import choose_run_mode, current_run_mode
+    from sida.hub_settings import choose_run_mode
+    from sida.settings import current_run_mode
 
     base = _base(tmp_path)
     _answers(monkeypatch, "")
@@ -122,7 +119,8 @@ def test_first_run_enter_picks_cloud_and_leaves_base_untouched(tmp_path, monkeyp
 
 def test_run_mode_local_sets_both_roles_and_profile(tmp_path, monkeypatch):
     from sida import config as sida_config
-    from sida.hub_settings import choose_run_mode, current_run_mode
+    from sida.hub_settings import choose_run_mode
+    from sida.settings import current_run_mode
 
     base = _base(tmp_path)
     base.write_text(
