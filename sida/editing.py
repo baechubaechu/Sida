@@ -66,6 +66,19 @@ class EditingService:
             self._pending[path] = pending
             return pending
 
+    def hold(self, path: Path, session: engine.Session, proposal: engine.StateProposal) -> PendingApproval:
+        """Keep a proposal made elsewhere (an expert run in a web session) for apply/skip."""
+        path = path.resolve()
+        with self._guard:
+            lock = self._locks.setdefault(path, threading.RLock())
+        with lock:
+            pending = PendingApproval(uuid.uuid4().hex, session, proposal)
+            self._pending[path] = pending
+            return pending
+
+    def pending(self, path: Path) -> PendingApproval | None:
+        return self._pending.get(path.resolve())
+
     def _approval(self, path: Path, proposal_id: str) -> PendingApproval:
         pending = self._pending.get(path)
         if pending is None or pending.id != proposal_id:

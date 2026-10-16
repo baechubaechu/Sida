@@ -283,3 +283,73 @@ def test_identical_summary_for_new_module_version_still_needs_acceptance(core):
     assert modules_newer_than_state(s.agents, s.output_dir, s.project.state_path) == [agent]
     engine.apply_state(s, next_proposal)
     assert modules_newer_than_state(s.agents, s.output_dir, s.project.state_path) == []
+
+
+RUN_SITE = '사이트부터 보겠습니다\n```action\n{"type":"run","agent":"site_reader"}\n```'
+
+
+def test_converse_runs_the_expert_and_leaves_the_state_proposal_pending(core, scripted, capsys):
+    s = core(c_provider=scripted([RUN_SITE]))
+    before = s.project.read_state()
+    turn = engine.converse(s, "대지부터 봐 줘")
+    assert turn.outcome == "run" and turn.error is None
+    assert (s.output_dir / "11_site_reader.md").exists()
+    assert kinds(s) == [
+        "conductor_reply", "module_started", "module_saved", "state_proposing", "state_proposed",
+    ]
+    # "ask" mode: a web screen approves later; nothing is written to project_state.md now.
+    assert s.project.read_state() == before
+    assert s.pending_state is s.events[-1][1]["proposal"]
+    assert s.history[-1]["content"].startswith("[module completed] site_reader")
+    assert "Update project_state.md" in s.history[-1]["content"]
+    assert "대지부터 봐 줘" in s.project.transcript_path.read_text(encoding="utf-8")
+    assert capsys.readouterr() == ("", "")
+
+
+def test_converse_in_auto_mode_applies_the_state(core, scripted, mock_config):
+    mock_config["state_update"]["mode"] = "auto"
+    s = core(c_provider=scripted([RUN_SITE]))
+    engine.converse(s, "대지부터")
+    assert kinds(s)[-1] == "state_applied"
+    assert "| site_reader | done | (mock) takeaway |" in s.project.read_state()
+    assert s.history[-1]["content"].endswith("has been updated with this module's takeaways.")
+
+
+def test_converse_reports_a_failed_expert_without_recording_it(core, scripted):
+    s = core(c_provider=scripted([RUN_SITE]), w_provider=Boom())
+    turn = engine.converse(s, "대지부터")
+    assert turn.outcome == "run"
+    assert kinds(s)[-1] == "module_failed" and s.events[-1][1]["reason"] == "down"
+    assert not any("[module completed]" in m["content"] for m in s.history)
+
+
+def test_settle_state_off_does_nothing_and_model_error_is_reported(core):
+    s = core()
+    agent = s.agents[0]
+    engine.run_module(s, agent)
+    assert engine.settle_state(s, agent, mode="off").outcome == "off"
+    s.w_provider = Boom()
+    step = engine.settle_state(s, agent, mode="ask")
+    assert step.outcome == "failed" and step.error == "down"
+    assert kinds(s)[-1] == "state_failed"
+
+
+def test_history_messages_hide_actions_and_internal_notes():
+    history = [
+        {"role": "user", "content": "대지부터"},
+        {"role": "assistant", "content": RUN_SITE},
+        {"role": "user", "content": "[module completed] site_reader → 11_site_reader.md. Update …"},
+        {"role": "user", "content": "[read] Showed modules/11_site_reader.md to the Conductor."},
+        {"role": "user", "content": "/run program_analyst"},
+        {"role": "assistant", "content": "[module completed] program_analyst → 12_program_analyst.md. …"},
+    ]
+    messages = engine.history_messages(history)
+    assert [(m["role"], m.get("event"), m.get("agent")) for m in messages] == [
+        ("user", None, None),
+        ("conductor", None, None),
+        ("system", "module_completed", "site_reader"),
+        ("system", "read", "11_site_reader.md"),
+        ("system", "run_requested", "program_analyst"),
+        ("system", "module_completed", "program_analyst"),
+    ]
+    assert messages[1]["text"] == "사이트부터 보겠습니다"

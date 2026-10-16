@@ -14,7 +14,13 @@ Event kinds and their data:
   read_failed       agent, reason ("empty" | "limit")
   module_started    agent
   module_saved      agent, path, preview, truncated
+  module_failed     agent, reason
   notice            message          (only when Session.capture_notices is set)
+  state_proposing   agent
+  state_proposed    agent, proposal  (mode "ask": waits for apply_state / discard_state)
+  state_applied     agent, path
+  state_unchanged   agent
+  state_failed      agent, reason    (model error or a changed source; nothing written)
 """
 
 from __future__ import annotations
@@ -24,14 +30,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from sida.conductor import ask_conductor
+from sida.conductor import ask_conductor, parse_action
 from sida.conductor_context import render_conductor_prompt
 from sida.config import ROOT, agent_by_id, get_agents, resolve_agent
 from sida.errors import fail
 from sida.i18n import get_language
 from sida.project import Project, open_or_create
 from sida.project_documents import Document, DocumentConflict, read_document, save_document
-from sida.providers import format_usage
+from sida.providers import LLMError, format_usage
 from sida.runtime import conductor_provider, worker_provider
 from sida.state_revisions import content_revision, module_revisions
 from sida.worker import run_worker_agent
@@ -123,6 +129,29 @@ class StateProposal:
     original_state: str
     original_brief: str
     module_revision: str
+
+
+@dataclass
+class StateStep:
+    """What happened to project_state.md after an expert run.
+
+    outcome: "off" | "unchanged" | "applied" | "proposed" | "failed" | "conflict"
+    """
+
+    outcome: str
+    proposal: StateProposal | None = None
+    path: Path | None = None
+    error: str | None = None
+
+
+@dataclass
+class ExpertRun:
+    """An expert run followed by its state step. `run` is None when the expert failed."""
+
+    agent: dict
+    run: ModuleRun | None
+    state: StateStep | None = None
+    error: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -279,8 +308,6 @@ def conductor_turn(session: Session, user_text: str | None, *, ephemeral: bool =
     A `run` action is returned (outcome "run"), not executed — the caller runs the expert.
     Provider errors are reported in the Turn, never raised.
     """
-    from sida.providers import LLMError
-
     extra: list[dict] | None = None
     reads = 0
     pending_text = user_text
@@ -345,6 +372,45 @@ def conductor_turn(session: Session, user_text: str | None, *, ephemeral: bool =
         ]
         pending_text = None
         ephemeral = True
+
+
+def converse(session: Session, user_text: str | None, *, ephemeral: bool = False) -> Turn:
+    """
+    A Conductor exchange that carries out the Conductor's decision without asking:
+    a `run` action runs the expert at once and then settles project_state.md by
+    state_update.mode (in "ask" mode the proposal is left pending, never applied).
+    For front ends that cannot stop mid-turn to ask (the web UI).
+    """
+    if user_text is not None and not ephemeral:
+        session.project.append_transcript("You", user_text)
+    turn = conductor_turn(session, user_text, ephemeral=ephemeral)
+    if turn.outcome == "run" and turn.agent is not None:
+        result = run_expert(session, turn.agent)
+        if result.run is not None:
+            record_action_run(session, turn.agent, state_updated=_state_updated(result))
+    return turn
+
+
+def run_expert(session: Session, agent: dict, *, mode: str | None = None) -> ExpertRun:
+    """Run one expert, then settle_state. A failed run is reported ("module_failed"), not raised."""
+    try:
+        run = run_module(session, agent)
+    except LLMError as exc:
+        session.send("module_failed", agent=agent, reason=str(exc))
+        return ExpertRun(agent=agent, run=None, error=str(exc))
+    return ExpertRun(agent=agent, run=run, state=settle_state(session, agent, mode=mode))
+
+
+def run_expert_command(session: Session, agent: dict, user_text: str) -> ExpertRun:
+    """The designer ran an expert directly (no Conductor call): run, settle state, record."""
+    result = run_expert(session, agent)
+    if result.run is not None:
+        record_command_run(session, agent, user_text, state_updated=_state_updated(result))
+    return result
+
+
+def _state_updated(result: ExpertRun) -> bool:
+    return result.state is not None and result.state.outcome == "applied"
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +516,36 @@ def propose_state(session: Session, agent: dict) -> StateProposal | None:
     return proposal
 
 
+def settle_state(session: Session, agent: dict, *, mode: str | None = None) -> StateStep:
+    """
+    After an expert run, act on project_state.md without asking anyone:
+    off → nothing; auto → propose and apply; ask → propose and leave it pending
+    (the front end shows `proposal.diff` and calls apply_state or discard_state).
+    """
+    mode = mode or state_update_mode(session)
+    if mode == "off":
+        return StateStep("off")
+    session.send("state_proposing", agent=agent)
+    try:
+        proposal = propose_state(session, agent)
+    except LLMError as exc:
+        session.send("state_failed", agent=agent, reason=str(exc))
+        return StateStep("failed", error=str(exc))
+    if proposal is None:
+        session.send("state_unchanged", agent=agent)
+        return StateStep("unchanged")
+    if mode != "auto":
+        session.send("state_proposed", agent=agent, proposal=proposal)
+        return StateStep("proposed", proposal=proposal)
+    try:
+        path = apply_state(session, proposal)
+    except DocumentConflict as exc:
+        session.send("state_failed", agent=agent, reason=exc.message)
+        return StateStep("conflict", proposal=proposal, error=exc.message)
+    session.send("state_applied", agent=agent, path=path)
+    return StateStep("applied", proposal=proposal, path=path)
+
+
 def apply_state(session: Session, proposal: StateProposal) -> Path:
     """Write the proposed state (previous version kept as project_state.prev.md)."""
     from sida.state_updater import write_state
@@ -486,3 +582,45 @@ def edit_document(session: Session, kind: str, content: str, *, expected_revisio
     if kind == "brief":
         session.reload_brief()
     return document
+
+
+# ---------------------------------------------------------------------------
+# History for display
+# ---------------------------------------------------------------------------
+
+_COMPLETED_PREFIX = "[module completed] "
+_READ_PREFIX = "[read] Showed modules/"
+_RUN_COMMAND_PREFIX = "/run "
+
+
+def history_messages(history: list[dict]) -> list[dict]:
+    """
+    Turn stored Conductor history into what a chat screen shows, without changing it:
+    action blocks are removed from Conductor replies, and the notes Sida writes for the
+    model ("[module completed] …", "[read] …", "/run …") become system entries.
+
+    Each entry: {"role": "user" | "conductor" | "system", "text": str}; system entries
+    also carry "event" ("module_completed" | "read" | "run_requested") and "agent"
+    (an expert id, or an output file name for "read").
+    """
+    messages: list[dict] = []
+    for item in history:
+        role, content = item.get("role"), str(item.get("content") or "")
+        if content.startswith(_COMPLETED_PREFIX):
+            agent = content[len(_COMPLETED_PREFIX):].split(" ", 1)[0]
+            messages.append(
+                {"role": "system", "event": "module_completed", "agent": agent, "text": content}
+            )
+        elif role == "user" and content.startswith(_READ_PREFIX):
+            name = content[len(_READ_PREFIX):].split(" ", 1)[0]
+            messages.append({"role": "system", "event": "read", "agent": name, "text": content})
+        elif role == "user" and content.startswith(_RUN_COMMAND_PREFIX):
+            agent = content[len(_RUN_COMMAND_PREFIX):].strip()
+            messages.append(
+                {"role": "system", "event": "run_requested", "agent": agent, "text": content}
+            )
+        elif role == "assistant":
+            messages.append({"role": "conductor", "text": parse_action(content)[0]})
+        elif role == "user":
+            messages.append({"role": "user", "text": content})
+    return messages

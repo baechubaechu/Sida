@@ -575,3 +575,138 @@ def test_address_selection_api_reports_bad_requests(client, project, fake_vworld
     assert r.status_code == 503 and "키를 거부" in r.json()["detail"]
     assert client.put(url, json={"pnus": ["4141010500106890014"]}).status_code == 503
     assert site_facts.load_facts(project.path) is None  # nothing was saved by any failed request
+
+
+# --- Session screen API ------------------------------------------------------
+
+RUN_SITE = '대지부터 보겠습니다\n```action\n{"type":"run","agent":"site_reader"}\n```'
+
+
+@pytest.fixture
+def session_api(client, project, monkeypatch, scripted):
+    """Jobs run inline (no thread) so each request returns after its job; scripted Conductor."""
+    from sida import engine
+
+    monkeypatch.setattr(runtime, "load_env", lambda **_kw: "")
+    conductor = scripted([])
+    monkeypatch.setattr(engine, "conductor_provider", lambda *_a: conductor)
+    client.app.state.session_jobs.runner = lambda work: work()
+    return client, f"/api/projects/{project.name}", conductor
+
+
+def finished_job(client, base, response):
+    assert response.status_code == 202
+    job = response.json()["job"]
+    return client.get(f"{base}/session/jobs/{job['id']}").json()
+
+
+def test_session_message_runs_expert_and_waits_for_state_approval(session_api, project):
+    client, base, conductor = session_api
+    conductor.replies.append(RUN_SITE)
+    before = project.state_path.read_bytes()
+
+    job = finished_job(client, base, client.post(f"{base}/session/messages", json={"text": "대지부터"}))
+    assert job["status"] == "done" and job["error"] is None
+    assert [e["kind"] for e in job["events"]] == [
+        "conductor_reply", "module_started", "module_saved", "state_proposing", "state_proposed",
+    ]
+    assert [e["seq"] for e in job["events"]] == [1, 2, 3, 4, 5]
+    started = job["events"][1]["data"]
+    assert started["agent"] == {"id": "site_reader", "name": "대지 분석가"}
+    assert job["events"][2]["data"]["path"] == "modules/11_site_reader.md"
+    proposal = job["events"][4]["data"]["proposal"]
+    assert project.state_path.read_bytes() == before
+
+    # Only events after the given sequence number come back.
+    later = client.get(f"{base}/session/jobs/{job['id']}?after=3").json()["events"]
+    assert [e["seq"] for e in later] == [4, 5]
+
+    body = client.get(f"{base}/session").json()
+    assert body["job"] is None and body["proposal"] == proposal
+    assert [(m["role"], m["text"]) for m in body["messages"][:2]] == [
+        ("user", "대지부터"), ("conductor", "대지부터 보겠습니다"),
+    ]
+    assert body["messages"][2] | {"text": ""} == {
+        "role": "system", "event": "module_completed", "agent": "site_reader",
+        "name": "대지 분석가", "text": "",
+    }
+    site = next(e for e in body["experts"] if e["id"] == "site_reader")
+    assert site["status"] == "review" and site["updated_at"]
+
+    # The approval made by the run goes through the existing state-proposal API.
+    assert client.post(f"{base}/state-proposals/{proposal['id']}/apply").status_code == 200
+    body = client.get(f"{base}/session").json()
+    assert body["proposal"] is None
+    assert next(e for e in body["experts"] if e["id"] == "site_reader")["status"] == "done"
+
+
+def test_session_direct_expert_run_and_result_document(session_api):
+    client, base, conductor = session_api
+    assert client.get(f"{base}/modules/site_reader").status_code == 404
+
+    job = finished_job(client, base, client.post(f"{base}/session/experts/site_reader/run"))
+    assert job["status"] == "done" and conductor.calls == []  # no Conductor call
+    doc = client.get(f"{base}/modules/site_reader").json()
+    assert doc["name"] == "대지 분석가" and doc["content"].startswith("# Mock Output")
+    messages = client.get(f"{base}/session").json()["messages"]
+    assert [m.get("event") for m in messages] == ["run_requested", "module_completed"]
+
+
+def test_session_opening_is_not_stored_as_a_user_message(session_api, project):
+    client, base, conductor = session_api
+    conductor.replies.append('안녕하세요\n```action\n{"type":"none"}\n```')
+    job = finished_job(client, base, client.post(f"{base}/session/opening"))
+    assert job["status"] == "done"
+    messages = client.get(f"{base}/session").json()["messages"]
+    assert messages == [{"role": "conductor", "text": "안녕하세요"}]
+
+
+def test_session_model_error_fails_the_job_and_saves_nothing(session_api, project):
+    client, base, conductor = session_api
+    conductor.replies.append(providers.LLMError("model down"))
+    job = finished_job(client, base, client.post(f"{base}/session/messages", json={"text": "안녕"}))
+    assert job["status"] == "failed" and job["error"] == "model down"
+    assert [e["kind"] for e in job["events"]] == ["conductor_error"]
+    assert client.get(f"{base}/session").json()["messages"] == []
+
+
+def test_session_allows_one_job_per_project(session_api):
+    client, base, conductor = session_api
+    held = []
+    client.app.state.session_jobs.runner = held.append  # start, but do not run yet
+    first = client.post(f"{base}/session/messages", json={"text": "하나"})
+    assert first.status_code == 202 and first.json()["job"]["status"] == "running"
+    assert client.get(f"{base}/session").json()["job"]["id"] == first.json()["job"]["id"]
+    second = client.post(f"{base}/session/experts/site_reader/run")
+    assert second.status_code == 409
+
+    conductor.replies.append('네\n```action\n{"type":"none"}\n```')
+    held.pop()()
+    assert client.get(f"{base}/session").json()["job"] is None
+    assert client.post(f"{base}/session/messages", json={"text": "둘"}).status_code == 202
+
+
+def test_session_runs_jobs_on_a_background_thread(session_api):
+    from sida.session_jobs import start_thread
+
+    client, base, conductor = session_api
+    client.app.state.session_jobs.runner = start_thread
+    conductor.replies.append('네\n```action\n{"type":"none"}\n```')
+    job_id = client.post(f"{base}/session/messages", json={"text": "안녕"}).json()["job"]["id"]
+    assert client.app.state.session_jobs._jobs[job_id].wait(5)
+    assert client.get(f"{base}/session/jobs/{job_id}").json()["status"] == "done"
+
+
+def test_session_rejects_bad_requests(session_api, mock_config):
+    from sida.project import create_blank_project
+
+    client, base, _conductor = session_api
+    assert client.post(f"{base}/session/messages", json={"text": "  "}).status_code == 400
+    assert client.post(f"{base}/session/experts/nope/run").status_code == 400
+    assert client.get(f"{base}/session/jobs/nope").status_code == 404
+    assert client.get(f"{base}/modules/nope").status_code == 404
+    assert client.get("/api/projects/nope/session").status_code == 404
+    # A job id is only readable through the project it belongs to.
+    other = create_blank_project("other", config=mock_config)
+    job = client.post(f"{base}/session/experts/site_reader/run").json()["job"]
+    assert client.get(f"/api/projects/{other.name}/session/jobs/{job['id']}").status_code == 404

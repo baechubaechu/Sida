@@ -8,10 +8,13 @@ render the result. (The terminal hub in hub.py predates this and keeps its own f
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sida.briefs import BRIEF_FIELD_HEADINGS, build_brief_markdown
-from sida.config import ROOT, get_agents
+from sida.config import ROOT, agent_by_id, get_agents
+from sida.engine import history_messages
+from sida.i18n import agent_name
 from sida.project import (
     SESSION_FILE,
     Project,
@@ -97,3 +100,68 @@ def create_sample_project(config: dict) -> tuple[Project, bool]:
     existed = is_project_dir(root / slugify(SAMPLE_BRIEF.stem))
     project = create_project_from_brief(SAMPLE_BRIEF, config=config)
     return project, not existed
+
+
+# ---------------------------------------------------------------------------
+# Session screen: chat history and expert results, read without opening the project
+# ---------------------------------------------------------------------------
+
+
+def _modified_at(path: Path) -> str:
+    try:
+        stamp = path.stat().st_mtime
+    except OSError:
+        return ""
+    return datetime.fromtimestamp(stamp, timezone.utc).isoformat(timespec="seconds")
+
+
+def chat_messages(config: dict, path: Path) -> list[dict]:
+    """The stored Conductor conversation as chat entries; system entries name their expert."""
+    agents = get_agents(config)
+    by_output = {str(a["output"]): a for a in agents}
+    stub = Project(path=path, name=path.name, session_id="", created_at="", source_brief=None)
+    messages = history_messages(stub.load_history())
+    for message in messages:
+        if message["role"] != "system":
+            continue
+        if message["event"] == "read":
+            agent = by_output.get(message["agent"])
+        else:
+            agent = agent_by_id(agents, message["agent"])
+        if agent is not None:
+            message["agent"] = agent["id"]
+            message["name"] = agent_name(agent)
+    return messages
+
+
+def expert_entries(config: dict, path: Path) -> list[dict]:
+    """One row per expert for the side panel: name, phase, whether and when it last ran."""
+    rows = []
+    for agent in get_agents(config):
+        output = path / "modules" / str(agent["output"])
+        rows.append({
+            "id": agent["id"],
+            "name": agent_name(agent),
+            "phase": agent.get("phase", ""),
+            "done": output.exists(),
+            "updated_at": _modified_at(output) if output.exists() else "",
+        })
+    return rows
+
+
+def module_document(config: dict, name: str, agent_id: str) -> dict:
+    """An expert's result document (Markdown). Raises LookupError if the expert or output is missing."""
+    path = find_project(config, name)
+    agent = agent_by_id(get_agents(config), agent_id)
+    if agent is None:
+        raise LookupError(f"unknown expert: {agent_id}")
+    output = path / "modules" / str(agent["output"])
+    if not output.is_file():
+        raise LookupError(f"not run yet: {agent_id}")
+    return {
+        "agent": agent["id"],
+        "name": agent_name(agent),
+        "phase": agent.get("phase", ""),
+        "content": output.read_text(encoding="utf-8"),
+        "updated_at": _modified_at(output),
+    }

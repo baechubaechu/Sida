@@ -30,6 +30,8 @@ from sida.document_api import create_router as create_document_router
 from sida.editing import EditingService
 from sida.i18n import agent_name, get_language, t
 from sida.project_documents import DocumentConflict
+from sida.session_api import create_router as create_session_router
+from sida.session_jobs import SessionJobs
 
 WEB_DIR = sida_config.ROOT / "webui"
 DEFAULT_HOST = "127.0.0.1"
@@ -134,6 +136,8 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
     app = FastAPI(title="Sida", docs_url=None, redoc_url=None)
     app.state.editing = EditingService()
     app.include_router(create_document_router(app.state.editing, load_config, core))
+    app.state.session_jobs = SessionJobs(app.state.editing)
+    app.include_router(create_session_router(app.state.session_jobs, load_config, core))
     from sida.experts import expert_routers
 
     for router in expert_routers(load_config, core):  # each domain's own JSON API

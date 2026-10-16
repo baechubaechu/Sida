@@ -98,26 +98,21 @@ def update_state_after_module(session: Session, agent: dict, *, mode: str | None
 
     tag, accent = agent_look(agent.get("id"))
     print(paint(t("state_proposing", agent=f"[{tag}] {agent.get('id')}"), accent))
-    try:
-        proposal = engine.propose_state(session, agent)
-    except LLMError as exc:
-        print(t("state_propose_failed", reason=str(exc)))
+    step = engine.settle_state(session, agent, mode=mode)
+    if step.outcome == "failed":
+        print(t("state_propose_failed", reason=step.error))
         return False
-    if proposal is None:
+    if step.outcome == "unchanged":
         print(t("state_no_change"))
         return False
-
-    if mode == "auto":
-        from sida.project_documents import DocumentConflict
-
-        try:
-            path = engine.apply_state(session, proposal)
-        except DocumentConflict as exc:
-            print(exc.message)
-            return False
-        print(t("state_applied", path=str(path)))
+    if step.outcome == "conflict":
+        print(step.error)
+        return False
+    if step.outcome == "applied":
+        print(t("state_applied", path=str(step.path)))
         return True
 
+    proposal = step.proposal
     print()
     print(proposal.diff)
     print()
