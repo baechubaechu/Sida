@@ -10,9 +10,7 @@ RAG on/off, state_update mode, API keys, and UI language.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
-from typing import Any
 
 from sida.config import CONFIG_PATH, load_config, local_config_path
 from sida.console import prompt_line
@@ -20,103 +18,15 @@ from sida.experts.regulation.rag import key_missing, rag_settings
 from sida.hardware import detect_gpu, recommend_profile, vram_gb
 from sida.i18n import get_language, t
 from sida.runtime import needs_openrouter, resolve_conductor_runtime, resolve_worker_runtime
+from sida.settings import (
+    STATE_MODES,
+    current_run_mode,
+    run_mode_patches,
+    save_config_patches,
+)
 
 PROVIDERS = ("ollama", "openrouter", "mock")
 PROFILES = ("local", "local_plus")
-STATE_MODES = ("ask", "auto", "off")
-MODE_PROVIDER = {"cloud": "openrouter", "local": "ollama"}
-LOCAL_CONFIG_HEADER = (
-    "# This machine only — not committed. Values here override config.yaml.\n"
-    "# Change them from the hub (c = settings) or edit this file directly.\n"
-)
-
-
-def _yaml_scalar(value: Any) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    text = str(value)
-    if re.search(r"[:#\[\]{}&*!|>'\"%@`]", text) or text != text.strip():
-        return repr(text)
-    return text
-
-
-def set_section_key(text: str, section: str, key: str, value: Any) -> str:
-    """
-    Replace `key:` under a top-level `section:` block. Preserves trailing comments
-    on the same line when present. Inserts the key if missing inside the section.
-    """
-    raw = _yaml_scalar(value)
-    lines = text.splitlines(keepends=True)
-    section_re = re.compile(rf"^{re.escape(section)}:\s*(?:#.*)?$")
-    key_re = re.compile(rf"^([ \t]*){re.escape(key)}\s*:(.*)$")
-    top_re = re.compile(r"^[A-Za-z_][\w-]*\s*:")
-
-    start = None
-    for i, line in enumerate(lines):
-        if section_re.match(line.rstrip("\n\r")):
-            start = i
-            break
-    if start is None:
-        sep = "" if text.endswith("\n") or not text else "\n"
-        return f"{text}{sep}\n{section}:\n  {key}: {raw}\n"
-
-    end = len(lines)
-    for j in range(start + 1, len(lines)):
-        if top_re.match(lines[j]) and not lines[j].startswith((" ", "\t")):
-            end = j
-            break
-
-    indent = "  "
-    for j in range(start + 1, end):
-        m = key_re.match(lines[j].rstrip("\n\r"))
-        if not m:
-            continue
-        indent = m.group(1) or "  "
-        rest = m.group(2)
-        comment = ""
-        if " #" in rest:
-            comment = " #" + rest.split(" #", 1)[1].rstrip()
-        nl = "\n" if lines[j].endswith("\n") else ""
-        lines[j] = f"{indent}{key}: {raw}{comment}{nl}"
-        return "".join(lines)
-
-    lines.insert(start + 1, f"{indent}{key}: {raw}\n")
-    return "".join(lines)
-
-
-def save_config_patches(patches: list[tuple[str, str, Any]], *, path: Path | None = None) -> Path:
-    """Apply (section, key, value) patches to config.local.yaml (created if missing)."""
-    path = path or local_config_path()
-    text = path.read_text(encoding="utf-8") if path.exists() else LOCAL_CONFIG_HEADER
-    for section, key, value in patches:
-        text = set_section_key(text, section, key, value)
-    path.write_text(text, encoding="utf-8")
-    return path
-
-
-def run_mode_patches(mode: str, profile: str | None = None) -> list[tuple[str, str, Any]]:
-    """Config patches for a run mode: cloud = OpenRouter, local = Ollama (both roles)."""
-    provider = MODE_PROVIDER[mode]
-    patches: list[tuple[str, str, Any]] = [
-        ("conductor", "provider", provider),
-        ("worker", "provider", provider),
-    ]
-    if mode == "local" and profile:
-        patches.append(("conductor", "local_profile", profile))
-    return patches
-
-
-def current_run_mode(config: dict) -> str:
-    """cloud | local | custom (roles differ, or mock)."""
-    c = resolve_conductor_runtime(config)["provider"]
-    w = resolve_worker_runtime(config)["provider"]
-    if c == w == "openrouter":
-        return "cloud"
-    if c in {"ollama", "local"} and w in {"ollama", "local"}:
-        return "local"
-    return "custom"
 
 
 def choose_run_mode(*, config_path: Path | None = None, first_run: bool = False) -> str | None:
