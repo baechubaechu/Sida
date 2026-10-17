@@ -1,6 +1,6 @@
 # Sida (시다)
 
-A CLI-based LLM workflow for architectural design reasoning.
+A local web app (LLM workflow) for architectural design reasoning.
 
 **시다**는 한국 건축 현장에서 조수·보조를 부르는 말입니다.  
 이 도구도 건물을 대신 설계하지 않고, 설계자의 추론을 옆에서 돕는 조수처럼 동작합니다.
@@ -40,8 +40,7 @@ Conductor: conditions (hard/soft), conflicts between experts, decisions required
   section naming who should look next. Other completed outputs are listed by name only.
 - The Conductor picks the entry expert from the brief's **Primary Driver**
   (`site | idea | program | regulation | competition`) and from what the designer is stuck on.
-- `paths` in `config.yaml` are suggested sequences per driver — hints for the Conductor, and
-  runnable with `python run.py --path idea_driven brief.md`.
+- `paths` in `config.yaml` are suggested sequences per driver — hints for the Conductor.
 
 ## Installation
 
@@ -50,11 +49,8 @@ Conductor: conditions (hard/soft), conflicts between experts, decisions required
 Python 3.10+ 만 설치되어 있으면 됩니다. `run.bat`을 더블클릭하거나:
 
 ```bat
-run.bat                      :: 채팅 (프로젝트 허브). 첫 실행 시 .venv 생성 + 의존성 설치
-run.bat web                  :: 웹 UI (브라우저에서 http://127.0.0.1:8765, 지금은 프로젝트 허브까지)
-run.bat setup                :: 언어 / OpenRouter 키 설정
-run.bat sample_brief         :: 프로젝트 바로 열기
-run.bat pipeline input\brief.md   :: 비대화형 순차 실행
+run.bat                      :: 웹 UI (브라우저에서 http://127.0.0.1:8765). 첫 실행 시 .venv 생성 + 의존성 설치
+run.bat --port 8800          :: 다른 포트 (--no-browser: 브라우저를 열지 않음)
 run.bat test                 :: 테스트
 run.bat update               :: 의존성 재설치
 ```
@@ -73,22 +69,10 @@ pip install -e .
 
 ## Environment setup
 
-가장 쉬운 방법 — 프로그램이 직접 안내합니다:
+API 키는 웹 UI의 설정 화면에서 넣습니다(`PUT /api/settings/keys/{key}`, `docs/settings-api.md`).
+OpenRouter 키는 https://openrouter.ai/keys 에서 발급하고, 저장 전에 확인한 뒤 `.env`에 씁니다.
 
-```bash
-python setup_env.py
-```
-
-또는 `python chat.py ...` / `python run.py ...` 실행 시 키가 없으면 같은 안내가 자동으로 뜹니다.
-
-안내 내용:
-1. https://openrouter.ai/keys 에서 키 발급
-2. 터미널에 키 붙여넣기 (입력 중 화면에는 안 보임)
-3. `.env`에 저장
-
-채팅 중에도 `/setup`으로 키를 다시 설정할 수 있습니다.
-
-수동으로 하려면:
+설정 화면 없이 하려면:
 
 ```bash
 cp .env.example .env
@@ -97,13 +81,13 @@ cp .env.example .env
 
 Model and agent settings live in `config.yaml` (team defaults: cloud via OpenRouter, RAG off).
 Per-machine choices go to the git-ignored `config.local.yaml`, which overrides it.
-On first launch the app asks **cloud (OpenRouter) or local (Ollama)** and saves the answer
-there; change it later from the hub with `c` (settings) → `9`.
+The settings screen (`GET/PUT /api/settings`) chooses **cloud (OpenRouter) or local (Ollama)**
+and writes the answer there.
 
 ### Local Conductor (optional, Ollama)
 
 In local mode the Conductor and the experts both run on Ollama; cloud mode uses OpenRouter
-for both. You can also mix them per role in the settings menu. 8GB VRAM is the minimum (`local`, 7B); 12GB+ is recommended (`local_plus`, `qwen3.5:9b`).
+for both. You can also mix them per role in the settings. 8GB VRAM is the minimum (`local`, 7B); 12GB+ is recommended (`local_plus`, `qwen3.5:9b`).
 See `docs/gpu_tiers.md`.
 
 ```bash
@@ -130,17 +114,8 @@ conductor:
 ### Project memory updates (`state_update`)
 
 After every module run the app proposes a `project_state.md` patch — Module Status row,
-Meta lines, and only the bullet sections the module informs — and shows a diff:
-
-```txt
-[state] site_reader 결과로 project_state.md 갱신안을 만드는 중 ...
---- project_state.md
-+++ proposed
--| site_reader | pending | |
-+| site_reader | done | 남북 레벨 차 6m가 동선의 핵심 제약 |
-...
-이 갱신을 적용할까요? [Y = 적용 / n = 건너뛰기 / e = 적용 후 에디터로 열기]:
-```
+Meta lines, and only the bullet sections the module informs — as a diff the designer applies
+or skips (`docs/session-api.md`, `docs/state-editing.md`).
 
 ```yaml
 # config.yaml
@@ -149,34 +124,26 @@ state_update:
   provider: worker   # worker (cloud, reliable JSON) | conductor (fully local)
 ```
 
-`/state update [agent_id]` re-proposes from any completed module. Previous version is kept
-in `project_state.prev.md`.
+The previous version is kept in `project_state.prev.md`.
 
 ## How to run
 
-### First launch
-
 ```bash
 pip install -e .
-python chat.py
+python webapp.py            # http://127.0.0.1:8765 (--port, --no-browser)
 ```
 
-1. Language (Korean default, English available)
-2. API key + verification
-3. **Project hub** — create / open / switch projects (no chat)
-4. Inside a project — Conductor session
-
-In a session:
-- `/close` → save conversation, back to hub
-- `/quit` → save and exit app
-- Ctrl+C → same as `/close`
+The browser opens the **project hub** (create / open / sample). Inside a project you talk with the
+Conductor, and experts run when needed. The screens call the JSON API under `/api`; see
+`docs/session-api.md`, `docs/settings-api.md`, `docs/site-ordinance.md`, `docs/law-search-api.md`
+and `docs/state-editing.md`.
 
 Projects are saved under the user home folder (easy to open in File Explorer):
 
 ```txt
 ~/Sida/projects/sample_brief/
 ├─ brief.md
-├─ brief.prev.md       ← backup written by /brief edit
+├─ brief.prev.md       ← backup written when the brief is edited
 ├─ project_state.md    ← rolling project memory for the Conductor (auto-proposed after module runs)
 ├─ project_state.prev.md ← backup written before each state update
 ├─ session.json
@@ -197,50 +164,10 @@ outputs. Existing projects without version records retain full outputs until acc
 
 Path is set in `config.yaml` → `projects_dir`.
 
-Resume later:
-
-```bash
-python chat.py sample_brief
-python chat.py --list
-```
-Talk in the terminal. Modules run only when needed.
-
-```txt
-Commands:
-  /help
-  /project
-  /brief            show brief
-  /brief edit       open brief.md in your editor (backup → brief.prev.md)
-  /brief fields     update the seven basic fields only (other sections kept; includes Primary Driver)
-  /state            show project_state.md
-  /state edit       open project_state.md in your editor
-  /state update     propose a state patch from the latest module (diff + confirm)
-  /site             show site facts (parcel, zoning, statutory coverage / FAR limits)
-  /site <address>   look up a lot-number address; pick one parcel or several to merge
-  /site ordinance   list every coverage / FAR article of the municipality's ordinance, in three groups
-  /site ordinance <article>   full text of one article
-  /site hide <article>        leave it out of what the experts receive (/site show to undo)
-  /agents
-  /status
-  /setup
-  /run site_reader
-  /quit
-```
-
 The Conductor can also ask to read a completed module file
 (`{"type": "read", "module": "site_reader"}`) when the state file lacks detail.
 
 Conductor model and worker model are set in `config.yaml`.
-
-### Non-interactive runs
-
-```bash
-python run.py input/sample_brief.md                         # every expert, config order
-python run.py --path site_driven input/geumjeong_station_brief.md
-python run.py --path review_prep projects/geumjeong_station_brief
-```
-
-Outputs go to the same `projects/<name>/modules/` layout.
 
 ## Experts
 
@@ -268,18 +195,18 @@ expert list and the `project_state.md` Module Status table are generated from co
 
 ## Limitations
 
-- Version 0.2 — CLI prototype only
+- Version 0.2 — local web prototype; the screens are still being built
 - Does not generate drawings, models, or a finished design
 - Quality depends on the brief and the chosen model
 - `regulation_checker` and `precedent_scout` produce verification agendas, not facts — numbers and named works must be checked by the designer. Statute retrieval is off by default; turned on, it searches 법제처 (law.go.kr) directly and needs only `LAW_OPEN_API_OC` in `.env` (`docs/rag.md`).
-- In local mode, long inputs are trimmed to fit the model's context window (a notice is printed); `design_critic` reads every output and is affected most.
+- In local mode, long inputs are trimmed to fit the model's context window (a notice is shown); `design_critic` reads every output and is affected most.
 - Opening an old project auto-renames `01_*.md` module files to the new `11_` / `31_` / … names and adds missing Module Status rows.
-- No web UI or database
+- No database: projects are folders of Markdown and JSON files
 
 ## Next steps
 
-See [`docs/roadmap.md`](docs/roadmap.md). In short: separate the core from the terminal I/O,
-then add a local web UI on top of it (the CLI stays for automation and tests).
+See [`docs/roadmap.md`](docs/roadmap.md). In short: build the web screens on the JSON API.
+The terminal CLI was removed (2026-10-16); every feature goes through the web.
 
 ## Development
 
@@ -291,36 +218,32 @@ pytest                      # offline tests (mock provider, no network)
 ruff check .
 ```
 
-Module layout. The code is the `sida/` package: the shared core sits directly in `sida/`, and code that belongs to one expert domain sits in `sida/experts/<domain>/` (tests mirror this under `tests/experts/<domain>/`). `chat.py`, `run.py`, `setup_env.py` and `webapp.py` in the repo root only start the module of the same name.
+Module layout. The code is the `sida/` package: the shared core sits directly in `sida/`, and code that belongs to one expert domain sits in `sida/experts/<domain>/` (tests mirror this under `tests/experts/<domain>/`). `webapp.py` in the repo root only starts `sida/webapp.py`.
 
 | File (under `sida/`) | Role |
 |---|---|
-| `chat.py` | entry point: first-run setup → hub → sessions |
-| `hub.py` | project picker (create / open / sample) |
 | `engine.py` | UI-agnostic session core: `Session` state, Conductor turns, expert runs, state updates — returns values and emits events, never prints |
-| `session.py` | terminal front end for a session: renders engine events, asks the inline questions, input loop |
-| `commands.py` | slash commands (`/brief`, `/state`, `/run`, ...) |
 | `conductor.py` | Conductor message assembly, action parsing, one LLM call |
-| `briefs.py` | brief.md authoring — guided fields or external editor |
-| `console.py` | prompts, `$EDITOR` launch, UTF-8 stdio |
+| `briefs.py` | brief.md from the seven basic fields |
+| `console.py` | UTF-8 stdio, terminal colors for server logs |
 | `state_updater.py` | project_state.md patch proposal (JSON call → diff → apply) |
 | `ollama_boot.py` | start Ollama, pull missing model, warm VRAM on session open |
 | `migrate.py` | rename legacy module files + sync Module Status on project open |
-| `experts/__init__.py` | how a domain plugs into the core: each `experts/<domain>/hooks.py` is discovered automatically and may provide `prompt_blocks(run)` (text for an expert's prompt), `COMMANDS` (session slash commands) and `api_router(...)` (JSON routes for the web UI) |
+| `experts/__init__.py` | how a domain plugs into the core: each `experts/<domain>/hooks.py` is discovered automatically and may provide `prompt_blocks(run)` (text for an expert's prompt) and `api_router(...)` (JSON routes for the web UI) |
 | `experts/regulation/rag.py` | statute retrieval for regulation_checker / law search — 법제처 search (default) or local markdown |
 | `experts/regulation/lawapi.py` | client for the 법제처 OPEN API (law.go.kr): intelligent statute search |
-| `experts/regulation/law_search.py` | hub `l`: regulation Q&A without a project (retrieved articles + Conductor model) |
-| `experts/rhino/rhino_modeler.py` | hub `m`: Rhino modeling loop (OpenAI model plans, MCP tools execute) |
+| `experts/regulation/law_search.py` | statute Q&A without a project (retrieved articles + Conductor model), `POST /api/law/search` |
+| `experts/rhino/rhino_modeler.py` | Rhino modeling turn (OpenAI model plans, MCP tools execute); not on the web yet, a later special feature |
 | `experts/rhino/rhino_mcp.py` / `mcp_stdio.py` | Rhino MCP router bridge, allowed-tool list, stdio JSON-RPC client |
-| `hub_settings.py` | hub `c`: settings menu and run mode → `config.local.yaml` |
-| `hub_about.py` | hub `h`: about page listing the experts |
 | `hardware.py` | GPU detection (NVIDIA) and local-profile recommendation |
 | `workspace.py` | UI-agnostic project hub operations: list, look up, create |
-| `experts/regulation/ordinance.py` | finds the municipality's 도시·군계획 조례 on law.go.kr and quotes its 건폐율 / 용적률 articles as written, and reads the figure for the site's zone by fixed rules, shown next to the quoted line; follows "별표 N과 같다" into the annex file (`hwp.py` reads HWP) (stored in `site_facts.json` by `/site`, given to `regulation_checker`) |
+| `session_api.py` / `session_jobs.py` / `expert_chat.py` | web session: Conductor chat, expert runs in the background, per-expert chat (`docs/session-api.md`) |
+| `settings.py` / `settings_api.py` | settings screen: run mode, models, API keys → `config.local.yaml` / `.env` (`docs/settings-api.md`) |
+| `experts/regulation/ordinance.py` | finds the municipality's 도시·군계획 조례 on law.go.kr and quotes its 건폐율 / 용적률 articles as written, and reads the figure for the site's zone by fixed rules, shown next to the quoted line; follows "별표 N과 같다" into the annex file (`hwp.py` reads HWP) (stored in `site_facts.json` by the site lookup, given to `regulation_checker`) |
 | `experts/site/landapi.py` | clients for the government land APIs (VWorld): parcel search, zoning, land characteristics |
 | `experts/site/site_facts.py` + `data/zoning_limits.yaml` (repo root) | site facts: parcels → one site, statutory coverage / FAR limits, items to verify; saved as `site_facts.json` and given to `site_reader` / `regulation_checker` |
 | `webapp.py` + `webui/` (repo root) | local web UI (FastAPI): JSON API under `/api`, HTML pages from `webui/templates`, styles in `webui/static` |
-| `run.bat` (repo root) | Windows launcher: venv + deps + dispatch |
+| `run.bat` (repo root) | Windows launcher: venv + deps, then the web UI |
 | `config.py` | `config.yaml` (team defaults) overlaid with `config.local.yaml` (this machine); the expert list and lookups |
 | `providers.py` | LLM providers (OpenRouter / OpenAI / Ollama / mock) behind one `chat()` call, with retries |
 | `runtime.py` | which provider, model and context size the Conductor and the workers run with (local profiles applied) |
@@ -328,10 +251,6 @@ Module layout. The code is the `sida/` package: the shared core sits directly in
 | `conductor_context.py` | what the Conductor is sent: prompt with the expert list, recent history, expert outputs |
 | `project.py` | project folder I/O, `project_state.md`, brief section patching |
 | `i18n.py` | UI strings — Korean default, English fallback |
-| `setup_env.py` | language + OpenRouter key setup |
-| `run.py` | non-interactive sequential pipeline |
-
-Editor for `/brief edit` and `/state edit`: `SIDA_EDITOR` → `VISUAL` → `EDITOR` → `notepad` (Windows) / `nano`, `vim`, `vi`.
 
 ## Tools
 

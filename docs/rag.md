@@ -2,13 +2,13 @@
 
 ## Goal
 
-`regulation_checker` and the hub law search (`l`) should cite **retrieved, dated statute
+`regulation_checker` and the law search (`POST /api/law/search`) should cite **retrieved, dated statute
 text** instead of numbers from model memory. Retrieval never raises: when it yields nothing
 the run continues and a one-line `[rag]` warning says why.
 
 Parcel facts (zoning, statutory coverage / FAR limits) are a separate feature — see
-`sida/experts/site/site_facts.py` and `/site`. The municipality's planning ordinance (건폐율 / 용적률
-articles) is also fetched by `/site`, through `sida/experts/regulation/ordinance.py`, and does not
+`sida/experts/site/site_facts.py` and the site lookup API (`docs/site-ordinance.md`). The municipality's
+planning ordinance (건폐율 / 용적률 articles) is also fetched by the site lookup, through `sida/experts/regulation/ordinance.py`, and does not
 depend on `rag.enabled`. This document is only about finding statute articles.
 
 ## Providers (`rag.provider` in `config.yaml`)
@@ -18,7 +18,7 @@ depend on `rag.enabled`. This document is only about finding statute articles.
 | `lawgokr` (default) | 법제처 국가법령정보 **지능형 법령검색**, called directly from Sida (`sida/experts/regulation/lawapi.py`) | `LAW_OPEN_API_OC` in `.env`, with "지능형 법령검색 시스템 검색 API" checked in the OPEN API application |
 | `local_files` | Markdown under `knowledge/regulations/` (offline, keyword match) | nothing |
 
-Retrieval is off in the team defaults. Turn it on per machine: hub → `c` (settings) → `4`,
+Retrieval is off in the team defaults. Turn it on per machine in the settings (`PUT /api/settings` with `rag_enabled: true`),
 or in `config.local.yaml`:
 
 ```yaml
@@ -41,7 +41,7 @@ What to know about it (`lawapi.py` has the details):
   ("일반공업지역에서 건축할 수 있는 건축물", "일반공업지역 건폐율 용적률") and districts
   that need checking — and then from short Korean lines in the brief (Project Type, Core
   Problem). With no site facts and an English brief there is nothing to ask, and the
-  warning tells the designer to run `/site <주소>` first.
+  warning tells the designer to look up the site address first.
 - **Rank only, no score.** Nonsense still returns results, and the tail of each list is
   noisy. Sida keeps the top 3 per question (6 for a single question in the law search).
 - **Articles come with full text**; long ones are cut to 1,800 characters.
@@ -54,14 +54,14 @@ What to know about it (`lawapi.py` has the details):
 
 ```
 run_worker_agent(regulation_checker)
-  → site_facts.load_facts(project)                       # zoning etc., if /site was run
+  → site_facts.load_facts(project)                       # zoning etc., if the site was looked up
   → rag.retrieve_for_agent(..., site_facts=facts)
        lawgokr:      focus_queries(brief, facts) → lawapi.ai_search per question → merge
        local_files:  keyword match over knowledge/regulations/
   → build_worker_prompt(..., knowledge_block=formatted passages)
   → model sees RETRIEVED KNOWLEDGE with `source: law.go.kr/<법령명> <조>` lines
 
-hub → l (law_search.py)
+POST /api/law/search (law_search.search_law)
   → the designer's question (plus a synonym variant) → rag.retrieve_passages → model answer
 ```
 

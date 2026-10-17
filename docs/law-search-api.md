@@ -1,6 +1,6 @@
-# 법령 검색 API (허브의 법령 질문)
+# 법령 검색 API (프로젝트 없는 법령 질문)
 
-프로젝트 없이 건축·도시계획 법령을 묻는 검색창이 쓰는 JSON API입니다. CLI 허브의 `l`(법령 검색)과 같은 일을 합니다. 로직은 `sida/experts/regulation/law_search.py`의 `search_law`, 경로는 `sida/experts/regulation/api.py`에 있습니다.
+프로젝트 없이 건축·도시계획 법령을 묻는 검색창이 쓰는 JSON API입니다. 로직은 `sida/experts/regulation/law_search.py`의 `search_law`, 경로는 `sida/experts/regulation/api.py`에 있습니다.
 
 프로젝트 안의 법규 검토자는 이 API를 쓰지 않습니다. 전문가가 실행될 때 법제처 검색이 자동으로 붙습니다.
 

@@ -64,7 +64,7 @@ def test_api_unknown_project_is_404(client):
 
 
 def test_api_runtime_reports_mode_and_missing_key(client, mock_config, monkeypatch):
-    monkeypatch.setattr("sida.setup_env.read_api_key_from_env", lambda: "")
+    monkeypatch.setattr("sida.settings.read_key", lambda name: "")
     body = client.get("/api/runtime").json()
     assert body["conductor"]["provider"] == "mock"
     assert body["warnings"] == {"openrouter_key_missing": False, "rag_key_missing": False}

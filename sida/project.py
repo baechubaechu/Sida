@@ -288,8 +288,7 @@ def load_project(path: Path) -> Project:
     path = path.resolve()
     if not is_project_dir(path):
         fail(
-            f"Not a project folder (missing {BRIEF_FILE}): {path}\n"
-            f"Create one with: python chat.py input/your_brief.md"
+            f"Not a project folder (missing {BRIEF_FILE}): {path}"
         )
 
     session_id = f"sida-{path.name}-{uuid.uuid4().hex[:8]}"

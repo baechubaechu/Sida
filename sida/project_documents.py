@@ -1,4 +1,4 @@
-"""Core document editing for CLI and web front ends, with optimistic conflict checks."""
+"""Core document editing for the web front end, with optimistic conflict checks."""
 
 from __future__ import annotations
 

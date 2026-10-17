@@ -1,4 +1,4 @@
-"""Translate application errors to terminal output only at CLI entry points."""
+"""Translate application errors to terminal output only at entry points (python webapp.py)."""
 
 from __future__ import annotations
 

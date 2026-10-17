@@ -9,7 +9,6 @@ import pytest
 
 from sida import config as sida_config
 from sida import worker
-from sida.commands import dispatch
 from sida.experts.regulation import lawapi
 from sida.experts.site import landapi, site_facts
 from sida.experts.site.landapi import LandApiError
@@ -269,58 +268,6 @@ def _answers(monkeypatch, *replies):
     monkeypatch.setattr("builtins.input", lambda *_: queue.pop(0))
 
 
-def test_site_command_without_facts_explains_how(make_session, capsys):
-    assert dispatch(make_session(), "/site") == "continue"
-    assert "/site 경기도 군포시 금정동 689-14" in capsys.readouterr().out
-
-
-def test_site_command_looks_up_merged_parcels_and_saves(make_session, fake_vworld, monkeypatch, capsys):
-    s = make_session()
-    _answers(monkeypatch, "1,2")
-    assert dispatch(s, "/site 경기도 군포시 금정동 689") == "continue"
-    out = capsys.readouterr().out
-    assert "1) 경기도 군포시 금정동 689-14" in out and "일반공업지역" in out and "필지 2개" in out
-
-    facts = site_facts.load_facts(s.project.path)
-    assert [p["pnu"] for p in facts["parcels"]] == [P14, P15]
-    assert s.history[-1] == {"role": "user", "content": site_facts.STALE_NOTE}
-    assert s.project.load_history()[-1]["content"] == site_facts.STALE_NOTE  # saved for resume
-
-    assert dispatch(s, "/site") == "continue"  # shows what was saved, no new lookup
-    assert "금정동 689-15" in capsys.readouterr().out
-    assert sum(1 for url, _ in fake_vworld.calls if url.endswith("/req/search")) == 1
-
-
-def test_site_command_enter_takes_first_and_zero_cancels(make_session, fake_vworld, monkeypatch):
-    s = make_session()
-    _answers(monkeypatch, "")
-    dispatch(s, "/site 금정동 689")
-    assert [p["pnu"] for p in site_facts.load_facts(s.project.path)["parcels"]] == [P14]
-
-    s2 = make_session()
-    site_facts.facts_path(s2.project.path).unlink()
-    _answers(monkeypatch, "0")
-    dispatch(s2, "/site 금정동 689")
-    assert site_facts.load_facts(s2.project.path) is None and s2.history == s.history[:0]
-
-
-def test_site_command_reports_key_and_no_match(make_session, fake_vworld, monkeypatch, capsys):
-    s = make_session()
-    fake_vworld.overrides["search"] = LandApiError("invalid_key", "등록되지 않은 인증키입니다.")
-    dispatch(s, "/site 금정동 689")
-    out = capsys.readouterr().out
-    assert "키를 거부" in out and "VWORLD_DOMAIN" in out
-    assert site_facts.load_facts(s.project.path) is None
-
-    monkeypatch.delenv("VWORLD_API_KEY")
-    del fake_vworld.overrides["search"]
-    dispatch(s, "/site 금정동 689")
-    assert "VWORLD_API_KEY가 없습니다" in capsys.readouterr().out
-
-
-# --- the municipality's ordinance ----------------------------------------------------
-
-
 def test_municipality_is_the_ordinance_making_body():
     assert site_facts.municipality("제주특별자치도 제주시 연동 100") == "제주특별자치도"
     assert site_facts.municipality("부산광역시 기장군 기장읍 1") == "부산광역시"
@@ -460,43 +407,6 @@ def test_designer_is_told_when_the_ordinance_itself_is_cut(
     # the 8GB profile: even the ordinance alone does not fit next to the agent prompt and brief
     _prompt, warnings = _run_local(mock_config, agents, project, scripted, 8192)
     assert any("조례 원문" in w and "잘렸습니다" in w for w in warnings)
-
-
-def test_site_command_saves_and_shows_the_ordinance(make_session, fake_vworld, monkeypatch, capsys):
-    s = make_session()
-    assert dispatch(s, "/site 조례") == "continue"
-    assert "저장된 조례 조문이 없습니다" in capsys.readouterr().out
-
-    _answers(monkeypatch, "1")
-    dispatch(s, "/site 경기도 군포시 금정동 689")
-    out = capsys.readouterr().out
-    assert "경기도 군포시의 도시·군계획 조례를 찾는 중" in out
-    assert "적용 조례: 군포시 도시계획 조례 (시행 2025-10-10)" in out
-    assert site_facts.load_facts(s.project.path)["ordinance"]["mst"] == "2077621"
-
-    dispatch(s, "/site 조례")
-    out = capsys.readouterr().out
-    assert "[대지 위치로 정해지는 것]" in out and "[설계 내용으로 얻을 수 있는 완화]" in out
-    assert "[행정이 따로 지정하는 것]" in out and "제51조 건폐율의 강화" in out
-    assert "(이 대지가 속한 지구·구역은 이 조문에 나오지 않음)" in out
-
-    dispatch(s, "/site 조례 제49조")
-    assert "  12. 일반공업지역 : 100분의 70 이하" in capsys.readouterr().out
-    dispatch(s, "/site 조례 제999조")
-    assert "그런 조문이 없습니다" in capsys.readouterr().out
-
-    dispatch(s, "/site 숨김 제52조")
-    assert "제52조" in site_facts.load_facts(s.project.path)["ordinance"]["dismissed"]
-    dispatch(s, "/site 조례")
-    assert "숨김 제52조 건폐율의 완화" in capsys.readouterr().out
-    _answers(monkeypatch, "1")
-    dispatch(s, "/site 경기도 군포시 금정동 689")  # looking the site up again keeps the choice
-    assert site_facts.load_facts(s.project.path)["ordinance"]["dismissed"] == ["제52조"]
-    dispatch(s, "/site 표시 제52조")
-    assert site_facts.load_facts(s.project.path)["ordinance"]["dismissed"] == []
-    capsys.readouterr()
-    dispatch(s, "/site 숨김 제999조")
-    assert "그런 조문이 없습니다" in capsys.readouterr().out
 
 
 def test_ordinance_figures_are_shown_next_to_the_quoted_line(one, fake_ordinance):
@@ -779,25 +689,3 @@ def test_facts_saved_before_data_go_kr_still_render(one):
     assert "건축 가능 여부" not in regulatory and "건축제한 근거 조문" not in regulatory
     view = site_facts.site_view(one)
     assert view["uses"] == [] and view["restrictions"] == [] and view["parcels"][0]["buildings"] is None
-
-
-def test_site_use_command_checks_and_forgets_a_planned_use(make_session, one, fake_datago, monkeypatch, capsys):
-    s = make_session()
-    dispatch(s, "/site 용도 공장")
-    assert "먼저 대지를 조회" in capsys.readouterr().out
-
-    site_facts.save_facts(s.project.path, one)
-    dispatch(s, "/site 용도 공장")
-    out = capsys.readouterr().out
-    assert "건축 가능 여부(공장, 토지이음 행위제한): 과밀억제권역 — 업종변경 금지" in out
-    assert [u["name"] for u in site_facts.load_facts(s.project.path)["uses"]] == ["공장"]
-
-    monkeypatch.delenv("DATA_GO_KR_API_KEY")
-    dispatch(s, "/site use 단독주택")
-    assert "DATA_GO_KR_API_KEY가 없습니다" in capsys.readouterr().out
-
-    dispatch(s, "/site 용도삭제 공장")
-    assert "공장을(를) 지웠습니다" in capsys.readouterr().out
-    assert site_facts.load_facts(s.project.path)["uses"] == []
-    dispatch(s, "/site unuse 공장")
-    assert "조회한 적 없는 용도" in capsys.readouterr().out

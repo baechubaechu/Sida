@@ -76,12 +76,11 @@ def load_config() -> dict:
 def runtime_summary(config: dict) -> dict:
     """What the hub shows about how models will run, plus setup problems worth flagging."""
     from sida.experts.regulation.rag import key_missing, rag_settings
-    from sida.settings import current_run_mode
-    from sida.setup_env import read_api_key_from_env
+    from sida.settings import current_run_mode, read_key
 
     conductor = runtime.resolve_conductor_runtime(config)
     worker = runtime.resolve_worker_runtime(config)
-    api_key = read_api_key_from_env()
+    api_key = read_key("OPENROUTER_API_KEY")
     rag = rag_settings(config)
     return {
         "mode": current_run_mode(config),

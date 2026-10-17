@@ -13,13 +13,16 @@ import re
 from pathlib import Path
 from typing import Any
 
+import requests
 from dotenv import dotenv_values
 
-from sida import hardware, runtime, setup_env
+from sida import hardware, runtime
 from sida.config import ROOT, local_config_path
 from sida.experts.regulation.rag import key_missing, rag_settings
 
 ENV_PATH = ROOT / ".env"
+OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
+OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
 MODES = ("cloud", "local")
 MODE_PROVIDER = {"cloud": "openrouter", "local": "ollama"}
 WEB_PROVIDERS = ("openrouter", "ollama")
@@ -179,12 +182,30 @@ def write_env_value(name: str, value: str, *, path: Path | None = None) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _verify(key_id: str, value: str) -> tuple[bool, str] | None:
+def read_key(env_name: str) -> str:
+    """A key's current value (.env, with this process's environment on top); "" when unset."""
+    return _env_values().get(env_name, "").strip()
+
+
+def _check_key(url: str, key: str) -> tuple[bool, str]:
+    """Ask the service whether it accepts the key. Returns (ok, detail)."""
+    try:
+        response = requests.get(url, headers={"Authorization": f"Bearer {key}"}, timeout=30)
+    except requests.RequestException as exc:
+        return False, str(exc)
+    if response.status_code == 200:
+        return True, "authorized"
+    if response.status_code in {401, 403}:
+        return False, f"unauthorized ({response.status_code})"
+    return False, f"HTTP {response.status_code}: {response.text[:200]}"
+
+
+def verify_key(key_id: str, value: str) -> tuple[bool, str] | None:
     """Check a model key against its service before saving; None for keys with no check."""
     if key_id == "openrouter":
-        return setup_env.verify_api_key(value)
+        return _check_key(OPENROUTER_KEY_URL, value)
     if key_id == "openai":
-        return setup_env.verify_openai_api_key(value)
+        return _check_key(OPENAI_MODELS_URL, value)
     return None
 
 
@@ -199,7 +220,7 @@ def set_key(key_id: str, value: str) -> dict:
     value = (value or "").strip().strip('"').strip("'")
     if not value or any(c in value for c in "\r\n"):
         raise ValueError("value must be one non-empty line")
-    check = _verify(key_id, value)
+    check = verify_key(key_id, value)
     if check is not None and not check[0]:
         raise ValueError(f"{key_id} key rejected: {check[1]}")
     env = KEYS[key_id]["env"]

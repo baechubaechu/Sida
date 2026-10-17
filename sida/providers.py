@@ -65,7 +65,7 @@ class OpenRouterProvider:
 
     def __init__(self, api_key: str):
         if not api_key:
-            raise LLMError("OpenRouter API key is missing. Run: python setup_env.py")
+            raise LLMError("OpenRouter API key is missing. Enter it on the settings screen.")
         self.api_key = api_key
 
     def chat(

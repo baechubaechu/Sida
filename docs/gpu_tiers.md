@@ -25,7 +25,8 @@ Worker modules stay on OpenRouter (`worker.model`) unless you change them.
 The app checks the GPU with `nvidia-smi` (NVIDIA only; other GPUs are not detected and you
 pick the profile yourself):
 
-- **When choosing the run mode** (first launch, or hub → `c` → `9`): it shows the detected
+- **When choosing the run mode** (settings screen; `GET /api/settings` returns `gpu` with
+  `recommended_profile`): it shows the detected
   GPU and pre-selects the largest profile that fits — 11GB+ → `local_plus`, 7.5GB+ → `local`,
   less → cloud is recommended.
 - **Before downloading a missing model**: it says whether the configured profile suits the
@@ -55,7 +56,7 @@ so the smaller model with more ctx headroom wins for this app.
 
 1. Install [Ollama](https://ollama.com)
 2. `ollama pull qwen2.5:7b`
-3. Pick local mode: hub → `c` (settings) → `9`, or put this in `config.local.yaml`
+3. Pick local mode in the settings (`PUT /api/settings` with `mode: local`), or put this in `config.local.yaml`
    (per-machine, git-ignored — do not edit the team defaults in `config.yaml`):
 
 ```yaml
@@ -64,7 +65,7 @@ conductor:
   local_profile: local
 ```
 
-4. Keep `project_state.md` updated (module runs auto-propose patches; review with Y/n)
+4. Keep `project_state.md` updated (module runs auto-propose patches; apply or skip each)
 
 ## Reliability by size (action block + Korean)
 

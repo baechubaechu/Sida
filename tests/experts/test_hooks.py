@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from sida import commands, experts, worker
+from sida import experts, worker
 from sida.experts import FACTS, KNOWLEDGE, ExpertRun, PromptBlock
 from tests.conftest import ROOT
 
@@ -38,7 +38,7 @@ def test_domains_are_discovered_alphabetically_and_hooks_are_optional():
 def test_blocks_are_joined_per_slot_in_domain_order_and_blanks_dropped():
     hooks = [
         ("a", hook(prompt_blocks=lambda run: [PromptBlock("facts A"), PromptBlock("  ", FACTS)])),
-        ("b", hook(COMMANDS={})),  # no prompt_blocks at all
+        ("b", hook()),  # no prompt_blocks at all
         ("c", hook(prompt_blocks=lambda run: [PromptBlock("law C", KNOWLEDGE), PromptBlock("facts C")])),
     ]
     warnings: list[str] = []
@@ -77,24 +77,8 @@ def test_failing_hook_warns_and_the_other_domains_still_contribute():
     assert "[typo]" in warnings[1] and "sidebar" in warnings[1]
 
 
-def test_expert_commands_do_not_shadow_core_commands_or_each_other():
-    contributed = experts.expert_commands()
-    assert "/site" in contributed
-    assert not set(contributed) & set(commands.COMMANDS)
-    names = [
-        name.lower()
-        for _domain, module in experts.domain_hooks()
-        for name in getattr(module, "COMMANDS", {})
-    ]
-    assert len(names) == len(set(names))
-
-
-def test_unknown_slash_command_is_still_plain_chat(make_session):
-    assert commands.dispatch(make_session(), "/nope 1") is None
-
-
 CORE = ["config", "providers", "runtime", "worker", "conductor_context"]
-CORE += ["engine", "conductor", "session", "commands", "run"]
+CORE += ["engine", "conductor", "session_jobs", "expert_chat"]
 
 
 @pytest.mark.parametrize("module", CORE)

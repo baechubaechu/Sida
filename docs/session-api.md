@@ -19,7 +19,7 @@
 | `GET /session` | | `{messages, job, experts, proposal}` |
 | `POST /session/opening` | 본문 없음 | `202 {job}`. Conductor의 첫 인사. 화면을 열었을 때 `messages`가 비어 있으면 부르세요 |
 | `POST /session/messages` | `{text}` | `202 {job}` |
-| `POST /session/experts/{agent}/run` | 본문 없음, 또는 `{revision}` | `202 {job}`. 설계자가 전문가를 직접 실행(CLI의 `/run`). Conductor를 부르지 않음. `revision`을 주면 전문가가 지금 결과를 그 요청대로 고쳐 씀("Request revision") |
+| `POST /session/experts/{agent}/run` | 본문 없음, 또는 `{revision}` | `202 {job}`. 설계자가 전문가를 직접 실행. Conductor를 부르지 않음. `revision`을 주면 전문가가 지금 결과를 그 요청대로 고쳐 씀("Request revision") |
 | `GET /experts/{agent}/chat` | | `{agent, name, chat, messages, job}`. 전문가 채팅 기록 |
 | `POST /experts/{agent}/chat` | `{text}` | `202 {job}`. 전문가에게 메시지. `chat`이 `false`인 전문가는 `400` |
 | `GET /session/jobs/{id}` | `?after=0` | `{id, kind, agent, status, running_agent, error, started_at, finished_at, events}` |

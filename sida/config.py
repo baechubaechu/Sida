@@ -66,7 +66,7 @@ def get_agents(config: dict) -> list[dict]:
 
 
 def get_paths(config: dict) -> dict[str, list[str]]:
-    """Named suggested expert sequences (hints for the Conductor / run.py --path)."""
+    """Named suggested expert sequences (hints for the Conductor)."""
     raw = config.get("paths") or {}
     if not isinstance(raw, dict):
         return {}

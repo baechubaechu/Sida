@@ -62,8 +62,7 @@
 | `regulation_driven` | 법규가 형태를 거의 결정한다 | regulation_checker → program_analyst → site_reader → spatial_reviewer → systems_advisor |
 | `review_prep` | 크리틱·심사 직전 | design_critic → representation_planner → presentation_editor |
 
-경로는 `python run.py --path <name> brief.md`로 통째로 돌릴 수 있지만, 대화 세션에서는 Conductor가
-한 번에 하나씩, 필요할 때만 제안한다.
+경로는 순서를 강제하지 않는 힌트다. 대화 세션에서 Conductor가 한 번에 하나씩, 필요할 때만 제안한다.
 
 ## 조합이 실제로 일어나는 지점
 

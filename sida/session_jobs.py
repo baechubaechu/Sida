@@ -224,9 +224,9 @@ class SessionJobs:
                 print_fn=lambda *parts: job.add("notice", {"message": " ".join(map(str, parts))}),
             )
 
-        api_key = runtime.load_env(interactive=False, config=config)
+        api_key = runtime.load_env(config=config)
         # A fresh session per job reads brief, modules and history from disk, so edits made
-        # through the document API or the CLI in between are never overwritten by stale memory.
+        # through the document API in between are never overwritten by stale memory.
         session = engine.build_session(config, api_key, job.project, before_providers=boot)
         session.capture_notices = True
         session.emit = self._emitter(job, session)

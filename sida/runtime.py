@@ -4,17 +4,19 @@ from __future__ import annotations
 
 from sida.config import load_config
 from sida.errors import fail
+from sida.i18n import t
 from sida.providers import DEFAULT_OLLAMA_URL, make_provider
 
 
-def load_env(*, interactive: bool = True, config: dict | None = None) -> str:
-    """Load OpenRouter API key when any role uses openrouter; else return empty."""
-    from sida.setup_env import ensure_api_key, read_api_key_from_env
+def load_env(*, config: dict | None = None) -> str:
+    """The OpenRouter API key. Fails (SidaError) when a role needs OpenRouter and none is set."""
+    from sida import settings
 
     cfg = config if config is not None else load_config()
-    if not needs_openrouter(cfg):
-        return read_api_key_from_env()
-    return ensure_api_key(interactive=interactive)
+    key = settings.read_key("OPENROUTER_API_KEY")
+    if not key and needs_openrouter(cfg):
+        fail(t("api_required"))
+    return key
 
 
 def needs_openrouter(config: dict) -> bool:

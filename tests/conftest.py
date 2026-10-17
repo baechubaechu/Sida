@@ -253,7 +253,7 @@ def scripted():
 @pytest.fixture
 def make_session(mock_config, agents, project, conductor_prompt):
     """Build a Session with mock/scripted providers, no network."""
-    from sida.session import Session, load_existing_outputs
+    from sida.engine import Session, load_existing_outputs
 
     def _make(c_provider=None, w_provider=None, history=None):
         return Session(

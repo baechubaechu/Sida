@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from sida import config as sida_config
-from sida import hardware, settings, setup_env, webapp
+from sida import hardware, settings, webapp
 
 ROOT = sida_config.ROOT
 
@@ -121,12 +121,12 @@ def test_vworld_domain_is_shown_in_full(client, env_keys):
 
 
 def test_openrouter_key_is_checked_before_saving(client, env_keys, monkeypatch):
-    monkeypatch.setattr(setup_env, "verify_api_key", lambda key: (False, "unauthorized (401)"))
+    monkeypatch.setattr(settings, "_check_key", lambda url, key: (False, "unauthorized (401)"))
     r = client.put("/api/settings/keys/openrouter", json={"value": "sk-or-v1-wrongwrongwrong"})
     assert r.status_code == 400 and "unauthorized" in r.json()["detail"]
     assert not settings.ENV_PATH.exists()
 
-    monkeypatch.setattr(setup_env, "verify_api_key", lambda key: (True, "authorized"))
+    monkeypatch.setattr(settings, "_check_key", lambda url, key: (True, "authorized"))
     r = client.put("/api/settings/keys/openrouter", json={"value": "sk-or-v1-rightrightright"})
     assert r.status_code == 200 and r.json()["verified"] is True
     assert client.get("/api/settings").json()["warnings"]["openrouter_key_missing"] is False
