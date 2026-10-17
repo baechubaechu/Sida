@@ -30,3 +30,9 @@ def prompt_blocks(run: ExpertRun) -> list[PromptBlock]:
     if note:
         run.warn(note)
     return [PromptBlock(text, KNOWLEDGE)] if text else []
+
+
+def api_router(load_config, core):
+    from sida.experts.regulation.api import create_router
+
+    return create_router(load_config, core)
