@@ -197,6 +197,61 @@ def answer_law_question(
     return reply.strip(), passages
 
 
+MAX_QUESTION_CHARS = 500  # law.go.kr search works on short questions; a whole brief finds nothing
+SOURCE_TRUNCATED_CHARS = 900
+
+
+def source_view(index: int, passage: Passage) -> dict:
+    """One retrieved article as the screen shows it: its number in the answer and its text."""
+    text = passage.text or ""
+    return {
+        "index": index,
+        "title": passage.title or passage.source,
+        "source": passage.source,
+        "text": text,
+        "truncated": len(text) >= SOURCE_TRUNCATED_CHARS or text.rstrip().endswith("[...]"),
+    }
+
+
+def search_law(config: dict, question: str, *, provider: Any = None) -> dict:
+    """
+    One statute question for the web: retrieved articles + the Conductor model's answer.
+    No terminal input or output. Raises ValueError for an empty or long question or when
+    statute search is off (the answer would have no articles to cite), LLMError when the
+    model fails.
+    """
+    question = (question or "").strip()
+    if not question:
+        raise ValueError("question is empty")
+    if len(question) > MAX_QUESTION_CHARS:
+        raise ValueError(f"question is longer than {MAX_QUESTION_CHARS} characters")
+    if not rag_settings(config)["enabled"]:
+        raise ValueError("statute search is off; turn it on in settings (rag_enabled)")
+
+    notices: list[str] = []
+    api_key = ""
+    if provider is None:
+        from sida.ollama_boot import ensure_ollama_ready
+
+        # Never wait for a terminal answer: a missing local model becomes an LLMError.
+        ensure_ollama_ready(
+            config,
+            prompt_fn=lambda _label: "n",
+            print_fn=lambda *parts: notices.append(" ".join(map(str, parts))),
+        )
+        api_key = load_env(interactive=False, config=config)
+        provider = conductor_provider(config, api_key)
+    reply, passages = answer_law_question(config, api_key, question, provider=provider)
+    warning = "" if passages else (last_retrieval_warning() or "")
+    return {
+        "question": question,
+        "answer": reply,
+        "sources": [source_view(i, p) for i, p in enumerate(passages, start=1)],
+        "warning": warning,
+        "notices": notices,
+    }
+
+
 def _print_sources(passages: list) -> None:
     if not passages:
         print(t("law_no_passages"))
