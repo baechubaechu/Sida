@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from sida.runtime import resolve_conductor_runtime
 
 
@@ -49,19 +51,27 @@ def test_needs_openrouter_false_when_fully_local(mock_config):
     assert needs_openrouter(cfg) is True
 
 
-def test_load_env_skips_prompt_when_local(mock_config, monkeypatch):
+def test_load_env_without_a_key_is_fine_when_local(mock_config, monkeypatch):
     from sida.runtime import load_env
 
     cfg = mock_config
     cfg["conductor"]["provider"] = "ollama"
     cfg["worker"]["provider"] = "ollama"
     cfg["state_update"] = {"mode": "off"}
-    monkeypatch.setattr(
-        "sida.setup_env.ensure_api_key",
-        lambda **k: (_ for _ in ()).throw(AssertionError("should not ask for key")),
-    )
-    monkeypatch.setattr("sida.setup_env.read_api_key_from_env", lambda: "")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
     assert load_env(config=cfg) == ""
+
+
+def test_load_env_without_a_key_fails_when_cloud(mock_config, monkeypatch, capsys):
+    from sida import errors
+    from sida.runtime import load_env
+
+    mock_config["conductor"]["provider"] = "openrouter"
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    with pytest.raises(errors.SidaError) as info:
+        load_env(config=mock_config)
+    assert "설정 화면" in info.value.message  # points at the web settings, never a terminal prompt
+    assert capsys.readouterr() == ("", "")
 
 
 def test_cloud_runtime_untouched(mock_config):

@@ -74,13 +74,13 @@ worker:
   temperature: 0.3
   max_tokens: 2500
 
-# Legacy sequential pipeline (run.py) uses worker settings via fallback
+# Worker fallbacks when worker.model / temperature / max_tokens are unset
 model: openai/gpt-4o-mini
 temperature: 0.3
 max_tokens: 2000
 
 # ---------------------------------------------------------------------------
-# Statute retrieval ("RAG") for regulation_checker and the hub law search. See docs/rag.md.
+# Statute retrieval ("RAG") for regulation_checker and the law search API. See docs/rag.md.
 #   lawgokr     — 법제처 국가법령정보 지능형 검색, called directly. Needs LAW_OPEN_API_OC in .env.
 #   local_files — markdown under knowledge/ (offline).
 # ---------------------------------------------------------------------------
@@ -97,14 +97,14 @@ rag:
       path: regulations          # local_files → knowledge/regulations/
       top_k: 12
       max_chars: 14000
-  # Hub → l (법령 검색): follow-up query expansion + higher recall
+  # Law search API (법령 검색): follow-up query expansion + higher recall
   law_search:
     top_k: 12
     max_chars: 14000
     multi_query: true
 
 # ---------------------------------------------------------------------------
-# Site facts — parcel data looked up from an address with `/site <주소>` (VWorld API).
+# Site facts — parcel data looked up from an address (VWorld API, docs/site-ordinance.md).
 # Saved in the project as site_facts.json and given to these experts as a SITE FACTS block.
 #   physical   — area, land category, terrain, road frontage
 #   regulatory — zoning, statutory coverage / FAR limits, districts, items to verify
@@ -116,7 +116,8 @@ site_facts:
     regulation_checker: regulatory
 
 # ---------------------------------------------------------------------------
-# Rhino modeling (hub → m). Separate from design projects / Conductor experts.
+# Rhino modeling: a later special feature, not on the web yet (docs/roadmap.md).
+# Separate from design projects / Conductor experts.
 # OpenAI API only. Model must be GPT-6 or newer (default: gpt-6-astra).
 # ---------------------------------------------------------------------------
 modeling:
@@ -230,7 +231,7 @@ agents:
     inputs: [concept_framer, design_critic, representation_planner]
 
 # Suggested entry paths by what drives the project. The Conductor treats these as
-# hints, not sequences. `python run.py --path <name> brief.md` runs one in order.
+# hints, not sequences.
 paths:
   site_driven: [site_reader, program_analyst, regulation_checker, concept_framer, design_critic]
   idea_driven: [concept_framer, precedent_scout, site_reader, program_analyst, spatial_reviewer, design_critic]

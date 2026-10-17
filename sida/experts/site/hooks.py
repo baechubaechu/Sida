@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from sida.experts import FACTS, KNOWLEDGE, ExpertRun, PromptBlock
 from sida.experts.site import site_facts
-from sida.experts.site.commands import cmd_site
 from sida.i18n import t
 
 
@@ -23,8 +22,6 @@ def prompt_blocks(run: ExpertRun) -> list[PromptBlock]:
         PromptBlock(ordinance, KNOWLEDGE, priority=10, label=t("prompt_label_ordinance")),
     ]
 
-
-COMMANDS = {"/site": cmd_site}
 
 
 def api_router(load_config, core):

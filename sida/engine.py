@@ -201,7 +201,7 @@ def build_session(
 
     `created` overrides detection when the caller just made the folder.
     `before_providers` runs after the project is open and before providers are built
-    (the CLI uses it to start Ollama). Raises LLMError when a provider cannot be built.
+    (the web session uses it to start Ollama). Raises LLMError when a provider cannot be built.
     """
     agents = get_agents(config)
 

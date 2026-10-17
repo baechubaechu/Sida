@@ -9,9 +9,6 @@ imports a domain by name and adding a domain touches no shared file. `hooks.py` 
       with `run.warn(message)` and carry on — a hook must not stop the expert run.
       Within a slot, blocks with a higher `priority` come first; a local model's context
       trims a slot from its end, so the material that matters most should come first.
-  COMMANDS: dict[str, handler]
-      Slash commands for the terminal session, e.g. {"/site": cmd_site}. A handler takes
-      (session, argument string) and returns "continue", "close" or "quit".
   api_router(load_config, core) -> fastapi.APIRouter
       JSON routes of the domain for the web UI. `core(fn, ...)` runs a core function and
       turns application errors into HTTP errors (see webapp.core).
@@ -105,15 +102,6 @@ def join_blocks(blocks: list[PromptBlock]) -> str:
 def collect_prompt_blocks(run: ExpertRun, hooks=None) -> dict[str, str]:
     """Ask every domain for prompt text; returns the joined text per slot ("" when none)."""
     return {slot: join_blocks(blocks) for slot, blocks in collect_prompt_parts(run, hooks).items()}
-
-
-def expert_commands(hooks=None) -> dict[str, Callable]:
-    """Slash commands contributed by the domains. The first domain to claim a name keeps it."""
-    commands: dict[str, Callable] = {}
-    for _domain, module in domain_hooks() if hooks is None else hooks:
-        for name, handler in (getattr(module, "COMMANDS", None) or {}).items():
-            commands.setdefault(name.lower(), handler)
-    return commands
 
 
 def expert_routers(load_config, core, hooks=None) -> list:

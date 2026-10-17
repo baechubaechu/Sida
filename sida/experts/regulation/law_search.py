@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Hub-level building-regulation Q&A (RAG + LLM). No project required."""
+"""Building-regulation Q&A without a project (RAG + LLM): the web's statute search."""
 
 from __future__ import annotations
 
 import re
 from typing import Any
 
-from sida.console import ROLE_COLOR, paint, prompt_line
+from sida.console import ROLE_COLOR
 from sida.experts.regulation.rag import (
     Passage,
     format_passages,
@@ -15,7 +15,7 @@ from sida.experts.regulation.rag import (
     retrieve_passages,
 )
 from sida.i18n import get_language, t
-from sida.providers import LLMError, provider_chat
+from sida.providers import provider_chat
 from sida.runtime import conductor_provider, load_env, resolve_conductor_runtime
 
 LAW_SYSTEM_KO = """당신은 한국 건축·도시계획 법령 정보 도우미입니다.
@@ -239,7 +239,7 @@ def search_law(config: dict, question: str, *, provider: Any = None) -> dict:
             prompt_fn=lambda _label: "n",
             print_fn=lambda *parts: notices.append(" ".join(map(str, parts))),
         )
-        api_key = load_env(interactive=False, config=config)
+        api_key = load_env(config=config)
         provider = conductor_provider(config, api_key)
     reply, passages = answer_law_question(config, api_key, question, provider=provider)
     warning = "" if passages else (last_retrieval_warning() or "")
@@ -250,83 +250,3 @@ def search_law(config: dict, question: str, *, provider: Any = None) -> dict:
         "warning": warning,
         "notices": notices,
     }
-
-
-def _print_sources(passages: list) -> None:
-    if not passages:
-        print(t("law_no_passages"))
-        warning = last_retrieval_warning()
-        if warning:
-            print(warning)
-        return
-    print(t("law_sources"))
-    truncated = False
-    for i, p in enumerate(passages, start=1):
-        title = getattr(p, "title", "") or getattr(p, "source", "")
-        source = getattr(p, "source", "")
-        text = getattr(p, "text", "") or ""
-        print(f"  [{i}] {title}  ({source})")
-        if len(text) >= 900 or text.rstrip().endswith("[...]"):
-            truncated = True
-    if truncated:
-        print(t("law_chunk_truncated"))
-
-
-def run_law_search(config: dict) -> None:
-    """Interactive regulation Q&A loop. Returns to hub when the user exits."""
-    settings = rag_settings(config)
-    print()
-    print("=" * 40)
-    print(f"  {t('law_title')}")
-    print("=" * 40)
-    print(t("law_intro"))
-    if not settings["enabled"]:
-        print(t("law_rag_off"))
-    print(t("law_hint"))
-    print()
-
-    try:
-        from sida.ollama_boot import ensure_ollama_ready
-
-        ensure_ollama_ready(config)
-    except LLMError as exc:
-        print(t("law_boot_failed", reason=str(exc)))
-        return
-    except Exception:
-        pass
-
-    api_key = load_env(config=config)
-    try:
-        provider = conductor_provider(config, api_key)
-    except LLMError as exc:
-        print(t("law_boot_failed", reason=str(exc)))
-        return
-
-    accent = ROLE_COLOR.get("rag", "yellow")
-
-    while True:
-        q = prompt_line(t("law_prompt"))
-        if q is None:
-            print()
-            return
-        low = q.lower()
-        if not q or low in {"/back", "/hub", "q", "quit", "exit", "뒤로"}:
-            print(t("law_bye"))
-            return
-        if low in {"/clear", "clear"}:
-            print(t("law_no_session_context"))
-            continue
-
-        try:
-            reply, passages = answer_law_question(
-                config, api_key, q, provider=provider
-            )
-        except LLMError as exc:
-            print(t("law_failed", reason=str(exc)))
-            continue
-
-        print()
-        print(paint(t("law_label"), accent, bold=True) + reply)
-        print()
-        _print_sources(passages)
-        print()

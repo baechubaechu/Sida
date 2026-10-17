@@ -82,18 +82,6 @@ def test_run_modeling_turn_dry(mock_config, scripted, capsys):
     assert any(e.get("tool") == "get_context" for e in log)
 
 
-def test_hub_modeling_menu(mock_config, monkeypatch):
-    from sida import hub
-
-    called = {"n": 0}
-    monkeypatch.setattr(hub, "load_config", lambda *a, **k: mock_config)
-    monkeypatch.setattr(hub, "run_rhino_modeler", lambda cfg: called.__setitem__("n", 1))
-    it = iter(["m", "q"])
-    monkeypatch.setattr("builtins.input", lambda *_: next(it))
-    assert hub.project_hub() is None
-    assert called["n"] == 1
-
-
 def test_safe_tools_include_run_python():
     assert "run_python" in SAFE_TOOLS
     assert "ask_user" not in SAFE_TOOLS

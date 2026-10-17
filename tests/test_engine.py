@@ -353,3 +353,25 @@ def test_history_messages_hide_actions_and_internal_notes():
         ("system", "module_completed", "program_analyst"),
     ]
     assert messages[1]["text"] == "사이트부터 보겠습니다"
+
+
+def test_opening_prompt_variants(make_session):
+    s = make_session()
+    assert "A new session just started" in engine.opening_prompt(s)
+    s.history = [{"role": "assistant", "content": "hi"}]
+    assert "previous conversation is already in context" in engine.opening_prompt(s)
+    s.history = []
+    s.created = False
+    s.previous_blocks = ["### x\n\ny"]
+    assert "note which modules already exist" in engine.opening_prompt(s)
+
+
+def test_opening_prompt_is_english_and_pins_reply_language(make_session, monkeypatch):
+    # The instruction goes to the model: English text, Korean reply only when the UI is Korean.
+    s = make_session()
+    monkeypatch.setattr("sida.engine.get_language", lambda: "ko")
+    ko = engine.opening_prompt(s)
+    assert ko.endswith("Reply in Korean.")
+    assert not re.search("[가-힣]", ko)
+    monkeypatch.setattr("sida.engine.get_language", lambda: "en")
+    assert "Korean" not in engine.opening_prompt(s)

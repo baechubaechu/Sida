@@ -104,7 +104,7 @@ def test_profile_advice_cases():
     assert "'local'" in boot.profile_advice("local_plus", small)  # … and recommends local
     assert "local_plus" in boot.profile_advice("local", big)  # could upgrade
     assert "16GB" in boot.profile_advice("local_plus", big)  # fits
-    assert "c → 9" in boot.profile_advice("local", tiny)  # below minimum → cloud
+    assert "클라우드 모드를 추천" in boot.profile_advice("local", tiny)  # below minimum → cloud
     assert boot.profile_advice("local", None) is None  # nothing detected → say nothing
     assert boot.profile_advice("my_custom_profile", big) is None
 
@@ -159,7 +159,7 @@ def test_speed_reported_after_fresh_download_and_slow_warning(mock_config, monke
     )
     assert pulled == ["qwen2.5:7b"]
     assert any("4" in line and ("tokens/s" in line or "토큰" in line) for line in logs)
-    assert any("c → 9" in line for line in logs)  # slow → suggests smaller profile / cloud
+    assert any("클라우드 모드" in line for line in logs)  # slow → suggests smaller profile / cloud
 
 
 def test_speed_not_measured_when_model_already_present(mock_config, monkeypatch):

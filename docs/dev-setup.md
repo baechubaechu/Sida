@@ -18,7 +18,7 @@ AI 에이전트를 쓴다면 빈 폴더를 에이전트로 열고 아래 메시�
    - git config core.hooksPath .githooks 설정, .venv 생성, pip install -e ".[dev]"까지 해 줘.
 4. 아래 두 가지는 내가 직접 할 테니, 실행할 명령만 알려 주고 기다려.
    - GitHub 로그인(gh auth login)
-   - 첫 실행(python chat.py): 실행 모드(클라우드/로컬) 선택과 API 키 입력. 키를 대화창에 붙여 넣으라고 하지 마.
+   - 첫 실행(python webapp.py): 웹 UI가 열리면 실행 모드(클라우드/로컬)와 API 키 설정. 키를 대화창에 붙여 넣으라고 하지 마.
 5. 마지막에 ruff check . 와 pytest를 돌려서 결과를 알려 줘.
 6. 커밋, push, 브랜치 생성은 하지 마. 세팅만 해.
 ```
@@ -81,22 +81,22 @@ PowerShell에서 설치 직후 `gh`를 찾지 못하면 터미널을 새로 열�
 python -m venv .venv
 .venv\Scripts\activate            # macOS/Linux: source .venv/bin/activate
 pip install -e ".[dev]"           # 실행 의존성 + pytest, ruff
-python chat.py                    # 첫 실행: 언어 → 실행 모드(클라우드/로컬) → 필요하면 API 키
+python webapp.py                  # 웹 UI: http://127.0.0.1:8765 (Windows는 run.bat)
 ```
 
-- 첫 실행 때 **클라우드(OpenRouter)** 와 **로컬(Ollama)** 중 하나를 고릅니다. 답은 이 PC 전용 파일 `config.local.yaml`에 저장되고 Git에 올라가지 않습니다. 나중에 허브에서 `c`(설정) → `9`로 바꿀 수 있습니다.
+- 설정 화면에서 **클라우드(OpenRouter)** 와 **로컬(Ollama)** 중 하나를 고릅니다. 답은 이 PC 전용 파일 `config.local.yaml`에 저장되고 Git에 올라가지 않습니다. 화면이 붙기 전에는 설정 API(`GET/PUT /api/settings`, [`settings-api.md`](settings-api.md))를 부르거나 `config.local.yaml`을 직접 씁니다. 아무것도 고르지 않으면 팀 기본값(클라우드)으로 동작합니다.
   - 클라우드: OpenRouter API 키가 필요합니다. GPU는 필요 없습니다.
   - 로컬: [Ollama](https://ollama.com) 설치와 GPU(VRAM 8GB 이상)가 필요합니다. 키와 비용은 없습니다. 자세한 내용은 [`gpu_tiers.md`](gpu_tiers.md).
 - `config.yaml`은 팀 공통 기본값입니다. 개인 설정을 여기에 고쳐서 커밋하지 않습니다.
-- 법령 검색은 기본으로 꺼져 있습니다. `.env`에 `LAW_OPEN_API_OC`를 넣고 허브 `c`(설정) → `4`로 켭니다. 법제처를 직접 호출하므로 별도 서버가 필요 없습니다.
-- 키를 직접 넣으려면 `.env.example`을 `.env`로 복사해 채웁니다. `.env`는 커밋되지 않습니다.
+- 법령 검색은 기본으로 꺼져 있습니다. `.env`에 `LAW_OPEN_API_OC`를 넣고 설정에서 켭니다(`PUT /api/settings`의 `rag_enabled: true`). 법제처를 직접 호출하므로 별도 서버가 필요 없습니다.
+- API 키는 설정 화면(`PUT /api/settings/keys/{key}`)이 `.env`에 씁니다. 직접 넣으려면 `.env.example`을 `.env`로 복사해 채웁니다. `.env`는 커밋되지 않습니다.
 - 테스트는 API 키 없이 돌아갑니다(가짜 응답 사용).
 - PowerShell에서 `activate`가 "스크립트를 실행할 수 없습니다"로 막히면 명령 프롬프트(cmd)에서 실행하거나, 활성화 없이 `.venv\Scripts\python.exe -m pip ...`처럼 venv의 Python을 직접 씁니다.
 - conda를 쓰고 있다면 `(base)` 환경이 켜진 채로 venv를 만들어도 됩니다. 다만 이후 명령은 venv를 활성화한 상태에서 실행합니다.
 
 ### 대지 조회용 키
 
-`/site <주소>`로 필지와 용도지역을 조회하려면 정부 API 키가 필요합니다. 키는 팀에서 전달받아 `.env`에 넣습니다. 저장소, PR, 이슈에는 올리지 않습니다. 키가 없어도 나머지 기능과 테스트는 그대로 동작합니다.
+주소로 필지와 용도지역을 조회하려면 정부 API 키가 필요합니다. 키는 팀에서 전달받아 `.env`에 넣습니다. 저장소, PR, 이슈에는 올리지 않습니다. 키가 없어도 나머지 기능과 테스트는 그대로 동작합니다.
 
 ```
 VWORLD_API_KEY=
@@ -108,12 +108,12 @@ LAW_OPEN_API_OC=
 | 변수 | 발급처 | 지금 쓰는 곳 |
 |---|---|---|
 | `VWORLD_API_KEY`, `VWORLD_DOMAIN` | vworld.kr → 오픈API → 인증키 발급 | 주소 검색, 용도지역·지구, 토지 특성 |
-| `DATA_GO_KR_API_KEY` | data.go.kr → 마이페이지 → 인증키 (Decoding 키) | 행위제한(`/site 용도 <용도>`), 건축제한 근거 조문, 건축물대장 |
-| `LAW_OPEN_API_OC` | open.law.go.kr → OPEN API 신청 | 법령 검색(허브 `l`, `regulation_checker`). 이후 단계: 조례 조문 원문 |
+| `DATA_GO_KR_API_KEY` | data.go.kr → 마이페이지 → 인증키 (Decoding 키) | 행위제한(계획 용도), 건축제한 근거 조문, 건축물대장 |
+| `LAW_OPEN_API_OC` | open.law.go.kr → OPEN API 신청 | 법령 검색(`POST /api/law/search`, `regulation_checker`), 조례 조문 원문 |
 
 직접 발급할 때 알아 둘 것:
 
-- **브이월드**: 발급할 때 등록한 서비스 주소를 `VWORLD_DOMAIN`에 그대로 넣습니다. 활용 API는 검색, 지오코더, 2D데이터, 국가중점, WMS/WFS를 고릅니다. 개발키는 6개월짜리이고 3회 연장할 수 있습니다. 만료되면 `/site`가 "키를 거부했습니다"라고 알립니다.
+- **브이월드**: 발급할 때 등록한 서비스 주소를 `VWORLD_DOMAIN`에 그대로 넣습니다. 활용 API는 검색, 지오코더, 2D데이터, 국가중점, WMS/WFS를 고릅니다. 개발키는 6개월짜리이고 3회 연장할 수 있습니다. 만료되면 대지 조회가 "키를 거부했습니다"라고 알립니다.
 - **공공데이터포털**: 키는 계정당 하나이고 서비스마다 활용신청을 합니다(토지이용규제정보서비스, 토지이용규제법령정보서비스, 건축HUB 건축물대장정보). 토지이음 계열 두 서비스는 요청에 `Accept: application/xml` 헤더가 없으면 `HTTP_ERROR`(코드 04)를 돌려주고, 응답은 EUC-KR XML로만 옵니다. 키가 없거나 활용신청이 안 된 서비스는 대지 사실에서 그 항목만 "미확인"이 되고 나머지는 그대로 조회됩니다.
 - **법제처**: OC 값은 신청할 때 직접 정하는 문자열입니다. IP를 등록하면 그 IP에서만 호출됩니다. 신청 목록에서 "지능형 법령검색 시스템 검색 API"(XML, JSON)를 체크해야 법령 검색이 됩니다. 빠져 있으면 "지능형 검색 API를 신청하지 않았습니다"라는 경고가 나옵니다.
 
@@ -126,7 +126,7 @@ pytest
 
 둘 다 통과하면 세팅이 끝났습니다. CI도 같은 검사를 하고, 통과하지 않은 PR은 머지되지 않습니다.
 
-앱을 실행해 보려면 `python chat.py`(Windows는 `run.bat`)를 실행합니다.
+앱을 실행해 보려면 `python webapp.py`(Windows는 `run.bat`)를 실행합니다. 브라우저에서 http://127.0.0.1:8765 이 열립니다.
 
 ## 6. AI 에이전트 / 편집기별 설정
 

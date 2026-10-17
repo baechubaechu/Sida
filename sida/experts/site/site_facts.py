@@ -381,7 +381,7 @@ def refresh(
     """
     Look the chosen parcels up as one site, add the ordinance, save and return the facts.
     The designer's earlier choices about ordinance articles are carried over. Used by the
-    terminal (/site) and the web API alike. `progress(municipality)` is called before the
+    web API. `progress(municipality)` is called before the
     ordinance lookup, which is the slow part.
     """
     facts = build_facts(query, candidates, http_get=http_get)
@@ -938,7 +938,7 @@ def ordinance_text(facts: dict) -> str:
       - the articles of districts the site lies in, cut to the 항 about 건폐율 / 용적률
       - relaxations and tightening: titles, plus the full text of the ones the designer
         marked "detailed". Dismissed ones are left out altogether.
-    The designer's own view (ordinance_options, /site 조례) always has every article in full.
+    The designer's own view (ordinance_options) always has every article in full.
     """
     from sida.experts.regulation import ordinance
 

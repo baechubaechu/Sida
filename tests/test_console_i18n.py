@@ -1,24 +1,16 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-import pytest
-
 from sida import i18n
-from sida.console import one_line, open_in_editor, resolve_editor
-
-FAKE_EDITOR = Path(__file__).parent / "_fixtures" / "fake_editor.py"
 
 
 def test_default_language_is_korean():
     assert i18n.get_language() == "ko"
-    assert i18n.t("hub_title") == "프로젝트 허브"
+    assert i18n.t("web_brief") == "브리프"
 
 
 def test_english_switch_and_fallback(monkeypatch):
     i18n.set_language("en")
-    assert i18n.t("hub_title") == "Project hub"
+    assert i18n.t("web_brief") == "Brief"
     # missing key in en -> key itself
     assert i18n.t("no_such_key") == "no_such_key"
     # missing key in ko falls back to en
@@ -38,35 +30,6 @@ def test_format_placeholders_match():
     for key, en in i18n.STRINGS["en"].items():
         ko = i18n.STRINGS["ko"][key]
         assert set(re.findall(r"{(\w+)}", en)) == set(re.findall(r"{(\w+)}", ko)), key
-
-
-def test_resolve_editor_precedence(monkeypatch):
-    monkeypatch.setenv("EDITOR", "vim -u NONE")
-    monkeypatch.setenv("VISUAL", "code --wait")
-    monkeypatch.delenv("SIDA_EDITOR", raising=False)
-    assert resolve_editor()[0] == "code"
-    monkeypatch.setenv("SIDA_EDITOR", "nano")
-    assert resolve_editor() == ["nano"]
-
-
-def test_open_in_editor_detects_change(tmp_path, monkeypatch):
-    target = tmp_path / "f.md"
-    target.write_text("a", encoding="utf-8")
-    argv = [sys.executable, str(FAKE_EDITOR), "b"]
-    changed, name = open_in_editor(target, editor=argv)
-    assert changed and target.read_text(encoding="utf-8") == "ab"
-    changed, _ = open_in_editor(target, editor=[sys.executable, str(FAKE_EDITOR), ""])
-    assert not changed
-
-
-def test_open_in_editor_missing_binary_raises(tmp_path):
-    with pytest.raises(RuntimeError):
-        open_in_editor(tmp_path / "x.md", editor=["no-such-editor-binary-xyz"])
-
-
-def test_one_line():
-    assert one_line("a\n b   c") == "a b c"
-    assert one_line("x" * 100, limit=10).endswith("…")
 
 
 def test_agent_look_unique_colors():
@@ -104,10 +67,3 @@ def test_agent_name_is_korean_on_screen_and_english_in_config():
     # unknown ids fall back to the config name, then the id
     assert i18n.agent_name({"id": "new_expert", "name": "New Expert"}) == "New Expert"
     assert i18n.agent_name({"id": "new_expert"}) == "new_expert"
-
-
-def test_agent_badge_uses_screen_name():
-    from sida.console import agent_badge
-
-    badge = agent_badge({"id": "design_critic", "name": "Design Critic"})
-    assert "설계 비평가" in badge and "Design Critic" not in badge

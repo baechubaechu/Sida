@@ -56,7 +56,7 @@ class EditingService:
                 raise ValueError(f"module output missing: {agent_id}")
             # A replacement request invalidates the earlier proposal even if the new call fails.
             self._pending.pop(path, None)
-            api_key = runtime.load_env(interactive=False, config=config)
+            api_key = runtime.load_env(config=config)
             session = engine.build_session(config, api_key, path)
             session.capture_notices = True
             proposal = engine.propose_state(session, agent)

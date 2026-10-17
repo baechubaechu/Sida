@@ -61,22 +61,6 @@ def test_answer_law_question_uses_retriever(mock_config, scripted, monkeypatch):
     assert any("RETRIEVED" in m.get("content", "") for m in provider.calls[0]["messages"])
 
 
-def test_hub_law_returns_to_menu(mock_config, monkeypatch):
-    from sida import hub
-
-    called = {"n": 0}
-
-    def fake_law(cfg):
-        called["n"] += 1
-
-    monkeypatch.setattr(hub, "load_config", lambda *a, **k: mock_config)
-    monkeypatch.setattr(hub, "run_law_search", fake_law)
-    it = iter(["l", "q"])
-    monkeypatch.setattr("builtins.input", lambda *_: next(it))
-    assert hub.project_hub() is None
-    assert called["n"] == 1
-
-
 def test_format_passages_still_works():
     text = format_passages(
         [Passage("a.md", "A", "body", 0.5)], collection="regulation"

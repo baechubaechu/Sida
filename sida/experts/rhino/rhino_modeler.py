@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hub-level Rhino modeling assistant (OpenAI GPT-6+ + Rhino MCP)."""
+"""Rhino modeling assistant (OpenAI GPT-6+ + Rhino MCP). Not reachable from the web yet: a later special feature (docs/roadmap.md)."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Any
 
 from sida.config import ROOT
-from sida.console import ROLE_COLOR, paint, prompt_line
+from sida.console import ROLE_COLOR, paint
 from sida.experts.rhino.mcp_stdio import McpError
-from sida.experts.rhino.rhino_mcp import SAFE_TOOLS, open_rhino_mcp, resolve_mcp_command
+from sida.experts.rhino.rhino_mcp import SAFE_TOOLS
 from sida.i18n import get_language, t
 from sida.providers import LLMError, gpt_major_version, make_provider, provider_chat
 
@@ -207,97 +207,3 @@ def run_modeling_turn(
         )
 
     return last_say or t("modeling_round_limit"), tool_log, False
-
-
-def run_rhino_modeler(config: dict) -> None:
-    """Interactive modeling loop from the project hub (OpenAI GPT-6+ only)."""
-    rt = modeling_settings(config)
-    accent = ROLE_COLOR.get("modeling", "bright_cyan")
-    print()
-    print("=" * 40)
-    print(paint(f"  {t('modeling_title')}", accent, bold=True))
-    print("=" * 40)
-    print(t("modeling_intro", model=rt["model"]))
-    print(t("modeling_hint"))
-    print()
-
-    try:
-        require_gpt6_plus(rt["model"], min_major=rt["min_major"])
-    except LLMError as exc:
-        print(t("modeling_boot_failed", reason=str(exc)))
-        return
-
-    cmd = resolve_mcp_command(config)
-    rhino = None
-    if cmd and rt["auto_execute"]:
-        try:
-            rhino = open_rhino_mcp(config)
-            print(t("modeling_mcp_ok", cmd=cmd[0]))
-            try:
-                slots = rhino.call("list_slots", {})
-                print(t("modeling_slots", detail=_clip(slots, 500)))
-            except McpError as exc:
-                print(t("modeling_slots_fail", reason=str(exc)))
-        except McpError as exc:
-            print(t("modeling_mcp_fail", reason=str(exc)))
-            print(t("modeling_dry_mode"))
-            rhino = None
-    else:
-        print(t("modeling_dry_mode"))
-
-    try:
-        from sida.setup_env import ensure_openai_api_key
-
-        api_key = ensure_openai_api_key(interactive=True)
-        provider = modeling_provider(config, api_key)
-    except LLMError as exc:
-        print(t("modeling_boot_failed", reason=str(exc)))
-        if rhino:
-            rhino.close()
-        return
-
-    history: list[dict[str, str]] = []
-    try:
-        while True:
-            q = prompt_line(t("modeling_prompt"))
-            if q is None:
-                print()
-                return
-            low = q.lower()
-            if not q or low in {"/back", "/hub", "q", "quit", "exit", "뒤로"}:
-                print(t("modeling_bye"))
-                return
-            if low in {"/clear", "clear"}:
-                history.clear()
-                print(t("modeling_cleared"))
-                continue
-            if low in {"/ctx", "/context"}:
-                if rhino is None:
-                    print(t("modeling_dry_mode"))
-                    continue
-                try:
-                    ctx = rhino.call("get_context", {})
-                    print(_clip(ctx, 2000))
-                except McpError as exc:
-                    print(t("modeling_failed", reason=str(exc)))
-                continue
-
-            try:
-                say, _log, _done = run_modeling_turn(
-                    config,
-                    api_key,
-                    q,
-                    history=history[-8:],
-                    provider=provider,
-                    rhino=rhino,
-                )
-            except LLMError as exc:
-                print(t("modeling_failed", reason=str(exc)))
-                continue
-
-            history.append({"role": "user", "content": q})
-            history.append({"role": "assistant", "content": say})
-            print()
-    finally:
-        if rhino is not None:
-            rhino.close()

@@ -234,4 +234,4 @@ def test_regulation_checker_without_anything_to_search_says_so(
     prompt = _run_regulation(mock_config, agents, project, scripted)
     assert fake_law.calls == [] and "RETRIEVED KNOWLEDGE (regulation)" not in prompt
     err = capsys.readouterr().err
-    assert "[rag]" in err and "/site" in err
+    assert "[rag]" in err and "대지를 조회" in err  # points at the site lookup
