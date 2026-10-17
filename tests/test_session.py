@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from sida.providers import LLMError
 from sida.session import conductor_turn, handle_action, opening_prompt
 
@@ -101,10 +103,21 @@ def test_conductor_turn_read_missing_file(make_session, scripted, capsys):
 
 def test_opening_prompt_variants(make_session):
     s = make_session()
-    assert "새 세션" in opening_prompt(s)
+    assert "A new session just started" in opening_prompt(s)
     s.history = [{"role": "assistant", "content": "hi"}]
-    assert "재개" in opening_prompt(s)
+    assert "previous conversation is already in context" in opening_prompt(s)
     s.history = []
     s.created = False
     s.previous_blocks = ["### x\n\ny"]
-    assert "이미 있는 모듈" in opening_prompt(s)
+    assert "note which modules already exist" in opening_prompt(s)
+
+
+def test_opening_prompt_is_english_and_pins_reply_language(make_session, monkeypatch):
+    # The instruction goes to the model: English text, Korean reply only when the UI is Korean.
+    s = make_session()
+    monkeypatch.setattr("sida.engine.get_language", lambda: "ko")
+    ko = opening_prompt(s)
+    assert ko.endswith("Reply in Korean.")
+    assert not re.search("[\uac00-\ud7a3]", ko)
+    monkeypatch.setattr("sida.engine.get_language", lambda: "en")
+    assert "Korean" not in opening_prompt(s)

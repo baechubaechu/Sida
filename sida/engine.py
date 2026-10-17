@@ -237,42 +237,32 @@ def build_session(
 
 
 def opening_prompt(session: Session) -> str:
-    """Ephemeral first instruction for the Conductor (never stored in history)."""
-    ko = get_language() == "ko"
+    """Ephemeral first instruction for the Conductor (never stored in history).
+
+    Sent to the model, so it stays English; the reply language is pinned at the end
+    because small local models tend to follow the language of the last instruction.
+    """
     if session.history:
-        return (
-            "세션이 재개되었습니다. 이전 대화는 이미 컨텍스트에 있습니다. "
-            "한두 문장으로 짧게 인사하고, 완료된 모듈이 있으면 언급한 뒤 "
-            "설계자의 다음 지시를 기다리세요. 요청 없이 모듈을 다시 실행하지 마세요."
-            if ko
-            else (
-                "Session resumed. The previous conversation is already in context. "
-                "Greet briefly in one or two sentences, note completed modules if any, "
-                "and wait for the designer's next instruction. Do not rerun modules unless asked."
-            )
+        text = (
+            "Session resumed. The previous conversation is already in context. "
+            "Greet briefly in one or two sentences, note completed modules if any, "
+            "and wait for the designer's next instruction. Do not rerun modules unless asked."
         )
-    if session.created or not session.previous_blocks:
-        return (
-            "새 세션이 시작되었습니다. 짧게 인사하고, 핵심 문제를 한두 문장으로 요약한 뒤 "
-            "첫 모듈이나 질문을 제안하세요. 브리프가 매우 완전하고 첫 단계가 분명한 경우가 "
-            "아니면 아직 모듈을 실행하지 마세요."
-            if ko
-            else (
-                "A new session just started. Greet briefly, summarize the core problem "
-                "in one or two sentences, and suggest the best first module or question. "
-                "Do not run a module yet unless the brief is already very complete and "
-                "the first step is obvious."
-            )
+    elif session.created or not session.previous_blocks:
+        text = (
+            "A new session just started. Greet briefly, summarize the core problem "
+            "in one or two sentences, and suggest the best first module or question. "
+            "Do not run a module yet unless the brief is already very complete and "
+            "the first step is obvious."
         )
-    return (
-        "세션이 재개되었습니다. 짧게 인사하고, 이미 있는 모듈을 언급한 뒤 "
-        "다음에 유용한 단계를 제안하세요. 요청 없이 모듈을 다시 실행하지 마세요."
-        if ko
-        else (
+    else:
+        text = (
             "Session resumed. Greet briefly, note which modules already exist, "
             "and suggest the most useful next step. Do not rerun modules unless asked."
         )
-    )
+    if get_language() == "ko":
+        text += " Reply in Korean."
+    return text
 
 
 # ---------------------------------------------------------------------------
