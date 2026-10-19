@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from sida import workspace
+from sida import telemetry, workspace
 from sida.experts.site import datago, landapi, site_facts
 from sida.i18n import t
 from sida.project import load_project
@@ -41,6 +41,11 @@ def _land(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
     except landapi.LandApiError as exc:
+        # `fn` may be `core` with the real function as its first argument: name the last one,
+        # and report only plain values (an address, a code), never a project path.
+        named = [a for a in (fn, *args) if callable(a)][-1]
+        inputs = [a for a in args if isinstance(a, (str, int, float)) and not isinstance(a, bool)]
+        telemetry.record_failure(f"site:{getattr(named, '__name__', 'lookup')}", exc.kind, inputs=inputs)
         detail = t(exc.MESSAGE_PREFIX + exc.kind, detail=exc.detail).removeprefix("[site] ")
         raise HTTPException(status_code=_LAND_STATUS.get(exc.kind, 502), detail=detail) from exc
 
@@ -118,7 +123,10 @@ def _project_router(load_config, core) -> APIRouter:
         query = " ".join(query.split())
         if not query:
             raise HTTPException(status_code=400, detail=t("web_site_query_required"))
-        return _land(landapi.search_parcels, query)
+        found = _land(landapi.search_parcels, query)
+        if not found:
+            telemetry.record_failure("site:search_parcels", "not_found", inputs=(query,))
+        return found
 
     @router.get("")
     def get_site(name: str) -> dict:

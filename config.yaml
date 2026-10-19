@@ -133,6 +133,17 @@ modeling:
   mcp_timeout: 90
 
 # ---------------------------------------------------------------------------
+# Usage records sent to the Sida team's collection server. See docs/telemetry.md.
+# Off for everyone by default; each machine turns it on from the settings screen
+# (written to config.local.yaml). Briefs and generated documents are never sent.
+#   share_failure_inputs — also send the address or question of a failed lookup
+# ---------------------------------------------------------------------------
+telemetry:
+  enabled: false
+  share_failure_inputs: false
+  endpoint: https://sida-data.duckdns.org/api/v1/events
+
+# ---------------------------------------------------------------------------
 # Experts. Design is not linear: any expert can run alone, in any order.
 #   phase   — lens group (analysis | concept | development | critique | communication)
 #   desc    — one line the Conductor shows / uses for routing

@@ -84,3 +84,19 @@ def test_model_failure_is_502(client, monkeypatch):
     monkeypatch.setattr(law_search, "retrieve_passages", lambda *a, **k: [])
     r = client.post("/api/law/search", json={"question": "건폐율이란?"})
     assert r.status_code == 502 and "unreachable" in r.json()["detail"]
+
+
+def test_searches_without_articles_and_model_failures_are_recorded(client, mock_config, monkeypatch):
+    from sida import telemetry
+
+    class Failing:
+        def chat(self, *a, **k):
+            raise providers.LLMError("Read timed out")
+
+    mock_config["telemetry"] = {"enabled": True, "share_failure_inputs": True}
+    monkeypatch.setattr(law_search, "conductor_provider", lambda config, api_key: Failing())
+    monkeypatch.setattr(law_search, "retrieve_passages", lambda *a, **k: [])
+    assert client.post("/api/law/search", json={"question": "경사로 기준?"}).status_code == 502
+    assert client.post("/api/law/search", json={"question": ""}).status_code == 400  # not recorded
+    [event] = telemetry.queued()
+    assert event["data"] == {"stage": "law:search", "error": "timeout", "inputs": ["경사로 기준?"]}

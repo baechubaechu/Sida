@@ -16,7 +16,7 @@ from typing import Any
 import requests
 from dotenv import dotenv_values
 
-from sida import hardware, runtime
+from sida import hardware, runtime, telemetry
 from sida.config import ROOT, local_config_path
 from sida.experts.regulation.rag import key_missing, rag_settings
 
@@ -239,6 +239,7 @@ def settings_view(config: dict) -> dict:
     conductor = runtime.resolve_conductor_runtime(config)
     worker = runtime.resolve_worker_runtime(config)
     rag = rag_settings(config)
+    sharing = telemetry.telemetry_settings(config)
     gpu = hardware.detect_gpu()
     values = _env_values()
     profiles = [str(p) for p in (config.get("local_profiles") or {})]
@@ -250,6 +251,8 @@ def settings_view(config: dict) -> dict:
         "worker": {"provider": worker["provider"], "model": worker["model"]},
         "rag_enabled": bool(rag["enabled"]),
         "state_update": str((config.get("state_update") or {}).get("mode") or "ask"),
+        "telemetry_enabled": sharing["enabled"],
+        "telemetry_share_inputs": sharing["share_failure_inputs"],
         "gpu": (
             {
                 "name": gpu["name"],
@@ -299,10 +302,15 @@ def settings_patches(config: dict, changes: dict) -> list[tuple[str, str, Any]]:
         value = changes.get(f"{role}_provider")
         if value is not None:
             patches.append((role, "provider", _choice(f"{role}_provider", value, WEB_PROVIDERS)))
-    if changes.get("rag_enabled") is not None:
-        if not isinstance(changes["rag_enabled"], bool):
-            raise ValueError("rag_enabled must be true or false")
-        patches.append(("rag", "enabled", changes["rag_enabled"]))
+    for field, section, key in (
+        ("rag_enabled", "rag", "enabled"),
+        ("telemetry_enabled", "telemetry", "enabled"),
+        ("telemetry_share_inputs", "telemetry", "share_failure_inputs"),
+    ):
+        if changes.get(field) is not None:
+            if not isinstance(changes[field], bool):
+                raise ValueError(f"{field} must be true or false")
+            patches.append((section, key, changes[field]))
     if changes.get("state_update") is not None:
         patches.append(("state_update", "mode", _choice("state_update", changes["state_update"], STATE_MODES)))
     return patches
@@ -312,3 +320,8 @@ def update_settings(config: dict, changes: dict) -> None:
     """Write the given changes to config.local.yaml (validated first; nothing written on error)."""
     # Written even with no changes: the file existing is what marks setup as done (first_run).
     save_config_patches(settings_patches(config, changes))
+    # Turning sending off also drops what was waiting to be sent.
+    if changes.get("telemetry_enabled") is False:
+        telemetry.clear_queue()
+    elif changes.get("telemetry_share_inputs") is False:
+        telemetry.forget_inputs()
