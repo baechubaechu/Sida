@@ -19,6 +19,8 @@ class SettingsChange(BaseModel):
     worker_provider: str | None = None
     rag_enabled: bool | None = None
     state_update: str | None = None
+    telemetry_enabled: bool | None = None
+    telemetry_share_inputs: bool | None = None
 
 
 class KeyValue(BaseModel):

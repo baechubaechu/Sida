@@ -23,7 +23,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from sida import config as sida_config
-from sida import errors, providers, runtime, workspace
+from sida import errors, providers, runtime, telemetry, workspace
 from sida.briefs import BRIEF_FIELD_HEADINGS
 from sida.cli import cli_entrypoint
 from sida.document_api import create_router as create_document_router
@@ -33,6 +33,7 @@ from sida.project_documents import DocumentConflict
 from sida.session_api import create_router as create_session_router
 from sida.session_jobs import SessionJobs
 from sida.settings_api import create_router as create_settings_router
+from sida.telemetry_api import create_router as create_telemetry_router
 
 WEB_DIR = sida_config.ROOT / "webui"
 DEFAULT_HOST = "127.0.0.1"
@@ -139,6 +140,7 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
     app.state.session_jobs = SessionJobs(app.state.editing)
     app.include_router(create_session_router(app.state.session_jobs, load_config, core))
     app.include_router(create_settings_router(load_config, core))
+    app.include_router(create_telemetry_router(load_config, core))
     from sida.experts import expert_routers
 
     for router in expert_routers(load_config, core):  # each domain's own JSON API
@@ -282,6 +284,7 @@ def main(argv: list[str] | None = None) -> None:
     print(t("web_serving", url=url))
     if "--no-browser" not in args:
         threading.Timer(1.0, webbrowser.open, args=(url,)).start()
+    telemetry.start_flusher()  # sends nothing unless this machine turned sending on
     uvicorn.run(create_app(), host=DEFAULT_HOST, port=port, log_level="warning")
 
 

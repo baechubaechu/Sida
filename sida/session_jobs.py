@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from sida import config as sida_config
-from sida import engine, errors, expert_chat, runtime, workspace
+from sida import engine, errors, expert_chat, runtime, telemetry, workspace
 from sida.editing import EditingService
 from sida.i18n import agent_name
 from sida.project_documents import DocumentConflict
@@ -189,8 +189,9 @@ class SessionJobs:
 
     def _work(self, job: Job, config: dict, text: str, agent: dict | None) -> None:
         error: str | None = None
+        observer = telemetry.JobObserver(config, job.kind, job.agent)
         try:
-            session = self._open(job, config)
+            session = self._open(job, config, observer)
             if job.kind == "opening":
                 turn = engine.converse(session, engine.opening_prompt(session), ephemeral=True)
                 error = turn.error
@@ -212,8 +213,11 @@ class SessionJobs:
                 if self._active.get(job.project) is job:
                     del self._active[job.project]
             job.finish(error)
+            observer.finished(error)
 
-    def _open(self, job: Job, config: dict) -> engine.Session:
+    def _open(
+        self, job: Job, config: dict, observer: telemetry.JobObserver | None = None
+    ) -> engine.Session:
         def boot(cfg: dict) -> None:
             from sida.ollama_boot import ensure_ollama_ready
 
@@ -229,11 +233,15 @@ class SessionJobs:
         # through the document API in between are never overwritten by stale memory.
         session = engine.build_session(config, api_key, job.project, before_providers=boot)
         session.capture_notices = True
-        session.emit = self._emitter(job, session)
+        session.emit = self._emitter(job, session, observer)
         return session
 
-    def _emitter(self, job: Job, session: engine.Session) -> engine.Emit:
+    def _emitter(
+        self, job: Job, session: engine.Session, observer: telemetry.JobObserver | None = None
+    ) -> engine.Emit:
         def emit(kind: str, data: dict) -> None:
+            if observer is not None:
+                observer.event(kind, data)
             out: dict[str, Any] = {}
             for key, value in data.items():
                 if key == "agent" and isinstance(value, dict):

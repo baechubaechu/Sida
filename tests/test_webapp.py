@@ -801,3 +801,62 @@ def test_session_expert_run_with_revision_request(session_api, monkeypatch):
         "role": "system", "event": "run_requested", "agent": "site_reader",
         "name": "대지 분석가", "text": "",
     }
+
+
+# --- Usage records (telemetry) ----------------------------------------------
+
+
+def test_feedback_api_records_a_rating_only_when_sending_is_on(client, project, mock_config):
+    from sida import telemetry
+
+    url = f"/api/projects/{project.name}/experts/site_reader/feedback"
+    r = client.post(url, json={"rating": "up"})
+    assert r.status_code == 200 and r.json() == {"recorded": False}
+    assert telemetry.queued() == []
+
+    mock_config["telemetry"] = {"enabled": True}
+    r = client.post(url, json={"rating": "down", "comment": "면적이 틀렸어요"})
+    assert r.json() == {"recorded": True}
+    [event] = telemetry.queued()
+    assert event["kind"] == "feedback"
+    assert event["data"] == {"agent": "site_reader", "rating": "down", "comment": "면적이 틀렸어요"}
+
+    assert client.post(url, json={"rating": "meh"}).status_code == 400
+    assert client.post(url, json={}).status_code == 422
+    assert client.post(f"/api/projects/{project.name}/experts/nobody/feedback", json={"rating": "up"}).status_code == 404
+    assert client.post("/api/projects/nope/experts/site_reader/feedback", json={"rating": "up"}).status_code == 404
+
+
+def test_session_jobs_leave_usage_records_without_project_text(session_api, project, mock_config):
+    import json
+
+    from sida import telemetry
+
+    client, base, _conductor = session_api
+    mock_config["telemetry"] = {"enabled": True}
+    finished_job(client, base, client.post(f"{base}/session/experts/site_reader/run"))
+    records = telemetry.queued()
+    assert [r["kind"] for r in records][:1] == ["expert_run"] and records[-1]["kind"] == "job"
+    assert records[0]["data"]["agent"] == "site_reader" and records[0]["data"]["ok"] is True
+    assert records[-1]["data"] | {"seconds": 0} == {
+        "job": "expert", "agent": "site_reader", "ok": True, "seconds": 0, "error": None,
+        "conductor": "mock:" + mock_config["conductor"]["model"],
+        "worker": "mock:" + mock_config["model"],
+    }
+    sent = json.dumps(records, ensure_ascii=False)
+    assert project.name not in sent and "Mock Output" not in sent
+
+
+def test_failed_site_lookup_is_recorded_with_the_address_only_when_shared(client, project, fake_vworld, mock_config):
+    from sida import telemetry
+    from sida.experts.site.landapi import LandApiError
+
+    url = f"/api/projects/{project.name}/site/parcels"
+    mock_config["telemetry"] = {"enabled": True}
+    fake_vworld.overrides["search"] = LandApiError("invalid_key", "")
+    assert client.post(url, json={"query": "금정동 689"}).status_code == 503
+    mock_config["telemetry"]["share_failure_inputs"] = True
+    assert client.post(url, json={"query": "금정동 689"}).status_code == 503
+    first, second = telemetry.queued()
+    assert first["data"] == {"stage": "site:search_parcels", "error": "invalid_key"}
+    assert second["data"]["inputs"] == ["금정동 689"]

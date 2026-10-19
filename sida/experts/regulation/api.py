@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from sida import telemetry
 from sida.experts.regulation import law_search
 
 
@@ -17,9 +18,17 @@ def create_router(load_config, core) -> APIRouter:
 
     @router.post("/search")
     def search(body: LawQuestion) -> dict:
+        config = load_config()
         try:
-            return core(law_search.search_law, load_config(), body.question)
+            result = core(law_search.search_law, config, body.question)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except HTTPException as exc:
+            failed = telemetry.error_kind(exc.detail) or "other"
+            telemetry.record_failure("law:search", failed, inputs=(body.question,), config=config)
+            raise
+        if not result["sources"]:
+            telemetry.record_failure("law:search", "no_sources", inputs=(body.question,), config=config)
+        return result
 
     return router

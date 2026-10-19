@@ -12,7 +12,15 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sida import conductor_context, hardware, i18n, providers, runtime, settings  # noqa: E402
+from sida import (  # noqa: E402
+    conductor_context,
+    hardware,
+    i18n,
+    providers,
+    runtime,
+    settings,
+    telemetry,
+)
 from sida import config as sida_config  # noqa: E402
 from sida import project as prj  # noqa: E402
 from sida.experts.regulation import lawapi  # noqa: E402
@@ -194,6 +202,9 @@ def isolated_settings(tmp_path, monkeypatch):
     monkeypatch.setattr(i18n, "SETTINGS_DIR", settings_dir)
     monkeypatch.setattr(i18n, "SETTINGS_PATH", settings_dir / "settings.json")
     monkeypatch.setattr(i18n, "_OLD_SETTINGS_PATH", settings_dir / "old.json")
+    # Usage records stay in tmp and are never sent: tests that send patch _http_post themselves.
+    monkeypatch.setattr(telemetry, "TELEMETRY_DIR", tmp_path / "telemetry")
+    monkeypatch.setattr(telemetry, "_http_post", lambda url, payload: _no_network(url, payload))
     yield
 
 
