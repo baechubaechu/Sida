@@ -7,6 +7,20 @@ on:
     branches: [main]
 
 jobs:
+  web-mockup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Test web mockup (offline)
+        run: node --test web-mockup/tests/model.test.mjs
+      - name: Check browser scripts
+        run: |
+          node --check web-mockup/public/app.js
+          node --check web-mockup/scripts/serve.mjs
+
   test:
     runs-on: ubuntu-latest
     strategy:

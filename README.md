@@ -1,5 +1,7 @@
 # Sida (시다)
 
+Figma 기반 웹 UI 테스트 목업은 [`web-mockup/`](web-mockup/README.md)에 있습니다. Vercel 배포 시 Root Directory를 `web-mockup`으로 지정합니다.
+
 A local web app (LLM workflow) for architectural design reasoning.
 
 **시다**는 한국 건축 현장에서 조수·보조를 부르는 말입니다.  
