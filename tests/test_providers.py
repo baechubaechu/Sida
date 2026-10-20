@@ -135,7 +135,9 @@ class FakeStream:
         self.text = json.dumps(self.body)
 
     def iter_lines(self, decode_unicode=False):
-        yield from self.lines
+        # The real route sends no charset, so requests yields bytes even with decode_unicode.
+        for line in self.lines:
+            yield line.encode("utf-8")
 
     def json(self):
         return self.body
@@ -190,14 +192,14 @@ def test_chatgpt_reads_the_stream_until_completed(monkeypatch):
         monkeypatch,
         FakeStream([
             {"type": "response.created"},
-            {"type": "response.output_text.delta", "delta": "Hello, "},
+            {"type": "response.output_text.delta", "delta": "안녕, "},
             {"type": "response.output_text.delta", "delta": "world!"},
             {"type": "response.completed", "response": {"usage": {"input_tokens": 12, "output_tokens": 3}}},
         ]),
     )
     p = ChatGPTProvider(lambda: "at-1")
     text, usage = p.chat("gpt-6.1-sol", [{"role": "user", "content": "hi"}], 0.4, 700)
-    assert text == "Hello, world!"
+    assert text == "안녕, world!"
     assert usage == {"prompt_tokens": 12, "completion_tokens": 3}
     assert calls[0]["url"] == "https://api.openai.com/v1/responses"
     assert calls[0]["headers"]["Authorization"] == "Bearer at-1" and calls[0]["stream"] is True

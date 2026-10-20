@@ -194,7 +194,10 @@ class OpenAIProvider:
 
 def _sse_events(response) -> Any:
     """Parsed `data:` events of a server-sent event stream."""
-    for line in response.iter_lines(decode_unicode=True):
+    # Read bytes and decode here: the plan route sends no Content-Type charset, and then
+    # iter_lines(decode_unicode=True) hands back bytes anyway.
+    for raw in response.iter_lines():
+        line = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
         if not line or not line.startswith("data:"):
             continue
         payload = line[5:].strip()
