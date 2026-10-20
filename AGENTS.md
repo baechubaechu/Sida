@@ -15,7 +15,7 @@ Sida(시다) 저장소에서 작업하는 모든 AI 에이전트(Claude Code, Cu
 - ChatGPT 구독 로그인(`sida/chatgpt_auth.py`, `docs/chatgpt-login.md`)은 Conductor만 쓴다. 토큰은 저장소 밖 `~/Sida/chatgpt_login.json`에 두고 API로 돌려주지 않는다. 테스트는 `tests/conftest.py`가 이 파일을 임시 폴더로 돌리고 `chatgpt_auth._http_post_form`, `_http_get_json`을 막아 두었다. Claude 구독은 Anthropic 약관상 연결하지 않는다.
 - import는 패키지 경로로 쓴다: `from sida.config import load_config`, `from sida.experts.site import site_facts`.
 - `engine.py`는 화면과 무관한 세션 코어다. `print`/`input`을 쓰지 않고, 값을 반환하고 진행 상황은 이벤트(`Session.emit`)로 알린다. 새 세션 로직은 `engine.py`에 넣는다.
-- 웹 UI(`webapp.py`, `webui/`)는 세 층이다: 코어 함수(`engine.py`, `workspace.py`) → JSON API(`/api/...`) → HTML 화면. 로직은 코어에 두고, 경로와 템플릿에는 넣지 않는다. 기능을 추가하면 JSON API와 그 테스트(`tests/test_webapp.py`)를 같이 만든다. 코어 함수는 경로에서 `core(...)`로 호출한다(`fail()`이 서버를 종료시키지 않게 하기 위해서다).
+- 웹 UI(`webapp.py`, `webui/`)는 세 층이다: 코어 함수(`engine.py`, `workspace.py`) → JSON API(`/api/...`) → 화면. 첫 화면(`/`)은 `webui/app/`의 순수 HTML/CSS/JS로, JSON API만 부른다(빌드 없음, `docs/web-ui.md`). 이전 화면은 `/classic`(템플릿). 로직은 코어에 두고, 경로·템플릿·화면 스크립트에는 넣지 않는다. 화면의 도우미 함수(`webui/app/model.js`)를 바꾸면 `node --test tests/webui/model.test.mjs`도 통과해야 한다. 기능을 추가하면 JSON API와 그 테스트(`tests/test_webapp.py`)를 같이 만든다. 코어 함수는 경로에서 `core(...)`로 호출한다(`fail()`이 서버를 종료시키지 않게 하기 위해서다).
 - 설정: `config.yaml`은 팀 공통 기본값(클라우드, RAG 꺼짐)이다. PC별 설정은 Git이 무시하는 `config.local.yaml`에 두고, `load_config`가 그 값을 덮어쓴다. 설정 화면(`sida/settings.py`)은 `config.local.yaml`에만 쓴다. 개인 설정을 `config.yaml`에 커밋하지 않는다. 비밀값은 `.env`(키 목록은 `.env.example`)
 - 새 모듈은 `sida/` 아래에 두면 자동으로 패키지에 포함된다. 새 폴더를 만들면 `__init__.py`를 넣는다.
 
@@ -26,6 +26,7 @@ pip install -e ".[dev]"   # 의존성 + pytest, ruff
 git config core.hooksPath .githooks   # pull 후 머지된 로컬 브랜치 정리 + pyproject.toml이 바뀌면 재설치 (clone 후 한 번)
 ruff check .              # 린트 (--fix로 자동 수정)
 pytest                    # 테스트 (tests/)
+node --test tests/webui/model.test.mjs   # 화면 도우미 함수 테스트 (Node 22)
 ```
 
 커밋 전에 `ruff check .`와 `pytest`가 모두 통과해야 한다. CI도 같은 검사를 한다.

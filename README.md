@@ -1,7 +1,5 @@
 # Sida (시다)
 
-Figma 기반 웹 UI 테스트 목업은 [`web-mockup/`](web-mockup/README.md)에 있습니다. Vercel 배포 시 Root Directory를 `web-mockup`으로 지정합니다.
-
 A local web app (LLM workflow) for architectural design reasoning.
 
 **시다**는 한국 건축 현장에서 조수·보조를 부르는 말입니다.  
@@ -245,7 +243,7 @@ Module layout. The code is the `sida/` package: the shared core sits directly in
 | `experts/regulation/ordinance.py` | finds the municipality's 도시·군계획 조례 on law.go.kr and quotes its 건폐율 / 용적률 articles as written, and reads the figure for the site's zone by fixed rules, shown next to the quoted line; follows "별표 N과 같다" into the annex file (`hwp.py` reads HWP) (stored in `site_facts.json` by the site lookup, given to `regulation_checker`) |
 | `experts/site/landapi.py` | clients for the government land APIs (VWorld): parcel search, zoning, land characteristics |
 | `experts/site/site_facts.py` + `data/zoning_limits.yaml` (repo root) | site facts: parcels → one site, statutory coverage / FAR limits, items to verify; saved as `site_facts.json` and given to `site_reader` / `regulation_checker` |
-| `webapp.py` + `webui/` (repo root) | local web UI (FastAPI): JSON API under `/api`, HTML pages from `webui/templates`, styles in `webui/static` |
+| `webapp.py` + `webui/` (repo root) | local web UI (FastAPI): JSON API under `/api`; the main screen at `/` is `webui/app/` (plain HTML/CSS/JS calling the API, see `docs/web-ui.md`); the earlier pages at `/classic` come from `webui/templates` and `webui/static` |
 | `run.bat` (repo root) | Windows launcher: venv + deps, then the web UI |
 | `config.py` | `config.yaml` (team defaults) overlaid with `config.local.yaml` (this machine); the expert list and lookups |
 | `providers.py` | LLM providers (OpenRouter / OpenAI / Ollama / mock) behind one `chat()` call, with retries |

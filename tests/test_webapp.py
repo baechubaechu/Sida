@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import re
+from html.parser import HTMLParser
+
 import pytest
 from fastapi.testclient import TestClient
 
 from sida import config as sida_config
 from sida import errors, providers, runtime, webapp
+from sida.briefs import BRIEF_FIELD_HEADINGS
 from sida.project import section_body
 from tests.conftest import land_fixture
 
@@ -79,7 +83,7 @@ def test_api_runtime_reports_mode_and_missing_key(client, mock_config, monkeypat
     monkeypatch.delenv("LAW_OPEN_API_OC")
     warnings = client.get("/api/runtime").json()["warnings"]
     assert warnings == {"openrouter_key_missing": True, "rag_key_missing": True}
-    assert "LAW_OPEN_API_OC" in client.get("/").text
+    assert "LAW_OPEN_API_OC" in client.get("/classic").text
 
 
 def test_core_failure_becomes_http_error_not_server_exit(client, monkeypatch, capsys):
@@ -109,7 +113,7 @@ def test_save_failure_returns_http_error_and_server_stays_available(client, monk
 
 
 def test_hub_page_lists_projects_and_form(client, project):
-    html = client.get("/").text
+    html = client.get("/classic").text
     assert project.name in html
     assert 'action="/projects"' in html and 'name="name"' in html
     assert 'action="/projects/sample"' in html
@@ -154,7 +158,7 @@ def test_project_page_escapes_brief_content(client, project):
     project.brief_path.write_text(
         "# Brief\n\n## Project Type\n<script>alert(1)</script>\n", encoding="utf-8"
     )
-    for url in ("/", webapp.project_url(project.name)):
+    for url in ("/classic", webapp.project_url(project.name)):
         html = client.get(url).text
         assert "<script>alert(1)</script>" not in html
         assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
@@ -162,12 +166,85 @@ def test_project_page_escapes_brief_content(client, project):
 
 def test_unknown_project_page_is_404_with_link_home(client):
     r = client.get("/p/nope")
-    assert r.status_code == 404 and "nope" in r.text and 'href="/"' in r.text
+    assert r.status_code == 404 and "nope" in r.text and 'href="/classic"' in r.text
 
 
 def test_static_css_served(client):
     r = client.get("/static/app.css")
     assert r.status_code == 200 and "--accent" in r.text
+
+
+# --- main screen (webui/app) ---------------------------------------------------
+
+
+class AssetParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.assets: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        found = dict(attrs)
+        if tag == "script" and found.get("src"):
+            self.assets.append(found["src"])
+        if tag == "link" and found.get("rel") == "stylesheet":
+            self.assets.append(found["href"])
+
+
+def test_main_screen_is_served_at_root_with_its_assets(client):
+    r = client.get("/")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+    assert r.headers["cache-control"] == "no-cache"
+    assert '<html lang="ko">' in r.text
+    parser = AssetParser()
+    parser.feed(r.text)
+    assert parser.assets == ["/app/styles.css", "/app/app.js"]
+    for asset in [*parser.assets, "/app/model.js"]:
+        served = client.get(asset)
+        assert served.status_code == 200 and served.text.strip()
+        assert served.headers["cache-control"] == "no-cache"
+    assert "javascript" in client.get("/app/app.js").headers["content-type"]
+    assert client.get("/app/nope.js").status_code == 404
+
+
+def test_main_screen_calls_only_existing_api_paths(client):
+    # Every /api/... path the screen fetches must be a route on this server, so a renamed
+    # route breaks this test instead of the screen. `${...}` parts are path parameters.
+    script = (webapp.APP_DIR / "app.js").read_text(encoding="utf-8")
+    segment = r"/(?:[a-z_-]+|\$\{[^}]+\})"
+    called = set(re.findall(rf"['`](/api(?:{segment})+)", script))
+    called |= {
+        "/api/projects/{name}" + rest
+        for rest in re.findall(rf"\$\{{projectApi\(name\)\}}((?:{segment})+)", script)
+    }
+
+    def shape(path: str) -> str:
+        return re.sub(r"\$?\{[^}]+\}", "{}", path)
+
+    def fits(path: str, route: str) -> bool:  # a literal value may fill a route parameter
+        ours, theirs = shape(path).split("/"), shape(route).split("/")
+        return len(ours) == len(theirs) and all(b in (a, "{}") for a, b in zip(ours, theirs, strict=True))
+
+    routes = list(client.app.openapi()["paths"])
+    assert {"/api/projects", "/api/settings", "/api/projects/{}/session/messages"} <= {
+        shape(path) for path in called
+    }
+    for path in called:
+        assert any(fits(path, route) for route in routes), path
+
+
+def test_main_screen_files_hold_no_keys_or_placeholder_urls():
+    for path in webapp.APP_DIR.iterdir():
+        text = path.read_text(encoding="utf-8")
+        assert "figma.com/api/mcp/asset" not in text
+        assert "OPENROUTER_API_KEY" not in text
+        assert "localStorage" not in text  # project data lives on the server, not the browser
+
+
+def test_main_screen_new_project_fields_are_brief_fields():
+    script = (webapp.APP_DIR / "app.js").read_text(encoding="utf-8")
+    fields = re.search(r"for \(const key of \[([^\]]+)\]\)", script).group(1)
+    keys = {key for key, _label, _heading in BRIEF_FIELD_HEADINGS}
+    assert {f.strip(" '") for f in fields.split(",")} <= keys
 
 
 # --- local-only guard --------------------------------------------------------

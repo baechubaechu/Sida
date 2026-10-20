@@ -6,7 +6,7 @@ Sida가 어디로 가는지와 그 순서를 적는 문서입니다. 방향과 �
 
 ## 지금 상태
 
-- 로컬 웹 UI(`run.bat` 또는 `python webapp.py`)로 동작합니다. 프로젝트 허브 화면이 있고, 세션·설정·대지·법령 검색은 JSON API까지 완료돼 화면을 붙이는 중입니다.
+- 로컬 웹 UI(`run.bat` 또는 `python webapp.py`)로 동작합니다. 첫 화면(`/`)은 팀원 목업을 서버에 연결한 화면입니다(프로젝트, Conductor 대화, 전문가 결과와 채팅, 설정, [web-ui.md](web-ui.md)). 이전 허브 화면은 `/classic`에 남아 있습니다. 대지·법령 검색은 JSON API까지 완료돼 화면이 남았습니다.
 - 터미널 CLI(`chat.py` 허브와 슬래시 명령, `run.py` 경로 일괄 실행, `setup_env.py`)는 없앴습니다(2026-10-16 결정). 모든 기능과 설정은 웹으로 갑니다. 경로 일괄 실행은 옮기지 않고 지웠습니다. 경로(`paths`)는 Conductor가 참고하는 힌트로만 남습니다.
 - 실행 모드는 클라우드(OpenRouter)와 로컬(Ollama) 중에서 고릅니다. PC별 설정은 `config.local.yaml`에 있습니다.
 - 법령 검색은 법제처(law.go.kr)의 지능형 검색을 직접 호출합니다. 기본으로 꺼져 있고, 켜려면 법제처 인증값만 있으면 됩니다.
@@ -16,9 +16,11 @@ Sida가 어디로 가는지와 그 순서를 적는 문서입니다. 방향과 �
 
 ## 최우선 (2026-10-19 결정)
 
-- **채팅 연결 AI**: 아래 "다음 작업 순서"보다 먼저 합니다. 사용자가 가진 AI 구독을 API 키 대신 Sida 채팅에 연결해 씁니다. 먼저 Conductor를 ChatGPT 구독(OpenAI "Sign in with ChatGPT")으로 돌립니다. 서버 API 진행 중([chatgpt-login.md](chatgpt-login.md)), 실제 로그인 확인과 화면은 남음.
+- **채팅 연결 AI**: 아래 "다음 작업 순서"보다 먼저 합니다. 사용자가 가진 AI 구독을 API 키 대신 Sida 채팅에 연결해 씁니다. 먼저 Conductor를 ChatGPT 구독(OpenAI "Sign in with ChatGPT")으로 돌립니다. 서버와 실제 로그인 확인 완료(#42, [chatgpt-login.md](chatgpt-login.md)). 화면의 설정 창에서 로그인합니다.
   - Claude 구독(Pro/Max)은 쓰지 않습니다. Anthropic 약관이 서드파티 앱의 구독 로그인과 구독 토큰 중계를 금지합니다(2026-10-19 확인).
   - ChatGPT 구독은 오픈소스·로컬 앱용 경로가 있습니다. 로그인 콜백은 `127.0.0.1`로 받고, 호출은 Responses API입니다. 지금은 미리보기라 `temperature`·`max_output_tokens`를 받지 않고, 지시문은 system 역할 메시지 대신 `instructions`나 developer 메시지로 보냅니다. 쓸 수 있는 조건(승인 필요 여부)은 공식 문서에 분명하지 않아 구현 전에 확인합니다.
+
+- **Conductor의 전문가 자동 호출** (2026-10-20 결정, 화면 연결 다음 작업): Conductor가 대화 중에 필요한 전문가를 모델의 함수 호출(tool calling)로 부르고, 결과를 읽은 뒤 다시 Conductor가 이어 답하게 합니다(한 턴에 최대 2~3번). 함수 호출을 못 쓰는 모델은 지금의 `action` 블록을 그대로 씁니다.
 
 ## 다음 작업 순서 (2026-10-14 결정)
 
@@ -52,9 +54,9 @@ Sida가 어디로 가는지와 그 순서를 적는 문서입니다. 방향과 �
 | 부분 | 코어·JSON API | 화면 |
 |---|---|---|
 | ① 서버 뼈대와 프로젝트 허브 | 완료 (#12) | 완료 (#12) |
-| ② 세션 화면 (대화, 전문가 실행, 전문가 채팅) | 완료 | 남음 |
-| ③ state 갱신 승인, 브리프·state 편집 | 완료 (#18) | 남음 |
-| ④ 설정 화면 | 완료 ([settings-api.md](settings-api.md)) | 남음 |
+| ② 세션 화면 (대화, 전문가 실행, 전문가 채팅) | 완료 | 첫 버전 ([web-ui.md](web-ui.md)) |
+| ③ state 갱신 승인, 브리프·state 편집 | 완료 (#18) | 승인·건너뛰기 첫 버전, 편집 남음 |
+| ④ 설정 화면 | 완료 ([settings-api.md](settings-api.md)) | 첫 버전(모드, 제공자, ChatGPT 로그인, OpenRouter 키). 정부 API 키는 `/classic` |
 
 역할 분담(2026-10-04): 웹 화면은 팀원이 진행합니다. ③의 승인·건너뛰기, 오래된 승인안 거절, 버전 확인과 백업을 포함한 문서 편집 코어·JSON API·테스트를 준비하고, 화면 연결은 팀원이 진행합니다. 함수와 API 명세는 [state-editing.md](state-editing.md)를 참고하세요.
 
@@ -196,7 +198,7 @@ Sida가 어디로 가는지와 그 순서를 적는 문서입니다. 방향과 �
 
 ### 웹 UI 기술
 
-**FastAPI + 서버가 그려 주는 HTML(HTMX)** 로 정했습니다(2026-10-01).
+**FastAPI + 서버가 그려 주는 HTML(HTMX)** 로 정했습니다(2026-10-01). 2026-10-16에 화면은 순수 HTML/CSS/JS로 만들어 FastAPI가 그대로 내보내고, 화면은 JSON API만 부르는 방식으로 바꿨습니다(`webui/app/`, 빌드 없음, React 안 씀). 화면 도우미 함수는 `node --test`로, 화면이 부르는 API 경로는 pytest로 확인합니다.
 
 - Node 빌드 과정이 없고 Python 의존성만 늘어납니다. `run.bat`으로 그대로 실행됩니다.
 - 화면의 동작이 HTTP 요청과 응답이라, 브라우저 없이 pytest로 테스트할 수 있습니다. 승인 없이 CI만으로 머지하는 이 저장소에 맞습니다.
