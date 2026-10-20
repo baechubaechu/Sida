@@ -31,7 +31,8 @@ local_profiles:
 
 # Cheap always-on conversational model
 conductor:
-  # openrouter (default) | ollama | mock — ollama uses local_profiles[local_profile]
+  # openrouter (default) | chatgpt | ollama | mock — ollama uses local_profiles[local_profile]
+  # chatgpt = the user's own ChatGPT plan (Go/Plus/Pro), signed in on the settings screen
   provider: openrouter
   local_profile: local      # local (8GB, 7B) | local_plus (12GB+, qwen3.5:9b)
   base_url: http://127.0.0.1:11434   # Ollama server (native /api/chat)
@@ -44,6 +45,9 @@ conductor:
   # Qwen3+ chain-of-thought: leave false or answers may be Empty LLM response
   ollama_think: false
   model: anthropic/claude-haiku-4.5
+  # Model when provider=chatgpt: a slug from GET /api/settings/chatgpt/models.
+  # That route ignores temperature and max_tokens.
+  chatgpt_model: gpt-6.1-sol
   temperature: 0.4
   max_tokens: 2000
   prompt: agents/00_conductor.md

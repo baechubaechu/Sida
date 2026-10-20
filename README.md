@@ -137,7 +137,7 @@ python webapp.py            # http://127.0.0.1:8765 (--port, --no-browser)
 
 The browser opens the **project hub** (create / open / sample). Inside a project you talk with the
 Conductor, and experts run when needed. The screens call the JSON API under `/api`; see
-`docs/session-api.md`, `docs/settings-api.md`, `docs/site-ordinance.md`, `docs/law-search-api.md`
+`docs/session-api.md`, `docs/settings-api.md`, `docs/chatgpt-login.md`, `docs/site-ordinance.md`, `docs/law-search-api.md`
 and `docs/state-editing.md`.
 
 Projects are saved under the user home folder (easy to open in File Explorer):
@@ -241,6 +241,7 @@ Module layout. The code is the `sida/` package: the shared core sits directly in
 | `workspace.py` | UI-agnostic project hub operations: list, look up, create |
 | `session_api.py` / `session_jobs.py` / `expert_chat.py` | web session: Conductor chat, expert runs in the background, per-expert chat (`docs/session-api.md`) |
 | `settings.py` / `settings_api.py` | settings screen: run mode, models, API keys → `config.local.yaml` / `.env` (`docs/settings-api.md`) |
+| `chatgpt_auth.py` / `chatgpt_api.py` | Sign in with ChatGPT: the Conductor on the user's own ChatGPT plan (`docs/chatgpt-login.md`) |
 | `experts/regulation/ordinance.py` | finds the municipality's 도시·군계획 조례 on law.go.kr and quotes its 건폐율 / 용적률 articles as written, and reads the figure for the site's zone by fixed rules, shown next to the quoted line; follows "별표 N과 같다" into the annex file (`hwp.py` reads HWP) (stored in `site_facts.json` by the site lookup, given to `regulation_checker`) |
 | `experts/site/landapi.py` | clients for the government land APIs (VWorld): parcel search, zoning, land characteristics |
 | `experts/site/site_facts.py` + `data/zoning_limits.yaml` (repo root) | site facts: parcels → one site, statutory coverage / FAR limits, items to verify; saved as `site_facts.json` and given to `site_reader` / `regulation_checker` |

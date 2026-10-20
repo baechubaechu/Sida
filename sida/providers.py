@@ -1,7 +1,8 @@
-"""LLM providers (OpenRouter, OpenAI, Ollama, mock) behind one `chat()` call, with retries."""
+"""LLM providers (OpenRouter, OpenAI, ChatGPT plan, Ollama, mock) behind one `chat()` call."""
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from typing import Any
@@ -10,6 +11,7 @@ import requests
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+CHATGPT_RESPONSES_URL = "https://api.openai.com/v1/responses"
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 RETRY_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
 
@@ -190,6 +192,134 @@ class OpenAIProvider:
         return _with_retries(send)
 
 
+def _sse_events(response) -> Any:
+    """Parsed `data:` events of a server-sent event stream."""
+    # Read bytes and decode here: the plan route sends no Content-Type charset, and then
+    # iter_lines(decode_unicode=True) hands back bytes anyway.
+    for raw in response.iter_lines():
+        line = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+        if not line or not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if payload == "[DONE]":
+            return
+        try:
+            event = json.loads(payload)
+        except ValueError:
+            continue
+        if isinstance(event, dict):
+            yield event
+
+
+def _chatgpt_error(status: int, body: Any) -> LLMError:
+    """An error from the ChatGPT plan route. Plan limits and eligibility are not retried."""
+    body = body if isinstance(body, dict) else {}
+    error = body.get("error") if isinstance(body.get("error"), dict) else {}
+    code = str(error.get("code") or "")
+    # Admission failures can come back as {"detail": "..."} with no error object.
+    detail = str(error.get("message") or body.get("detail") or "")
+    if code == "subscription_sharing_usage_limit_exceeded":
+        return LLMError(
+            "The ChatGPT plan's usage limit for Sida was reached. "
+            "Check ChatGPT Settings → Usage, or switch the Conductor back to OpenRouter."
+        )
+    if code == "subscription_sharing_user_not_eligible":
+        return LLMError("This ChatGPT account cannot use its plan in other apps (Go, Plus or Pro).")
+    if code == "subscription_sharing_invalid_user":
+        return LLMError("ChatGPT did not accept this sign-in. Sign in again on the settings screen.")
+    message = f"ChatGPT error ({status}{', ' + code if code else ''}): {detail[:300]}"
+    if code in {"subscription_sharing_usage_unavailable", "subscription_sharing_user_unavailable"}:
+        return _retryable(message)
+    if not code and status in {502, 503, 504}:
+        return _retryable(message)
+    return LLMError(message)
+
+
+class ChatGPTProvider:
+    """
+    The signed-in user's ChatGPT plan (Sign in with ChatGPT, sida/chatgpt_auth.py) through
+    the Responses API. This route takes no temperature or output cap and rejects system
+    messages: system text goes in `instructions`, and every request streams with store off.
+    """
+
+    name = "chatgpt"
+
+    def __init__(self, token):
+        self.token = token  # () -> access token; refreshes as needed, raises LLMError
+
+    @staticmethod
+    def request_body(model: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        system = [m for m in _plain_messages(messages) if m["role"] == "system"]
+        turns = [m for m in _plain_messages(messages) if m["role"] != "system" and m["content"]]
+        body: dict[str, Any] = {
+            "model": model,
+            "input": [{"role": m["role"], "content": m["content"]} for m in turns],
+            "store": False,
+            "stream": True,
+        }
+        instructions = "\n\n".join(m["content"] for m in system if m["content"].strip())
+        if instructions:
+            body["instructions"] = instructions
+        return body
+
+    def chat(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        **_: Any,
+    ) -> tuple[str, dict]:
+        body = self.request_body(model, messages)
+
+        def send():
+            headers = {
+                "Authorization": f"Bearer {self.token()}",
+                "Content-Type": "application/json",
+            }
+            try:
+                response = requests.post(
+                    CHATGPT_RESPONSES_URL, headers=headers, json=body, stream=True, timeout=180
+                )
+            except requests.Timeout as exc:
+                raise _retryable(f"ChatGPT timeout: {exc}") from exc
+            except requests.RequestException as exc:
+                raise _retryable(f"ChatGPT request failed: {exc}") from exc
+            with response:
+                if response.status_code != 200:
+                    try:
+                        data = response.json()
+                    except ValueError:
+                        data = {"detail": response.text[:300]}
+                    raise _chatgpt_error(response.status_code, data)
+                parts: list[str] = []
+                for event in _sse_events(response):
+                    kind = event.get("type")
+                    if kind == "response.output_text.delta":
+                        parts.append(str(event.get("delta") or ""))
+                    elif kind == "response.completed":
+                        usage = (event.get("response") or {}).get("usage") or {}
+                        text = "".join(parts).strip()
+                        if not text:
+                            raise _retryable("Empty LLM response")
+                        return text, {
+                            "prompt_tokens": usage.get("input_tokens"),
+                            "completion_tokens": usage.get("output_tokens"),
+                        }
+                    elif kind == "response.failed":
+                        raise _chatgpt_error(200, event.get("response") or {})
+                    elif kind == "error":
+                        raise _chatgpt_error(200, {"error": event})
+                    elif kind == "response.incomplete":
+                        details = (event.get("response") or {}).get("incomplete_details") or {}
+                        raise LLMError(
+                            f"ChatGPT reply was cut off ({details.get('reason') or 'incomplete'})"
+                        )
+            raise _retryable("ChatGPT stream ended before the reply was complete")
+
+        return _with_retries(send)
+
+
 class OllamaProvider:
     """Local Ollama via native /api/chat (supports num_ctx)."""
 
@@ -363,9 +493,15 @@ def make_provider(
         return OllamaProvider(
             base_url=base_url, num_ctx=num_ctx, keep_alive=keep_alive, think=think
         )
+    if kind == "chatgpt":
+        from sida import chatgpt_auth  # imports this module
+
+        return ChatGPTProvider(chatgpt_auth.access_token)
     if kind == "mock":
         return MockProvider()
-    raise LLMError(f"Unknown provider '{kind}'. Use openrouter | openai | ollama | mock.")
+    raise LLMError(
+        f"Unknown provider '{kind}'. Use openrouter | openai | chatgpt | ollama | mock."
+    )
 
 
 def provider_chat(provider, model, messages, temperature, max_tokens, **kw):

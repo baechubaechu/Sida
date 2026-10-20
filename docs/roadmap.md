@@ -16,7 +16,7 @@ Sida가 어디로 가는지와 그 순서를 적는 문서입니다. 방향과 �
 
 ## 최우선 (2026-10-19 결정)
 
-- **채팅 연결 AI**: 아래 "다음 작업 순서"보다 먼저 합니다. 사용자가 가진 AI 구독을 API 키 대신 Sida 채팅에 연결해 씁니다. 먼저 Conductor를 ChatGPT 구독(OpenAI "Sign in with ChatGPT")으로 돌립니다.
+- **채팅 연결 AI**: 아래 "다음 작업 순서"보다 먼저 합니다. 사용자가 가진 AI 구독을 API 키 대신 Sida 채팅에 연결해 씁니다. 먼저 Conductor를 ChatGPT 구독(OpenAI "Sign in with ChatGPT")으로 돌립니다. 서버 API 진행 중([chatgpt-login.md](chatgpt-login.md)), 실제 로그인 확인과 화면은 남음.
   - Claude 구독(Pro/Max)은 쓰지 않습니다. Anthropic 약관이 서드파티 앱의 구독 로그인과 구독 토큰 중계를 금지합니다(2026-10-19 확인).
   - ChatGPT 구독은 오픈소스·로컬 앱용 경로가 있습니다. 로그인 콜백은 `127.0.0.1`로 받고, 호출은 Responses API입니다. 지금은 미리보기라 `temperature`·`max_output_tokens`를 받지 않고, 지시문은 system 역할 메시지 대신 `instructions`나 developer 메시지로 보냅니다. 쓸 수 있는 조건(승인 필요 여부)은 공식 문서에 분명하지 않아 구현 전에 확인합니다.
 

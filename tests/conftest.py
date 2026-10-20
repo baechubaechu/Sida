@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from sida import (  # noqa: E402
+    chatgpt_auth,
     conductor_context,
     hardware,
     i18n,
@@ -205,6 +206,11 @@ def isolated_settings(tmp_path, monkeypatch):
     # Usage records stay in tmp and are never sent: tests that send patch _http_post themselves.
     monkeypatch.setattr(telemetry, "TELEMETRY_DIR", tmp_path / "telemetry")
     monkeypatch.setattr(telemetry, "_http_post", lambda url, payload: _no_network(url, payload))
+    # ChatGPT sign-in: tokens in tmp, no calls to auth.openai.com (tests fake the two helpers).
+    monkeypatch.setattr(chatgpt_auth, "CREDENTIALS_PATH", tmp_path / "chatgpt_login.json")
+    monkeypatch.setattr(chatgpt_auth, "_http_post_form", _no_network)
+    monkeypatch.setattr(chatgpt_auth, "_http_get_json", lambda url, token=None: _no_network(url, {}))
+    chatgpt_auth.reset_pending()
     yield
 
 
