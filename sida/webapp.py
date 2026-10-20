@@ -4,8 +4,9 @@
 Three layers, so the screens can later be replaced without touching the rest:
   1. core functions   workspace.py / engine.py — no HTTP, no printing
   2. JSON API         /api/...  — calls the core and returns data (tests attach here)
-  3. HTML pages       / and /p/<project> — calls the same core and renders templates
-Keep logic out of the routes and templates; put it in the core.
+  3. screens          /  — the main screen (webui/app/, static files that call the JSON API)
+                      /classic and /p/<project> — the earlier server-rendered pages
+Keep logic out of the routes, templates and scripts; put it in the core.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from typing import Any, TypeVar
 from urllib.parse import quote, urlparse
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -37,6 +38,7 @@ from sida.settings_api import create_router as create_settings_router
 from sida.telemetry_api import create_router as create_telemetry_router
 
 WEB_DIR = sida_config.ROOT / "webui"
+APP_DIR = WEB_DIR / "app"  # the main screen: plain HTML/CSS/JS, no build step
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost"})
@@ -44,6 +46,15 @@ SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 DRIVERS = ("site", "idea", "program", "regulation", "competition")
 
 T = TypeVar("T")
+
+
+class NoCacheFiles(StaticFiles):
+    """Static files the browser re-checks on every load, so a pulled update shows at once."""
+
+    def file_response(self, *args: Any, **kwargs: Any):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 class NewProject(BaseModel):
@@ -148,6 +159,7 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
     for router in expert_routers(load_config, core):  # each domain's own JSON API
         app.include_router(router)
     app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
+    app.mount("/app", NoCacheFiles(directory=APP_DIR), name="app")
     templates = Jinja2Templates(directory=WEB_DIR / "templates")
     templates.env.globals.update(t=t, local_time=local_time, project_url=project_url)
     hosts = {h.lower() for h in allowed_hosts}
@@ -240,7 +252,11 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
 
     # --------------------------------------------------------------- HTML pages
 
-    @app.get("/", response_class=HTMLResponse)
+    @app.get("/", response_class=FileResponse)
+    def main_screen() -> FileResponse:
+        return FileResponse(APP_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+
+    @app.get("/classic", response_class=HTMLResponse)
     def hub(request: Request) -> HTMLResponse:
         return hub_page(request)
 

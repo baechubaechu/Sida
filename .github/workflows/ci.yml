@@ -7,19 +7,17 @@ on:
     branches: [main]
 
 jobs:
-  web-mockup:
+  web-ui:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Test web mockup (offline)
-        run: node --test web-mockup/tests/model.test.mjs
+      - name: Test web screen helpers (offline)
+        run: node --test tests/webui/model.test.mjs
       - name: Check browser scripts
-        run: |
-          node --check web-mockup/public/app.js
-          node --check web-mockup/scripts/serve.mjs
+        run: node --check webui/app/app.js
 
   test:
     runs-on: ubuntu-latest
