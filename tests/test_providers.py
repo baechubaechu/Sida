@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import time
 
 import pytest
 
-from sida import worker
+from sida import providers, worker
 from sida.providers import (
+    ChatGPTProvider,
     LLMError,
     MockProvider,
     _flatten_content,
@@ -24,6 +26,7 @@ def test_make_provider_kinds():
     assert make_provider("openrouter", api_key="k").name == "openrouter"
     assert make_provider("ollama", base_url="http://h:1/v1").base_url == "http://h:1"
     assert make_provider("mock").name == "mock"
+    assert make_provider("chatgpt").name == "chatgpt"  # no key: the sign-in is checked per call
 
 
 def test_make_provider_errors():
@@ -117,3 +120,123 @@ def test_mock_worker_matches_output_format():
     full = worker.build_worker_prompt(prompt, "## Site\nbrief has headers too", "(none yet)")
     out, _ = MockProvider().chat("m", [{"role": "user", "content": full}], 0, 10, role="worker")
     assert missing_headers(out, expected_headers(prompt)) == []
+
+
+# ---------------------------------------------------------------------------
+# ChatGPT plan (Responses API, streamed)
+# ---------------------------------------------------------------------------
+
+
+class FakeStream:
+    def __init__(self, events=(), status=200, body=None):
+        self.status_code = status
+        self.lines = [f"data: {json.dumps(e)}" for e in events]
+        self.body = body or {}
+        self.text = json.dumps(self.body)
+
+    def iter_lines(self, decode_unicode=False):
+        yield from self.lines
+
+    def json(self):
+        return self.body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def chatgpt_post(monkeypatch, *replies):
+    calls = []
+    queue = list(replies)
+
+    def post(url, headers=None, json=None, stream=False, timeout=None):
+        calls.append({"url": url, "headers": headers, "json": json, "stream": stream})
+        return queue.pop(0) if len(queue) > 1 else queue[0]
+
+    monkeypatch.setattr(providers.requests, "post", post)
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    return calls
+
+
+def test_chatgpt_request_moves_system_text_to_instructions():
+    body = ChatGPTProvider.request_body(
+        "gpt-6.1-sol",
+        [
+            {"role": "system", "content": [{"type": "text", "text": "Be the Conductor.", "cache_control": {}}]},
+            {"role": "user", "content": [{"type": "text", "text": "PROJECT BRIEF:\n\nx"}]},
+            {"role": "assistant", "content": "earlier reply"},
+            {"role": "user", "content": "next"},
+        ],
+    )
+    assert body == {
+        "model": "gpt-6.1-sol",
+        "instructions": "Be the Conductor.",
+        "input": [
+            {"role": "user", "content": "PROJECT BRIEF:\n\nx"},
+            {"role": "assistant", "content": "earlier reply"},
+            {"role": "user", "content": "next"},
+        ],
+        "store": False,
+        "stream": True,
+    }
+    # The plan route rejects these, so they are never sent.
+    assert not {"temperature", "max_output_tokens", "top_p"} & set(body)
+
+
+def test_chatgpt_reads_the_stream_until_completed(monkeypatch):
+    calls = chatgpt_post(
+        monkeypatch,
+        FakeStream([
+            {"type": "response.created"},
+            {"type": "response.output_text.delta", "delta": "Hello, "},
+            {"type": "response.output_text.delta", "delta": "world!"},
+            {"type": "response.completed", "response": {"usage": {"input_tokens": 12, "output_tokens": 3}}},
+        ]),
+    )
+    p = ChatGPTProvider(lambda: "at-1")
+    text, usage = p.chat("gpt-6.1-sol", [{"role": "user", "content": "hi"}], 0.4, 700)
+    assert text == "Hello, world!"
+    assert usage == {"prompt_tokens": 12, "completion_tokens": 3}
+    assert calls[0]["url"] == "https://api.openai.com/v1/responses"
+    assert calls[0]["headers"]["Authorization"] == "Bearer at-1" and calls[0]["stream"] is True
+
+
+def test_chatgpt_stream_without_completed_is_not_a_reply(monkeypatch):
+    chatgpt_post(monkeypatch, FakeStream([{"type": "response.output_text.delta", "delta": "Hal"}]))
+    with pytest.raises(LLMError, match="ended before"):
+        ChatGPTProvider(lambda: "t").chat("m", [{"role": "user", "content": "hi"}], 0, 1)
+
+
+def test_chatgpt_usage_limit_stops_without_retrying(monkeypatch):
+    calls = chatgpt_post(
+        monkeypatch,
+        FakeStream([
+            {"type": "response.output_text.delta", "delta": "par"},
+            {"type": "response.failed", "response": {"error": {"code": "subscription_sharing_usage_limit_exceeded"}}},
+        ]),
+    )
+    with pytest.raises(LLMError, match="usage limit"):
+        ChatGPTProvider(lambda: "t").chat("m", [{"role": "user", "content": "hi"}], 0, 1)
+    assert len(calls) == 1
+
+
+def test_chatgpt_http_errors(monkeypatch):
+    chatgpt_post(
+        monkeypatch,
+        FakeStream(status=403, body={"error": {"code": "subscription_sharing_user_not_eligible"}}),
+    )
+    with pytest.raises(LLMError, match="Go, Plus or Pro"):
+        ChatGPTProvider(lambda: "t").chat("m", [{"role": "user", "content": "hi"}], 0, 1)
+    # A temporary outage is retried; admission errors may carry only {"detail": ...}.
+    calls = chatgpt_post(
+        monkeypatch,
+        FakeStream(status=503, body={"detail": "direct routing unavailable"}),
+        FakeStream([
+            {"type": "response.output_text.delta", "delta": "ok"},
+            {"type": "response.completed", "response": {}},
+        ]),
+    )
+    assert ChatGPTProvider(lambda: "t").chat("m", [{"role": "user", "content": "hi"}], 0, 1)[0] == "ok"
+    assert len(calls) == 2

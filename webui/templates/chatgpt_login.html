@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h1>{{ title }}</h1>
+  <p class="notice{% if not ok %} error{% endif %}">{{ message }}</p>
+  <p><a href="/">{{ t("web_back_hub") }}</a></p>
+</section>
+{% endblock %}

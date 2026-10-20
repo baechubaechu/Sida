@@ -16,7 +16,7 @@ from typing import Any
 import requests
 from dotenv import dotenv_values
 
-from sida import hardware, runtime, telemetry
+from sida import chatgpt_auth, hardware, runtime, telemetry
 from sida.config import ROOT, local_config_path
 from sida.experts.regulation.rag import key_missing, rag_settings
 
@@ -26,6 +26,8 @@ OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
 MODES = ("cloud", "local")
 MODE_PROVIDER = {"cloud": "openrouter", "local": "ollama"}
 WEB_PROVIDERS = ("openrouter", "ollama")
+# Only the Conductor can run on the user's ChatGPT plan (docs/chatgpt-login.md).
+CONDUCTOR_PROVIDERS = (*WEB_PROVIDERS, "chatgpt")
 STATE_MODES = ("ask", "auto", "off")
 LOCAL_CONFIG_HEADER = (
     "# This machine only — not committed. Values here override config.yaml.\n"
@@ -243,6 +245,7 @@ def settings_view(config: dict) -> dict:
     gpu = hardware.detect_gpu()
     values = _env_values()
     profiles = [str(p) for p in (config.get("local_profiles") or {})]
+    chatgpt = chatgpt_auth.status()
     return {
         "first_run": not local_config_path().exists(),
         "mode": current_run_mode(config),
@@ -263,14 +266,23 @@ def settings_view(config: dict) -> dict:
             else None
         ),
         "keys": {key_id: key_status(key_id, values) for key_id in KEYS},
+        "chatgpt": {
+            **chatgpt,
+            "model": str(
+                (config.get("conductor") or {}).get("chatgpt_model")
+                or runtime.DEFAULT_CHATGPT_MODEL
+            ),
+        },
         "warnings": {
             "openrouter_key_missing": runtime.needs_openrouter(config)
             and not values.get("OPENROUTER_API_KEY", "").strip(),
             "rag_key_missing": key_missing(rag),
+            "chatgpt_signed_out": conductor["provider"] == "chatgpt" and not chatgpt["signed_in"],
         },
         "options": {
             "modes": list(MODES),
             "providers": list(WEB_PROVIDERS),
+            "conductor_providers": list(CONDUCTOR_PROVIDERS),
             "local_profiles": profiles,
             "state_update": list(STATE_MODES),
         },
@@ -298,10 +310,16 @@ def settings_patches(config: dict, changes: dict) -> list[tuple[str, str, Any]]:
         patches += run_mode_patches(_choice("mode", changes["mode"], MODES))
     if profile is not None:
         patches.append(("conductor", "local_profile", profile))
-    for role in ("conductor", "worker"):
+    for role, choices in (("conductor", CONDUCTOR_PROVIDERS), ("worker", WEB_PROVIDERS)):
         value = changes.get(f"{role}_provider")
         if value is not None:
-            patches.append((role, "provider", _choice(f"{role}_provider", value, WEB_PROVIDERS)))
+            patches.append((role, "provider", _choice(f"{role}_provider", value, choices)))
+    model = changes.get("chatgpt_model")
+    if model is not None:
+        model = str(model).strip()
+        if not model or any(c.isspace() for c in model):
+            raise ValueError("chatgpt_model must be one model id, such as gpt-6.1-sol")
+        patches.append(("conductor", "chatgpt_model", model))
     for field, section, key in (
         ("rag_enabled", "rag", "enabled"),
         ("telemetry_enabled", "telemetry", "enabled"),

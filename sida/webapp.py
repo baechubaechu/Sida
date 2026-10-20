@@ -22,9 +22,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
+from sida import chatgpt_auth, errors, providers, runtime, telemetry, workspace
 from sida import config as sida_config
-from sida import errors, providers, runtime, telemetry, workspace
 from sida.briefs import BRIEF_FIELD_HEADINGS
+from sida.chatgpt_api import create_router as create_chatgpt_router
 from sida.cli import cli_entrypoint
 from sida.document_api import create_router as create_document_router
 from sida.editing import EditingService
@@ -140,6 +141,7 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
     app.state.session_jobs = SessionJobs(app.state.editing)
     app.include_router(create_session_router(app.state.session_jobs, load_config, core))
     app.include_router(create_settings_router(load_config, core))
+    app.include_router(create_chatgpt_router(load_config, core))
     app.include_router(create_telemetry_router(load_config, core))
     from sida.experts import expert_routers
 
@@ -255,6 +257,23 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
     def create_sample() -> RedirectResponse:
         project, _created = core(workspace.create_sample_project, load_config())
         return RedirectResponse(project_url(project.name), status_code=303)
+
+    @app.get(chatgpt_auth.CALLBACK_PATH, response_class=HTMLResponse)
+    def chatgpt_callback(request: Request) -> HTMLResponse:
+        # OpenAI sends the browser back here after a ChatGPT sign-in started on settings.
+        def done(status: int, title: str, message: str, ok: bool) -> HTMLResponse:
+            return page(request, "chatgpt_login.html", status, title=title, message=message, ok=ok)
+
+        try:
+            result = core(chatgpt_auth.finish_login, dict(request.query_params))
+        except chatgpt_auth.LoginError as exc:
+            return done(400, t("web_chatgpt_failed_title"), str(exc), False)
+        except HTTPException as exc:  # the sign-in server could not be reached
+            return done(502, t("web_chatgpt_failed_title"), str(exc.detail), False)
+        if not result["plan_usage"]:
+            return done(200, t("web_chatgpt_done_title"), t("web_chatgpt_no_plan"), False)
+        email = result["email"] or "ChatGPT"
+        return done(200, t("web_chatgpt_done_title"), t("web_chatgpt_done", email=email), True)
 
     @app.get("/p/{name}", response_class=HTMLResponse)
     def project_page(request: Request, name: str) -> HTMLResponse:

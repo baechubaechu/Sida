@@ -17,6 +17,7 @@ class SettingsChange(BaseModel):
     local_profile: str | None = None
     conductor_provider: str | None = None
     worker_provider: str | None = None
+    chatgpt_model: str | None = None
     rag_enabled: bool | None = None
     state_update: str | None = None
     telemetry_enabled: bool | None = None

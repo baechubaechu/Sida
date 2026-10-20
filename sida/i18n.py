@@ -161,6 +161,13 @@ STRINGS: dict[str, dict[str, str]] = {
         ),
         "web_not_found": "Project not found: {name}",
         "web_error_title": "Something went wrong",
+        "web_chatgpt_done_title": "Signed in with ChatGPT",
+        "web_chatgpt_done": "Signed in as {email}. Close this window and go back to Sida.",
+        "web_chatgpt_no_plan": (
+            "Signed in, but plan usage was not approved, so the Conductor cannot use this "
+            "ChatGPT plan yet. Sign in again from settings and approve it (Go, Plus or Pro)."
+        ),
+        "web_chatgpt_failed_title": "ChatGPT sign-in failed",
         "ollama_starting": "[ollama] Server not running — starting it ...",
         "ollama_started": "[ollama] Server is ready.",
         "ollama_not_running": (
@@ -400,6 +407,13 @@ STRINGS: dict[str, dict[str, str]] = {
         ),
         "web_not_found": "프로젝트를 찾을 수 없습니다: {name}",
         "web_error_title": "문제가 생겼습니다",
+        "web_chatgpt_done_title": "ChatGPT 로그인 완료",
+        "web_chatgpt_done": "{email} 계정으로 로그인했습니다. 이 창을 닫고 Sida로 돌아가세요.",
+        "web_chatgpt_no_plan": (
+            "로그인은 됐지만 구독 사용을 허용하지 않아 Conductor가 이 ChatGPT 구독을 쓸 수 없습니다. "
+            "설정에서 다시 로그인해 허용해 주세요(Go, Plus, Pro 구독)."
+        ),
+        "web_chatgpt_failed_title": "ChatGPT 로그인 실패",
         "ollama_starting": "[ollama] 서버가 꺼져 있어 시작합니다 ...",
         "ollama_started": "[ollama] 서버 준비됨.",
         "ollama_not_running": (

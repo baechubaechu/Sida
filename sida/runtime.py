@@ -7,6 +7,8 @@ from sida.errors import fail
 from sida.i18n import t
 from sida.providers import DEFAULT_OLLAMA_URL, make_provider
 
+DEFAULT_CHATGPT_MODEL = "gpt-6.1-sol"
+
 
 def load_env(*, config: dict | None = None) -> str:
     """The OpenRouter API key. Fails (SidaError) when a role needs OpenRouter and none is set."""
@@ -75,6 +77,9 @@ def resolve_conductor_runtime(config: dict) -> dict:
         # Default false: thinking models (qwen3.5) otherwise burn num_predict on CoT.
         "think": bool(conductor.get("ollama_think", False)),
     }
+
+    if runtime["provider"] == "chatgpt":  # the signed-in ChatGPT plan has its own model ids
+        runtime["model"] = str(conductor.get("chatgpt_model") or DEFAULT_CHATGPT_MODEL)
 
     profile = resolve_local_profile(config)
     if profile:
