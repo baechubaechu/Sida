@@ -29,9 +29,9 @@
 | `state_update` | 전문가 결과를 설계 상태에 반영하는 방식. `ask`(승인 받기), `auto`(바로 반영), `off`(안 함) |
 | `gpu` | 감지한 GPU `{name, vram_gb, recommended_profile}`. NVIDIA가 아니거나 없으면 `null`. `recommended_profile`이 `null`이면 클라우드를 권합니다 |
 | `keys` | 키마다 `{env, set, hint}`. `vworld_domain`만 비밀값이 아니라 `hint` 대신 `value`가 옵니다 |
-| `warnings` | `openrouter_key_missing`(클라우드를 쓰는데 OpenRouter 키 없음), `rag_key_missing`(법령 검색을 켰는데 법제처 인증값 없음), `chatgpt_signed_out`(Conductor가 ChatGPT 구독인데 로그인 안 됨) |
-| `chatgpt` | ChatGPT 구독 로그인 상태와 Conductor 모델 `{signed_in, email, plan_usage, registered, model}`. [chatgpt-login.md](chatgpt-login.md) |
-| `options` | 화면의 선택지: `modes`, `providers`, `conductor_providers`(Conductor용, `chatgpt` 포함), `local_profiles`, `state_update` |
+| `warnings` | `openrouter_key_missing`(클라우드를 쓰는데 OpenRouter 키 없음), `rag_key_missing`(법령 검색을 켰는데 법제처 인증값 없음), `chatgpt_signed_out`(Conductor나 전문가가 ChatGPT 구독인데 로그인 안 됨) |
+| `chatgpt` | ChatGPT 구독 로그인 상태와 Conductor·전문가 모델 `{signed_in, email, plan_usage, registered, model, worker_model}`. [chatgpt-login.md](chatgpt-login.md) |
+| `options` | 화면의 선택지: `modes`, `providers`, `conductor_providers`, `worker_providers`(역할별, `chatgpt` 포함), `local_profiles`, `state_update` |
 
 ### `PUT /api/settings`에 넣을 수 있는 항목
 
@@ -41,8 +41,8 @@
 |---|---|
 | `mode` | `cloud` 또는 `local`. Conductor와 워커를 함께 바꿉니다 |
 | `local_profile` | `options.local_profiles` 중 하나 |
-| `conductor_provider`, `worker_provider` | `openrouter` 또는 `ollama`. 한 역할만 바꿉니다(고급 설정). `mode`와 같이 주면 `mode`를 먼저 적용합니다. Conductor는 `chatgpt`(ChatGPT 구독)도 됩니다 |
-| `chatgpt_model` | Conductor가 ChatGPT 구독에서 쓸 모델. [chatgpt-login.md](chatgpt-login.md) |
+| `conductor_provider`, `worker_provider` | `openrouter` 또는 `ollama`. 한 역할만 바꿉니다(고급 설정). `mode`와 같이 주면 `mode`를 먼저 적용합니다. 둘 다 `chatgpt`(ChatGPT 구독)도 됩니다 |
+| `chatgpt_model`, `worker_chatgpt_model` | Conductor, 전문가가 ChatGPT 구독에서 쓸 모델. [chatgpt-login.md](chatgpt-login.md) |
 | `rag_enabled` | `true` 또는 `false` |
 | `state_update` | `ask`, `auto`, `off` |
 
