@@ -8,13 +8,14 @@ and any other front end can drive the same logic and render it their own way.
 Event kinds and their data:
   conductor_reply   text, usage
   action_recovered  action, agent
-  conductor_error   reason
+  conductor_error   reason [, after_run=True when an expert ran and only the follow-up failed]
   unknown_agent     action ("run" | "read"), agent
   reading           file
   read_failed       agent, reason ("empty" | "limit")
   module_started    agent
   module_saved      agent, path, preview, truncated
   module_failed     agent, reason
+  run_skipped       agent, reason ("limit" | "state_pending"), limit
   notice            message          (only when Session.capture_notices is set)
   state_proposing   agent
   state_proposed    agent, proposal  (mode "ask": waits for apply_state / discard_state)
@@ -292,11 +293,14 @@ def resolve_action(session: Session, action: dict) -> tuple[str, dict | None]:
     return kind, agent
 
 
-def conductor_turn(session: Session, user_text: str | None, *, ephemeral: bool = False) -> Turn:
+def conductor_turn(
+    session: Session, user_text: str | None, *, ephemeral: bool = False, after_run: bool = False
+) -> Turn:
     """
     One full Conductor exchange, following up `read` actions with the module file.
     A `run` action is returned (outcome "run"), not executed — the caller runs the expert.
-    Provider errors are reported in the Turn, never raised.
+    Provider errors are reported in the Turn, never raised. A reply that is only a tool
+    call has no text; it is kept in history but not shown.
     """
     extra: list[dict] | None = None
     reads = 0
@@ -321,13 +325,15 @@ def conductor_turn(session: Session, user_text: str | None, *, ephemeral: bool =
                 extra_messages=extra,
             )
         except LLMError as exc:
-            session.send("conductor_error", reason=str(exc))
+            extra_data = {"after_run": True} if after_run else {}
+            session.send("conductor_error", reason=str(exc), **extra_data)
             return Turn("continue", replies=replies, error=str(exc))
 
-        replies.append(reply)
-        session.project.append_transcript("Conductor", reply)
         session.persist()
-        session.send("conductor_reply", text=reply, usage=format_usage(usage))
+        if reply:
+            replies.append(reply)
+            session.project.append_transcript("Conductor", reply)
+            session.send("conductor_reply", text=reply, usage=format_usage(usage))
         if action.get("recovered"):
             session.send(
                 "action_recovered",
@@ -364,21 +370,76 @@ def conductor_turn(session: Session, user_text: str | None, *, ephemeral: bool =
         ephemeral = True
 
 
+def max_expert_runs(session: Session) -> int:
+    from sida.runtime import resolve_conductor_runtime
+
+    return int(resolve_conductor_runtime(session.config)["max_expert_runs"])
+
+
+def follow_up_prompt(agent: dict, *, may_run: bool, state_pending: bool = False) -> str:
+    """Ephemeral instruction after an expert run (never stored in history).
+
+    Sent to the model, so it stays English, with the reply language pinned at the end.
+    """
+    text = (
+        f"The expert {agent.get('id')} ({agent.get('name')}) just finished; its result is in "
+        "context. Tell the designer briefly what in it matters for the next decision. "
+    )
+    if may_run:
+        text += (
+            "If another expert is clearly the necessary next step and nothing has to be asked "
+            "of the designer first, you may run it now. Otherwise run nothing and suggest the "
+            "next step or ask the designer."
+        )
+    elif state_pending:
+        text += (
+            "A project state update from this result is waiting for the designer's review, so "
+            "do not run another expert now; ask the designer to review it and suggest the next step."
+        )
+    else:
+        text += "Do not run another expert now; suggest the next step or ask the designer."
+    if get_language() == "ko":
+        text += " Reply in Korean."
+    return text
+
+
 def converse(session: Session, user_text: str | None, *, ephemeral: bool = False) -> Turn:
     """
-    A Conductor exchange that carries out the Conductor's decision without asking:
-    a `run` action runs the expert at once and then settles project_state.md by
+    A Conductor exchange that carries out the Conductor's decisions without asking.
+    A `run` action runs the expert at once and settles project_state.md by
     state_update.mode (in "ask" mode the proposal is left pending, never applied).
-    For front ends that cannot stop mid-turn to ask (the web UI).
+    The Conductor is then shown the result and either answers or runs the next expert,
+    up to conductor.max_expert_runs runs. A pending state proposal ends the chain, since
+    the next run would replace it. For front ends that cannot stop mid-turn to ask (the web UI).
+    The Turn carries every reply; its error is set only when the first Conductor call failed.
     """
     if user_text is not None and not ephemeral:
         session.project.append_transcript("You", user_text)
     turn = conductor_turn(session, user_text, ephemeral=ephemeral)
-    if turn.outcome == "run" and turn.agent is not None:
-        result = run_expert(session, turn.agent)
-        if result.run is not None:
-            record_action_run(session, turn.agent, state_updated=_state_updated(result))
-    return turn
+    replies = list(turn.replies)
+    limit = max_expert_runs(session)
+    runs = 0
+    state_pending = False
+    while turn.outcome == "run" and turn.agent is not None:
+        if runs >= limit or state_pending:
+            reason = "state_pending" if state_pending else "limit"
+            session.send("run_skipped", agent=turn.agent, reason=reason, limit=limit)
+            return Turn("continue", replies=replies, error=None)
+        agent = turn.agent
+        result = run_expert(session, agent)
+        runs += 1
+        if result.run is None:
+            return Turn("run", agent=agent, replies=replies, error=None)
+        record_action_run(session, agent, state_updated=_state_updated(result))
+        state_pending = result.state is not None and result.state.outcome == "proposed"
+        prompt = follow_up_prompt(
+            agent, may_run=runs < limit and not state_pending, state_pending=state_pending
+        )
+        turn = conductor_turn(session, prompt, ephemeral=True, after_run=True)
+        replies.extend(turn.replies)
+        if turn.error:
+            return Turn("continue", agent=agent, replies=replies, error=None)
+    return Turn(turn.outcome, agent=turn.agent, replies=replies, error=turn.error)
 
 
 def run_expert(
@@ -618,7 +679,9 @@ def history_messages(history: list[dict]) -> list[dict]:
                 {"role": "system", "event": "run_requested", "agent": agent, "text": content}
             )
         elif role == "assistant":
-            messages.append({"role": "conductor", "text": parse_action(content)[0]})
+            text = parse_action(content)[0]
+            if text:  # a reply that was only a tool call
+                messages.append({"role": "conductor", "text": text})
         elif role == "user":
             messages.append({"role": "user", "text": content})
     return messages

@@ -7,6 +7,7 @@
 - 메시지를 보내거나 전문가를 실행하면 서버는 바로 `202`와 작업(`job`)을 돌려주고, 모델 호출은 서버 안에서 따로 돕니다. 모델 호출은 몇 초에서 몇 분이 걸립니다.
 - 화면은 작업이 끝날 때까지 1초마다 `GET .../session/jobs/{id}?after=<받은 마지막 seq>`를 불러 새 이벤트만 받아 그립니다. `status`가 `done`이나 `failed`가 되면 멈추고 `GET .../session`으로 화면을 새로 그립니다.
 - Conductor가 대화 중에 전문가가 필요하다고 판단하면 묻지 않고 바로 실행합니다(2026-10-16 지훈 결정). 대신 화면은 아래 "알림"대로 실행을 분명히 보여 줘야 합니다.
+- 전문가가 끝나면 Conductor가 결과를 보고 이어서 답하고, 필요하면 다음 전문가를 실행합니다(아래 "전문가 자동 호출"). 그래서 한 작업에 `conductor_reply`가 여러 번 올 수 있습니다.
 - 한 프로젝트에서는 한 번에 작업 하나만 돕니다. 실행 중에 또 보내면 `409`입니다. 실행 중에는 입력창의 보내기 버튼을 막아 두세요.
 - 작업은 서버 메모리에만 있습니다. 서버를 다시 켜면 대화 기록과 결과 문서는 그대로 있고, 돌던 작업만 사라집니다.
 
@@ -53,8 +54,17 @@
 | `state_failed` | `agent, reason` | 반영안을 못 만듦. 결과 문서는 저장됨 |
 | `reading`, `read_failed` | `file` / `agent, reason` | 작은 안내 줄 |
 | `unknown_agent`, `action_recovered` | | 작은 안내 줄 |
-| `conductor_error` | `reason` | 오류 줄. 이 메시지는 기록되지 않았으니 다시 보내게 안내 |
+| `conductor_error` | `reason`, 때로 `after_run` | 오류 줄. 이 메시지는 기록되지 않았으니 다시 보내게 안내. `after_run: true`이면 전문가 결과는 저장됐고 Conductor의 이어지는 답만 실패한 것이라 다시 보내라고 하지 않음 |
+| `run_skipped` | `agent, reason, limit` | **알림**: Conductor가 실행하려던 전문가를 실행하지 않음. `reason`은 `limit`(한 번에 실행하는 수를 채움) 또는 `state_pending`(설계 상태 반영안 검토가 먼저) |
 | `notice` | `message` | 경고 줄(법령 검색 실패, 로컬 모델 준비 등) |
+
+## 전문가 자동 호출
+
+- Conductor는 모델의 함수 호출(tool calling)로 전문가를 부릅니다. 도구는 `run_expert`(전문가 실행)와 `read_expert_output`(완료된 결과 문서 읽기)이고, OpenRouter·ChatGPT 구독·Ollama에서 씁니다. 함수 호출을 받지 않는 모델이나 제공자는 이전처럼 답 끝의 ```` ```action ```` 블록을 씁니다. 거부되면 그 모델은 서버를 다시 켤 때까지 블록 방식으로 돕니다.
+- 전문가가 끝나면 Conductor에게 결과를 보여 주고 이어서 답하게 합니다. 다음 전문가가 분명히 필요하면 바로 실행하고, 아니면 다음 단계를 제안하거나 설계자에게 묻습니다. 메시지 하나에 전문가는 최대 `conductor.max_expert_runs`번(기본 3) 실행합니다.
+- 설계 상태 반영이 `ask`이면 반영안이 생긴 뒤에는 다음 전문가로 넘어가지 않습니다. 다음 실행이 기다리는 반영안을 덮어쓰기 때문입니다. Conductor는 반영안 검토를 권하는 답으로 끝냅니다.
+- 실행이 실패하면 거기서 멈춥니다.
+- 설정은 `config.yaml`의 `conductor.tool_calls`(`auto` | `off`)와 `conductor.max_expert_runs`입니다.
 
 ## 알림
 

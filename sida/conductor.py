@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Conductor turn: message assembly, action parsing, one LLM call."""
+"""Conductor turn: message assembly, expert tools or action parsing, one LLM call."""
 
 from __future__ import annotations
 
@@ -39,6 +39,79 @@ def should_recover_action(runtime: dict) -> bool:
     if mode in {"always", "true", "1"}:
         return True
     return runtime.get("provider") in {"ollama", "local"}
+
+
+# ---------------------------------------------------------------------------
+# Function tools: the Conductor calls experts through the provider's tool calling.
+# The ```action``` block stays the fallback for providers or models without tools.
+# ---------------------------------------------------------------------------
+
+RUN_TOOL = "run_expert"
+READ_TOOL = "read_expert_output"
+ACTION_SECTION = "## Action block (required)"
+TOOLS_SECTION = "## Expert tools"
+
+# (provider name, model) pairs that refused tools in this process; they stay in text mode.
+_NO_TOOLS: set[tuple[str, str]] = set()
+
+
+def uses_tools(runtime: dict, provider, model: str) -> bool:
+    mode = str(runtime.get("tool_calls", "auto")).lower()
+    if mode in {"off", "false", "0", "never"}:
+        return False
+    if not callable(getattr(provider, "chat_tools", None)):
+        return False
+    return (str(getattr(provider, "name", "")), model) not in _NO_TOOLS
+
+
+def conductor_tools(agents: list[dict]) -> list[dict]:
+    ids = [str(a.get("id")) for a in agents]
+    target = {
+        "type": "object",
+        "properties": {"agent": {"type": "string", "enum": ids, "description": "Expert id."}},
+        "required": ["agent"],
+        "additionalProperties": False,
+    }
+    return [
+        {
+            "name": RUN_TOOL,
+            "description": (
+                "Run one expert now. Its output document is saved and shown to you afterwards. "
+                "Call it at most once per reply, only when the designer wants that expert now "
+                "or the next step is obvious and useful."
+            ),
+            "parameters": target,
+        },
+        {
+            "name": READ_TOOL,
+            "description": (
+                "Open the full output document of a completed expert when PROJECT STATE does not "
+                "hold enough detail to answer. Only for experts listed as completed."
+            ),
+            "parameters": target,
+        },
+    ]
+
+
+def action_from_tool_calls(calls: list[dict]) -> dict:
+    """The first known tool call → an action dict like parse_action's."""
+    for call in calls:
+        agent = str((call.get("arguments") or {}).get("agent") or "").strip()
+        if call.get("name") == RUN_TOOL and agent:
+            return {"type": "run", "agent": agent}
+        if call.get("name") == READ_TOOL and agent:
+            return {"type": "read", "module": agent}
+    return {"type": "none"}
+
+
+def prompt_for_mode(prompt: str, *, tools: bool) -> str:
+    """Keep the section for the mode in use: expert tools, or the action block.
+    A prompt without an expert tools section keeps its action block in both modes."""
+    parts = re.split(r"(?m)^(?=## )", prompt)
+    if tools and not any(p.startswith(TOOLS_SECTION) for p in parts):
+        return prompt.strip()
+    drop = ACTION_SECTION if tools else TOOLS_SECTION
+    return "".join(p for p in parts if not p.startswith(drop)).strip()
 
 
 def _recovery_messages(reply: str, agents: list[dict]) -> list[dict]:
@@ -280,42 +353,71 @@ def ask_conductor(
     if extra_messages:
         api_history = list(api_history) + list(extra_messages)
 
-    messages = build_conductor_messages(
-        f"{conductor_prompt.strip()}\n\n## Language\n\n{language_rule(get_language())}",
-        project_brief,
-        project_state=state_text,
-        module_context=module_context,
-        history=api_history,
-        cache_ttl=cache_ttl,
-        history_truncated=truncated,
-    )
+    def messages_for(tools: bool) -> list[dict]:
+        prompt = prompt_for_mode(conductor_prompt.strip(), tools=tools)
+        return build_conductor_messages(
+            f"{prompt}\n\n## Language\n\n{language_rule(get_language())}",
+            project_brief,
+            project_state=state_text,
+            module_context=module_context,
+            history=api_history,
+            cache_ttl=cache_ttl,
+            history_truncated=truncated,
+        )
 
     from sida.i18n import t
-    from sida.providers import provider_chat
+    from sida.providers import ToolsUnsupported, provider_chat
 
-    raw, usage = provider_chat(
-        provider,
-        model,
-        messages,
-        temperature,
-        max_tokens,
-        role="conductor",
-        status=t("busy_conductor"),
-    )
-    reply, action = parse_action(raw)
+    raw = None
+    if agents and uses_tools(runtime, provider, model):
+        try:
+            text, calls, usage = provider_chat(
+                provider,
+                model,
+                messages_for(True),
+                temperature,
+                max_tokens,
+                role="conductor",
+                status=t("busy_conductor"),
+                tools=conductor_tools(agents),
+            )
+        except ToolsUnsupported:
+            _NO_TOOLS.add((str(getattr(provider, "name", "")), model))
+        else:
+            reply, action = parse_action(text)  # a model may still write the block
+            if action.get("type") == "none":
+                action = action_from_tool_calls(calls)
+            # Stored as an action block so later turns (in either mode) read what happened.
+            if action.get("type") != "none":
+                raw = f"{reply}\n\n```action\n{json.dumps(action)}\n```".strip()
+            elif reply:
+                raw = reply
+            # Neither text nor a known tool call: ask again in text mode below.
 
-    if (
-        action.get("type") == "none"
-        and ACTION_RE.search(raw) is None
-        and agents is not None
-        and should_recover_action(runtime)
-    ):
-        recovered = recover_action(provider, model, reply, agents)
-        if recovered.get("type") != "none":
-            action = recovered
-            stored = {k: v for k, v in recovered.items() if k != "recovered"}
-            # Store the block so later turns see a well-formed example.
-            raw = f"{reply}\n\n```action\n{json.dumps(stored)}\n```"
+    if raw is None:
+        raw, usage = provider_chat(
+            provider,
+            model,
+            messages_for(False),
+            temperature,
+            max_tokens,
+            role="conductor",
+            status=t("busy_conductor"),
+        )
+        reply, action = parse_action(raw)
+
+        if (
+            action.get("type") == "none"
+            and ACTION_RE.search(raw) is None
+            and agents is not None
+            and should_recover_action(runtime)
+        ):
+            recovered = recover_action(provider, model, reply, agents)
+            if recovered.get("type") != "none":
+                action = recovered
+                stored = {k: v for k, v in recovered.items() if k != "recovered"}
+                # Store the block so later turns see a well-formed example.
+                raw = f"{reply}\n\n```action\n{json.dumps(stored)}\n```"
 
     # Commit to history only after a successful call.
     if user_text is not None and not ephemeral:

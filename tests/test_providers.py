@@ -242,3 +242,105 @@ def test_chatgpt_http_errors(monkeypatch):
     )
     assert ChatGPTProvider(lambda: "t").chat("m", [{"role": "user", "content": "hi"}], 0, 1)[0] == "ok"
     assert len(calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# Function tools (Conductor calls experts)
+# ---------------------------------------------------------------------------
+
+TOOLS = [{"name": "run_expert", "description": "Run one expert.", "parameters": {"type": "object"}}]
+
+
+class FakeJson:
+    def __init__(self, data, status=200, text=""):
+        self.status_code = status
+        self.data = data
+        self.text = text or json.dumps(data)
+
+    def json(self):
+        return self.data
+
+
+def json_post(monkeypatch, response):
+    sent = []
+
+    def post(url, headers=None, json=None, timeout=None):
+        sent.append(json)
+        return response
+
+    monkeypatch.setattr(providers.requests, "post", post)
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    return sent
+
+
+def test_openrouter_sends_tools_and_reads_calls(monkeypatch):
+    message = {
+        "content": None,
+        "tool_calls": [{"type": "function", "function": {"name": "run_expert", "arguments": '{"agent": "site_reader"}'}}],
+    }
+    sent = json_post(monkeypatch, FakeJson({"choices": [{"message": message}], "usage": {"prompt_tokens": 3}}))
+    text, calls, usage = providers.OpenRouterProvider("k").chat_tools(
+        "m", [{"role": "user", "content": "hi"}], TOOLS, 0.2, 100
+    )
+    assert (text, calls, usage) == ("", [{"name": "run_expert", "arguments": {"agent": "site_reader"}}], {"prompt_tokens": 3})
+    assert sent[0]["tools"] == [
+        {"type": "function", "function": {"name": "run_expert", "description": "Run one expert.", "parameters": {"type": "object"}}}
+    ]
+
+
+def test_ollama_tool_arguments_arrive_as_an_object(monkeypatch):
+    data = {"message": {"content": "대지부터", "tool_calls": [{"function": {"name": "run_expert", "arguments": {"agent": "site_reader"}}}]}}
+    sent = json_post(monkeypatch, FakeJson(data))
+    text, calls, _ = providers.OllamaProvider().chat_tools("qwen3.5:9b", [{"role": "user", "content": "hi"}], TOOLS, 0.2, 100)
+    assert text == "대지부터" and calls == [{"name": "run_expert", "arguments": {"agent": "site_reader"}}]
+    assert sent[0]["tools"][0]["function"]["name"] == "run_expert" and sent[0]["think"] is False
+
+
+@pytest.mark.parametrize(
+    ("make", "response"),
+    [
+        (lambda: providers.OllamaProvider(), FakeJson({"error": "x does not support tools"}, status=400)),
+        (lambda: providers.OpenRouterProvider("k"), FakeJson({}, status=404, text="No endpoints found that support tool use")),
+    ],
+)
+def test_a_model_without_tools_raises_tools_unsupported(monkeypatch, make, response):
+    json_post(monkeypatch, response)
+    with pytest.raises(providers.ToolsUnsupported):
+        make().chat_tools("m", [{"role": "user", "content": "hi"}], TOOLS, 0.2, 100)
+
+
+def test_chatgpt_sends_tools_and_reads_function_call_items(monkeypatch):
+    calls = chatgpt_post(
+        monkeypatch,
+        FakeStream([
+            {"type": "response.output_text.delta", "delta": "실행합니다"},
+            {"type": "response.output_item.done", "item": {"type": "message"}},
+            {"type": "response.output_item.done", "item": {"type": "function_call", "name": "run_expert", "arguments": '{"agent":"site_reader"}'}},
+            {"type": "response.completed", "response": {}},
+        ]),
+    )
+    text, found, _ = ChatGPTProvider(lambda: "t").chat_tools("m", [{"role": "user", "content": "hi"}], TOOLS, 0, 1)
+    assert text == "실행합니다" and found == [{"name": "run_expert", "arguments": {"agent": "site_reader"}}]
+    assert calls[0]["json"]["tools"] == [
+        {"type": "function", "name": "run_expert", "description": "Run one expert.", "parameters": {"type": "object"}}
+    ]
+    chatgpt_post(monkeypatch, FakeStream(status=400, body={"detail": "tools are not supported"}))
+    with pytest.raises(providers.ToolsUnsupported):
+        ChatGPTProvider(lambda: "t").chat_tools("m", [{"role": "user", "content": "hi"}], TOOLS, 0, 1)
+    # Any other bad request stays an ordinary error, so tools are not switched off for it.
+    chatgpt_post(monkeypatch, FakeStream(status=400, body={"detail": "input is too long"}))
+    with pytest.raises(LLMError) as raised:
+        ChatGPTProvider(lambda: "t").chat_tools("m", [{"role": "user", "content": "hi"}], TOOLS, 0, 1)
+    assert not isinstance(raised.value, providers.ToolsUnsupported)
+
+
+def test_provider_chat_uses_chat_tools_only_when_tools_are_given():
+    class Both:
+        def chat(self, *a, **k):
+            return "text", {}
+
+        def chat_tools(self, model, messages, tools, temperature, max_tokens, **k):
+            return "tools", [], {"n": len(tools)}
+
+    assert providers.provider_chat(Both(), "m", [], 0, 1, role="conductor") == ("text", {})
+    assert providers.provider_chat(Both(), "m", [], 0, 1, role="conductor", tools=TOOLS) == ("tools", [], {"n": 1})

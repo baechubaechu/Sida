@@ -70,6 +70,20 @@ test('the three expert-run notices raise a toast; replies are not notices', () =
   assert.equal(failed.tone, 'error');
   assert.match(failed.text, /다시 보내/);
   assert.match(failed.text, /한도 초과/);
+  const afterRun = eventNotice({ kind: 'conductor_error', data: { reason: '한도 초과', after_run: true } });
+  assert.equal(afterRun.tone, 'warn');
+  assert.match(afterRun.text, /결과는 저장됐/);
+  assert.doesNotMatch(afterRun.text, /다시 보내/);
+});
+
+test('a run the Conductor asked for but Sida held back says why', () => {
+  const agent = { id: 'program_analyst', name: '프로그램 분석가' };
+  const limit = eventNotice({ kind: 'run_skipped', data: { agent, reason: 'limit', limit: 3 } });
+  assert.equal(limit.toast, true);
+  assert.match(limit.text, /3명/);
+  assert.match(limit.text, /프로그램 분석가/);
+  const pending = eventNotice({ kind: 'run_skipped', data: { agent, reason: 'state_pending' } });
+  assert.match(pending.text, /반영안을 먼저 검토/);
 });
 
 test('a running job marks its expert as running', () => {

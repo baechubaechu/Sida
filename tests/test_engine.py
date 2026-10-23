@@ -288,39 +288,103 @@ def test_identical_summary_for_new_module_version_still_needs_acceptance(core):
 RUN_SITE = '사이트부터 보겠습니다\n```action\n{"type":"run","agent":"site_reader"}\n```'
 
 
+FOLLOW_UP = '대지 결과를 보니 북측 일조가 관건입니다.\n```action\n{"type":"none"}\n```'
+
+
 def test_converse_runs_the_expert_and_leaves_the_state_proposal_pending(core, scripted, capsys):
-    s = core(c_provider=scripted([RUN_SITE]))
+    conductor = scripted([RUN_SITE, FOLLOW_UP])
+    s = core(c_provider=conductor)
     before = s.project.read_state()
     turn = engine.converse(s, "대지부터 봐 줘")
-    assert turn.outcome == "run" and turn.error is None
+    assert turn.outcome == "continue" and turn.error is None
+    assert turn.replies == ["사이트부터 보겠습니다", "대지 결과를 보니 북측 일조가 관건입니다."]
     assert (s.output_dir / "11_site_reader.md").exists()
     assert kinds(s) == [
         "conductor_reply", "module_started", "module_saved", "state_proposing", "state_proposed",
+        "conductor_reply",
     ]
     # "ask" mode: a web screen approves later; nothing is written to project_state.md now.
     assert s.project.read_state() == before
-    assert s.pending_state is s.events[-1][1]["proposal"]
-    assert s.history[-1]["content"].startswith("[module completed] site_reader")
-    assert "Update project_state.md" in s.history[-1]["content"]
+    assert s.pending_state is s.events[4][1]["proposal"]
+    # The Conductor sees the result and is told not to chain while the proposal waits.
+    follow_up = conductor.calls[1]["messages"][-1]["content"]
+    assert "site_reader" in follow_up and "waiting for the designer's review" in follow_up
+    assert "you may run it now" not in follow_up
+    assert s.history[-2]["content"].startswith("[module completed] site_reader")
+    assert "Update project_state.md" in s.history[-2]["content"]
+    assert s.history[-1] == {"role": "assistant", "content": FOLLOW_UP}
+    assert not any(m["content"] == follow_up for m in s.history)  # the instruction is not stored
     assert "대지부터 봐 줘" in s.project.transcript_path.read_text(encoding="utf-8")
     assert capsys.readouterr() == ("", "")
 
 
 def test_converse_in_auto_mode_applies_the_state(core, scripted, mock_config):
     mock_config["state_update"]["mode"] = "auto"
-    s = core(c_provider=scripted([RUN_SITE]))
+    conductor = scripted([RUN_SITE, FOLLOW_UP])
+    s = core(c_provider=conductor)
     engine.converse(s, "대지부터")
-    assert kinds(s)[-1] == "state_applied"
+    assert kinds(s)[-2:] == ["state_applied", "conductor_reply"]
     assert "| site_reader | done | (mock) takeaway |" in s.project.read_state()
-    assert s.history[-1]["content"].endswith("has been updated with this module's takeaways.")
+    assert s.history[-2]["content"].endswith("has been updated with this module's takeaways.")
+    assert "you may run it now" in conductor.calls[1]["messages"][-1]["content"]
 
 
 def test_converse_reports_a_failed_expert_without_recording_it(core, scripted):
-    s = core(c_provider=scripted([RUN_SITE]), w_provider=Boom())
+    conductor = scripted([RUN_SITE, FOLLOW_UP])
+    s = core(c_provider=conductor, w_provider=Boom())
     turn = engine.converse(s, "대지부터")
     assert turn.outcome == "run"
     assert kinds(s)[-1] == "module_failed" and s.events[-1][1]["reason"] == "down"
     assert not any("[module completed]" in m["content"] for m in s.history)
+    assert len(conductor.calls) == 1  # no follow-up after a failed run
+
+
+RUN_PROGRAM = '프로그램도 보겠습니다\n```action\n{"type":"run","agent":"program_analyst"}\n```'
+
+
+def test_converse_chains_experts_up_to_the_limit(core, scripted, mock_config):
+    mock_config["state_update"]["mode"] = "auto"
+    mock_config["conductor"]["max_expert_runs"] = 2
+    conductor = scripted([RUN_SITE, RUN_PROGRAM, RUN_SITE])
+    s = core(c_provider=conductor)
+    turn = engine.converse(s, "알아서 진행해")
+    assert turn.outcome == "continue" and turn.error is None
+    assert [d["agent"]["id"] for k, d in s.events if k == "module_saved"] == [
+        "site_reader", "program_analyst",
+    ]
+    # The second follow-up may not run again; the third request is reported, not run.
+    assert "you may run it now" in conductor.calls[1]["messages"][-1]["content"]
+    assert "Do not run another expert now" in conductor.calls[2]["messages"][-1]["content"]
+    assert s.events[-1] == (
+        "run_skipped", {"agent": engine.agent_by_id(s.agents, "site_reader"), "reason": "limit", "limit": 2}
+    )
+    assert len(turn.replies) == 3
+
+
+def test_converse_does_not_chain_while_a_state_proposal_waits(core, scripted):
+    conductor = scripted([RUN_SITE, RUN_PROGRAM])
+    s = core(c_provider=conductor)
+    engine.converse(s, "대지부터")
+    assert kinds(s)[-1] == "run_skipped" and s.events[-1][1]["reason"] == "state_pending"
+    assert not (s.output_dir / "12_program_analyst.md").exists()
+    assert s.pending_state is not None  # the first proposal is still the one waiting
+
+
+def test_converse_follow_up_failure_keeps_the_run(core, scripted):
+    s = core(c_provider=scripted([RUN_SITE, LLMError("down")]))
+    turn = engine.converse(s, "대지부터")
+    assert turn.error is None  # the designer's message and the expert run are recorded
+    assert s.events[-1] == ("conductor_error", {"reason": "down", "after_run": True})
+    assert s.history[-1]["content"].startswith("[module completed] site_reader")
+    assert (s.output_dir / "11_site_reader.md").exists()
+
+
+def test_follow_up_prompt_is_english_and_pins_reply_language(monkeypatch):
+    agent = {"id": "site_reader", "name": "대지 분석가"}
+    monkeypatch.setattr(engine, "get_language", lambda: "ko")
+    assert engine.follow_up_prompt(agent, may_run=True).endswith("Reply in Korean.")
+    monkeypatch.setattr(engine, "get_language", lambda: "en")
+    assert not engine.follow_up_prompt(agent, may_run=False).endswith("Reply in Korean.")
 
 
 def test_settle_state_off_does_nothing_and_model_error_is_reported(core):
@@ -375,3 +439,31 @@ def test_opening_prompt_is_english_and_pins_reply_language(make_session, monkeyp
     assert not re.search("[가-힣]", ko)
     monkeypatch.setattr("sida.engine.get_language", lambda: "en")
     assert "Korean" not in engine.opening_prompt(s)
+
+
+def test_tool_only_reply_is_kept_in_history_but_not_shown(core, monkeypatch):
+    from sida import conductor
+
+    monkeypatch.setattr(conductor, "_NO_TOOLS", set())
+
+    class Tools:
+        name = "tools"
+
+        def __init__(self):
+            self.replies = [
+                ("", [{"name": "run_expert", "arguments": {"agent": "site_reader"}}]),
+                ("북측 일조가 관건입니다.", []),
+            ]
+
+        def chat_tools(self, model, messages, tools, temperature, max_tokens, **kw):
+            text, calls = self.replies.pop(0)
+            return text, calls, {}
+
+    s = core(c_provider=Tools())
+    turn = engine.converse(s, "대지부터")
+    assert turn.replies == ["북측 일조가 관건입니다."]
+    assert kinds(s)[0] == "module_started" and kinds(s)[-1] == "conductor_reply"
+    shown = engine.history_messages(s.history)
+    assert [(m["role"], m.get("event")) for m in shown] == [
+        ("user", None), ("system", "module_completed"), ("conductor", None),
+    ]

@@ -93,7 +93,12 @@ export function eventNotice(event) {
     case 'read_failed': return notice(`결과 문서를 읽지 못했습니다. ${data.reason || ''}`.trim(), 'warn');
     case 'unknown_agent': return notice('Conductor가 없는 전문가를 불러서 실행하지 않았습니다.', 'warn');
     case 'action_recovered': return notice('Conductor 답에서 다음 동작을 다시 읽었습니다.');
-    case 'conductor_error': return notice(`Conductor가 답하지 못했습니다. 이 메시지는 기록되지 않았으니 다시 보내 주세요. ${data.reason || ''}`.trim(), 'error', true);
+    case 'run_skipped': return notice(data.reason === 'state_pending'
+      ? `설계 상태 반영안을 먼저 검토해야 해서 ${name}은(는) 실행하지 않았습니다.`
+      : `한 번에 실행하는 전문가 수(${data.limit || '?'}명)를 채워 ${name}은(는) 실행하지 않았습니다. 이어서 하려면 메시지를 보내 주세요.`, 'warn', true);
+    case 'conductor_error': return data.after_run
+      ? notice(`전문가 결과는 저장됐지만 Conductor가 이어서 답하지 못했습니다. ${data.reason || ''}`.trim(), 'warn', true)
+      : notice(`Conductor가 답하지 못했습니다. 이 메시지는 기록되지 않았으니 다시 보내 주세요. ${data.reason || ''}`.trim(), 'error', true);
     case 'notice': return notice(String(data.message || ''), 'warn');
     default: return null;
   }

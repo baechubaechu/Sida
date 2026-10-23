@@ -62,6 +62,58 @@ def _retryable(msg: str) -> LLMError:
     return err
 
 
+class ToolsUnsupported(LLMError):
+    """The provider or model refused function tools; the caller asks again without them."""
+
+
+# Function tools are given as [{"name", "description", "parameters": <JSON schema>}].
+# Providers that can call them have chat_tools(model, messages, tools, temperature,
+# max_tokens) -> (text, calls, usage), with calls as [{"name", "arguments": dict}].
+
+
+def _function_tools(tools: list[dict]) -> list[dict]:
+    """Chat Completions shape (OpenRouter, Ollama)."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["parameters"],
+            },
+        }
+        for t in tools
+    ]
+
+
+def _tool_arguments(raw: Any) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    try:
+        data = json.loads(raw) if isinstance(raw, str) and raw.strip() else {}
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _function_calls(message: dict) -> list[dict]:
+    """tool_calls of a Chat Completions (or Ollama) message → [{name, arguments}]."""
+    calls = []
+    for call in message.get("tool_calls") or []:
+        function = call.get("function") if isinstance(call, dict) else None
+        if isinstance(function, dict) and function.get("name"):
+            calls.append(
+                {"name": str(function["name"]), "arguments": _tool_arguments(function.get("arguments"))}
+            )
+    return calls
+
+
+def _refuses_tools(status: int, text: str) -> bool:
+    # OpenRouter answers 404 "No endpoints found that support tool use"; Ollama answers 400
+    # "... does not support tools". Other 400s (too long, bad input) are not refusals.
+    return status in {400, 404} and "tool" in text.lower()
+
+
 class OpenRouterProvider:
     name = "openrouter"
 
@@ -69,6 +121,35 @@ class OpenRouterProvider:
         if not api_key:
             raise LLMError("OpenRouter API key is missing. Enter it on the settings screen.")
         self.api_key = api_key
+
+    def _post(self, body: dict[str, Any], *, tools: bool = False) -> tuple[dict, dict]:
+        """One request → (first choice's message, usage)."""
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        try:
+            response = requests.post(OPENROUTER_URL, headers=headers, json=body, timeout=120)
+        except requests.Timeout as exc:
+            raise _retryable(f"OpenRouter timeout: {exc}") from exc
+        except requests.RequestException as exc:
+            raise _retryable(f"OpenRouter request failed: {exc}") from exc
+
+        if response.status_code != 200:
+            message = f"OpenRouter error ({response.status_code}): {response.text[:300]}"
+            if response.status_code in RETRY_STATUS:
+                raise _retryable(message)
+            if tools and _refuses_tools(response.status_code, response.text):
+                raise ToolsUnsupported(message)
+            raise LLMError(message)
+        try:
+            data = response.json()
+            choice = data["choices"][0]["message"]
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            raise LLMError(f"Unexpected OpenRouter response: {exc}") from exc
+        if not isinstance(choice, dict):
+            raise LLMError("Unexpected OpenRouter response: no message")
+        return choice, data.get("usage") or {}
 
     def chat(
         self,
@@ -78,10 +159,6 @@ class OpenRouterProvider:
         max_tokens: int,
         **_: Any,
     ) -> tuple[str, dict]:
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
         body: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -90,31 +167,38 @@ class OpenRouterProvider:
         }
 
         def send():
-            try:
-                response = requests.post(
-                    OPENROUTER_URL, headers=headers, json=body, timeout=120
-                )
-            except requests.Timeout as exc:
-                raise _retryable(f"OpenRouter timeout: {exc}") from exc
-            except requests.RequestException as exc:
-                raise _retryable(f"OpenRouter request failed: {exc}") from exc
-
-            if response.status_code in RETRY_STATUS:
-                raise _retryable(
-                    f"OpenRouter error ({response.status_code}): {response.text[:300]}"
-                )
-            if response.status_code != 200:
-                raise LLMError(
-                    f"OpenRouter error ({response.status_code}): {response.text[:300]}"
-                )
-            try:
-                data = response.json()
-                content = data["choices"][0]["message"]["content"]
-            except (ValueError, KeyError, IndexError, TypeError) as exc:
-                raise LLMError(f"Unexpected OpenRouter response: {exc}") from exc
+            message, usage = self._post(body)
+            content = message.get("content")
             if not content or not str(content).strip():
                 raise _retryable("Empty LLM response")
-            return str(content).strip(), data.get("usage") or {}
+            return str(content).strip(), usage
+
+        return _with_retries(send)
+
+    def chat_tools(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict],
+        temperature: float,
+        max_tokens: int,
+        **_: Any,
+    ) -> tuple[str, list[dict], dict]:
+        body: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "tools": _function_tools(tools),
+        }
+
+        def send():
+            message, usage = self._post(body, tools=True)
+            text = str(message.get("content") or "").strip()
+            calls = _function_calls(message)
+            if not text and not calls:
+                raise _retryable("Empty LLM response")
+            return text, calls, usage
 
         return _with_retries(send)
 
@@ -262,6 +346,59 @@ class ChatGPTProvider:
             body["instructions"] = instructions
         return body
 
+    def _stream(self, body: dict[str, Any], *, tools: bool = False) -> tuple[str, list[dict], dict]:
+        """One streamed request → (text, function calls, usage)."""
+        headers = {
+            "Authorization": f"Bearer {self.token()}",
+            "Content-Type": "application/json",
+        }
+        try:
+            response = requests.post(
+                CHATGPT_RESPONSES_URL, headers=headers, json=body, stream=True, timeout=180
+            )
+        except requests.Timeout as exc:
+            raise _retryable(f"ChatGPT timeout: {exc}") from exc
+        except requests.RequestException as exc:
+            raise _retryable(f"ChatGPT request failed: {exc}") from exc
+        with response:
+            if response.status_code != 200:
+                try:
+                    data = response.json()
+                except ValueError:
+                    data = {"detail": response.text[:300]}
+                error = _chatgpt_error(response.status_code, data)
+                if tools and _refuses_tools(response.status_code, str(error)):
+                    raise ToolsUnsupported(str(error))
+                raise error
+            parts: list[str] = []
+            calls: list[dict] = []
+            for event in _sse_events(response):
+                kind = event.get("type")
+                if kind == "response.output_text.delta":
+                    parts.append(str(event.get("delta") or ""))
+                elif kind == "response.output_item.done":
+                    item = event.get("item") or {}
+                    if item.get("type") == "function_call" and item.get("name"):
+                        calls.append(
+                            {"name": str(item["name"]), "arguments": _tool_arguments(item.get("arguments"))}
+                        )
+                elif kind == "response.completed":
+                    usage = (event.get("response") or {}).get("usage") or {}
+                    return "".join(parts).strip(), calls, {
+                        "prompt_tokens": usage.get("input_tokens"),
+                        "completion_tokens": usage.get("output_tokens"),
+                    }
+                elif kind == "response.failed":
+                    raise _chatgpt_error(200, event.get("response") or {})
+                elif kind == "error":
+                    raise _chatgpt_error(200, {"error": event})
+                elif kind == "response.incomplete":
+                    details = (event.get("response") or {}).get("incomplete_details") or {}
+                    raise LLMError(
+                        f"ChatGPT reply was cut off ({details.get('reason') or 'incomplete'})"
+                    )
+        raise _retryable("ChatGPT stream ended before the reply was complete")
+
     def chat(
         self,
         model: str,
@@ -273,49 +410,38 @@ class ChatGPTProvider:
         body = self.request_body(model, messages)
 
         def send():
-            headers = {
-                "Authorization": f"Bearer {self.token()}",
-                "Content-Type": "application/json",
+            text, _calls, usage = self._stream(body)
+            if not text:
+                raise _retryable("Empty LLM response")
+            return text, usage
+
+        return _with_retries(send)
+
+    def chat_tools(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict],
+        temperature: float,
+        max_tokens: int,
+        **_: Any,
+    ) -> tuple[str, list[dict], dict]:
+        body = self.request_body(model, messages)
+        body["tools"] = [
+            {
+                "type": "function",
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["parameters"],
             }
-            try:
-                response = requests.post(
-                    CHATGPT_RESPONSES_URL, headers=headers, json=body, stream=True, timeout=180
-                )
-            except requests.Timeout as exc:
-                raise _retryable(f"ChatGPT timeout: {exc}") from exc
-            except requests.RequestException as exc:
-                raise _retryable(f"ChatGPT request failed: {exc}") from exc
-            with response:
-                if response.status_code != 200:
-                    try:
-                        data = response.json()
-                    except ValueError:
-                        data = {"detail": response.text[:300]}
-                    raise _chatgpt_error(response.status_code, data)
-                parts: list[str] = []
-                for event in _sse_events(response):
-                    kind = event.get("type")
-                    if kind == "response.output_text.delta":
-                        parts.append(str(event.get("delta") or ""))
-                    elif kind == "response.completed":
-                        usage = (event.get("response") or {}).get("usage") or {}
-                        text = "".join(parts).strip()
-                        if not text:
-                            raise _retryable("Empty LLM response")
-                        return text, {
-                            "prompt_tokens": usage.get("input_tokens"),
-                            "completion_tokens": usage.get("output_tokens"),
-                        }
-                    elif kind == "response.failed":
-                        raise _chatgpt_error(200, event.get("response") or {})
-                    elif kind == "error":
-                        raise _chatgpt_error(200, {"error": event})
-                    elif kind == "response.incomplete":
-                        details = (event.get("response") or {}).get("incomplete_details") or {}
-                        raise LLMError(
-                            f"ChatGPT reply was cut off ({details.get('reason') or 'incomplete'})"
-                        )
-            raise _retryable("ChatGPT stream ended before the reply was complete")
+            for t in tools
+        ]
+
+        def send():
+            text, calls, usage = self._stream(body, tools=True)
+            if not text and not calls:
+                raise _retryable("Empty LLM response")
+            return text, calls, usage
 
         return _with_retries(send)
 
@@ -343,7 +469,7 @@ class OllamaProvider:
         # Default False so visible answers fit in the token budget.
         self.think = think
 
-    def chat(
+    def _body(
         self,
         model: str,
         messages: list[dict[str, Any]],
@@ -352,8 +478,7 @@ class OllamaProvider:
         *,
         json_mode: bool = False,
         think: bool | None = None,
-        **_: Any,
-    ) -> tuple[str, dict]:
+    ) -> dict[str, Any]:
         options: dict[str, Any] = {
             "temperature": temperature,
             "num_predict": max_tokens,
@@ -373,42 +498,67 @@ class OllamaProvider:
         use_think = self.think if think is None else think
         if use_think is not None:
             body["think"] = bool(use_think)
+        return body
+
+    def _post(self, body: dict[str, Any], *, tools: bool = False) -> dict:
+        model = body["model"]
+        try:
+            response = requests.post(f"{self.base_url}/api/chat", json=body, timeout=300)
+        except requests.ConnectionError as exc:
+            raise LLMError(
+                f"Cannot reach Ollama at {self.base_url}. "
+                "Start it with `ollama serve` (or open the Ollama app)."
+            ) from exc
+        except requests.Timeout as exc:
+            raise _retryable(f"Ollama timeout: {exc}") from exc
+        except requests.RequestException as exc:
+            raise _retryable(f"Ollama request failed: {exc}") from exc
+
+        if response.status_code == 404:
+            raise LLMError(f"Ollama model '{model}' not found. Run: ollama pull {model}")
+        if response.status_code != 200:
+            message = f"Ollama error ({response.status_code}): {response.text[:300]}"
+            if response.status_code in RETRY_STATUS:
+                raise _retryable(message)
+            if tools and _refuses_tools(response.status_code, response.text):
+                raise ToolsUnsupported(message)  # e.g. "... does not support tools"
+            raise LLMError(message)
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise LLMError(f"Unexpected Ollama response: {exc}") from exc
+        if not isinstance(data, dict):
+            raise LLMError("Unexpected Ollama response: not an object")
+        return data
+
+    @staticmethod
+    def _usage(data: dict) -> dict:
+        return {
+            "prompt_tokens": data.get("prompt_eval_count"),
+            "completion_tokens": data.get("eval_count"),
+        }
+
+    def chat(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        *,
+        json_mode: bool = False,
+        think: bool | None = None,
+        **_: Any,
+    ) -> tuple[str, dict]:
+        body = self._body(
+            model, messages, temperature, max_tokens, json_mode=json_mode, think=think
+        )
 
         def send():
-            try:
-                response = requests.post(
-                    f"{self.base_url}/api/chat", json=body, timeout=300
-                )
-            except requests.ConnectionError as exc:
-                raise LLMError(
-                    f"Cannot reach Ollama at {self.base_url}. "
-                    "Start it with `ollama serve` (or open the Ollama app)."
-                ) from exc
-            except requests.Timeout as exc:
-                raise _retryable(f"Ollama timeout: {exc}") from exc
-            except requests.RequestException as exc:
-                raise _retryable(f"Ollama request failed: {exc}") from exc
-
-            if response.status_code == 404:
-                raise LLMError(
-                    f"Ollama model '{model}' not found. Run: ollama pull {model}"
-                )
-            if response.status_code in RETRY_STATUS:
-                raise _retryable(
-                    f"Ollama error ({response.status_code}): {response.text[:300]}"
-                )
-            if response.status_code != 200:
-                raise LLMError(
-                    f"Ollama error ({response.status_code}): {response.text[:300]}"
-                )
-            try:
-                data = response.json()
-                msg = data.get("message") or {}
-                content = msg.get("content")
-            except (ValueError, KeyError, TypeError) as exc:
-                raise LLMError(f"Unexpected Ollama response: {exc}") from exc
+            data = self._post(body)
+            msg = data.get("message") or {}
+            content = msg.get("content") if isinstance(msg, dict) else None
             if not content or not str(content).strip():
-                thinking = str(msg.get("thinking") or msg.get("reasoning") or "")
+                thinking = str(msg.get("thinking") or msg.get("reasoning") or "") if isinstance(msg, dict) else ""
                 reason = data.get("done_reason") or ""
                 if thinking.strip():
                     raise _retryable(
@@ -417,20 +567,40 @@ class OllamaProvider:
                         "Sida disables think by default — retry, or raise max_tokens."
                     )
                 raise _retryable("Empty LLM response")
-            usage = {
-                "prompt_tokens": data.get("prompt_eval_count"),
-                "completion_tokens": data.get("eval_count"),
-            }
-            return str(content).strip(), usage
+            return str(content).strip(), self._usage(data)
 
         # If think was on and we still get an empty answer, one silent retry with think off.
         try:
             return _with_retries(send)
         except LLMError as exc:
-            if use_think is True and "thinking" in str(exc).lower():
+            if body.get("think") is True and "thinking" in str(exc).lower():
                 body["think"] = False
                 return _with_retries(send)
             raise
+
+    def chat_tools(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict],
+        temperature: float,
+        max_tokens: int,
+        **_: Any,
+    ) -> tuple[str, list[dict], dict]:
+        body = self._body(model, messages, temperature, max_tokens)
+        body["tools"] = _function_tools(tools)
+
+        def send():
+            data = self._post(body, tools=True)
+            msg = data.get("message") or {}
+            msg = msg if isinstance(msg, dict) else {}
+            text = str(msg.get("content") or "").strip()
+            calls = _function_calls(msg)
+            if not text and not calls:
+                raise _retryable("Empty LLM response")
+            return text, calls, self._usage(data)
+
+        return _with_retries(send)
 
 
 class MockProvider:
@@ -505,18 +675,24 @@ def make_provider(
 
 
 def provider_chat(provider, model, messages, temperature, max_tokens, **kw):
-    """Call provider.chat with a busy spinner (TTY only)."""
+    """Call provider.chat with a busy spinner (TTY only).
+
+    With `tools=[...]` it calls provider.chat_tools instead and returns (text, calls, usage).
+    """
     from sida.console import ROLE_COLOR, busy_line
     from sida.i18n import t
 
     role = str(kw.get("role") or "model")
     status = kw.pop("status", None)
     color = kw.pop("color", None)
+    tools = kw.pop("tools", None)
     if status is None:
         status = t("busy_role", role=role)
     if color is None:
         color = ROLE_COLOR.get(role)
     with busy_line(status, color=color):
+        if tools is not None:
+            return provider.chat_tools(model, messages, tools, temperature, max_tokens, **kw)
         return provider.chat(model, messages, temperature, max_tokens, **kw)
 
 

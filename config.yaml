@@ -55,6 +55,12 @@ conductor:
   # When a reply has no ```action``` block, ask the model once more (JSON-only)
   # to extract the intended action. auto = local providers only | always | off
   action_recovery: auto
+  # Call experts through the provider's function tools (OpenRouter, ChatGPT, Ollama).
+  # auto = use them when the provider and model accept tools, else the action block | off
+  tool_calls: auto
+  # Experts the Conductor may run one after another for one designer message.
+  # After each run it reads the result and either answers or runs the next one.
+  max_expert_runs: 3
   # Rolling memory for long projects (tuned for 7B@8K / 9B@16K)
   context:
     state_file: project_state.md
