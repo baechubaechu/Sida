@@ -110,6 +110,26 @@ export function expertStatus(expert, job) {
   return expert.status || (expert.done ? 'done' : 'idle');
 }
 
+// ------------------------------------------------------------------ expert chats
+
+// An expert has several chats ("01", "02", ...; expert.chats from GET .../session).
+export const FIRST_CHAT = '01';
+
+export function chatTitle(id) {
+  return `분석 ${id || FIRST_CHAT}`;
+}
+
+// The chat an expert screen opens on when the address names none: the newest one.
+export function latestChat(expert) {
+  const chats = expert?.chats || [];
+  return chats.length ? chats[chats.length - 1].id : FIRST_CHAT;
+}
+
+// One line in a chat list: "분석 02 · 첫 질문" or "분석 02 · 빈 대화".
+export function chatLabel(chat) {
+  return `${chatTitle(chat.id)} · ${chat.preview || '빈 대화'}`;
+}
+
 // ------------------------------------------------------------------ Markdown
 
 function inline(text) {

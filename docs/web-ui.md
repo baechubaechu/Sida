@@ -22,7 +22,7 @@
 | 프로젝트 목록 (`#/`) | `GET /api/projects`, 예시 프로젝트 `POST /api/projects/sample` |
 | 새 프로젝트 (`#/new`) | `POST /api/projects` (`name`, `fields.type`·`site`·`intention`) |
 | Conductor 대화 (`#/project/<이름>`) | `GET .../session`, 첫 인사 `POST .../session/opening`, 메시지 `POST .../session/messages`, 진행 `GET .../session/jobs/{id}` |
-| 전문가 패널과 화면 (`#/project/<이름>/expert/<id>`) | 결과 문서 `GET .../modules/{agent}`, 실행·수정 요청 `POST .../session/experts/{agent}/run`, 채팅 `GET`/`POST .../experts/{agent}/chat` |
+| 전문가 패널과 화면 (`#/project/<이름>/expert/<id>`, 분석 채팅을 고르면 `.../expert/<id>/chat/<채팅 id>`) | 결과 문서 `GET .../modules/{agent}`, 실행·수정 요청 `POST .../session/experts/{agent}/run`, 분석 채팅 목록과 새 채팅 `GET`/`POST .../experts/{agent}/chats`, 채팅 `GET .../experts/{agent}/chats/{chat_id}`, 메시지 `POST .../chats/{chat_id}/messages` |
 | 설계 상태 반영 승인 | `POST .../state-proposals/{id}/apply`, `.../skip` |
 | 설정 창 | `GET`/`PUT /api/settings`, `PUT /api/settings/keys/openrouter`, ChatGPT 로그인 `/api/settings/chatgpt...` |
 
@@ -33,7 +33,8 @@ API의 자세한 내용은 [session-api.md](session-api.md), [state-editing.md](
 - Conductor 대화는 프로젝트마다 하나입니다. 대화가 비어 있으면 화면을 열 때 Conductor가 먼저 인사합니다.
 - 메시지를 보내면 작업이 끝날 때까지 1초마다 진행을 받아 그립니다. 그동안 보내기 버튼은 꺼집니다(한 프로젝트에 작업 하나).
 - Conductor나 설계자가 전문가를 실행하면 화면 오른쪽 아래 알림이 시작, 결과, 검토 필요를 알리고, 대화에 분석 카드가 남습니다. 카드나 전문가 패널을 누르면 그 전문가 화면이 열립니다.
-- 전문가 화면에는 결과 문서, 설계 상태 반영안(반영하기·건너뛰기), 다시 실행, 수정 요청, 전문가 채팅이 있습니다. 대지 분석가는 채팅이 없고 수정 요청만 있습니다.
+- 오른쪽 전문가 패널에서 전문가를 펼치면 "결과 문서 보기", "＋ 새 분석 채팅", 분석 채팅 목록("분석 01 · 첫 질문")이 나옵니다. 펼친 상태는 화면을 다시 그려도 유지됩니다.
+- 전문가 화면에는 결과 문서, 설계 상태 반영안(반영하기·건너뛰기), 다시 실행, 수정 요청, 분석 채팅 고르기와 새 분석 채팅, 전문가 채팅이 있습니다. 대지 분석가는 채팅이 없고 수정 요청만 있습니다.
 - 처음 실행(`config.local.yaml` 없음)이면 설정 창이 먼저 뜹니다. 저장을 누르면 다음부터는 뜨지 않습니다.
 - 설정 창에서 Conductor를 "ChatGPT 구독"으로 고르면 로그인 버튼이 나옵니다. 새 창에서 로그인을 마치고 돌아오면 상태와 모델 목록이 바뀝니다.
 
@@ -41,7 +42,6 @@ API의 자세한 내용은 [session-api.md](session-api.md), [state-editing.md](
 
 - 프로젝트 삭제, 파일 첨부: 서버 API가 없어서 뺐습니다.
 - 메인 채팅 여러 개: Conductor 대화는 프로젝트당 하나로 정했습니다(2026-10-19).
-- 전문가별 채팅 여러 개: 서버에 대화 id가 생기면 붙입니다. 지금은 전문가당 하나입니다.
 - Vercel 배포 설정: Sida는 각자 PC에서 돌리므로 쓰지 않습니다(2026-10-19 결정).
 
 ## 고칠 때
