@@ -8,7 +8,7 @@
 |---|---|---|
 | `GET /api/projects/{name}/documents/{kind}` | `kind`는 `brief` 또는 `state` | `{kind, content, revision}` |
 | `PUT /api/projects/{name}/documents/{kind}` | `{content, expected_revision}` | 저장된 `{kind, content, revision}` |
-| `POST /api/projects/{name}/state-proposals` | `{agent: "site_reader"}` | `{proposal: {id, agent, diff}}` 또는 `{proposal: null}` |
+| `POST /api/projects/{name}/state-proposals` | `{agent: "site_reader"}` | `{proposal: {id, agent, diff, changes}}` 또는 `{proposal: null}` |
 | `POST /api/projects/{name}/state-proposals/{id}/apply` | 본문 없음 | `{applied: true, document: {kind, content, revision}}` |
 | `POST /api/projects/{name}/state-proposals/{id}/skip` | 본문 없음 | `{skipped: true}` |
 
@@ -21,7 +21,9 @@
 ## 상태 갱신 승인
 
 1. `engine.propose_state(session, agent)`가 `StateProposal`을 반환합니다. 모델 호출만 하고 파일은 바꾸지 않습니다. 변경이 없으면 `None`입니다.
-2. 화면에는 `proposal.diff`를 보여 줍니다. 내부 반영 기록은 숨기며, 요약이 같고 분석 버전만 달라졌다면 반영 기록을 갱신한다는 안내를 반환합니다.
+2. 화면에는 `proposal.changes`를 섹션별로 보여 주고, `proposal.diff`(원본 unified diff)는 접어 둡니다. 내부 반영 기록은 숨기며, 요약이 같고 분석 버전만 달라졌다면 `changes`는 빈 목록이고 `diff`에 반영 기록을 갱신한다는 안내 문장이 들어갑니다.
+   - `changes`는 `state_updater.state_changes`가 만든 목록이며 새 상태의 섹션 순서를 따릅니다. `Meta`·`Module Status`는 `{section, fields: [{name, before, after}]}`(전문가 줄은 핵심 요약이 바뀌면 `takeaway`도 있음), 나머지 목록 섹션은 `{section, added: [...], removed: [...]}`입니다.
+   - 템플릿 안내(`<!-- -->` 주석, `analysis | concept | ...` 같은 선택지, `YYYY-MM-DD`, 빈 `-`)는 빈 값으로 칩니다. 매번 바뀌는 `Last updated`는 넣지 않습니다.
 3. 적용은 `engine.apply_state(session, proposal)`, 건너뛰기는 `engine.discard_state(session, proposal)`입니다. 서버에 보관한 승인안 객체를 사용합니다. 클라이언트가 임의로 보낸 `proposed` 문자열을 승인안으로 사용하지 않습니다.
 4. 한 세션에는 최신 승인안 하나만 유효합니다. 건너뛴 승인안, 이미 적용한 승인안, 이전 승인안은 다시 적용할 수 없습니다. 앱을 재시작하면 승인안을 새로 생성합니다.
 

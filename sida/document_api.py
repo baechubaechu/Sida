@@ -46,10 +46,7 @@ def create_router(service: EditingService, load_config, core) -> APIRouter:
         pending = call(service.propose_state, load_config(), name, body.agent)
         if pending is None:
             return {"proposal": None}
-        return {"proposal": {
-            "id": pending.id, "agent": pending.proposal.agent["id"],
-            "diff": pending.proposal.diff,
-        }}
+        return {"proposal": pending.view()}
 
     @router.post("/state-proposals/{proposal_id}/apply")
     def apply(name: str, proposal_id: str) -> dict:

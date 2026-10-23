@@ -262,6 +262,91 @@ def state_diff(old: str, new: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Readable changes (for the approval card)
+# ---------------------------------------------------------------------------
+
+# Meta fields left out of the change list: Last updated changes on every run.
+_QUIET_META = {"Last updated"}
+_OPTION_LIST = re.compile(r"[a-z_]+(?:\s*\|\s*[a-z_]+)+")
+
+
+def _plain(value: str) -> str:
+    """A value without template guidance: comments, option lists, and date masks are empty."""
+    value = re.sub(r"<!--.*?-->", "", value, flags=re.DOTALL).strip()
+    if value in {"-", "YYYY-MM-DD"} or _OPTION_LIST.fullmatch(value):
+        return ""
+    return value
+
+
+def _state_parts(text: str) -> tuple[list[str], dict[str, str], dict[str, tuple[str, str]], dict[str, list[str]]]:
+    """(headings in order, meta fields, module rows {id: (status, takeaway)}, other sections {heading: items})."""
+    text = re.sub(r"<!--.*?-->", "", without_revisions(text), flags=re.DOTALL)
+    meta: dict[str, str] = {}
+    modules: dict[str, tuple[str, str]] = {}
+    sections: dict[str, list[str]] = {}
+    order: list[str] = []
+    for block in re.split(r"^## ", text, flags=re.MULTILINE)[1:]:
+        heading, _, body = block.partition("\n")
+        heading = heading.strip()
+        order.append(heading)
+        lines = [line.strip() for line in body.splitlines() if line.strip()]
+        if heading == "Meta":
+            for line in lines:
+                m = re.match(r"-\s*\*\*(.+?)\*\*:(.*)$", line)
+                if m:
+                    meta[m.group(1).strip()] = _plain(m.group(2))
+        elif heading == "Module Status":
+            for line in lines:
+                cells = [c.strip() for c in line.strip("|").split("|")]
+                if len(cells) < 2 or cells[0] in {"", "Module"} or set(cells[0]) <= set("-: "):
+                    continue
+                modules[cells[0]] = (cells[1], _plain(cells[2]) if len(cells) > 2 else "")
+        else:
+            items = [_plain(re.sub(r"^[-*]\s*", "", line)) for line in lines]
+            sections[heading] = [item for item in items if item]
+    return order, meta, modules, sections
+
+
+def state_changes(old: str, new: str) -> list[dict]:
+    """
+    What a proposal changes, per "## " section, in the order of the new state.
+    Meta and Module Status give {"section", "fields": [{"name", "before", "after", ...}]}
+    (a module field also has "takeaway" when its key takeaway changed); bullet sections give
+    {"section", "added": [...], "removed": [...]}. Template placeholders count as empty.
+    """
+    old_order, old_meta, old_modules, old_sections = _state_parts(old)
+    order, new_meta, new_modules, new_sections = _state_parts(new)
+    changes: list[dict] = []
+    for heading in order + [h for h in old_order if h not in order]:
+        if heading == "Meta":
+            fields = [
+                {"name": name, "before": old_meta.get(name, ""), "after": value}
+                for name, value in new_meta.items()
+                if name not in _QUIET_META and value != old_meta.get(name, "")
+            ]
+        elif heading == "Module Status":
+            fields = []
+            for module_id, (status, takeaway) in new_modules.items():
+                old_status, old_takeaway = old_modules.get(module_id, ("", ""))
+                if (status, takeaway) == (old_status, old_takeaway):
+                    continue
+                row = {"name": module_id, "before": old_status, "after": status}
+                if takeaway != old_takeaway:
+                    row["takeaway"] = takeaway
+                fields.append(row)
+        else:
+            before, after = old_sections.get(heading, []), new_sections.get(heading, [])
+            added = [item for item in after if item not in before]
+            removed = [item for item in before if item not in after]
+            if added or removed:
+                changes.append({"section": heading, "added": added, "removed": removed})
+            continue
+        if fields:
+            changes.append({"section": heading, "fields": fields})
+    return changes
+
+
+# ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 

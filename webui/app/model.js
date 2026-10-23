@@ -467,3 +467,55 @@ export function arrangeDocument(agentId, markdown, knownIds = []) {
   if (rest.length) rows.push({ kind: 'list', top: false, tags: null, cards: false, blocks: rest });
   return { intro, rows, handoffs: handoff ? handoffs(handoff.body, knownIds) : [] };
 }
+
+// ------------------------------------------------------------------ state proposal
+
+// project_state.md headings and fields (data/project_state_template.md), in Korean on screen.
+export const STATE_SECTION_LABELS = {
+  Meta: '프로젝트 개요', 'Core Problem': '핵심 문제', 'Current Direction': '현재 방향',
+  'Confirmed Decisions': '확정한 결정', 'Open Questions': '열린 질문', Tensions: '부딪히는 조건',
+  'Module Status': '전문가 진행 상황', 'Missing Information': '부족한 정보', 'Recent Notes': '최근 메모',
+  'Next Focus': '다음에 볼 것',
+};
+const STATE_FIELD_LABELS = {
+  Project: '프로젝트', Phase: '단계', 'Primary driver': '주된 출발점', 'Studio week': '스튜디오 주차',
+  'Last updated': '마지막 갱신', 'Active focus': '이번 초점',
+};
+const STATE_VALUE_LABELS = {
+  Phase: {
+    analysis: '분석', concept: '개념', schematic: '계획 설계', development: '설계 발전',
+    representation: '표현', presentation: '발표', review: '검토',
+  },
+  'Primary driver': { site: '대지', idea: '아이디어', program: '프로그램', regulation: '법규', competition: '공모' },
+};
+const MODULE_STATUS_LABELS = { pending: '대기', in_progress: '진행 중', done: '완료', stale: '다시 볼 필요' };
+
+// The proposal's `changes` (GET .../session, docs/state-editing.md) as sections of readable rows:
+// [{title, summary, rows: [{kind: 'added' | 'removed', text} | {kind: 'changed', label, before, text, note}]}].
+// `names` maps expert ids to their names for the Module Status rows.
+export function stateChangeView(changes, names = {}) {
+  return (changes || []).map((change) => {
+    const title = STATE_SECTION_LABELS[change.section] || change.section;
+    if (change.fields) {
+      const modules = change.section === 'Module Status';
+      const value = (name, v) => (modules ? MODULE_STATUS_LABELS[v] : STATE_VALUE_LABELS[name]?.[v]) || v;
+      const rows = change.fields.map((f) => ({
+        kind: 'changed',
+        label: modules ? names[f.name] || f.name : STATE_FIELD_LABELS[f.name] || f.name,
+        before: f.before ? value(f.name, f.before) : '',
+        text: f.after ? value(f.name, f.after) : '(비움)',
+        note: f.takeaway || '',
+      }));
+      return { title, summary: '', rows };
+    }
+    const added = change.added || [];
+    const removed = change.removed || [];
+    const summary = [added.length && `${added.length}개 추가`, removed.length && `${removed.length}개 빠짐`]
+      .filter(Boolean).join(' · ');
+    const rows = [
+      ...added.map((text) => ({ kind: 'added', text })),
+      ...removed.map((text) => ({ kind: 'removed', text })),
+    ];
+    return { title, summary, rows };
+  }).filter((section) => section.rows.length);
+}

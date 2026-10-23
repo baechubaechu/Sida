@@ -101,13 +101,7 @@ class SessionJobs:
         path = workspace.find_project(config, name).resolve()
         job = self._active.get(path)
         pending = self.editing.pending(path)
-        proposal = None
-        if pending is not None:
-            proposal = {
-                "id": pending.id,
-                "agent": pending.proposal.agent["id"],
-                "diff": pending.proposal.diff,
-            }
+        proposal = pending.view() if pending is not None else None
         running = job.running_agent if job is not None else None
         agents = {a["id"]: a for a in sida_config.get_agents(config)}
         return {
@@ -291,8 +285,7 @@ class SessionJobs:
                 if key == "agent" and isinstance(value, dict):
                     out[key] = {"id": value.get("id"), "name": agent_name(value)}
                 elif key == "proposal" and isinstance(value, engine.StateProposal):
-                    pending = self.editing.hold(job.project, session, value)
-                    out[key] = {"id": pending.id, "agent": value.agent["id"], "diff": value.diff}
+                    out[key] = self.editing.hold(job.project, session, value).view()
                 elif isinstance(value, Path):
                     out[key] = _relative(value, job.project)
                 else:

@@ -18,6 +18,13 @@ class PendingApproval:
     session: engine.Session
     proposal: engine.StateProposal
 
+    def view(self) -> dict:
+        """The proposal as the JSON API sends it (docs/state-editing.md)."""
+        return {
+            "id": self.id, "agent": self.proposal.agent["id"],
+            "diff": self.proposal.diff, "changes": self.proposal.changes,
+        }
+
 
 class EditingService:
     """Keep one server-owned approval per project and serialize writes within this service."""

@@ -266,7 +266,9 @@ def test_state_api_requires_explicit_decision_and_blocks_replay(state_api, proje
     response = client.post(f"{base}/state-proposals", json={"agent": agent["id"]})
     assert response.status_code == 200
     proposal = response.json()["proposal"]
-    assert set(proposal) == {"id", "agent", "diff"}
+    assert set(proposal) == {"id", "agent", "diff", "changes"}
+    status = next(c for c in proposal["changes"] if c["section"] == "Module Status")
+    assert status["fields"][0]["name"] == agent["id"]
     assert "sida-module-revisions" not in proposal["diff"]
     assert project.state_path.read_bytes() == before
     url = f"{base}/state-proposals/{proposal['id']}/{decision}"

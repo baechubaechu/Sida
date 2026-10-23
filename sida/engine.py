@@ -130,6 +130,7 @@ class StateProposal:
     original_state: str
     original_brief: str
     module_revision: str
+    changes: list = field(default_factory=list)  # state_updater.state_changes, for the approval card
 
 
 @dataclass
@@ -544,7 +545,7 @@ def propose_state(session: Session, agent: dict) -> StateProposal | None:
     Ask the model for a project_state.md patch from the expert's output.
     Returns None when the patch changes nothing. Raises LLMError; the file is untouched.
     """
-    from sida.state_updater import propose_state_patch, state_diff
+    from sida.state_updater import propose_state_patch, state_changes, state_diff
 
     session.pending_state = None
     patch, proposed = propose_state_patch(
@@ -570,6 +571,7 @@ def propose_state(session: Session, agent: dict) -> StateProposal | None:
         agent=agent, proposed=proposed, diff=diff,
         original_state=patch.base_state, original_brief=patch.base_brief,
         module_revision=content_revision(patch.module_output),
+        changes=state_changes(current, proposed),
     )
     session.pending_state = proposal
     return proposal
