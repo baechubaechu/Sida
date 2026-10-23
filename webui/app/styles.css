@@ -174,10 +174,20 @@ button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 .status-badge.done { background: #e3f1e8; color: #2f6b47; }
 .expert-row-button { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name badge" "phase badge"; align-items: center; column-gap: 8px; width: 100%; text-align: left; padding: 11px 13px; margin-bottom: 4px; border-radius: 7px; font-size: 14px; color: #202d3a; }
 .expert-row-button:hover { background: var(--selected); }
+.expert-row { margin-bottom: 4px; }
+.expert-row summary { list-style: none; cursor: pointer; margin-bottom: 0; }
+.expert-row summary::-webkit-details-marker { display: none; }
+.expert-row[open] summary { background: var(--selected); }
+.expert-threads { padding: 6px 13px 8px; display: grid; gap: 1px; }
+.expert-threads button { display: block; width: 100%; text-align: left; padding: 6px 0; font-size: 13px; color: #678; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.expert-threads button:hover { color: var(--brand); }
+.expert-threads .thread-new { color: var(--brand); }
+.expert-threads p { padding: 6px 0; }
+.chat-picker { min-height: 34px; padding: 4px 8px; font-size: 13px; }
 .expert-name { grid-area: name; font-weight: 600; }
 .expert-phase { grid-area: phase; color: var(--muted); font-size: 12px; }
 .expert-row-button .status-badge { grid-area: badge; }
-.expert-actions { display: flex; gap: 8px; padding: 12px 20px 0; }
+.expert-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 20px 0; }
 .expert-chat .chat-scroll { padding-top: 20px; }
 .doc-block { border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; margin-bottom: 8px; }
 .doc-block summary { font-weight: 700; font-size: 14px; }

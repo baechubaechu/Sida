@@ -859,6 +859,53 @@ def test_expert_chat_api_rejects_experts_without_chat(session_api):
     assert experts["site_reader"] is False and experts["program_analyst"] is True
 
 
+def test_expert_chats_api_lists_creates_and_keeps_chats_apart(session_api, monkeypatch):
+    from sida import engine
+    from tests.test_expert_chat import ANSWER, ChatProvider
+
+    client, base, _conductor = session_api
+    provider = ChatProvider([ANSWER, ANSWER])
+    monkeypatch.setattr(engine, "worker_provider", lambda *_a: provider)
+    chats = f"{base}/experts/program_analyst/chats"
+
+    listing = client.get(chats).json()
+    assert listing["chat"] is True and [c["id"] for c in listing["chats"]] == ["01"]
+    assert listing["chats"][0]["messages"] == 0
+
+    job = finished_job(client, base, client.post(f"{chats}/01/messages", json={"text": "첫 질문"}))
+    assert job["status"] == "done" and job["chat"] == "01"
+    created = client.post(chats)
+    assert created.status_code == 201 and created.json()["chat"]["id"] == "02"
+    job = finished_job(client, base, client.post(f"{chats}/02/messages", json={"text": "다른 질문"}))
+    assert job["chat"] == "02"
+
+    one = client.get(f"{chats}/01").json()
+    two = client.get(f"{chats}/02").json()
+    assert one["chat_id"] == "01" and one["messages"][0]["text"] == "첫 질문"
+    assert two["chat_id"] == "02" and two["messages"][0]["text"] == "다른 질문"
+    assert [(c["id"], c["preview"]) for c in client.get(chats).json()["chats"]] == [
+        ("01", "첫 질문"), ("02", "다른 질문"),
+    ]
+    # The earlier single-chat path is the first chat.
+    assert client.get(f"{base}/experts/program_analyst/chat").json()["messages"] == one["messages"]
+    # The side panel gets each expert's chat list with the session.
+    experts = {e["id"]: e for e in client.get(f"{base}/session").json()["experts"]}
+    assert [c["id"] for c in experts["program_analyst"]["chats"]] == ["01", "02"]
+    assert experts["site_reader"]["chats"] == []
+
+
+def test_expert_chats_api_rejects_missing_chats_and_experts_without_chat(session_api):
+    client, base, _conductor = session_api
+    chats = f"{base}/experts/program_analyst/chats"
+    assert client.get(f"{chats}/02").status_code == 404
+    assert client.get(f"{chats}/abc").status_code == 404
+    assert client.post(f"{chats}/02/messages", json={"text": "안녕"}).status_code == 404
+    site = client.get(f"{base}/experts/site_reader/chats").json()
+    assert site["chat"] is False and site["chats"] == []
+    assert client.post(f"{base}/experts/site_reader/chats").status_code == 400
+    assert client.post(f"{base}/experts/nope/chats").status_code == 404
+
+
 def test_session_expert_run_with_revision_request(session_api, monkeypatch):
     from sida import engine
     from tests.test_expert_chat import ChatProvider

@@ -92,3 +92,51 @@ def test_model_error_leaves_the_chat_file_untouched(chat_session):
     with pytest.raises(LLMError):
         expert_chat.expert_chat(s, a, "둘")
     assert expert_chat.chat_path(s.project.path, a).read_bytes() == before
+
+
+def test_old_single_chat_file_is_read_as_the_first_chat(chat_session):
+    import json
+
+    s, _provider = chat_session([ANSWER])
+    a = agent(s)
+    legacy = s.project.path / "chats" / "program_analyst.json"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text(json.dumps([{"role": "user", "content": "예전 질문"}]), encoding="utf-8")
+    assert expert_chat.chat_ids(s.project.path, a) == ["01"]
+    assert expert_chat.load_chat(s.project.path, a, "01") == [{"role": "user", "content": "예전 질문"}]
+    expert_chat.expert_chat(s, a, "이어서")
+    assert len(json.loads(legacy.read_text(encoding="utf-8"))) == 3  # still the same file
+    assert expert_chat.new_chat(s.project.path, a) == "02"
+
+
+def test_each_chat_keeps_its_own_history(chat_session):
+    s, provider = chat_session([ANSWER, ANSWER])
+    a = agent(s)
+    path = s.project.path
+    assert expert_chat.chat_ids(path, a) == ["01"]
+    # The first "new chat" is "01" itself while it was never saved.
+    assert expert_chat.new_chat(path, a) == "01"
+    expert_chat.expert_chat(s, a, "첫 대화 질문")
+    assert expert_chat.new_chat(path, a) == "02"
+    expert_chat.expert_chat(s, a, "두 번째 대화 질문", "02")
+    assert expert_chat.chat_ids(path, a) == ["01", "02"]
+    assert expert_chat.load_chat(path, a, "01")[0]["content"] == "첫 대화 질문"
+    assert expert_chat.load_chat(path, a, "02")[0]["content"] == "두 번째 대화 질문"
+    # The model only sees the chat it is answering in.
+    sent = [m["content"] for m in provider.calls[-1]["messages"]]
+    assert "첫 대화 질문" not in sent
+    summaries = expert_chat.chat_summaries(path, a)
+    assert [(c["id"], c["messages"], c["preview"]) for c in summaries] == [
+        ("01", 2, "첫 대화 질문"), ("02", 2, "두 번째 대화 질문"),
+    ]
+    assert all(c["updated_at"] for c in summaries)
+
+
+def test_unknown_or_malformed_chat_ids_are_not_found(chat_session):
+    s, provider = chat_session([ANSWER])
+    a = agent(s)
+    for chat_id in ["02", "../x", "1", ""]:
+        with pytest.raises(LookupError):
+            expert_chat.expert_chat(s, a, "안녕", chat_id)
+    assert provider.calls == []
+    assert not (s.project.path / "chats").exists()

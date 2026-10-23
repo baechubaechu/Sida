@@ -44,6 +44,7 @@ class Job:
     project: Path
     kind: str  # "opening" | "message" | "expert" | "expert_chat"
     agent: str | None = None
+    chat: str | None = None  # the expert chat an "expert_chat" job writes to
     status: str = "running"  # "running" | "done" | "failed"
     running_agent: str | None = None  # the expert being run right now, if any
     error: str | None = None
@@ -73,6 +74,7 @@ class Job:
                 "id": self.id,
                 "kind": self.kind,
                 "agent": self.agent,
+                "chat": self.chat,
                 "status": self.status,
                 "running_agent": self.running_agent,
                 "error": self.error,
@@ -107,6 +109,7 @@ class SessionJobs:
                 "diff": pending.proposal.diff,
             }
         running = job.running_agent if job is not None else None
+        agents = {a["id"]: a for a in sida_config.get_agents(config)}
         return {
             "messages": workspace.chat_messages(config, path),
             "job": job.view() if job is not None else None,
@@ -114,24 +117,50 @@ class SessionJobs:
                 {
                     **entry,
                     "status": _expert_status(entry, running, proposal),
+                    "chats": _chat_list(path, agents.get(entry["id"])),
                 }
                 for entry in workspace.expert_entries(config, path)
             ],
             "proposal": proposal,
         }
 
-    def chat(self, config: dict, name: str, agent_id: str) -> dict:
-        """One expert's own chat, plus the project's running job (shared with the main chat)."""
+    def chats(self, config: dict, name: str, agent_id: str) -> dict:
+        """The list of one expert's chats; empty for an expert without chat."""
         path = workspace.find_project(config, name).resolve()
         agent = _agent(config, agent_id, LookupError)
+        return {
+            "agent": agent["id"],
+            "name": agent_name(agent),
+            "chat": expert_chat.chat_enabled(agent),
+            "chats": _chat_list(path, agent),
+        }
+
+    def chat(
+        self, config: dict, name: str, agent_id: str, chat_id: str = expert_chat.FIRST_CHAT
+    ) -> dict:
+        """One expert chat, plus the project's running job (shared with the main chat)."""
+        path = workspace.find_project(config, name).resolve()
+        agent = _agent(config, agent_id, LookupError)
+        expert_chat.require_chat(path, agent, chat_id)
         job = self._active.get(path)
         return {
             "agent": agent["id"],
             "name": agent_name(agent),
             "chat": expert_chat.chat_enabled(agent),
-            "messages": expert_chat.chat_messages(expert_chat.load_chat(path, agent)),
+            "chat_id": chat_id,
+            "messages": expert_chat.chat_messages(expert_chat.load_chat(path, agent, chat_id)),
             "job": job.view() if job is not None else None,
         }
+
+    def new_chat(self, config: dict, name: str, agent_id: str) -> dict:
+        """Start an empty chat with one expert; returns its list entry."""
+        path = workspace.find_project(config, name).resolve()
+        agent = _agent(config, agent_id, LookupError)
+        if not expert_chat.chat_enabled(agent):
+            raise ValueError(f"chat is off for this expert: {agent_id}")
+        with self._guard:
+            chat_id = expert_chat.new_chat(path, agent)
+        return next(c for c in expert_chat.chat_summaries(path, agent) if c["id"] == chat_id)
 
     def job(self, config: dict, name: str, job_id: str, after: int = 0) -> dict:
         path = workspace.find_project(config, name).resolve()
@@ -157,23 +186,38 @@ class SessionJobs:
         agent = _agent(config, agent_id, ValueError)
         return self._start(config, name, "expert", agent=agent, text=(revision or "").strip())
 
-    def start_expert_chat(self, config: dict, name: str, agent_id: str, text: str) -> Job:
+    def start_expert_chat(
+        self,
+        config: dict,
+        name: str,
+        agent_id: str,
+        text: str,
+        chat_id: str = expert_chat.FIRST_CHAT,
+    ) -> Job:
         agent = _agent(config, agent_id, LookupError)
         if not expert_chat.chat_enabled(agent):
             raise ValueError(f"chat is off for this expert: {agent_id}")
+        expert_chat.require_chat(workspace.find_project(config, name).resolve(), agent, chat_id)
         text = (text or "").strip()
         if not text:
             raise ValueError("empty message")
-        return self._start(config, name, "expert_chat", agent=agent, text=text)
+        return self._start(config, name, "expert_chat", agent=agent, text=text, chat=chat_id)
 
     def _start(
-        self, config: dict, name: str, kind: str, *, text: str = "", agent: dict | None = None
+        self,
+        config: dict,
+        name: str,
+        kind: str,
+        *,
+        text: str = "",
+        agent: dict | None = None,
+        chat: str | None = None,
     ) -> Job:
         path = workspace.find_project(config, name).resolve()
         with self._guard:
             if path in self._active:
                 raise DocumentConflict("이 프로젝트에서 이미 실행 중인 작업이 있습니다. 끝난 뒤 다시 보내세요.")
-            job = Job(uuid.uuid4().hex, path, kind, agent=agent["id"] if agent else None)
+            job = Job(uuid.uuid4().hex, path, kind, agent=agent["id"] if agent else None, chat=chat)
             self._active[path] = job
             self._jobs[job.id] = job
             self._prune()
@@ -198,7 +242,7 @@ class SessionJobs:
             elif job.kind == "message":
                 error = engine.converse(session, text).error
             elif job.kind == "expert_chat":
-                reply = expert_chat.expert_chat(session, agent, text)
+                reply = expert_chat.expert_chat(session, agent, text, job.chat)
                 error = reply.run.error if reply.run is not None else None
             else:
                 command = f"/run {agent['id']} {text}".rstrip()
@@ -267,6 +311,12 @@ def _agent(config: dict, agent_id: str, missing: type[Exception]) -> dict:
     if agent is None:
         raise missing(f"unknown expert: {agent_id}")
     return agent
+
+
+def _chat_list(path: Path, agent: dict | None) -> list[dict]:
+    if agent is None or not expert_chat.chat_enabled(agent):
+        return []
+    return expert_chat.chat_summaries(path, agent)
 
 
 def _relative(path: Path, root: Path) -> str:

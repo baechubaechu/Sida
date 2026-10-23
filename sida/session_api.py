@@ -51,12 +51,31 @@ def create_router(jobs: SessionJobs, load_config, core) -> APIRouter:
         revision = body.revision if body is not None else None
         return started(call(jobs.start_expert, load_config(), name, agent, revision))
 
+    @router.get("/experts/{agent}/chats")
+    def list_chats(name: str, agent: str) -> dict:
+        return call(jobs.chats, load_config(), name, agent)
+
+    @router.post("/experts/{agent}/chats")
+    def new_chat(name: str, agent: str) -> JSONResponse:
+        return JSONResponse({"chat": call(jobs.new_chat, load_config(), name, agent)}, status_code=201)
+
+    @router.get("/experts/{agent}/chats/{chat_id}")
+    def get_chat(name: str, agent: str, chat_id: str) -> dict:
+        return call(jobs.chat, load_config(), name, agent, chat_id)
+
+    @router.post("/experts/{agent}/chats/{chat_id}/messages")
+    def chat_message(name: str, agent: str, chat_id: str, body: Message) -> JSONResponse:
+        return started(
+            call(jobs.start_expert_chat, load_config(), name, agent, body.text, chat_id)
+        )
+
+    # The single chat of earlier versions: the same as chats/01.
     @router.get("/experts/{agent}/chat")
-    def get_chat(name: str, agent: str) -> dict:
+    def get_first_chat(name: str, agent: str) -> dict:
         return call(jobs.chat, load_config(), name, agent)
 
     @router.post("/experts/{agent}/chat")
-    def chat(name: str, agent: str, body: Message) -> JSONResponse:
+    def first_chat_message(name: str, agent: str, body: Message) -> JSONResponse:
         return started(call(jobs.start_expert_chat, load_config(), name, agent, body.text))
 
     @router.get("/session/jobs/{job_id}")

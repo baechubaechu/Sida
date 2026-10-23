@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   escapeHtml, findProjects, relativeDate, projectSummary, chatItems, eventNotice, expertStatus,
-  renderMarkdown,
+  renderMarkdown, chatTitle, latestChat, chatLabel,
 } from '../../webui/app/model.js';
 
 const projects = [
@@ -118,4 +118,14 @@ test('markdown renders the blocks expert documents use', () => {
   assert.ok(html.includes('<pre><code>&lt;b&gt;그대로&lt;/b&gt;</code></pre>'));
   assert.ok(html.includes('<hr>'));
   assert.ok(html.includes('<a href="https://www.law.go.kr/x?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">출처</a>'));
+});
+
+test('expert chats are numbered and the newest opens first', () => {
+  assert.equal(chatTitle('02'), '분석 02');
+  assert.equal(chatTitle(''), '분석 01');
+  assert.equal(latestChat({ chats: [{ id: '01' }, { id: '02' }] }), '02');
+  assert.equal(latestChat({ chats: [] }), '01');
+  assert.equal(latestChat(null), '01');
+  assert.equal(chatLabel({ id: '01', preview: '주차 대수는?' }), '분석 01 · 주차 대수는?');
+  assert.equal(chatLabel({ id: '03', preview: '' }), '분석 03 · 빈 대화');
 });
