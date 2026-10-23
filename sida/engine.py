@@ -2,7 +2,7 @@
 """UI-agnostic session core: state, Conductor turns, expert runs, project-state updates.
 
 Nothing here prints or reads input. Each operation returns a value and reports
-progress through `Session.emit` as (kind, data) events, so the terminal (session.py)
+progress through `Session.emit` as (kind, data) events, so the web API (session_jobs.py)
 and any other front end can drive the same logic and render it their own way.
 
 Event kinds and their data:

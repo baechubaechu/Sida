@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   escapeHtml, findProjects, relativeDate, projectSummary, chatItems, eventNotice, expertStatus,
-  renderMarkdown, chatTitle, latestChat, chatLabel,
+  renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges,
 } from '../../webui/app/model.js';
 
 const projects = [
@@ -142,4 +142,14 @@ test('expert chats are numbered and the newest opens first', () => {
   assert.equal(latestChat(null), '01');
   assert.equal(chatLabel({ id: '01', preview: '주차 대수는?' }), '분석 01 · 주차 대수는?');
   assert.equal(chatLabel({ id: '03', preview: '' }), '분석 03 · 빈 대화');
+});
+
+test('only typed keys are saved, and the shown VWorld domain only when it changed', () => {
+  const status = { vworld: { set: true, hint: '…abcd' }, vworld_domain: { set: true, value: 'localhost' } };
+  assert.deepEqual(keyChanges({ vworld: '', vworld_domain: 'localhost', data_go_kr: '', law: '' }, status), []);
+  assert.deepEqual(
+    keyChanges({ vworld: ' new-key ', vworld_domain: '127.0.0.1', data_go_kr: '', law: 'oc' }, status),
+    [['vworld', 'new-key'], ['vworld_domain', '127.0.0.1'], ['law', 'oc']],
+  );
+  assert.deepEqual(keyChanges({ vworld_domain: '  ' }, status), []);
 });

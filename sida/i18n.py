@@ -22,51 +22,18 @@ STRINGS: dict[str, dict[str, str]] = {
     "en": {
         # --- app / setup
         "api_required": "No OpenRouter API key. Enter it on the settings screen.",
-        # --- about
+        # --- expert names
         "worker_name_site_reader": "Site Reader",
-        "worker_desc_site_reader": (
-            "Geographic/spatial site reading — systems, conflicts, opportunities (not codes)."
-        ),
         "worker_name_program_analyst": "Program Analyst",
-        "worker_desc_program_analyst": (
-            "Users and rhythms, program parts, adjacency, public–private gradient."
-        ),
         "worker_name_regulation_checker": "Regulation Checker",
-        "worker_desc_regulation_checker": (
-            "Site- and program-triggered codes, verify list, binding limits, incentives (KR default)."
-        ),
         "worker_name_precedent_scout": "Precedent Scout",
-        "worker_desc_precedent_scout": (
-            "Precedents and typologies matched to the problem — lessons and cautions."
-        ),
         "worker_name_concept_framer": "Concept Framer",
-        "worker_desc_concept_framer": (
-            "Sharpen the designer's idea into a testable concept and operative strategy."
-        ),
         "worker_name_spatial_reviewer": "Spatial Reviewer",
-        "worker_desc_spatial_reviewer": (
-            "Test the described organization — circulation, section, thresholds, program fit."
-        ),
         "worker_name_systems_advisor": "Systems Advisor",
-        "worker_desc_systems_advisor": (
-            "Structure, envelope, services, egress questions and trade-offs (no sizing)."
-        ),
         "worker_name_design_critic": "Design Critic",
-        "worker_desc_design_critic": (
-            "Jury-style critique of the direction against the core problem."
-        ),
         "worker_name_representation_planner": "Representation Planner",
-        "worker_desc_representation_planner": (
-            "Which diagrams, drawings, and models prove the concept and expose weak points."
-        ),
         "worker_name_presentation_editor": "Presentation Editor",
-        "worker_desc_presentation_editor": (
-            "Review / portfolio story, structure, and anticipated questions."
-        ),
-        # --- hub settings
-        "mode_name_cloud": "cloud (OpenRouter)",
-        "mode_name_local": "local (Ollama)",
-        "mode_name_custom": "custom",
+        # --- server log
         "busy_role": "Waiting on {role} …",
         "busy_conductor": "Conductor thinking …",
         "busy_worker": "Running {name} …",
@@ -115,52 +82,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "modeling_calling": "→ MCP {tool}",
         "modeling_dry_call": "(dry-run) would call {tool}",
         "modeling_round_limit": "Stopped after max tool rounds.",
-        # --- brief
-        "brief_type": "Project type: ",
-        "brief_site": "Site: ",
-        "brief_problem": "Core problem: ",
-        "brief_issues": "Site issues (comma-separated): ",
-        "brief_intention": "Design intention: ",
-        "brief_direction": "Current design direction: ",
-        "brief_driver": "Primary driver (site / idea / program / regulation / competition): ",
         # --- web UI
         "web_serving": "Sida web UI: {url}  (Ctrl+C to stop)",
         "web_tagline": "A studio assistant for architectural design reasoning",
-        "web_projects": "Projects",
-        "web_projects_root": "Folder: {path}",
-        "web_no_projects": "No projects yet. Create one below or start from the sample brief.",
-        "web_experts_done": "{done}/{total} experts done",
-        "web_updated": "updated {when}",
-        "web_new_project": "New project",
-        "web_field_name": "Project name",
-        "web_field_driver": "Primary driver",
-        "web_driver_site": "site",
-        "web_driver_idea": "idea",
-        "web_driver_program": "program",
-        "web_driver_regulation": "regulation",
-        "web_driver_competition": "competition / review",
-        "web_optional_hint": "Only the name is required. Fill in the rest now or later.",
-        "web_create": "Create",
-        "web_sample": "Start from the sample brief",
-        "web_sample_hint": "Try Sida right away with an example brief.",
-        "web_err_name": "Enter a project name.",
-        "web_runtime": "Runtime",
-        "web_runtime_mode": "Mode",
-        "web_runtime_hint": "Change these on the settings screen.",
-        "web_warn_no_key": (
-            "No OpenRouter API key is set. Add one on the settings screen."
-        ),
-        "web_warn_rag_key": "Statute search is on but LAW_OPEN_API_OC is not set in .env.",
         "web_back_hub": "← Projects",
-        "web_brief": "Brief",
-        "web_experts": "Experts",
-        "web_status_done": "done",
-        "web_status_pending": "pending",
-        "web_session_soon": (
-            "The Conductor chat screen arrives in the next update."
-        ),
-        "web_not_found": "Project not found: {name}",
-        "web_error_title": "Something went wrong",
         "web_chatgpt_done_title": "Signed in with ChatGPT",
         "web_chatgpt_done": "Signed in as {email}. Close this window and go back to Sida.",
         "web_chatgpt_no_plan": (
@@ -271,51 +196,18 @@ STRINGS: dict[str, dict[str, str]] = {
     "ko": {
         # --- app / setup
         "api_required": "OpenRouter API 키가 없습니다. 설정 화면에서 키를 넣어 주세요.",
-        # --- about
+        # --- expert names
         "worker_name_site_reader": "대지 분석가",
-        "worker_desc_site_reader": (
-            "지리·공간으로 대지 읽기 — 시스템, 충돌, 기회 (법규 분석은 하지 않음)."
-        ),
         "worker_name_program_analyst": "프로그램 분석가",
-        "worker_desc_program_analyst": (
-            "이용자·리듬, 프로그램 구성, 인접성, 공·사 그라데이션."
-        ),
         "worker_name_regulation_checker": "법규 검토자",
-        "worker_desc_regulation_checker": (
-            "대지·프로그램이 건드리는 법령, 검증 목록, 구속력 있는 한계, 인센티브 (기본 KR)."
-        ),
         "worker_name_precedent_scout": "선례 연구자",
-        "worker_desc_precedent_scout": (
-            "문제에 맞는 선례·유형 — 배울 점과 베끼면 안 되는 점."
-        ),
         "worker_name_concept_framer": "개념 정리자",
-        "worker_desc_concept_framer": (
-            "디자이너 의도를 검증 가능한 개념·작동 전략으로 다듬음."
-        ),
         "worker_name_spatial_reviewer": "공간 검토자",
-        "worker_desc_spatial_reviewer": (
-            "말한 공간조직 점검 — 동선, 단면, 경계, 프로그램 배치."
-        ),
         "worker_name_systems_advisor": "시스템 자문가",
-        "worker_desc_systems_advisor": (
-            "구조·외피·설비·피난 질문과 트레이드오프 (치수 산정 없음)."
-        ),
         "worker_name_design_critic": "설계 비평가",
-        "worker_desc_design_critic": (
-            "핵심 문제에 대한 심사위원식 비평."
-        ),
         "worker_name_representation_planner": "표현 계획자",
-        "worker_desc_representation_planner": (
-            "개념을 증명하고 약점을 드러낼 다이어그램·도면·모델 계획."
-        ),
         "worker_name_presentation_editor": "발표 편집자",
-        "worker_desc_presentation_editor": (
-            "리뷰·포트폴리오 스토리, 구성, 예상 질문."
-        ),
-        # --- hub settings
-        "mode_name_cloud": "클라우드 (OpenRouter)",
-        "mode_name_local": "로컬 (Ollama)",
-        "mode_name_custom": "사용자 지정",
+        # --- server log
         "busy_role": "{role} 응답 대기 중 …",
         "busy_conductor": "Conductor 생각 중 …",
         "busy_worker": "{name} 실행 중 …",
@@ -361,52 +253,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "modeling_calling": "→ MCP {tool}",
         "modeling_dry_call": "(dry-run) {tool} 호출 예정",
         "modeling_round_limit": "도구 라운드 한도에 도달해 멈췄습니다.",
-        # --- brief
-        "brief_type": "프로젝트 유형: ",
-        "brief_site": "사이트: ",
-        "brief_problem": "핵심 문제: ",
-        "brief_issues": "사이트 이슈 (쉼표로 구분): ",
-        "brief_intention": "설계 의도: ",
-        "brief_direction": "현재 설계 방향: ",
-        "brief_driver": "설계 출발점 (site 사이트 / idea 아이디어 / program 프로그램 / regulation 법규 / competition 공모): ",
         # --- web UI
         "web_serving": "Sida 웹 UI: {url}  (끄려면 Ctrl+C)",
         "web_tagline": "건축 설계 추론을 돕는 조수",
-        "web_projects": "프로젝트",
-        "web_projects_root": "폴더: {path}",
-        "web_no_projects": "아직 프로젝트가 없습니다. 아래에서 새로 만들거나 샘플 브리프로 시작하세요.",
-        "web_experts_done": "전문가 {done}/{total} 완료",
-        "web_updated": "{when} 수정",
-        "web_new_project": "새 프로젝트",
-        "web_field_name": "프로젝트 이름",
-        "web_field_driver": "설계 출발점",
-        "web_driver_site": "사이트",
-        "web_driver_idea": "아이디어",
-        "web_driver_program": "프로그램",
-        "web_driver_regulation": "법규",
-        "web_driver_competition": "공모 / 발표",
-        "web_optional_hint": "이름만 넣어도 됩니다. 나머지는 지금 채워도 되고 나중에 채워도 됩니다.",
-        "web_create": "만들기",
-        "web_sample": "샘플 브리프로 시작",
-        "web_sample_hint": "예시 브리프로 바로 써 볼 수 있습니다.",
-        "web_err_name": "프로젝트 이름을 입력하세요.",
-        "web_runtime": "실행 환경",
-        "web_runtime_mode": "모드",
-        "web_runtime_hint": "설정 화면에서 바꿉니다.",
-        "web_warn_no_key": (
-            "OpenRouter API 키가 없습니다. 설정 화면에서 넣어 주세요."
-        ),
-        "web_warn_rag_key": "법령 검색이 켜져 있지만 .env에 LAW_OPEN_API_OC가 없습니다.",
         "web_back_hub": "← 프로젝트 목록",
-        "web_brief": "브리프",
-        "web_experts": "전문가",
-        "web_status_done": "완료",
-        "web_status_pending": "대기",
-        "web_session_soon": (
-            "Conductor와 대화하는 화면은 다음 업데이트에 들어옵니다."
-        ),
-        "web_not_found": "프로젝트를 찾을 수 없습니다: {name}",
-        "web_error_title": "문제가 생겼습니다",
         "web_chatgpt_done_title": "ChatGPT 로그인 완료",
         "web_chatgpt_done": "{email} 계정으로 로그인했습니다. 이 창을 닫고 Sida로 돌아가세요.",
         "web_chatgpt_no_plan": (

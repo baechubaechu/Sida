@@ -353,28 +353,6 @@ def set_option_dismissed(project_path: Path, option_id: str, dismissed: bool) ->
     return set_option(project_path, option_id, dismissed=dismissed)
 
 
-def describe_options(facts: dict) -> str:
-    """The three groups as text, for the terminal ("" when there is no ordinance)."""
-    view = ordinance_options(facts)
-    if not view["available"]:
-        return ""
-    lines = [f"{view['name']} (시행 {view['effective']})"]
-    for group in view["groups"]:
-        lines.append(f"\n[{group['title']}] {group['note']}")
-        if not group["items"]:
-            lines.append("  (해당 조문 없음)")
-        for item in group["items"]:
-            mark = "숨김 " if item["dismissed"] else "원문 " if item["detailed"] else ""
-            if item["applies"] is True:
-                where = f" ← 이 대지 해당: {', '.join(item['matched'])}"
-            elif item["applies"] is False:
-                where = " (이 대지가 속한 지구·구역은 이 조문에 나오지 않음)"
-            else:
-                where = ""
-            lines.append(f"  {mark}{item['label']} {item['title']}{where}")
-    return "\n".join(lines)
-
-
 def refresh(
     project_path: Path, query: str, candidates: list[dict], *, http_get=None, progress=None
 ) -> dict:
@@ -402,7 +380,6 @@ def note_lookup(project: Project, query: str, history: list[dict]) -> None:
     """
     Tell the Conductor the site was looked up: a transcript line, and a note in its history that
     site_reader and regulation_checker outputs made before this are stale. Saves the history.
-    The terminal passes its live session history; the web API passes the saved one.
     """
     project.append_transcript("System", f"Looked up site facts: {query}")
     history.append({"role": "user", "content": STALE_NOTE})

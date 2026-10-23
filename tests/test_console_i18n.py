@@ -5,12 +5,12 @@ from sida import i18n
 
 def test_default_language_is_korean():
     assert i18n.get_language() == "ko"
-    assert i18n.t("web_brief") == "브리프"
+    assert i18n.t("worker_name_site_reader") == "대지 분석가"
 
 
 def test_english_switch_and_fallback(monkeypatch):
     i18n.set_language("en")
-    assert i18n.t("web_brief") == "Brief"
+    assert i18n.t("worker_name_site_reader") == "Site Reader"
     # missing key in en -> key itself
     assert i18n.t("no_such_key") == "no_such_key"
     # missing key in ko falls back to en

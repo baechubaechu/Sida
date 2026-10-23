@@ -3,16 +3,10 @@
 
 from __future__ import annotations
 
-# (field key, i18n label key, markdown heading)
-BRIEF_FIELD_HEADINGS: list[tuple[str, str, str]] = [
-    ("type", "brief_type", "Project Type"),
-    ("site", "brief_site", "Site"),
-    ("problem", "brief_problem", "Core Problem"),
-    ("issues", "brief_issues", "Site Issues"),
-    ("intention", "brief_intention", "Design Intention"),
-    ("direction", "brief_direction", "Current Design Direction"),
-    ("driver", "brief_driver", "Primary Driver"),
-]
+# The brief fields a new project can be created with, in brief.md order.
+BRIEF_FIELD_KEYS: tuple[str, ...] = (
+    "type", "site", "problem", "issues", "intention", "direction", "driver",
+)
 
 DRIVER_ALIASES = {
     "site": "site", "사이트": "site", "대지": "site",

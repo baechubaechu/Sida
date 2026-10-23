@@ -2,7 +2,7 @@
 
 `python webapp.py`(Windows는 `run.bat`)로 서버를 켜면 열리는 첫 화면(`http://127.0.0.1:8765/`)입니다. 팀원이 Figma 초안으로 만든 목업(PR #39)을 서버의 JSON API에 연결했습니다. 화면은 순수 HTML/CSS/JS이고 빌드 과정이 없습니다. 프로젝트와 대화는 브라우저가 아니라 이 PC의 `projects/` 폴더에 저장됩니다.
 
-이전 서버 렌더링 화면(프로젝트 허브와 프로젝트 페이지)은 `/classic`에 남아 있습니다. 정부 API 키(브이월드, 공공데이터포털, 법제처) 입력처럼 새 화면에 아직 없는 것은 그쪽을 씁니다.
+예전 서버 렌더링 화면(`/classic` 허브와 `/p/<프로젝트>` 페이지)은 2026-10-23에 없앴습니다. 서버가 템플릿(`webui/templates`, `webui/static`)으로 그리는 화면은 ChatGPT 로그인 결과 페이지 하나만 남았습니다.
 
 ## 파일
 
@@ -10,7 +10,7 @@
 |---|---|
 | `webui/app/index.html` | 뼈대, 설정 창 |
 | `webui/app/app.js` | 화면 그리기, API 호출, 작업 진행 따라가기 |
-| `webui/app/model.js` | DOM과 `fetch`를 쓰지 않는 도우미 함수(검색·정렬, 대화 항목, 이벤트 알림 문구, Markdown). `tests/webui/model.test.mjs`가 확인합니다 |
+| `webui/app/model.js` | DOM과 `fetch`를 쓰지 않는 도우미 함수(검색·정렬, 대화 항목, 이벤트 알림 문구, Markdown, 저장할 정부 데이터 키). `tests/webui/model.test.mjs`가 확인합니다 |
 | `webui/app/styles.css` | Figma v0.1 토큰과 화면 스타일 |
 
 서버는 `/`에서 `index.html`을, `/app/...`에서 나머지 파일을 내보냅니다. 브라우저가 매번 새 파일인지 확인하므로(`Cache-Control: no-cache`) `git pull` 뒤 새로고침하면 바로 바뀝니다.
@@ -24,7 +24,7 @@
 | Conductor 대화 (`#/project/<이름>`) | `GET .../session`, 첫 인사 `POST .../session/opening`, 메시지 `POST .../session/messages`, 진행 `GET .../session/jobs/{id}` |
 | 전문가 패널과 화면 (`#/project/<이름>/expert/<id>`, 분석 채팅을 고르면 `.../expert/<id>/chat/<채팅 id>`) | 결과 문서 `GET .../modules/{agent}`, 실행·수정 요청 `POST .../session/experts/{agent}/run`, 분석 채팅 목록과 새 채팅 `GET`/`POST .../experts/{agent}/chats`, 채팅 `GET .../experts/{agent}/chats/{chat_id}`, 메시지 `POST .../chats/{chat_id}/messages` |
 | 설계 상태 반영 승인 | `POST .../state-proposals/{id}/apply`, `.../skip` |
-| 설정 창 | `GET`/`PUT /api/settings`, `PUT /api/settings/keys/openrouter`, ChatGPT 로그인 `/api/settings/chatgpt...` |
+| 설정 창 | `GET`/`PUT /api/settings`, 키 `PUT /api/settings/keys/{openrouter·vworld·vworld_domain·data_go_kr·law}`, ChatGPT 로그인 `/api/settings/chatgpt...` |
 
 API의 자세한 내용은 [session-api.md](session-api.md), [state-editing.md](state-editing.md), [settings-api.md](settings-api.md), [chatgpt-login.md](chatgpt-login.md)에 있습니다.
 
