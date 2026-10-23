@@ -234,7 +234,7 @@ def agents(mock_config):
 
 @pytest.fixture
 def project(mock_config):
-    return prj.create_project_from_brief(ROOT / "input" / "geumjeong_station_brief.md", config=mock_config)
+    return prj.create_project_from_brief(ROOT / "data" / "briefs" / "geumjeong_station_brief.md", config=mock_config)
 
 
 @pytest.fixture

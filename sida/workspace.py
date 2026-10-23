@@ -29,7 +29,7 @@ from sida.project import (
 )
 from sida.worker import MODULE_HISTORY_DIRNAME
 
-SAMPLE_BRIEF = ROOT / "input" / "sample_brief.md"
+SAMPLE_BRIEF = ROOT / "data" / "briefs" / "sample_brief.md"
 
 
 class ProjectNotFound(LookupError):
@@ -96,7 +96,7 @@ def create_project(config: dict, name: str, fields: dict[str, str] | None = None
 
 
 def create_sample_project(config: dict) -> tuple[Project, bool]:
-    """Create (or open) the project made from input/sample_brief.md. Returns (project, created)."""
+    """Create (or open) the project made from data/briefs/sample_brief.md. Returns (project, created)."""
     root = ensure_projects_root(config)
     existed = is_project_dir(root / slugify(SAMPLE_BRIEF.stem))
     project = create_project_from_brief(SAMPLE_BRIEF, config=config)

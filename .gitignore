@@ -8,10 +8,9 @@ __pycache__/
 build/
 dist/
 .DS_Store
-output/*
-!output/.gitkeep
-projects/*
-!projects/.gitkeep
+# old in-repo folders (projects now live in ~/Sida/projects); still ignored for older PCs
+output/
+projects/
 _rag_experiment_projects/
 .vscode/
 knowledge/**/_.index/
