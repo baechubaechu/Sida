@@ -16,7 +16,7 @@ from sida.state_updater import (
 )
 from tests.conftest import ROOT
 
-TEMPLATE = (ROOT / "templates" / "project_state.md").read_text(encoding="utf-8").replace(
+TEMPLATE = (ROOT / "data" / "project_state_template.md").read_text(encoding="utf-8").replace(
     "{{MODULE_ROWS}}",
     module_status_rows([{"id": "site_reader"}, {"id": "spatial_reviewer"}, {"id": "design_critic"}]),
 )

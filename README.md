@@ -218,6 +218,23 @@ pytest                      # offline tests (mock provider, no network)
 ruff check .
 ```
 
+저장소 폴더:
+
+| 폴더 | 용도 |
+|---|---|
+| `sida/` | 앱 코드(파이썬 패키지) |
+| `webui/` | 웹 화면(`webui/app/`)과 ChatGPT 로그인 결과 페이지 |
+| `agents/` | 전문가와 Conductor 프롬프트 |
+| `data/` | 앱이 읽는 자료: 법정 건폐율·용적률 표, 프로젝트 메모 틀, 샘플 브리프(`data/briefs/`) |
+| `knowledge/` | 법령 검색 `local_files` 방식이 읽는 마크다운 |
+| `docs/` | 설계·API 문서 |
+| `tests/` | 테스트(녹화한 정부 API 응답은 `tests/fixtures/`) |
+| `scripts/` | 테스트용 정부 API 응답을 다시 녹화하는 스크립트 |
+| `collector/` | 팀 VPS의 사용 기록 수집 서버(앱 패키지와 별개) |
+| `assets/` | 로고 |
+
+프로젝트 데이터는 저장소가 아니라 `~/Sida/projects`에 저장됩니다.
+
 Module layout. The code is the `sida/` package: the shared core sits directly in `sida/`, and code that belongs to one expert domain sits in `sida/experts/<domain>/` (tests mirror this under `tests/experts/<domain>/`). `webapp.py` in the repo root only starts `sida/webapp.py`.
 
 | File (under `sida/`) | Role |

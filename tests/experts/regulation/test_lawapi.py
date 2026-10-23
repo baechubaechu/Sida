@@ -192,7 +192,7 @@ def test_focus_queries_come_from_site_facts_then_korean_brief():
 
 
 def test_focus_queries_skip_english_and_long_brief_lines():
-    brief = (ROOT / "input" / "geumjeong_station_brief.md").read_text(encoding="utf-8")
+    brief = (ROOT / "data" / "briefs" / "geumjeong_station_brief.md").read_text(encoding="utf-8")
     assert rag.focus_queries(brief, None) == []  # English brief, no site facts → nothing to ask
     long_ko = "# B\n\n## Project Type\n" + "아주 긴 설명 " * 20 + "\n"
     assert rag.focus_queries(long_ko, None) == []

@@ -21,7 +21,7 @@ STATE_FILE = "project_state.md"
 TRANSCRIPT_FILE = "transcript.md"
 HISTORY_FILE = "history.json"
 MODULES_DIRNAME = "modules"
-STATE_TEMPLATE_PATH = ROOT / "templates" / "project_state.md"
+STATE_TEMPLATE_PATH = ROOT / "data" / "project_state_template.md"
 DEFAULT_PROJECTS_DIR = Path.home() / "Sida" / "projects"
 
 
