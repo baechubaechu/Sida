@@ -20,9 +20,12 @@
 | `POST /session/opening` | 본문 없음 | `202 {job}`. Conductor의 첫 인사. 화면을 열었을 때 `messages`가 비어 있으면 부르세요 |
 | `POST /session/messages` | `{text}` | `202 {job}` |
 | `POST /session/experts/{agent}/run` | 본문 없음, 또는 `{revision}` | `202 {job}`. 설계자가 전문가를 직접 실행. Conductor를 부르지 않음. `revision`을 주면 전문가가 지금 결과를 그 요청대로 고쳐 씀("Request revision") |
-| `GET /experts/{agent}/chat` | | `{agent, name, chat, messages, job}`. 전문가 채팅 기록 |
-| `POST /experts/{agent}/chat` | `{text}` | `202 {job}`. 전문가에게 메시지. `chat`이 `false`인 전문가는 `400` |
-| `GET /session/jobs/{id}` | `?after=0` | `{id, kind, agent, status, running_agent, error, started_at, finished_at, events}` |
+| `GET /experts/{agent}/chats` | | `{agent, name, chat, chats}`. 전문가의 분석 채팅 목록. `chats`는 `{id, messages, preview, updated_at}`이고 오래된 것부터 |
+| `POST /experts/{agent}/chats` | 본문 없음 | `201 {chat}`. 빈 분석 채팅을 새로 만듦. `chat`이 `false`인 전문가는 `400` |
+| `GET /experts/{agent}/chats/{chat_id}` | | `{agent, name, chat, chat_id, messages, job}`. 그 채팅의 기록. 없는 채팅은 `404` |
+| `POST /experts/{agent}/chats/{chat_id}/messages` | `{text}` | `202 {job}`. 그 채팅에서 전문가에게 메시지. `chat`이 `false`인 전문가는 `400`, 없는 채팅은 `404` |
+| `GET /experts/{agent}/chat`, `POST /experts/{agent}/chat` | | 예전 경로. `chats/01`과 같음 |
+| `GET /session/jobs/{id}` | `?after=0` | `{id, kind, agent, chat, status, running_agent, error, started_at, finished_at, events}`. `chat`은 전문가 채팅 작업이 쓰는 채팅 id(그 밖의 작업은 `null`) |
 | `GET /modules/{agent}` | | `{agent, name, phase, content, updated_at}`. 전문가 결과 문서(Markdown 원문). 아직 실행 전이면 `404` |
 
 `GET /session`의 각 항목:
@@ -32,7 +35,7 @@
   - `event: "run_requested"`: 설계자가 직접 실행을 누른 자리.
   - `event: "read"`: Conductor가 결과 문서를 읽은 자리. 작은 안내 줄 정도면 됩니다.
 - `job`: 실행 중인 작업. 없으면 `null`. 화면을 새로 열었을 때 값이 있으면 그 작업을 `after=0`부터 이어서 조회하세요.
-- `experts`: 우측 전문가 패널용 목록. `{id, name, phase, done, updated_at, chat, status}`이고 `chat`은 전문가 채팅이 있는지, `status`는 `idle`(실행 전), `running`(실행 중), `review`(설계 상태 반영 승인을 기다림), `done`입니다.
+- `experts`: 우측 전문가 패널용 목록. `{id, name, phase, done, updated_at, chat, chats, status}`이고 `chat`은 전문가 채팅이 있는지, `chats`는 `GET /experts/{agent}/chats`의 `chats`와 같은 분석 채팅 목록(채팅 없는 전문가는 빈 목록), `status`는 `idle`(실행 전), `running`(실행 중), `review`(설계 상태 반영 승인을 기다림), `done`입니다.
 - `proposal`: 기다리는 설계 상태 반영안 `{id, agent, diff}`. 없으면 `null`.
 
 ## 이벤트
@@ -75,7 +78,10 @@ Conductor가 전문가를 알아서 실행하므로, 설계자가 놓치지 않�
 
 2026-10-16 지훈 결정: 전문가마다 전용 화면을 두고, 그 아래에 전문가와 따로 이야기하는 채팅을 둡니다. Figma 초안 왼쪽의 "CONVERSATIONS" 목록(Main Chat 아래 전문가 대화)에 해당합니다.
 
-- 채팅 기록은 Conductor 대화와 따로 저장됩니다(`chats/<전문가 id>.json`). 전문가는 자기 역할, 브리프, 설계 상태, 자기 결과 문서를 보고 답합니다.
+- 채팅 기록은 Conductor 대화와 따로 저장됩니다. 전문가는 자기 역할, 브리프, 설계 상태, 자기 결과 문서를 보고 답합니다. 모델에게는 지금 대화하는 채팅의 기록만 보냅니다.
+- 전문가마다 분석 채팅을 여러 개 둘 수 있습니다(2026-10-19 지훈 결정). 채팅 id는 `01`, `02`, … 이고 `chats/<전문가 id>/<채팅 id>.json`에 저장됩니다. 예전 버전의 `chats/<전문가 id>.json`은 옮기지 않고 그대로 `01`로 읽고 씁니다.
+- `01`은 저장된 적이 없어도 목록에 항상 있습니다. 그래서 처음 여는 전문가 화면에서도 바로 말을 걸 수 있습니다. `01`이 아직 저장되지 않았을 때 "새 분석 채팅"을 누르면 `01`이 만들어지고, 그 뒤로는 `02`, `03`, … 이 생깁니다.
+- 화면은 주소에 채팅 id가 없으면 가장 최근(번호가 가장 큰) 채팅을 엽니다.
 - 설계자가 결과를 바꿔 달라고 하면 전문가가 무엇을 고칠지 한두 문장으로 답하고, 같은 작업 안에서 결과 문서를 다시 씁니다. 이벤트는 `expert_reply` 다음에 `module_started`, `module_saved`, `state_proposed`가 이어지고, 메인 대화에도 `module_completed` 줄이 남아 Conductor가 알게 됩니다. 채팅 기록에는 `{role: "system", event: "revised"}` 줄이 남습니다.
 - 채팅 `messages`의 `role`은 `user`, `expert`, `system`입니다.
 - `chat`이 `false`인 전문가는 채팅 칸을 숨기고 전용 화면과 수정 요청 버튼만 둡니다. 지금은 대지 분석가만 꺼져 있습니다. 결과가 정부 데이터에서 온 사실이라, 바꿀 일은 대지 조회 화면에서 합니다. 끄고 켜는 것은 `config.yaml`의 전문가 항목 `chat: false`입니다.
