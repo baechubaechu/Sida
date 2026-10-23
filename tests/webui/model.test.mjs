@@ -4,6 +4,7 @@ import {
   escapeHtml, findProjects, relativeDate, projectSummary, chatItems, eventNotice, expertStatus,
   renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges, parseRoute, expertPath, dateTime,
   documentSections, listItems, itemTag, handoffs, questionAnswer, arrangeDocument, EXPERT_LAYOUTS, SECTION_LABELS,
+  stateChangeView,
 } from '../../webui/app/model.js';
 import { readFileSync, readdirSync } from 'node:fs';
 
@@ -246,4 +247,23 @@ test('list items keep their following lines and drop template placeholders', () 
   assert.deepEqual(handoffs('→ **concept_framer**: 개념 확인'), [{ agent: 'concept_framer', text: '개념 확인' }]);
   assert.deepEqual(questionAnswer('왜 보이드인가? — 단면도 2'), { question: '왜 보이드인가?', answer: '단면도 2' });
   assert.deepEqual(questionAnswer('답 없는 질문'), { question: '답 없는 질문', answer: '' });
+});
+
+test('state proposal changes read as Korean sections, not a diff', () => {
+  const view = stateChangeView([
+    { section: 'Meta', fields: [{ name: 'Phase', before: '', after: 'analysis' }, { name: 'Active focus', before: '대지', after: '보행' }] },
+    { section: 'Open Questions', added: ['질문 1', '질문 2'], removed: ['옛 질문'] },
+    { section: 'Module Status', fields: [{ name: 'site_reader', before: 'pending', after: 'done', takeaway: '역은 접점' }] },
+    { section: 'Custom', added: [], removed: [] },
+  ], { site_reader: '대지 분석가' });
+  assert.deepEqual(view.map((s) => [s.title, s.summary]), [
+    ['프로젝트 개요', ''], ['열린 질문', '2개 추가 · 1개 빠짐'], ['전문가 진행 상황', ''],
+  ]);
+  assert.deepEqual(view[0].rows, [
+    { kind: 'changed', label: '단계', before: '', text: '분석', note: '' },
+    { kind: 'changed', label: '이번 초점', before: '대지', text: '보행', note: '' },
+  ]);
+  assert.deepEqual(view[1].rows.map((r) => r.kind), ['added', 'added', 'removed']);
+  assert.deepEqual(view[2].rows, [{ kind: 'changed', label: '대지 분석가', before: '대기', text: '완료', note: '역은 접점' }]);
+  assert.deepEqual(stateChangeView(undefined), []);
 });

@@ -263,6 +263,19 @@ button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 .proposal .muted { font-size: 13px; margin-top: 4px; }
 .proposal .form-actions { margin-top: 12px; }
 .proposal .primary, .proposal .secondary { min-height: 38px; min-width: 0; padding: 8px 16px; }
+.state-changes { display: grid; gap: 14px; max-height: 55vh; overflow-y: auto; margin-top: 10px; padding: 12px 14px; background: white; border: 1px solid var(--line); border-radius: 8px; }
+.state-change h4 { margin: 0; font-size: 13px; color: var(--brand); }
+.state-change h4 .summary { margin-left: 6px; font-weight: 400; color: var(--muted); }
+.state-change ul { margin: 4px 0 0; padding-left: 18px; font-size: 14px; line-height: 1.6; }
+.state-change li.added::marker { color: #2f6b47; }
+.state-change li.removed { color: var(--muted); }
+.state-change li.changed { list-style: none; margin-left: -18px; display: grid; grid-template-columns: 92px minmax(0, 1fr); }
+.state-change .field { color: var(--muted); font-size: 13px; line-height: 1.85; }
+.state-change .before { color: var(--muted); }
+.state-change .note { grid-column: 2; margin-top: 2px; }
+.state-note { margin-top: 10px; font-size: 14px; }
+.raw-diff { margin-top: 8px; font-size: 13px; }
+.raw-diff summary { cursor: pointer; color: var(--muted); }
 .diff { max-height: 260px; overflow: auto; margin: 10px 0 0; padding: 10px; background: white; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; white-space: pre-wrap; }
 .revision-form { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
 .revision-form label { font-size: 13px; font-weight: 700; color: var(--muted); }
@@ -363,3 +376,7 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
   .composer textarea { font-size: 14px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+@media (max-width: 600px) {
+  .state-change li.changed { grid-template-columns: minmax(0, 1fr); }
+  .state-change .note { grid-column: 1; }
+}

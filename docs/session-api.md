@@ -39,7 +39,7 @@
   - `event: "read"`: Conductor가 결과 문서를 읽은 자리. 작은 안내 줄 정도면 됩니다.
 - `job`: 실행 중인 작업. 없으면 `null`. 화면을 새로 열었을 때 값이 있으면 그 작업을 `after=0`부터 이어서 조회하세요.
 - `experts`: 우측 전문가 패널용 목록. `{id, name, phase, done, updated_at, chat, chats, status, inputs}`이고 `chat`은 전문가 채팅이 있는지, `inputs`는 이 전문가가 읽는 다른 전문가 id 목록(config 순서), `chats`는 `GET /experts/{agent}/chats`의 `chats`와 같은 분석 채팅 목록(채팅 없는 전문가는 빈 목록), `status`는 `idle`(실행 전), `running`(실행 중), `review`(설계 상태 반영 승인을 기다림), `done`입니다.
-- `proposal`: 기다리는 설계 상태 반영안 `{id, agent, diff}`. 없으면 `null`.
+- `proposal`: 기다리는 설계 상태 반영안 `{id, agent, diff, changes}`. `changes`는 섹션별로 바뀌는 항목입니다([state-editing.md](state-editing.md)). 없으면 `null`.
 
 ## 이벤트
 
@@ -53,7 +53,7 @@
 | `module_saved` | `agent, path, preview, truncated` | **알림**: "대지 분석가 결과가 나왔습니다". 분석 카드, 미리보기(`preview`) |
 | `module_failed` | `agent, reason` | **알림**: 실패, 저장된 것 없음 |
 | `state_proposing` | `agent` | "설계 상태에 반영할 내용을 정리하는 중" |
-| `state_proposed` | `agent, proposal: {id, agent, diff}` | **알림**: 검토 필요. 승인 화면(아래) |
+| `state_proposed` | `agent, proposal: {id, agent, diff, changes}` | **알림**: 검토 필요. 승인 화면(아래) |
 | `state_applied` | `agent, path` | 설정이 `auto`일 때. "설계 상태에 반영했습니다" |
 | `state_unchanged` | `agent` | 바뀔 내용 없음 |
 | `state_failed` | `agent, reason` | 반영안을 못 만듦. 결과 문서는 저장됨 |

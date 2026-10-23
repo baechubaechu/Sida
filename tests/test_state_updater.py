@@ -153,3 +153,41 @@ def test_updating_last_section_preserves_other_module_revisions(mock_config, age
         agents[0]["id"]: content_revision("new site"),
     }
     assert "검토할 항목" in proposed
+
+
+def test_state_changes_reads_sections_without_template_placeholders():
+    from sida.state_updater import state_changes
+
+    old = TEMPLATE.replace("- **Project**:", "- **Project**: geumjeong")
+    patch = StatePatch(
+        module_id="site_reader",
+        key_takeaway="역은 도시 단절과 환승이 겹치는 접점",
+        meta={"phase": "analysis", "active_focus": "보행 연결 확인"},
+        sections={"Open Questions": ["질문 1", "질문 2"], "Recent Notes": ["[2026-10-23] 메모"]},
+    )
+    new = apply_patch(old, patch, today="2026-10-23")
+    changes = state_changes(old, new)
+
+    assert [c["section"] for c in changes] == ["Meta", "Open Questions", "Module Status", "Recent Notes"]
+    # The option list "analysis | concept | ..." and the <!-- --> hint count as empty; the date is left out.
+    assert changes[0]["fields"] == [
+        {"name": "Phase", "before": "", "after": "analysis"},
+        {"name": "Active focus", "before": "", "after": "보행 연결 확인"},
+    ]
+    assert changes[1] == {"section": "Open Questions", "added": ["질문 1", "질문 2"], "removed": []}
+    assert changes[2]["fields"] == [{
+        "name": "site_reader", "before": "pending", "after": "done",
+        "takeaway": "역은 도시 단절과 환승이 겹치는 접점",
+    }]
+    assert "<!--" not in repr(changes) and "YYYY" not in repr(changes)
+    assert state_changes(new, new) == []
+
+
+def test_state_changes_lists_replaced_bullets_as_removed_and_added():
+    from sida.state_updater import state_changes
+
+    old = replace_section_bullets(TEMPLATE, "Next Focus", ["배치 확인", "단면 확인"])
+    new = replace_section_bullets(old, "Next Focus", ["단면 확인", "동선 확인"])
+    assert state_changes(old, new) == [
+        {"section": "Next Focus", "added": ["동선 확인"], "removed": ["배치 확인"]},
+    ]

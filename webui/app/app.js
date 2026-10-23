@@ -5,7 +5,7 @@ import {
   escapeHtml as escape, findProjects, relativeDate, projectSummary, chatItems, eventNotice,
   expertStatus, renderMarkdown, chatTitle, latestChat, chatLabel, DATA_KEYS, keyChanges,
   parseRoute, projectPath as projectUrl, expertPath, dateTime, arrangeDocument, itemTag, renderInline,
-  questionAnswer,
+  questionAnswer, stateChangeView,
 } from './model.js';
 
 const app = document.querySelector('#app');
@@ -428,13 +428,38 @@ function expertsPanel() {
 function proposalBlock(agent) {
   const proposal = ui.session?.proposal;
   if (!proposal || proposal.agent !== agent) return '';
+  const names = Object.fromEntries((ui.session?.experts || []).map((e) => [e.id, e.name]));
+  const sections = stateChangeView(proposal.changes, names);
+  const raw = (proposal.diff || '').startsWith('---');
+  let body;
+  if (sections.length) {
+    body = `<div class="state-changes">${sections.map((s) => `<div class="state-change">
+      <h4>${escape(s.title)}${s.summary ? ` <span class="summary">${escape(s.summary)}</span>` : ''}</h4><ul>${s.rows.map(stateChangeRow).join('')}</ul></div>`).join('')}</div>`;
+  } else if (!proposal.changes) {
+    body = `<pre class="diff">${escape(proposal.diff)}</pre>`;
+  } else {
+    body = `<p class="state-note">${raw ? '바뀌는 내용은 마지막 갱신 날짜뿐입니다.' : escape(proposal.diff)}</p>`;
+  }
+  const rawDiff = proposal.changes && raw
+    ? `<details class="raw-diff"><summary>원본 비교 보기</summary><pre class="diff">${escape(proposal.diff)}</pre></details>` : '';
   return `<section class="proposal" aria-label="설계 상태 반영안">
     <h3>설계 상태에 반영할까요?</h3>
-    <p class="muted">이 결과로 바뀌는 설계 상태(PROJECT STATE)입니다.</p>
-    <pre class="diff">${escape(proposal.diff)}</pre>
+    <p class="muted">반영하면 설계 상태(PROJECT STATE)가 이렇게 바뀝니다.</p>
+    ${body}${rawDiff}
     <div class="form-actions"><button class="secondary" data-action="skip-proposal" data-id="${escape(proposal.id)}">건너뛰기</button>
       <button class="primary" data-action="apply-proposal" data-id="${escape(proposal.id)}">반영하기</button></div>
   </section>`;
+}
+
+function stateChangeRow(row) {
+  if (row.kind === 'changed') {
+    const value = row.before
+      ? `<span class="before">${escape(row.before)}</span> → <strong>${escape(row.text)}</strong>`
+      : `<strong>${escape(row.text)}</strong>`;
+    return `<li class="changed"><span class="field">${escape(row.label)}</span><span>${value}</span>${row.note ? `<p class="note">${escape(row.note)}</p>` : ''}</li>`;
+  }
+  if (row.kind === 'removed') return `<li class="removed"><span class="sr-only">빠짐: </span><s>${escape(row.text)}</s></li>`;
+  return `<li class="added">${escape(row.text)}</li>`;
 }
 
 // ------------------------------------------------------------------ expert page
