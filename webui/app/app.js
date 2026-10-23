@@ -3,7 +3,7 @@
 import {
   PHASES, STATUS_LABELS, PROVIDER_LABELS, MODE_LABELS, STATE_UPDATE_LABELS,
   escapeHtml as escape, findProjects, relativeDate, projectSummary, chatItems, eventNotice,
-  expertStatus, renderMarkdown,
+  expertStatus, renderMarkdown, chatTitle, latestChat, chatLabel,
 } from './model.js';
 
 const app = document.querySelector('#app');
@@ -19,7 +19,7 @@ const MAIN_JOBS = new Set(['opening', 'message', 'expert']);
 const ui = {
   projects: null, projectsError: '', query: '', sort: 'recent',
   project: '', session: null, sessionError: '',
-  chat: null, module: null, moduleMissing: false,
+  chat: null, chatMissing: false, module: null, moduleMissing: false, openExperts: new Set(),
   job: null, live: [], pending: null,
   showExperts: false, revisionOpen: false, creating: false,
   settings: null, settingsDraft: null, settingsError: '', chatgptModels: null, chatgptNote: '',
@@ -56,7 +56,7 @@ async function api(path, { method = 'GET', body } = {}) {
 
 const projectApi = (name) => `/api/projects/${encodeURIComponent(name)}`;
 const projectUrl = (name) => `#/project/${encodeURIComponent(name)}`;
-const expertUrl = (name, agent) => `${projectUrl(name)}/expert/${encodeURIComponent(agent)}`;
+const expertUrl = (name, agent, chat = '') => `${projectUrl(name)}/expert/${encodeURIComponent(agent)}${chat ? `/chat/${encodeURIComponent(chat)}` : ''}`;
 const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 const announce = (text) => { announcer.textContent = text; };
 
@@ -79,6 +79,11 @@ function expertById(agent) {
   return ui.session?.experts.find((e) => e.id === agent) || null;
 }
 
+// The expert chat on screen: the one in the address, or the expert's newest chat.
+function activeChat() {
+  return currentRoute.chat || latestChat(expertById(currentRoute.agent));
+}
+
 function jobRunning() {
   return Boolean(ui.job && ui.job.status === 'running');
 }
@@ -91,7 +96,8 @@ function route() {
   });
   if (parts[0] === 'new') return { page: 'new' };
   if (parts[0] === 'project' && parts[1]) {
-    return { page: 'project', name: parts[1], agent: parts[2] === 'expert' ? parts[3] || '' : '' };
+    const agent = parts[2] === 'expert' ? parts[3] || '' : '';
+    return { page: 'project', name: parts[1], agent, chat: agent && parts[4] === 'chat' ? parts[5] || '' : '' };
   }
   return { page: 'home' };
 }
@@ -117,14 +123,16 @@ async function loadSession(name) {
 
 async function loadExpert(name, agent) {
   ui.chat = null;
+  ui.chatMissing = false;
   ui.module = null;
   ui.moduleMissing = false;
   const ran = expertById(agent)?.done;
   const [chat, module] = await Promise.allSettled([
-    api(`${projectApi(name)}/experts/${encodeURIComponent(agent)}/chat`),
+    api(`${projectApi(name)}/experts/${encodeURIComponent(agent)}/chats/${encodeURIComponent(activeChat())}`),
     ran ? api(`${projectApi(name)}/modules/${encodeURIComponent(agent)}`) : Promise.reject(new ApiError(404, '')),
   ]);
   if (chat.status === 'fulfilled') ui.chat = chat.value;
+  else ui.chatMissing = chat.reason?.status === 404;
   if (module.status === 'fulfilled') ui.module = module.value;
   else ui.moduleMissing = module.reason?.status === 404;
 }
@@ -161,6 +169,7 @@ async function navigate() {
     }
     if (agent && ui.session) {
       ui.chat = null;
+      ui.chatMissing = false;
       ui.module = null;
       ui.moduleMissing = false;
       render();
@@ -383,15 +392,26 @@ function mainChat(name) {
     </div>${composer('main', 'Sida에게 설계에 관해 질문하세요...', 'Sida', jobRunning())}`;
 }
 
+function chatAnswering(agent, chat) {
+  return jobRunning() && ui.job.kind === 'expert_chat' && ui.job.agent === agent && ui.job.chat === chat;
+}
+
 function expertsPanel() {
   const experts = ui.session?.experts || [];
-  return `<aside class="experts" aria-label="전문가 목록"><h2>전문가</h2><p class="experts-intro">결과 문서와 전문가별 채팅</p>
+  return `<aside class="experts" aria-label="전문가 목록"><h2>전문가</h2><p class="experts-intro">결과 문서와 전문가별 분석 채팅</p>
     ${experts.map((e) => {
     const status = expertStatus(e, ui.job);
-    return `<button class="expert-row-button" data-action="open-expert" data-agent="${escape(e.id)}">
-        <span class="expert-name">${escape(e.name)}</span>
-        <span class="expert-phase">${escape(PHASES[e.phase] || e.phase)}</span>
-        <span class="status-badge ${status}">${escape(STATUS_LABELS[status])}</span></button>`;
+    const id = escape(e.id);
+    const threads = e.chat
+      ? `<button class="thread-new" data-action="new-chat" data-agent="${id}">＋ 새 분석 채팅</button>
+        ${(e.chats || []).map((c) => `<button data-action="open-chat" data-agent="${id}" data-chat="${escape(c.id)}">${escape(chatLabel(c))}${chatAnswering(e.id, c.id) ? ' · 답하는 중' : ''}</button>`).join('')}`
+      : '<p class="muted small-text">채팅 없음. 결과 문서와 수정 요청만 있습니다.</p>';
+    return `<details class="expert-row" data-agent="${id}" ${ui.openExperts.has(e.id) ? 'open' : ''}>
+        <summary class="expert-row-button">
+          <span class="expert-name">${escape(e.name)}</span>
+          <span class="expert-phase">${escape(PHASES[e.phase] || e.phase)}</span>
+          <span class="status-badge ${status}">${escape(STATUS_LABELS[status])}</span></summary>
+        <div class="expert-threads"><button data-action="open-expert" data-agent="${id}">결과 문서 보기</button>${threads}</div></details>`;
   }).join('')}</aside>`;
 }
 
@@ -415,11 +435,18 @@ function expertPane(name, agent) {
   }
   const status = expertStatus(expert, ui.job);
   const busy = jobRunning();
-  const chatOn = ui.chat ? ui.chat.chat : expert.chat;
+  const chat = activeChat();
+  const chatOn = (ui.chat ? ui.chat.chat : expert.chat) && !ui.chatMissing;
   const items = chatItems(ui.chat?.messages);
-  const live = ui.job?.kind === 'expert_chat' && ui.job.agent === agent ? ui.live : [];
-  const pending = ui.pending?.target === agent ? [{ kind: 'user', text: ui.pending.text }] : [];
-  const loading = !ui.chat && !ui.module && !ui.moduleMissing;
+  const live = ui.job?.kind === 'expert_chat' && ui.job.agent === agent && ui.job.chat === chat ? ui.live : [];
+  const pending = ui.pending?.target === `${agent}/${chat}` ? [{ kind: 'user', text: ui.pending.text }] : [];
+  const loading = !ui.chat && !ui.chatMissing && !ui.module && !ui.moduleMissing;
+  const chats = expert.chats?.length ? expert.chats : [{ id: chat }];
+  const picker = expert.chat
+    ? `<label class="sr-only" for="chat-picker">분석 채팅 고르기</label>
+      <select id="chat-picker" class="chat-picker">${ui.chatMissing ? `<option value="" selected disabled>${escape(chatTitle(chat))}</option>` : ''}${chats.map((c) => `<option value="${escape(c.id)}" ${c.id === chat ? 'selected' : ''}>${escape(chatTitle(c.id))}</option>`).join('')}</select>
+      <button class="secondary small" data-action="new-chat" data-agent="${escape(agent)}">＋ 새 분석 채팅</button>`
+    : '';
   const doc = ui.module
     ? `<details class="doc-block" ${items.length ? '' : 'open'}><summary>결과 문서 <span class="muted">${escape(relativeDate(ui.module.updated_at))}</span></summary>
         <div class="markdown doc">${renderMarkdown(ui.module.content)}</div></details>`
@@ -432,21 +459,23 @@ function expertPane(name, agent) {
     : '';
   return `<section class="expert-chat" aria-label="${escape(expert.name)}">
     <header class="expert-chat-header"><div><h2>${escape(expert.name)}</h2>
-      <p>${escape(PHASES[expert.phase] || expert.phase)} · <span class="status-badge ${status}">${escape(STATUS_LABELS[status])}</span></p></div>
+      <p>${escape(PHASES[expert.phase] || expert.phase)}${chatOn ? ` · ${escape(chatTitle(chat))}` : ''} · <span class="status-badge ${status}">${escape(STATUS_LABELS[status])}</span></p></div>
       <a class="icon-button" href="${projectUrl(name)}" aria-label="전문가 화면 닫기">×</a></header>
     <div class="expert-actions">
       <button class="secondary small" data-action="run-expert" data-agent="${escape(agent)}" ${busy ? 'disabled' : ''}>${expert.done ? '다시 실행' : '실행'}</button>
       ${expert.done ? `<button class="secondary small" data-action="open-revision" ${busy ? 'disabled' : ''}>수정 요청</button>` : ''}
+      ${picker}
     </div>
-    <div class="chat-scroll" data-scroll="expert:${escape(agent)}">
+    <div class="chat-scroll" data-scroll="expert:${escape(agent)}:${escape(chat)}">
       ${proposalBlock(agent)}${revision}${doc}
-      ${chatOn ? '' : `<p class="expert-note muted">${escape(expert.name)}는 정부 데이터에서 온 사실을 다루기 때문에 채팅이 없습니다. 바꿀 내용은 수정 요청으로 보내 주세요.</p>`}
+      ${ui.chatMissing ? `<p class="expert-note error-text">${escape(chatTitle(chat))} 대화를 찾을 수 없습니다. 목록에서 다른 대화를 고르거나 새 분석 채팅을 시작해 주세요.</p>` : ''}
+      ${chatOn || ui.chatMissing ? '' : `<p class="expert-note muted">${escape(expert.name)}는 정부 데이터에서 온 사실을 다루기 때문에 채팅이 없습니다. 바꿀 내용은 수정 요청으로 보내 주세요.</p>`}
       <div class="message-list" role="log" aria-label="${escape(expert.name)} 대화">
         ${[...items, ...pending, ...live].map((item) => bubble(item, expert.name)).join('')}
         ${workingLine(false)}
       </div>
     </div>
-    ${chatOn ? composer(`expert:${agent}`, `${expert.name}에게 메시지...`, expert.name, busy) : ''}
+    ${chatOn ? composer(`expert:${agent}:${chat}`, `${expert.name}에게 메시지...`, expert.name, busy) : ''}
   </section>`;
 }
 
@@ -524,7 +553,23 @@ function send(key) {
   if (key === 'main') {
     start(name, `${projectApi(name)}/session/messages`, { text }, { target: 'main', text });
   } else {
-    start(name, `${projectApi(name)}/experts/${encodeURIComponent(agent)}/chat`, { text }, { target: agent, text });
+    const chat = activeChat();
+    start(name, `${projectApi(name)}/experts/${encodeURIComponent(agent)}/chats/${encodeURIComponent(chat)}/messages`, { text }, { target: `${agent}/${chat}`, text });
+  }
+}
+
+async function newChat(agent) {
+  const { name } = currentRoute;
+  try {
+    const { chat } = await api(`${projectApi(name)}/experts/${encodeURIComponent(agent)}/chats`, { method: 'POST' });
+    await loadSession(name);
+    ui.openExperts.add(agent);
+    const target = expertUrl(name, agent, chat.id);
+    if (location.hash !== target) { location.hash = target; return; }
+    await loadExpert(name, agent);
+    render(false);
+  } catch (error) {
+    toast(error.message, 'error');
   }
 }
 
@@ -540,6 +585,8 @@ app.addEventListener('click', (event) => {
     else { ui.showExperts = !ui.showExperts; render(false); }
   }
   if (action === 'open-expert') location.hash = expertUrl(name, button.dataset.agent);
+  if (action === 'open-chat') location.hash = expertUrl(name, button.dataset.agent, button.dataset.chat);
+  if (action === 'new-chat') newChat(button.dataset.agent);
   if (action === 'run-expert') start(name, `${projectApi(name)}/session/experts/${encodeURIComponent(button.dataset.agent)}/run`, {});
   if (action === 'open-revision') { ui.revisionOpen = true; render(false); app.querySelector('#revision-text')?.focus(); }
   if (action === 'close-revision') { ui.revisionOpen = false; render(false); }
@@ -562,7 +609,18 @@ app.addEventListener('change', (event) => {
     ui.sort = event.target.value;
     document.querySelector('#project-grid').innerHTML = projectCards();
   }
+  if (event.target.id === 'chat-picker') {
+    location.hash = expertUrl(currentRoute.name, currentRoute.agent, event.target.value);
+  }
 });
+
+// Keep which experts are unfolded in the panel across redraws ('toggle' does not bubble).
+app.addEventListener('toggle', (event) => {
+  const row = event.target;
+  if (!row.matches?.('details.expert-row')) return;
+  if (row.open) ui.openExperts.add(row.dataset.agent);
+  else ui.openExperts.delete(row.dataset.agent);
+}, true);
 
 app.addEventListener('submit', async (event) => {
   event.preventDefault();
