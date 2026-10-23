@@ -292,11 +292,25 @@ def test_settings_let_the_conductor_use_chatgpt(client, openai):
     assert client.get("/api/settings").json()["warnings"]["chatgpt_signed_out"] is False
 
 
-def test_only_the_conductor_runs_on_chatgpt(client):
-    r = client.put("/api/settings", json={"worker_provider": "chatgpt"})
-    assert r.status_code == 400
-    r = client.put("/api/settings", json={"chatgpt_model": "two words"})
-    assert r.status_code == 400
+def test_experts_can_run_on_chatgpt_with_their_own_model(client, openai):
+    body = client.get("/api/settings").json()
+    assert body["options"]["worker_providers"] == ["openrouter", "ollama", "chatgpt"]
+    assert body["chatgpt"]["worker_model"] == "gpt-6.1-sol"
+    r = client.put(
+        "/api/settings", json={"worker_provider": "chatgpt", "worker_chatgpt_model": "gpt-6-luna"}
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["worker"] == {"provider": "chatgpt", "model": "gpt-6-luna"}
+    assert body["conductor"]["provider"] == "openrouter"  # the Conductor keeps its own choice
+    assert body["chatgpt"]["model"] == "gpt-6.1-sol" and body["warnings"]["chatgpt_signed_out"] is True
+    for field in ("chatgpt_model", "worker_chatgpt_model"):
+        assert client.put("/api/settings", json={field: "two words"}).status_code == 400
+
+    cfg = {"conductor": {"provider": "mock"}, "worker": {"provider": "chatgpt", "chatgpt_model": "gpt-6-luna"}}
+    assert runtime.resolve_worker_runtime(cfg)["model"] == "gpt-6-luna"
+    assert isinstance(runtime.worker_provider(cfg, ""), ChatGPTProvider)
+    assert runtime.needs_openrouter(cfg) is False
 
 
 def test_conductor_runtime_uses_the_chatgpt_model(mock_config, openai):

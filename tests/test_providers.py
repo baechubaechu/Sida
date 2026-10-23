@@ -369,3 +369,17 @@ def test_chatgpt_stream_errors_always_carry_a_reason(monkeypatch):
     chatgpt_post(monkeypatch, FakeStream([refusal]))
     with pytest.raises(providers.ToolsUnsupported):
         ChatGPTProvider(lambda: "t").chat_tools("m", [{"role": "user", "content": "hi"}], TOOLS, 0, 1)
+
+
+def test_chatgpt_reply_cut_off_is_an_error_not_a_short_document(monkeypatch):
+    # The plan route takes no output cap, so a long expert document can end incomplete.
+    calls = chatgpt_post(
+        monkeypatch,
+        FakeStream([
+            {"type": "response.output_text.delta", "delta": "## 대지 개요\n…"},
+            {"type": "response.incomplete", "response": {"incomplete_details": {"reason": "max_output_tokens"}}},
+        ]),
+    )
+    with pytest.raises(LLMError, match="cut off.*max_output_tokens"):
+        ChatGPTProvider(lambda: "t").chat("m", [{"role": "user", "content": "hi"}], 0, 1)
+    assert len(calls) == 1

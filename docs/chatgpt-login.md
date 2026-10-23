@@ -6,7 +6,7 @@ OpenAI의 "Sign in with ChatGPT" 오픈소스·로컬 앱 경로를 따릅니다
 
 ## 동작 방식
 
-- **Conductor만** ChatGPT 구독으로 돕니다. 전문가(워커)는 지금처럼 OpenRouter나 Ollama입니다.
+- Conductor와 전문가(워커)를 각각 ChatGPT 구독으로 돌릴 수 있습니다. 모델도 따로 고릅니다(`chatgpt_model`, `worker_chatgpt_model`). 전문가 문서는 길어서 구독 사용량을 Conductor보다 훨씬 많이 씁니다. 이 경로는 답 길이 상한을 받지 않으므로, 답이 중간에 잘리면 그 전문가 실행은 실패로 끝나고 저장되는 것은 없습니다(`module_failed`). 사용 한도를 넘으면 다른 제공자로 넘어가지 않고 한도 안내 오류가 납니다.
 - 로그인은 설계자의 브라우저에서 OpenAI 로그인 화면을 거칩니다. 끝나면 브라우저가 Sida 서버의 `http://127.0.0.1:<포트>/auth/callback`으로 돌아오고, 그 화면에 결과가 나옵니다. 그 창은 닫으면 됩니다.
 - 처음 로그인할 때 이 PC가 OpenAI에 앱으로 등록됩니다(비밀값 없음). 다음 로그인부터는 같은 등록을 다시 씁니다.
 - 로그인 정보(토큰)는 저장소 밖 `~/Sida/chatgpt_login.json`에 이 PC 사용자만 읽을 수 있게 저장합니다. API 응답에는 토큰이 들어가지 않습니다.
@@ -33,13 +33,14 @@ OpenAI의 "Sign in with ChatGPT" 오픈소스·로컬 앱 경로를 따릅니다
 
 | 항목 | 내용 |
 |---|---|
-| `PUT /api/settings`의 `conductor_provider` | `chatgpt`도 받습니다. `worker_provider`는 그대로 `openrouter`·`ollama`만 |
+| `PUT /api/settings`의 `conductor_provider`, `worker_provider` | 둘 다 `chatgpt`도 받습니다 |
 | `PUT /api/settings`의 `chatgpt_model` | Conductor가 ChatGPT 구독에서 쓸 모델(`models`의 `slug`) |
-| `GET /api/settings`의 `chatgpt` | `{signed_in, email, plan_usage, registered, model}` |
-| `GET /api/settings`의 `warnings.chatgpt_signed_out` | Conductor가 `chatgpt`인데 로그인 안 됨 |
+| `PUT /api/settings`의 `worker_chatgpt_model` | 전문가가 ChatGPT 구독에서 쓸 모델. `GET /api/settings`의 `chatgpt.worker_model`, 선택지는 `options.worker_providers` |
+| `GET /api/settings`의 `chatgpt` | `{signed_in, email, plan_usage, registered, model, worker_model}` |
+| `GET /api/settings`의 `warnings.chatgpt_signed_out` | Conductor나 전문가가 `chatgpt`인데 로그인 안 됨 |
 | `GET /api/settings`의 `options.conductor_providers` | Conductor 제공자 선택지 `["openrouter", "ollama", "chatgpt"]` |
 
-Conductor만 `chatgpt`로 바꾸면 `mode`는 `custom`이 됩니다. 이때 `mode`를 `cloud`나 `local`로 저장하면 Conductor도 함께 그 모드로 돌아갑니다.
+한 역할이라도 `chatgpt`이면 `mode`는 `custom`이 됩니다. 이때 `mode`를 `cloud`나 `local`로 저장하면 두 역할 모두 그 모드로 돌아갑니다.
 
 ## 예시
 

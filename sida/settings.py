@@ -26,8 +26,10 @@ OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
 MODES = ("cloud", "local")
 MODE_PROVIDER = {"cloud": "openrouter", "local": "ollama"}
 WEB_PROVIDERS = ("openrouter", "ollama")
-# Only the Conductor can run on the user's ChatGPT plan (docs/chatgpt-login.md).
+# Either role can also run on the user's ChatGPT plan (docs/chatgpt-login.md); a run mode
+# never picks it, so it is chosen per role.
 CONDUCTOR_PROVIDERS = (*WEB_PROVIDERS, "chatgpt")
+WORKER_PROVIDERS = CONDUCTOR_PROVIDERS
 STATE_MODES = ("ask", "auto", "off")
 LOCAL_CONFIG_HEADER = (
     "# This machine only — not committed. Values here override config.yaml.\n"
@@ -272,17 +274,22 @@ def settings_view(config: dict) -> dict:
                 (config.get("conductor") or {}).get("chatgpt_model")
                 or runtime.DEFAULT_CHATGPT_MODEL
             ),
+            "worker_model": str(
+                (config.get("worker") or {}).get("chatgpt_model") or runtime.DEFAULT_CHATGPT_MODEL
+            ),
         },
         "warnings": {
             "openrouter_key_missing": runtime.needs_openrouter(config)
             and not values.get("OPENROUTER_API_KEY", "").strip(),
             "rag_key_missing": key_missing(rag),
-            "chatgpt_signed_out": conductor["provider"] == "chatgpt" and not chatgpt["signed_in"],
+            "chatgpt_signed_out": "chatgpt" in {conductor["provider"], worker["provider"]}
+            and not chatgpt["signed_in"],
         },
         "options": {
             "modes": list(MODES),
             "providers": list(WEB_PROVIDERS),
             "conductor_providers": list(CONDUCTOR_PROVIDERS),
+            "worker_providers": list(WORKER_PROVIDERS),
             "local_profiles": profiles,
             "state_update": list(STATE_MODES),
         },
@@ -310,16 +317,17 @@ def settings_patches(config: dict, changes: dict) -> list[tuple[str, str, Any]]:
         patches += run_mode_patches(_choice("mode", changes["mode"], MODES))
     if profile is not None:
         patches.append(("conductor", "local_profile", profile))
-    for role, choices in (("conductor", CONDUCTOR_PROVIDERS), ("worker", WEB_PROVIDERS)):
+    for role, choices in (("conductor", CONDUCTOR_PROVIDERS), ("worker", WORKER_PROVIDERS)):
         value = changes.get(f"{role}_provider")
         if value is not None:
             patches.append((role, "provider", _choice(f"{role}_provider", value, choices)))
-    model = changes.get("chatgpt_model")
-    if model is not None:
-        model = str(model).strip()
-        if not model or any(c.isspace() for c in model):
-            raise ValueError("chatgpt_model must be one model id, such as gpt-6.1-sol")
-        patches.append(("conductor", "chatgpt_model", model))
+    for field, role in (("chatgpt_model", "conductor"), ("worker_chatgpt_model", "worker")):
+        model = changes.get(field)
+        if model is not None:
+            model = str(model).strip()
+            if not model or any(c.isspace() for c in model):
+                raise ValueError(f"{field} must be one model id, such as gpt-6.1-sol")
+            patches.append((role, "chatgpt_model", model))
     for field, section, key in (
         ("rag_enabled", "rag", "enabled"),
         ("telemetry_enabled", "telemetry", "enabled"),

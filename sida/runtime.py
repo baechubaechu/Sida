@@ -124,6 +124,8 @@ def resolve_worker_runtime(config: dict) -> dict:
             else conductor.get("ollama_think", False)
         ),
     }
+    if runtime["provider"] == "chatgpt":  # the signed-in ChatGPT plan has its own model ids
+        runtime["model"] = str(worker.get("chatgpt_model") or DEFAULT_CHATGPT_MODEL)
     profile = resolve_local_profile(config, for_worker=True)
     if profile and runtime["provider"] in {"ollama", "local"}:
         # Cloud-style ids (openai/...) are not valid Ollama tags — replace from profile.

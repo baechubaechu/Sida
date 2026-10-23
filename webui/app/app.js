@@ -700,6 +700,7 @@ function draftFromSettings(settings) {
     conductor_provider: settings.conductor.provider,
     worker_provider: settings.worker.provider,
     chatgpt_model: settings.chatgpt.model,
+    worker_chatgpt_model: settings.chatgpt.worker_model,
     rag_enabled: settings.rag_enabled,
     state_update: settings.state_update,
     telemetry_enabled: settings.telemetry_enabled,
@@ -719,22 +720,26 @@ function renderSettings() {
   const warnings = [
     s.warnings.openrouter_key_missing && 'OpenRouter 키가 없습니다. 클라우드 모델을 쓰려면 아래에 키를 넣어 주세요.',
     s.warnings.rag_key_missing && '법령 검색을 켰지만 법제처 인증값이 없습니다. 이전 화면의 설정에서 넣어 주세요.',
-    s.warnings.chatgpt_signed_out && 'Conductor가 ChatGPT 구독으로 되어 있지만 로그인되어 있지 않습니다.',
+    s.warnings.chatgpt_signed_out && 'ChatGPT 구독으로 돌리게 되어 있지만 로그인되어 있지 않습니다.',
   ].filter(Boolean);
   const modes = d.mode === 'custom' ? [...s.options.modes, 'custom'] : s.options.modes;
   const chatgpt = s.chatgpt;
   const models = ui.chatgptModels?.length ? ui.chatgptModels : [{ slug: d.chatgpt_model, display_name: d.chatgpt_model }];
-  const chatgptBlock = d.conductor_provider === 'chatgpt' || chatgpt.signed_in
+  const modelSelect = (id, field, label, value) => `<label for="${id}">${label}</label>
+    <select id="${id}" data-field="${field}">${(ui.chatgptModels?.length ? models : [{ slug: value, display_name: value }])
+      .map((m) => option(m.slug, m.display_name || m.slug, value)).join('')}</select>`;
+  const chatgptBlock = d.conductor_provider === 'chatgpt' || d.worker_provider === 'chatgpt' || chatgpt.signed_in
     ? `<fieldset class="settings-group"><legend>ChatGPT 구독</legend>
         <p>${chatgpt.signed_in ? `로그인됨: ${escape(chatgpt.email || 'ChatGPT')}` : '로그인되어 있지 않습니다.'}</p>
-        ${chatgpt.signed_in && !chatgpt.plan_usage ? '<p class="error-text">구독 사용을 허용하지 않아 Conductor가 쓸 수 없습니다. 다시 로그인해 주세요.</p>' : ''}
+        ${chatgpt.signed_in && !chatgpt.plan_usage ? '<p class="error-text">구독 사용을 허용하지 않아 Sida가 쓸 수 없습니다. 다시 로그인해 주세요.</p>' : ''}
         <div class="settings-buttons">
           <button type="button" class="secondary small" data-settings="chatgpt-login">${chatgpt.signed_in ? '다시 로그인' : 'ChatGPT로 로그인'}</button>
           ${chatgpt.signed_in ? '<button type="button" class="secondary small" data-settings="chatgpt-logout">로그아웃</button>' : ''}
         </div>
         ${ui.chatgptNote ? `<p class="muted">${escape(ui.chatgptNote)}</p>` : ''}
-        ${chatgpt.signed_in ? `<label for="set-chatgpt-model">Conductor 모델</label>
-          <select id="set-chatgpt-model" data-field="chatgpt_model">${models.map((m) => option(m.slug, m.display_name || m.slug, d.chatgpt_model)).join('')}</select>` : ''}
+        ${chatgpt.signed_in ? modelSelect('set-chatgpt-model', 'chatgpt_model', 'Conductor 모델', d.chatgpt_model) : ''}
+        ${chatgpt.signed_in && d.worker_provider === 'chatgpt' ? modelSelect('set-worker-chatgpt-model', 'worker_chatgpt_model', '전문가 모델', d.worker_chatgpt_model)
+          + '<p class="muted small-text">전문가 문서는 길어서 구독 사용량을 Conductor보다 많이 씁니다.</p>' : ''}
       </fieldset>`
     : '';
   const keyStatus = s.keys?.openrouter;
@@ -748,7 +753,7 @@ function renderSettings() {
     <label for="set-conductor">Conductor</label>
     <select id="set-conductor" data-field="conductor_provider">${s.options.conductor_providers.map((p) => option(p, PROVIDER_LABELS[p] || p, d.conductor_provider)).join('')}</select>
     <label for="set-worker">전문가</label>
-    <select id="set-worker" data-field="worker_provider">${s.options.providers.map((p) => option(p, PROVIDER_LABELS[p] || p, d.worker_provider)).join('')}</select>
+    <select id="set-worker" data-field="worker_provider">${(s.options.worker_providers || s.options.providers).map((p) => option(p, PROVIDER_LABELS[p] || p, d.worker_provider)).join('')}</select>
     <p class="muted small-text">지금 모델: Conductor ${escape(s.conductor.model)}, 전문가 ${escape(s.worker.model)}</p>
     ${chatgptBlock}
     <label for="set-openrouter">OpenRouter 키</label>
@@ -796,6 +801,7 @@ async function saveSettings() {
   if (d.conductor_provider !== s.conductor.provider) changes.conductor_provider = d.conductor_provider;
   if (d.worker_provider !== s.worker.provider) changes.worker_provider = d.worker_provider;
   if (d.chatgpt_model && d.chatgpt_model !== s.chatgpt.model) changes.chatgpt_model = d.chatgpt_model;
+  if (d.worker_chatgpt_model && d.worker_chatgpt_model !== s.chatgpt.worker_model) changes.worker_chatgpt_model = d.worker_chatgpt_model;
   if (d.rag_enabled !== s.rag_enabled) changes.rag_enabled = d.rag_enabled;
   if (d.state_update !== s.state_update) changes.state_update = d.state_update;
   if (d.telemetry_enabled !== s.telemetry_enabled) changes.telemetry_enabled = d.telemetry_enabled;
@@ -862,7 +868,7 @@ settingsDialog.addEventListener('click', async (event) => {
     }
     const draft = ui.settingsDraft;
     await loadSettings();
-    ui.settingsDraft = { ...draftFromSettings(ui.settings), ...draft, chatgpt_model: ui.settings.chatgpt.model };
+    ui.settingsDraft = { ...draftFromSettings(ui.settings), ...draft, chatgpt_model: ui.settings.chatgpt.model, worker_chatgpt_model: ui.settings.chatgpt.worker_model };
     ui.chatgptModels = null;
     renderSettings();
   }
