@@ -344,3 +344,28 @@ def test_provider_chat_uses_chat_tools_only_when_tools_are_given():
 
     assert providers.provider_chat(Both(), "m", [], 0, 1, role="conductor") == ("text", {})
     assert providers.provider_chat(Both(), "m", [], 0, 1, role="conductor", tools=TOOLS) == ("tools", [], {"n": 1})
+
+
+def test_chatgpt_stream_errors_always_carry_a_reason(monkeypatch):
+    nested = {"type": "error", "error": {"type": "invalid_request_error", "message": "bad schema"}}
+    chatgpt_post(monkeypatch, FakeStream([nested]))
+    with pytest.raises(LLMError, match="bad schema"):
+        ChatGPTProvider(lambda: "t").chat("m", [{"role": "user", "content": "hi"}], 0, 1)
+    # The plan's usage limit arrives in this nested shape too and must read as the limit.
+    limit = {"type": "error", "error": {
+        "type": "invalid_request_error", "code": "subscription_sharing_usage_limit_exceeded",
+        "message": "The ChatGPT user has reached their Subscription Sharing usage limit.",
+    }}
+    calls = chatgpt_post(monkeypatch, FakeStream([limit]))
+    with pytest.raises(LLMError, match="usage limit for Sida was reached"):
+        ChatGPTProvider(lambda: "t").chat_tools("m", [{"role": "user", "content": "hi"}], TOOLS, 0, 1)
+    assert len(calls) == 1  # not retried, and not taken for a tools refusal
+    # No message at all: the event itself is shown instead of "ChatGPT error (200): ".
+    chatgpt_post(monkeypatch, FakeStream([{"type": "response.failed", "response": {"status": "failed", "error": None}}]))
+    with pytest.raises(LLMError, match='"status": "failed"'):
+        ChatGPTProvider(lambda: "t").chat("m", [{"role": "user", "content": "hi"}], 0, 1)
+    # A refusal of the tools inside the stream lets the Conductor fall back to the action block.
+    refusal = {"type": "error", "message": "Tool calling is not supported for this model"}
+    chatgpt_post(monkeypatch, FakeStream([refusal]))
+    with pytest.raises(providers.ToolsUnsupported):
+        ChatGPTProvider(lambda: "t").chat_tools("m", [{"role": "user", "content": "hi"}], TOOLS, 0, 1)

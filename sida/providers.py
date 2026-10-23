@@ -302,6 +302,8 @@ def _chatgpt_error(status: int, body: Any) -> LLMError:
     code = str(error.get("code") or "")
     # Admission failures can come back as {"detail": "..."} with no error object.
     detail = str(error.get("message") or body.get("detail") or "")
+    if not detail and body:  # an unexpected shape: show it rather than an empty reason
+        detail = json.dumps(body, ensure_ascii=False)
     if code == "subscription_sharing_usage_limit_exceeded":
         return LLMError(
             "The ChatGPT plan's usage limit for Sida was reached. "
@@ -388,10 +390,15 @@ class ChatGPTProvider:
                         "prompt_tokens": usage.get("input_tokens"),
                         "completion_tokens": usage.get("output_tokens"),
                     }
-                elif kind == "response.failed":
-                    raise _chatgpt_error(200, event.get("response") or {})
-                elif kind == "error":
-                    raise _chatgpt_error(200, {"error": event})
+                elif kind in {"response.failed", "error"}:
+                    if kind == "response.failed":
+                        body = event.get("response") or {}
+                    else:  # {"type": "error", "message"...} or {"type": "error", "error": {...}}
+                        body = event if isinstance(event.get("error"), dict) else {"error": event}
+                    error = _chatgpt_error(200, body)
+                    if tools and _refuses_tools(400, str(error)):
+                        raise ToolsUnsupported(str(error))
+                    raise error
                 elif kind == "response.incomplete":
                     details = (event.get("response") or {}).get("incomplete_details") or {}
                     raise LLMError(
