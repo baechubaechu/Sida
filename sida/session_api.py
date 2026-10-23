@@ -86,4 +86,12 @@ def create_router(jobs: SessionJobs, load_config, core) -> APIRouter:
     def module(name: str, agent: str) -> dict:
         return call(workspace.module_document, load_config(), name, agent)
 
+    @router.get("/modules/{agent}/versions")
+    def module_versions(name: str, agent: str) -> dict:
+        return call(workspace.module_versions, load_config(), name, agent)
+
+    @router.get("/modules/{agent}/versions/{version}")
+    def module_version(name: str, agent: str, version: str) -> dict:
+        return call(workspace.module_version, load_config(), name, agent, version)
+
     return router

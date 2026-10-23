@@ -8,11 +8,12 @@ render the result.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
 from sida.briefs import BRIEF_FIELD_KEYS, build_brief_markdown
-from sida.config import ROOT, agent_by_id, get_agents
+from sida.config import ROOT, agent_by_id, agent_inputs, get_agents
 from sida.engine import history_messages
 from sida.i18n import agent_name
 from sida.project import (
@@ -26,6 +27,7 @@ from sida.project import (
     section_body,
     slugify,
 )
+from sida.worker import MODULE_HISTORY_DIRNAME
 
 SAMPLE_BRIEF = ROOT / "input" / "sample_brief.md"
 
@@ -133,10 +135,22 @@ def chat_messages(config: dict, path: Path) -> list[dict]:
     return messages
 
 
+def _input_ids(agent: dict, agents: list[dict]) -> list[str]:
+    """Ids of the experts whose results this one reads (config `inputs`), in config order."""
+    ids = [str(a["id"]) for a in agents]
+    wanted = agent_inputs(agent)
+    if wanted == "all":
+        return [i for i in ids if i != agent["id"]]
+    if wanted == "legacy":  # no `inputs` key: every expert before it
+        return ids[:ids.index(str(agent["id"]))]
+    return [i for i in ids if i in wanted and i != agent["id"]]
+
+
 def expert_entries(config: dict, path: Path) -> list[dict]:
     """One row per expert for the side panel: name, phase, whether and when it last ran."""
     rows = []
-    for agent in get_agents(config):
+    agents = get_agents(config)
+    for agent in agents:
         output = path / "modules" / str(agent["output"])
         rows.append({
             "id": agent["id"],
@@ -145,17 +159,22 @@ def expert_entries(config: dict, path: Path) -> list[dict]:
             "done": output.exists(),
             "updated_at": _modified_at(output) if output.exists() else "",
             "chat": bool(agent.get("chat", True)),
+            "inputs": _input_ids(agent, agents),
         })
     return rows
 
 
-def module_document(config: dict, name: str, agent_id: str) -> dict:
-    """An expert's result document (Markdown). Raises LookupError if the expert or output is missing."""
+def _module_output(config: dict, name: str, agent_id: str) -> tuple[dict, Path]:
     path = find_project(config, name)
     agent = agent_by_id(get_agents(config), agent_id)
     if agent is None:
         raise LookupError(f"unknown expert: {agent_id}")
-    output = path / "modules" / str(agent["output"])
+    return agent, path / "modules" / str(agent["output"])
+
+
+def module_document(config: dict, name: str, agent_id: str) -> dict:
+    """An expert's result document (Markdown). Raises LookupError if the expert or output is missing."""
+    agent, output = _module_output(config, name, agent_id)
     if not output.is_file():
         raise LookupError(f"not run yet: {agent_id}")
     return {
@@ -164,4 +183,56 @@ def module_document(config: dict, name: str, agent_id: str) -> dict:
         "phase": agent.get("phase", ""),
         "content": output.read_text(encoding="utf-8"),
         "updated_at": _modified_at(output),
+    }
+
+
+# Earlier results kept by worker.archive_module_output as _history/<stem>.<YYYYmmdd-HHMMSS>[-n].md.
+# The stamp is when that result was written, in this PC's local time.
+_VERSION_ID = re.compile(r"(\d{8}-\d{6})(?:-(\d+))?")
+
+
+def _version_files(output: Path) -> dict[str, Path]:
+    history = output.parent / MODULE_HISTORY_DIRNAME
+    prefix, suffix = f"{output.stem}.", output.suffix
+    found = {}
+    if history.is_dir():
+        for file in history.iterdir():
+            if not (file.is_file() and file.name.startswith(prefix) and file.name.endswith(suffix)):
+                continue
+            version = file.name[len(prefix):len(file.name) - len(suffix)]
+            if _VERSION_ID.fullmatch(version) and _saved_at(version):
+                found[version] = file
+    return found
+
+
+def _version_key(version: str) -> tuple[str, int]:
+    stamp, counter = _VERSION_ID.fullmatch(version).groups()
+    return stamp, int(counter or 0)
+
+
+def _saved_at(version: str) -> str:
+    try:
+        return datetime.strptime(_version_key(version)[0], "%Y%m%d-%H%M%S").isoformat(timespec="seconds")
+    except ValueError:  # not a real date: not a file the app wrote
+        return ""
+
+
+def module_versions(config: dict, name: str, agent_id: str) -> dict:
+    """An expert's earlier results, newest first. The current result is module_document."""
+    agent, output = _module_output(config, name, agent_id)
+    versions = sorted(_version_files(output), key=_version_key, reverse=True)
+    return {"agent": agent["id"], "versions": [{"id": v, "saved_at": _saved_at(v)} for v in versions]}
+
+
+def module_version(config: dict, name: str, agent_id: str, version: str) -> dict:
+    """One earlier result. Raises LookupError if the expert or that version is missing."""
+    agent, output = _module_output(config, name, agent_id)
+    file = _version_files(output).get(version)
+    if file is None:
+        raise LookupError(f"no such version: {version}")
+    return {
+        "agent": agent["id"],
+        "id": version,
+        "saved_at": _saved_at(version),
+        "content": file.read_text(encoding="utf-8"),
     }
