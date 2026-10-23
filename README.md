@@ -133,7 +133,7 @@ pip install -e .
 python webapp.py            # http://127.0.0.1:8765 (--port, --no-browser)
 ```
 
-The browser opens the **project hub** (create / open / sample). Inside a project you talk with the
+The browser opens the project list (create / open / sample). Inside a project you talk with the
 Conductor, and experts run when needed. The screens call the JSON API under `/api`; see
 `docs/session-api.md`, `docs/settings-api.md`, `docs/chatgpt-login.md`, `docs/site-ordinance.md`, `docs/law-search-api.md`
 and `docs/state-editing.md`.
@@ -243,7 +243,7 @@ Module layout. The code is the `sida/` package: the shared core sits directly in
 | `experts/regulation/ordinance.py` | finds the municipality's 도시·군계획 조례 on law.go.kr and quotes its 건폐율 / 용적률 articles as written, and reads the figure for the site's zone by fixed rules, shown next to the quoted line; follows "별표 N과 같다" into the annex file (`hwp.py` reads HWP) (stored in `site_facts.json` by the site lookup, given to `regulation_checker`) |
 | `experts/site/landapi.py` | clients for the government land APIs (VWorld): parcel search, zoning, land characteristics |
 | `experts/site/site_facts.py` + `data/zoning_limits.yaml` (repo root) | site facts: parcels → one site, statutory coverage / FAR limits, items to verify; saved as `site_facts.json` and given to `site_reader` / `regulation_checker` |
-| `webapp.py` + `webui/` (repo root) | local web UI (FastAPI): JSON API under `/api`; the main screen at `/` is `webui/app/` (plain HTML/CSS/JS calling the API, see `docs/web-ui.md`); the earlier pages at `/classic` come from `webui/templates` and `webui/static` |
+| `webapp.py` + `webui/` (repo root) | local web UI (FastAPI): JSON API under `/api`; the main screen at `/` is `webui/app/` (plain HTML/CSS/JS calling the API, see `docs/web-ui.md`); `webui/templates` and `webui/static` only render the ChatGPT sign-in result page |
 | `run.bat` (repo root) | Windows launcher: venv + deps, then the web UI |
 | `config.py` | `config.yaml` (team defaults) overlaid with `config.local.yaml` (this machine); the expert list and lookups |
 | `providers.py` | LLM providers (OpenRouter / OpenAI / Ollama / mock) behind one `chat()` call, with retries |

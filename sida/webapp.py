@@ -5,7 +5,6 @@ Three layers, so the screens can later be replaced without touching the rest:
   1. core functions   workspace.py / engine.py — no HTTP, no printing
   2. JSON API         /api/...  — calls the core and returns data (tests attach here)
   3. screens          /  — the main screen (webui/app/, static files that call the JSON API)
-                      /classic and /p/<project> — the earlier server-rendered pages
 Keep logic out of the routes, templates and scripts; put it in the core.
 """
 
@@ -13,21 +12,18 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable
-from datetime import datetime
 from typing import Any, TypeVar
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 
-from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from sida import chatgpt_auth, errors, providers, runtime, telemetry, workspace
 from sida import config as sida_config
-from sida.briefs import BRIEF_FIELD_HEADINGS
 from sida.chatgpt_api import create_router as create_chatgpt_router
-from sida.cli import cli_entrypoint
 from sida.document_api import create_router as create_document_router
 from sida.editing import EditingService
 from sida.i18n import agent_name, get_language, t
@@ -43,7 +39,6 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost"})
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-DRIVERS = ("site", "idea", "program", "regulation", "competition")
 
 T = TypeVar("T")
 
@@ -87,7 +82,7 @@ def load_config() -> dict:
 
 
 def runtime_summary(config: dict) -> dict:
-    """What the hub shows about how models will run, plus setup problems worth flagging."""
+    """How models will run, plus setup problems worth flagging."""
     from sida.experts.regulation.rag import key_missing, rag_settings
     from sida.settings import current_run_mode, read_key
 
@@ -128,18 +123,6 @@ def project_detail(config: dict, name: str) -> dict:
     }
 
 
-def local_time(stamp: str) -> str:
-    """ISO timestamp → 'YYYY-MM-DD HH:MM' in this machine's timezone ('' if unparseable)."""
-    try:
-        return datetime.fromisoformat(stamp).astimezone().strftime("%Y-%m-%d %H:%M")
-    except (TypeError, ValueError):
-        return ""
-
-
-def project_url(name: str) -> str:
-    return f"/p/{quote(name, safe='')}"
-
-
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -161,7 +144,7 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
     app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
     app.mount("/app", NoCacheFiles(directory=APP_DIR), name="app")
     templates = Jinja2Templates(directory=WEB_DIR / "templates")
-    templates.env.globals.update(t=t, local_time=local_time, project_url=project_url)
+    templates.env.globals.update(t=t)
     hosts = {h.lower() for h in allowed_hosts}
 
     @app.middleware("http")
@@ -181,31 +164,10 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
         context.setdefault("lang", get_language())
         return templates.TemplateResponse(request, name, context, status_code=status_code)
 
-    def hub_page(request: Request, status_code: int = 200, **extra: Any) -> HTMLResponse:
-        config = load_config()
-        return page(
-            request,
-            "hub.html",
-            status_code,
-            projects=core(workspace.list_project_summaries, config),
-            projects_root=str(core(workspace.ensure_projects_root, config)),
-            runtime=runtime_summary(config),
-            brief_fields=[
-                (key, t(label).rstrip(": "))
-                for key, label, _heading in BRIEF_FIELD_HEADINGS
-                if key != "driver"
-            ],
-            drivers=DRIVERS,
-            form=extra.pop("form", {}),
-            **extra,
-        )
-
     @app.exception_handler(workspace.ProjectNotFound)
     async def project_not_found(request: Request, exc: workspace.ProjectNotFound):
         name = str(exc.args[0]) if exc.args else ""
-        if request.url.path.startswith("/api/"):
-            return JSONResponse({"detail": f"project not found: {name}"}, status_code=404)
-        return page(request, "error.html", 404, message=t("web_not_found", name=name))
+        return JSONResponse({"detail": f"project not found: {name}"}, status_code=404)
 
     # ----------------------------------------------------------------- JSON API
 
@@ -256,24 +218,6 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
     def main_screen() -> FileResponse:
         return FileResponse(APP_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
-    @app.get("/classic", response_class=HTMLResponse)
-    def hub(request: Request) -> HTMLResponse:
-        return hub_page(request)
-
-    @app.post("/projects")
-    async def create_project(request: Request, name: str = Form("")):
-        form = {key: str(value) for key, value in (await request.form()).items()}
-        try:
-            project, _created = core(workspace.create_project, load_config(), name, form)
-        except ValueError:
-            return hub_page(request, 400, form=form, error=t("web_err_name"))
-        return RedirectResponse(project_url(project.name), status_code=303)
-
-    @app.post("/projects/sample")
-    def create_sample() -> RedirectResponse:
-        project, _created = core(workspace.create_sample_project, load_config())
-        return RedirectResponse(project_url(project.name), status_code=303)
-
     @app.get(chatgpt_auth.CALLBACK_PATH, response_class=HTMLResponse)
     def chatgpt_callback(request: Request) -> HTMLResponse:
         # OpenAI sends the browser back here after a ChatGPT sign-in started on settings.
@@ -291,15 +235,19 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
         email = result["email"] or "ChatGPT"
         return done(200, t("web_chatgpt_done_title"), t("web_chatgpt_done", email=email), True)
 
-    @app.get("/p/{name}", response_class=HTMLResponse)
-    def project_page(request: Request, name: str) -> HTMLResponse:
-        return page(request, "project.html", project=core(project_detail, load_config(), name))
-
     return app
 
 
-@cli_entrypoint
 def main(argv: list[str] | None = None) -> None:
+    """python webapp.py: an application error is printed once and becomes the exit code."""
+    try:
+        serve(argv)
+    except errors.SidaError as exc:
+        print(f"Error: {exc.message}", file=sys.stderr)
+        raise SystemExit(exc.code) from None
+
+
+def serve(argv: list[str] | None = None) -> None:
     import threading
     import webbrowser
 

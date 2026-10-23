@@ -2,7 +2,7 @@
 """UI-agnostic project hub operations: list, look up and create projects.
 
 Like engine.py, nothing here prints or reads input — front ends call these and
-render the result. (The terminal hub in hub.py predates this and keeps its own flow.)
+render the result.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sida.briefs import BRIEF_FIELD_HEADINGS, build_brief_markdown
+from sida.briefs import BRIEF_FIELD_KEYS, build_brief_markdown
 from sida.config import ROOT, agent_by_id, get_agents
 from sida.engine import history_messages
 from sida.i18n import agent_name
@@ -28,7 +28,6 @@ from sida.project import (
 )
 
 SAMPLE_BRIEF = ROOT / "input" / "sample_brief.md"
-BRIEF_FIELD_KEYS = tuple(key for key, _label, _heading in BRIEF_FIELD_HEADINGS)
 
 
 class ProjectNotFound(LookupError):
@@ -81,7 +80,7 @@ def find_project(config: dict, name: str) -> Path:
 
 def create_project(config: dict, name: str, fields: dict[str, str] | None = None) -> tuple[Project, bool]:
     """
-    Create a project from the basic brief fields (see briefs.BRIEF_FIELD_HEADINGS).
+    Create a project from the basic brief fields (see briefs.BRIEF_FIELD_KEYS).
     If a project with that name already exists it is opened instead.
     Returns (project, created). Raises ValueError for an empty name.
     """

@@ -19,6 +19,23 @@ export const STATE_UPDATE_LABELS = {
   ask: '승인 받고 반영', auto: '바로 반영', off: '반영 안 함',
 };
 
+// Government data keys on the settings screen (ids of PUT /api/settings/keys/{key}).
+// A secret key is never shown back, only whether it is set; the VWorld domain is shown in full.
+export const DATA_KEYS = [
+  { id: 'vworld', label: '브이월드 키', secret: true },
+  { id: 'vworld_domain', label: '브이월드 등록 도메인', secret: false },
+  { id: 'data_go_kr', label: '공공데이터포털 키', secret: true },
+  { id: 'law', label: '법제처 인증값(OC)', secret: true },
+];
+
+// The keys to save: [id, value] for each one typed in (a shown value only when it changed).
+export function keyChanges(draft, status = {}) {
+  return DATA_KEYS
+    .map(({ id, secret }) => [id, String(draft?.[id] ?? '').trim(), secret])
+    .filter(([id, value, secret]) => value && (secret || value !== (status[id]?.value || '')))
+    .map(([id, value]) => [id, value]);
+}
+
 // All text from the server or the designer passes through here before it becomes HTML.
 export function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (c) => ({

@@ -10,8 +10,7 @@ from fastapi.testclient import TestClient
 
 from sida import config as sida_config
 from sida import errors, providers, runtime, webapp
-from sida.briefs import BRIEF_FIELD_HEADINGS
-from sida.project import section_body
+from sida.briefs import BRIEF_FIELD_KEYS
 from tests.conftest import land_fixture
 
 
@@ -83,7 +82,6 @@ def test_api_runtime_reports_mode_and_missing_key(client, mock_config, monkeypat
     monkeypatch.delenv("LAW_OPEN_API_OC")
     warnings = client.get("/api/runtime").json()["warnings"]
     assert warnings == {"openrouter_key_missing": True, "rag_key_missing": True}
-    assert "LAW_OPEN_API_OC" in client.get("/classic").text
 
 
 def test_core_failure_becomes_http_error_not_server_exit(client, monkeypatch, capsys):
@@ -112,61 +110,20 @@ def test_save_failure_returns_http_error_and_server_stays_available(client, monk
 # --- HTML pages --------------------------------------------------------------
 
 
-def test_hub_page_lists_projects_and_form(client, project):
-    html = client.get("/classic").text
-    assert project.name in html
-    assert 'action="/projects"' in html and 'name="name"' in html
-    assert 'action="/projects/sample"' in html
-    assert "프로젝트" in html and '<html lang="ko">' in html
+@pytest.mark.parametrize(
+    ("method", "url"),
+    [("get", "/classic"), ("get", "/p/sample_brief"), ("post", "/projects"), ("post", "/projects/sample")],
+)
+def test_earlier_server_rendered_pages_are_gone(client, method, url):
+    client.post("/api/projects/sample")
+    assert getattr(client, method)(url).status_code in (404, 405)
 
 
-def test_hub_form_creates_project_and_redirects(client, mock_config):
-    r = client.post(
-        "/projects",
-        data={"name": "My House", "type": "주택", "issues": "경사, 소음", "driver": "idea"},
-    )
-    assert r.status_code == 303 and r.headers["location"] == "/p/my_house"
-
-    page = client.get(r.headers["location"])
-    assert page.status_code == 200 and "my_house" in page.text and "주택" in page.text
-
-    brief = client.get("/api/projects/my_house").json()["brief"]
-    assert section_body(brief, "Site Issues") == "- 경사\n- 소음"
-    assert section_body(brief, "Primary Driver") == "idea"
-
-
-def test_hub_form_empty_name_shows_error_and_keeps_input(client):
-    r = client.post("/projects", data={"name": " ", "type": "도서관"})
-    assert r.status_code == 400
-    assert "프로젝트 이름을 입력하세요" in r.text
-    assert "도서관" in r.text  # what the designer typed is not lost
-    assert client.get("/api/projects").json()["projects"] == []
-
-
-def test_sample_button_redirects_to_project(client):
-    r = client.post("/projects/sample")
-    assert r.status_code == 303 and r.headers["location"] == "/p/sample_brief"
-
-
-def test_korean_project_name_round_trips_through_url(client):
-    r = client.post("/projects", data={"name": "성수 주택"})
-    assert r.status_code == 303
-    assert client.get(r.headers["location"]).status_code == 200
-
-
-def test_project_page_escapes_brief_content(client, project):
-    project.brief_path.write_text(
-        "# Brief\n\n## Project Type\n<script>alert(1)</script>\n", encoding="utf-8"
-    )
-    for url in ("/classic", webapp.project_url(project.name)):
-        html = client.get(url).text
-        assert "<script>alert(1)</script>" not in html
-        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
-
-
-def test_unknown_project_page_is_404_with_link_home(client):
-    r = client.get("/p/nope")
-    assert r.status_code == 404 and "nope" in r.text and 'href="/classic"' in r.text
+def test_no_screen_links_to_the_removed_pages():
+    screens = [*webapp.APP_DIR.glob("*.*"), *(webapp.WEB_DIR / "templates").glob("*.html")]
+    assert screens
+    for path in screens:
+        assert "/classic" not in path.read_text(encoding="utf-8"), path.name
 
 
 def test_static_css_served(client):
@@ -243,8 +200,7 @@ def test_main_screen_files_hold_no_keys_or_placeholder_urls():
 def test_main_screen_new_project_fields_are_brief_fields():
     script = (webapp.APP_DIR / "app.js").read_text(encoding="utf-8")
     fields = re.search(r"for \(const key of \[([^\]]+)\]\)", script).group(1)
-    keys = {key for key, _label, _heading in BRIEF_FIELD_HEADINGS}
-    assert {f.strip(" '") for f in fields.split(",")} <= keys
+    assert {f.strip(" '") for f in fields.split(",")} <= set(BRIEF_FIELD_KEYS)
 
 
 # --- local-only guard --------------------------------------------------------

@@ -6,7 +6,7 @@ Sida가 어디로 가는지와 그 순서를 적는 문서입니다. 방향과 �
 
 ## 지금 상태
 
-- 로컬 웹 UI(`run.bat` 또는 `python webapp.py`)로 동작합니다. 첫 화면(`/`)은 팀원 목업을 서버에 연결한 화면입니다(프로젝트, Conductor 대화, 전문가 결과와 채팅, 설정, [web-ui.md](web-ui.md)). 이전 허브 화면은 `/classic`에 남아 있습니다. 대지·법령 검색은 JSON API까지 완료돼 화면이 남았습니다.
+- 로컬 웹 UI(`run.bat` 또는 `python webapp.py`)로 동작합니다. 첫 화면(`/`)은 팀원 목업을 서버에 연결한 화면입니다(프로젝트, Conductor 대화, 전문가 결과와 채팅, 설정, [web-ui.md](web-ui.md)). 이전 허브 화면(`/classic`)은 2026-10-23에 없앴습니다. 대지·법령 검색은 JSON API까지 완료돼 화면이 남았습니다.
 - 터미널 CLI(`chat.py` 허브와 슬래시 명령, `run.py` 경로 일괄 실행, `setup_env.py`)는 없앴습니다(2026-10-16 결정). 모든 기능과 설정은 웹으로 갑니다. 경로 일괄 실행은 옮기지 않고 지웠습니다. 경로(`paths`)는 Conductor가 참고하는 힌트로만 남습니다.
 - 실행 모드는 클라우드(OpenRouter)와 로컬(Ollama) 중에서 고릅니다. PC별 설정은 `config.local.yaml`에 있습니다.
 - 법령 검색은 법제처(law.go.kr)의 지능형 검색을 직접 호출합니다. 기본으로 꺼져 있고, 켜려면 법제처 인증값만 있으면 됩니다.
@@ -56,7 +56,7 @@ Sida가 어디로 가는지와 그 순서를 적는 문서입니다. 방향과 �
 | ① 서버 뼈대와 프로젝트 허브 | 완료 (#12) | 완료 (#12) |
 | ② 세션 화면 (대화, 전문가 실행, 전문가 채팅) | 완료 | 첫 버전 ([web-ui.md](web-ui.md)) |
 | ③ state 갱신 승인, 브리프·state 편집 | 완료 (#18) | 승인·건너뛰기 첫 버전, 편집 남음 |
-| ④ 설정 화면 | 완료 ([settings-api.md](settings-api.md)) | 첫 버전(모드, 제공자, ChatGPT 로그인, OpenRouter 키). 정부 API 키는 `/classic` |
+| ④ 설정 화면 | 완료 ([settings-api.md](settings-api.md)) | 첫 버전(모드, 제공자, ChatGPT 로그인, OpenRouter 키, 정부 데이터 키) |
 
 역할 분담(2026-10-04): 웹 화면은 팀원이 진행합니다. ③의 승인·건너뛰기, 오래된 승인안 거절, 버전 확인과 백업을 포함한 문서 편집 코어·JSON API·테스트를 준비하고, 화면 연결은 팀원이 진행합니다. 함수와 API 명세는 [state-editing.md](state-editing.md)를 참고하세요.
 

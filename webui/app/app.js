@@ -3,7 +3,7 @@
 import {
   PHASES, STATUS_LABELS, PROVIDER_LABELS, MODE_LABELS, STATE_UPDATE_LABELS,
   escapeHtml as escape, findProjects, relativeDate, projectSummary, chatItems, eventNotice,
-  expertStatus, renderMarkdown, chatTitle, latestChat, chatLabel,
+  expertStatus, renderMarkdown, chatTitle, latestChat, chatLabel, DATA_KEYS, keyChanges,
 } from './model.js';
 
 const app = document.querySelector('#app');
@@ -705,6 +705,7 @@ function draftFromSettings(settings) {
     state_update: settings.state_update,
     telemetry_enabled: settings.telemetry_enabled,
     openrouter_key: '',
+    keys: Object.fromEntries(DATA_KEYS.map(({ id, secret }) => [id, secret ? '' : settings.keys?.[id]?.value || ''])),
   };
 }
 
@@ -719,7 +720,7 @@ function renderSettings() {
   }
   const warnings = [
     s.warnings.openrouter_key_missing && 'OpenRouter 키가 없습니다. 클라우드 모델을 쓰려면 아래에 키를 넣어 주세요.',
-    s.warnings.rag_key_missing && '법령 검색을 켰지만 법제처 인증값이 없습니다. 이전 화면의 설정에서 넣어 주세요.',
+    s.warnings.rag_key_missing && '법령 검색을 켰지만 법제처 인증값이 없습니다. 아래 정부 데이터 키에 넣어 주세요.',
     s.warnings.chatgpt_signed_out && 'ChatGPT 구독으로 돌리게 되어 있지만 로그인되어 있지 않습니다.',
   ].filter(Boolean);
   const modes = d.mode === 'custom' ? [...s.options.modes, 'custom'] : s.options.modes;
@@ -743,6 +744,12 @@ function renderSettings() {
       </fieldset>`
     : '';
   const keyStatus = s.keys?.openrouter;
+  const dataKeys = DATA_KEYS.map(({ id, label, secret }) => {
+    const status = s.keys?.[id];
+    const hint = secret ? (status?.set ? `저장됨 ${status.hint || ''}` : '넣지 않음') : '예: localhost';
+    return `<label for="set-key-${id}">${escape(label)}</label>
+      <input id="set-key-${id}" data-key="${id}" type="${secret ? 'password' : 'text'}" autocomplete="off" placeholder="${escape(hint)}" value="${escape(d.keys[id])}">`;
+  }).join('');
   settingsBody.innerHTML = `
     ${s.first_run ? '<p class="settings-intro">처음 실행입니다. 실행 방식을 확인하고 저장해 주세요.</p>' : ''}
     ${warnings.map((w) => `<p class="event-note warn">${escape(w)}</p>`).join('')}
@@ -762,8 +769,12 @@ function renderSettings() {
     <select id="set-state" data-field="state_update">${s.options.state_update.map((m) => option(m, STATE_UPDATE_LABELS[m] || m, d.state_update)).join('')}</select>
     <label class="check"><input type="checkbox" data-field="rag_enabled" ${d.rag_enabled ? 'checked' : ''}> 법령 검색(법제처) 쓰기</label>
     <label class="check"><input type="checkbox" data-field="telemetry_enabled" ${d.telemetry_enabled ? 'checked' : ''}> 사용 기록 보내기 (브리프·문서 원문은 보내지 않음)</label>
+    <fieldset class="settings-group"><legend>정부 데이터 키</legend>
+      <p class="muted small-text">대지 조회(브이월드·공공데이터포털)와 법령 검색(법제처)에 씁니다. 넣은 값은 이 PC의 .env에만 저장됩니다.</p>
+      ${dataKeys}
+    </fieldset>
     <p class="error-text" role="alert">${escape(ui.settingsError)}</p>
-    <div class="form-actions"><a class="secondary" href="/classic">이전 화면</a><button type="button" class="primary" data-settings="save">저장</button></div>`;
+    <div class="form-actions"><button type="button" class="primary" data-settings="save">저장</button></div>`;
 }
 
 async function loadSettings() {
@@ -809,6 +820,9 @@ async function saveSettings() {
     if (d.openrouter_key.trim()) {
       await api('/api/settings/keys/openrouter', { method: 'PUT', body: { value: d.openrouter_key.trim() } });
     }
+    for (const [key, value] of keyChanges(d.keys, s.keys)) {
+      await api(`/api/settings/keys/${key}`, { method: 'PUT', body: { value } });
+    }
     ui.settings = await api('/api/settings', { method: 'PUT', body: changes });
     ui.settingsDraft = draftFromSettings(ui.settings);
     ui.settingsError = '';
@@ -840,7 +854,9 @@ settingsDialog.addEventListener('change', (event) => {
 });
 
 settingsDialog.addEventListener('input', (event) => {
-  if (event.target.dataset.field === 'openrouter_key' && ui.settingsDraft) ui.settingsDraft.openrouter_key = event.target.value;
+  if (!ui.settingsDraft) return;
+  if (event.target.dataset.field === 'openrouter_key') ui.settingsDraft.openrouter_key = event.target.value;
+  if (event.target.dataset.key) ui.settingsDraft.keys[event.target.dataset.key] = event.target.value;
 });
 
 settingsDialog.addEventListener('click', async (event) => {
