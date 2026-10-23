@@ -192,3 +192,21 @@ def test_measure_speed_from_ollama_counters(monkeypatch):
 
     monkeypatch.setattr(boot.requests, "post", lambda *a, **k: Bad())
     assert boot.measure_speed("http://h", "m", keep_alive="1m", num_ctx=None) is None
+
+
+def test_boot_starts_ollama_when_only_the_experts_use_it(mock_config, monkeypatch):
+    # Conductor on the ChatGPT plan, experts on Ollama: the server must still be started,
+    # or every expert run fails with "Cannot reach Ollama".
+    mock_config["conductor"]["provider"] = "chatgpt"
+    mock_config["worker"]["provider"] = "ollama"
+    mock_config["worker"]["model"] = "qwen3.5:9b"
+    mock_config["conductor"]["ollama_pull_missing"] = "off"
+    mock_config["conductor"]["ollama_warmup"] = True
+    calls = {"start": 0, "warm": []}
+    monkeypatch.setattr(boot, "ollama_reachable", lambda *_a, **_k: calls["start"] > 0)
+    monkeypatch.setattr(boot, "try_start_ollama", lambda: calls.__setitem__("start", 1) or "started")
+    monkeypatch.setattr(boot, "wait_until_reachable", lambda *a, **k: True)
+    monkeypatch.setattr(boot, "list_ollama_models", lambda *_: ["qwen3.5:9b"])
+    monkeypatch.setattr(boot, "warmup_model", lambda _base, model, **k: calls["warm"].append(model))
+    boot.ensure_ollama_ready(mock_config, print_fn=lambda *_: None)
+    assert calls["start"] == 1 and calls["warm"] == ["qwen3.5:9b"]
