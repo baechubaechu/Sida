@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Start Ollama and warm the Conductor model when the app opens a local session.
+"""Start Ollama and warm the local model when the app opens a session.
 
-Does nothing unless conductor.provider is ollama/local. Never fails the app for a
+Does nothing unless the Conductor or the experts (worker) use ollama/local; the
+Conductor's model is warmed when both do. Never fails the app for a
 missing model download — pull is optional (ask/auto/off).
 """
 
@@ -17,7 +18,7 @@ from typing import Any
 import requests
 
 from sida.providers import DEFAULT_OLLAMA_URL, LLMError
-from sida.runtime import resolve_conductor_runtime
+from sida.runtime import resolve_conductor_runtime, resolve_worker_runtime
 
 
 def ollama_boot_settings(config: dict) -> dict:
@@ -244,14 +245,17 @@ def ensure_ollama_ready(
     print_fn=print,
 ) -> None:
     """
-    If Conductor uses Ollama: start server if needed, ensure model exists, warm it.
+    If the Conductor (else the experts) uses Ollama: start the server if needed, ensure
+    that role's model exists, warm it.
     Raises LLMError when the server cannot be reached after autostart attempts.
     """
     from sida.i18n import t
 
     runtime = resolve_conductor_runtime(config)
     if runtime["provider"] not in {"ollama", "local"}:
-        return
+        runtime = resolve_worker_runtime(config)
+        if runtime["provider"] not in {"ollama", "local"}:
+            return
 
     settings = ollama_boot_settings(config)
     base = _base_url(runtime)
