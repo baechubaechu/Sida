@@ -723,6 +723,55 @@ def test_session_direct_expert_run_and_result_document(session_api):
     assert [m.get("event") for m in messages] == ["run_requested", "module_completed"]
 
 
+def test_session_lists_which_experts_each_expert_reads(session_api, mock_config):
+    client, base, _conductor = session_api
+    experts = {e["id"]: e for e in client.get(f"{base}/session").json()["experts"]}
+    assert experts["site_reader"]["inputs"] == ["program_analyst", "concept_framer"]
+    assert experts["design_critic"]["inputs"] == [i for i in experts if i != "design_critic"]  # inputs: all
+
+    agents = mock_config["agents"]
+    del agents[1]["inputs"]  # no key: every expert before it
+    agents[2]["inputs"] = ["site_reader", "nobody"]  # unknown ids are dropped
+    experts = client.get(f"{base}/session").json()["experts"]
+    assert experts[1]["inputs"] == [agents[0]["id"]]
+    assert experts[2]["inputs"] == ["site_reader"]
+
+
+def test_module_versions_api_lists_and_reads_earlier_results(session_api, project):
+    client, base, _conductor = session_api
+    assert client.get(f"{base}/modules/site_reader/versions").json() == {"agent": "site_reader", "versions": []}
+
+    for _ in range(3):
+        finished_job(client, base, client.post(f"{base}/session/experts/site_reader/run"))
+    versions = client.get(f"{base}/modules/site_reader/versions").json()["versions"]
+    assert len(versions) == 2  # the current result is not an earlier version
+    doc = client.get(f"{base}/modules/site_reader/versions/{versions[0]['id']}").json()
+    assert doc["agent"] == "site_reader" and doc["content"].startswith("# Mock Output")
+    assert doc["saved_at"] == versions[0]["saved_at"]
+
+    # Newest first, same-second saves by their counter; other experts' and stray files stay out.
+    history = project.path / "modules" / "_history"
+    for file in history.iterdir():
+        file.unlink()
+    for stem in ("11_site_reader.20260920-235440", "11_site_reader.20261001-090000",
+                 "11_site_reader.20261001-090000-1", "12_program_analyst.20261002-000000",
+                 "11_site_reader.backup", "11_site_reader_old.20261003-000000", "11_site_reader.20261399-999999"):
+        (history / f"{stem}.md").write_text(stem, encoding="utf-8")
+    versions = client.get(f"{base}/modules/site_reader/versions").json()["versions"]
+    assert versions == [
+        {"id": "20261001-090000-1", "saved_at": "2026-10-01T09:00:00"},
+        {"id": "20261001-090000", "saved_at": "2026-10-01T09:00:00"},
+        {"id": "20260920-235440", "saved_at": "2026-09-20T23:54:40"},
+    ]
+    assert client.get(f"{base}/modules/site_reader/versions/20260920-235440").json()["content"] == (
+        "11_site_reader.20260920-235440"
+    )
+    for bad in ("backup", "20261002-000000", "..%2F11_site_reader.20260920-235440"):
+        assert client.get(f"{base}/modules/site_reader/versions/{bad}").status_code == 404
+    assert client.get(f"{base}/modules/nope/versions").status_code == 404
+    assert client.get("/api/projects/nope/modules/site_reader/versions").status_code == 404
+
+
 def test_session_opening_is_not_stored_as_a_user_message(session_api, project):
     client, base, conductor = session_api
     conductor.replies.append('안녕하세요\n```action\n{"type":"none"}\n```')

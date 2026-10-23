@@ -2,8 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   escapeHtml, findProjects, relativeDate, projectSummary, chatItems, eventNotice, expertStatus,
-  renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges,
+  renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges, parseRoute, expertPath, dateTime,
+  documentSections, listItems, itemTag, handoffs, questionAnswer, arrangeDocument, EXPERT_LAYOUTS, SECTION_LABELS,
 } from '../../webui/app/model.js';
+import { readFileSync, readdirSync } from 'node:fs';
 
 const projects = [
   { name: 'museum', project_type: '미술관', updated_at: '2026-10-18T09:00:00+00:00', completed: ['site_reader'], expert_count: 10 },
@@ -152,4 +154,96 @@ test('only typed keys are saved, and the shown VWorld domain only when it change
     [['vworld', 'new-key'], ['vworld_domain', '127.0.0.1'], ['law', 'oc']],
   );
   assert.deepEqual(keyChanges({ vworld_domain: '  ' }, status), []);
+});
+
+test('addresses open an expert on its result, analysis chat or earlier result', () => {
+  assert.deepEqual(parseRoute('#/project/my%20museum/expert/site_reader'), {
+    page: 'project', name: 'my museum', agent: 'site_reader', tab: 'doc', chat: '', version: '',
+  });
+  assert.equal(parseRoute('#/project/a/expert/program_analyst/chat/02').chat, '02');
+  assert.equal(parseRoute('#/project/a/expert/program_analyst/chat').tab, 'chat');
+  assert.equal(parseRoute('#/project/a/expert/x/versions/20261001-090000').version, '20261001-090000');
+  assert.equal(parseRoute('#/project/a/expert/x/nonsense').tab, 'doc');
+  assert.equal(parseRoute('#/project/a').agent, '');
+  assert.deepEqual(parseRoute('#/new'), { page: 'new' });
+  assert.deepEqual(parseRoute(''), { page: 'home' });
+  for (const [tab, id] of [['doc', ''], ['chat', '01'], ['chat', ''], ['versions', '20261001-090000-1']]) {
+    const route = parseRoute(expertPath('뮤지엄 #1', 'site_reader', tab, id));
+    assert.equal(route.name, '뮤지엄 #1');
+    assert.equal(route.tab, tab);
+    assert.equal(tab === 'chat' ? route.chat : route.version, id);
+  }
+  assert.equal(dateTime('2026-10-01T09:05:00'), '10월 1일 09:05');
+  assert.equal(dateTime(''), '');
+});
+
+test('every expert in config.yaml has a page layout made of sections its prompt asks for', () => {
+  const config = readFileSync(new URL('../../config.yaml', import.meta.url), 'utf8');
+  const ids = [...config.matchAll(/^\s*- id: (\w+)/gm)].map((m) => m[1]);
+  assert.deepEqual(Object.keys(EXPERT_LAYOUTS).sort(), ids.sort());
+  const prompts = readdirSync(new URL('../../agents/', import.meta.url))
+    .map((f) => readFileSync(new URL(`../../agents/${f}`, import.meta.url), 'utf8')).join('\n');
+  const asked = new Set([...prompts.matchAll(/^## (.+)$/gm)].map((m) => m[1].trim()));
+  for (const [id, rows] of Object.entries(EXPERT_LAYOUTS)) {
+    for (const heading of rows.flatMap((row) => row.columns || [row.section])) {
+      assert.ok(asked.has(heading), `${id}: ${heading}`);
+      assert.ok(SECTION_LABELS[heading], `${id}: ${heading} has no Korean label`);
+    }
+  }
+});
+
+const REGULATION = `# Regulation Checker
+
+## Governing Frameworks
+- **건축법** — certainly / 기본 요건이라 적용됨. 확인 필요 없음
+- **하천법** — probably / 하천이 인접함
+- 지구단위계획 — check / 수립 여부
+- 주차장법 — 주차 대수를 확인해야 함
+
+## Items to Verify
+
+| Item | Why | Where |
+|---|---|---|
+| 용도지역 | 상한 결정 | 조례 |
+
+## Odd Extra Section
+- 형식 밖 내용
+
+## Handoff
+→ expert_site_reader: 이격 거리 확인.
+- (→ program_analyst: 주차 대수)
+→ nobody: 모르는 전문가
+`;
+
+test('an expert document is split into its sections and arranged by that expert\'s layout', () => {
+  const { sections } = documentSections(REGULATION);
+  assert.deepEqual(sections.map((s) => s.label), ['적용 법규', '확인할 항목', 'Odd Extra Section', '다음 전문가']);
+
+  const doc = arrangeDocument('regulation_checker', REGULATION, ['site_reader', 'program_analyst']);
+  assert.deepEqual(doc.rows.map((r) => [r.kind, r.top, r.blocks.map((b) => b.label)]), [
+    ['table', true, ['확인할 항목']],
+    ['tagged', false, ['적용 법규']],
+    ['list', false, ['Odd Extra Section']], // sections outside the layout are kept, at the end
+  ]);
+  const tags = doc.rows[1].blocks[0].items.map((item) => itemTag(item, doc.rows[1].tags)?.label ?? null);
+  // The English word the prompt asks for wins over Korean words elsewhere in the line.
+  assert.deepEqual(tags, ['확실히 적용', '아마 적용', '적용 여부 확인', '적용 여부 확인']);
+  assert.deepEqual(doc.handoffs, [
+    { agent: 'site_reader', text: '이격 거리 확인.' },
+    { agent: 'program_analyst', text: '주차 대수' },
+  ]);
+
+  // A document in none of the expected sections is shown as written.
+  assert.equal(arrangeDocument('regulation_checker', '그냥 글입니다.'), null);
+  assert.equal(arrangeDocument('unknown_expert', REGULATION), null);
+});
+
+test('list items keep their following lines and drop template placeholders', () => {
+  assert.deepEqual(listItems('- 첫째\n  이어지는 줄\n- 둘째\n1. 셋째\n- (component — source — role)\n-'), [
+    '첫째\n이어지는 줄', '둘째', '셋째',
+  ]);
+  assert.deepEqual(listItems('목록 없이 한 문단'), ['목록 없이 한 문단']);
+  assert.deepEqual(handoffs('→ **concept_framer**: 개념 확인'), [{ agent: 'concept_framer', text: '개념 확인' }]);
+  assert.deepEqual(questionAnswer('왜 보이드인가? — 단면도 2'), { question: '왜 보이드인가?', answer: '단면도 2' });
+  assert.deepEqual(questionAnswer('답 없는 질문'), { question: '답 없는 질문', answer: '' });
 });
