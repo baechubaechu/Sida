@@ -73,6 +73,8 @@ def resolve_conductor_runtime(config: dict) -> dict:
         "num_ctx": None,
         "history_window": int((conductor.get("context") or {}).get("history_window", 12)),
         "action_recovery": str(conductor.get("action_recovery", "auto")).lower(),
+        "tool_calls": str(conductor.get("tool_calls", "auto")).lower(),
+        "max_expert_runs": max(1, int(conductor.get("max_expert_runs", 3))),
         "keep_alive": str(conductor.get("ollama_keep_alive", "30m")),
         # Default false: thinking models (qwen3.5) otherwise burn num_predict on CoT.
         "think": bool(conductor.get("ollama_think", False)),

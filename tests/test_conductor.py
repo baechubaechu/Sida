@@ -178,3 +178,101 @@ def test_language_rule_injected(mock_config, agents, project, conductor_prompt, 
     )
     system_text = provider.calls[0]["messages"][0]["content"][0]["text"]
     assert "entirely in Korean" in system_text
+
+
+# ---------------------------------------------------------------------------
+# Expert tools (function calling), with the action block as fallback
+# ---------------------------------------------------------------------------
+
+
+class ToolProvider:
+    """chat_tools returns queued (text, calls); chat returns queued text. Records calls."""
+
+    name = "tooly"
+
+    def __init__(self, tool_replies, text_replies=()):
+        self.tool_replies = list(tool_replies)
+        self.text_replies = list(text_replies)
+        self.calls = []
+
+    def chat_tools(self, model, messages, tools, temperature, max_tokens, **kw):
+        self.calls.append({"mode": "tools", "messages": messages, "tools": tools})
+        item = self.tool_replies.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item[0], item[1], {}
+
+    def chat(self, model, messages, temperature, max_tokens, **kw):
+        self.calls.append({"mode": "text", "messages": messages, "kw": kw})
+        return self.text_replies.pop(0), {}
+
+
+@pytest.fixture
+def no_tools_cache(monkeypatch):
+    from sida import conductor
+
+    monkeypatch.setattr(conductor, "_NO_TOOLS", set())
+    return conductor
+
+
+def _ask(cfg, project, agents, conductor_prompt, provider, history=None):
+    history = [] if history is None else history
+    reply, action, _ = ask_conductor(
+        "", cfg, conductor_prompt, project.read_brief(), [], history, project.session_id,
+        user_text="go", project=project, agents=agents, output_dir=project.modules_dir, provider=provider,
+    )
+    return reply, action, history
+
+
+def test_tool_call_becomes_a_run_action(mock_config, agents, project, conductor_prompt, no_tools_cache):
+    provider = ToolProvider([("대지부터 보겠습니다", [{"name": "run_expert", "arguments": {"agent": "site_reader"}}])])
+    reply, action, history = _ask(mock_config, project, agents, conductor_prompt, provider)
+    assert (reply, action) == ("대지부터 보겠습니다", {"type": "run", "agent": "site_reader"})
+    # Stored as an action block, so the screen and a later text-mode turn read the same history.
+    assert history[-1]["content"] == '대지부터 보겠습니다\n\n```action\n{"type": "run", "agent": "site_reader"}\n```'
+    call = provider.calls[0]
+    system = call["messages"][0]["content"][0]["text"]
+    assert "## Expert tools" in system and "## Action block" not in system
+    assert [t["name"] for t in call["tools"]] == ["run_expert", "read_expert_output"]
+    assert call["tools"][0]["parameters"]["properties"]["agent"]["enum"] == [a["id"] for a in agents]
+
+
+def test_read_tool_and_tool_only_reply(mock_config, agents, project, conductor_prompt, no_tools_cache):
+    provider = ToolProvider([("", [{"name": "read_expert_output", "arguments": {"agent": "site_reader"}}])])
+    reply, action, history = _ask(mock_config, project, agents, conductor_prompt, provider)
+    assert (reply, action) == ("", {"type": "read", "module": "site_reader"})
+    assert history[-1]["content"] == '```action\n{"type": "read", "module": "site_reader"}\n```'
+
+
+def test_model_without_tools_falls_back_to_the_action_block(mock_config, agents, project, conductor_prompt, no_tools_cache):
+    from sida.providers import ToolsUnsupported
+
+    provider = ToolProvider(
+        [ToolsUnsupported("does not support tools")],
+        [RUN_REPLY + '\n```action\n{"type":"run","agent":"site_reader"}\n```', 'ok\n```action\n{"type":"none"}\n```'],
+    )
+    _, action, _ = _ask(mock_config, project, agents, conductor_prompt, provider)
+    assert action == {"type": "run", "agent": "site_reader"}
+    assert [c["mode"] for c in provider.calls] == ["tools", "text"]
+    system = provider.calls[1]["messages"][0]["content"][0]["text"]
+    assert "## Action block" in system and "## Expert tools" not in system
+    # Remembered: the next turn goes straight to text mode.
+    _ask(mock_config, project, agents, conductor_prompt, provider)
+    assert [c["mode"] for c in provider.calls] == ["tools", "text", "text"]
+
+
+def test_tool_mode_off_and_written_block_and_empty_reply(mock_config, agents, project, conductor_prompt, no_tools_cache):
+    mock_config["conductor"]["tool_calls"] = "off"
+    provider = ToolProvider([], ['ok\n```action\n{"type":"none"}\n```'])
+    _ask(mock_config, project, agents, conductor_prompt, provider)
+    assert [c["mode"] for c in provider.calls] == ["text"]
+
+    mock_config["conductor"]["tool_calls"] = "auto"
+    written = ToolProvider([('보겠습니다\n```action\n{"type":"run","agent":"site_reader"}\n```', [])])
+    assert _ask(mock_config, project, agents, conductor_prompt, written)[1] == {"type": "run", "agent": "site_reader"}
+
+    # No text and no known tool: asked again without tools rather than storing an empty reply.
+    empty = ToolProvider([("", [{"name": "something_else", "arguments": {}}])], ['ok\n```action\n{"type":"none"}\n```'])
+    reply, _, history = _ask(mock_config, project, agents, conductor_prompt, empty)
+    assert reply == "ok" and [c["mode"] for c in empty.calls] == ["tools", "text"]
+    assert history[-1]["content"].startswith("ok")

@@ -715,15 +715,16 @@ def finished_job(client, base, response):
 
 def test_session_message_runs_expert_and_waits_for_state_approval(session_api, project):
     client, base, conductor = session_api
-    conductor.replies.append(RUN_SITE)
+    conductor.replies.extend([RUN_SITE, '결과를 검토해 주세요.\n```action\n{"type":"none"}\n```'])
     before = project.state_path.read_bytes()
 
     job = finished_job(client, base, client.post(f"{base}/session/messages", json={"text": "대지부터"}))
     assert job["status"] == "done" and job["error"] is None
     assert [e["kind"] for e in job["events"]] == [
         "conductor_reply", "module_started", "module_saved", "state_proposing", "state_proposed",
+        "conductor_reply",
     ]
-    assert [e["seq"] for e in job["events"]] == [1, 2, 3, 4, 5]
+    assert [e["seq"] for e in job["events"]] == [1, 2, 3, 4, 5, 6]
     started = job["events"][1]["data"]
     assert started["agent"] == {"id": "site_reader", "name": "대지 분석가"}
     assert job["events"][2]["data"]["path"] == "modules/11_site_reader.md"
@@ -732,7 +733,7 @@ def test_session_message_runs_expert_and_waits_for_state_approval(session_api, p
 
     # Only events after the given sequence number come back.
     later = client.get(f"{base}/session/jobs/{job['id']}?after=3").json()["events"]
-    assert [e["seq"] for e in later] == [4, 5]
+    assert [e["seq"] for e in later] == [4, 5, 6]
 
     body = client.get(f"{base}/session").json()
     assert body["job"] is None and body["proposal"] == proposal
@@ -743,6 +744,7 @@ def test_session_message_runs_expert_and_waits_for_state_approval(session_api, p
         "role": "system", "event": "module_completed", "agent": "site_reader",
         "name": "대지 분석가", "text": "",
     }
+    assert body["messages"][3] == {"role": "conductor", "text": "결과를 검토해 주세요."}
     site = next(e for e in body["experts"] if e["id"] == "site_reader")
     assert site["status"] == "review" and site["updated_at"]
 
