@@ -5,6 +5,12 @@ export const PHASES = {
   analysis: '분석', concept: '개념', development: '발전', critique: '비평', communication: '전달',
 };
 
+// Phase of an expert for the panel; held experts (tier "held", 10/10 meeting) say so.
+export function phaseLabel(expert) {
+  const phase = PHASES[expert?.phase] || expert?.phase || '';
+  return expert?.tier === 'held' ? [phase, '보류'].filter(Boolean).join(' · ') : phase;
+}
+
 export const STATUS_LABELS = {
   idle: '실행 전', running: '실행 중', review: '검토 필요', done: '완료',
 };
@@ -112,6 +118,8 @@ export function eventNotice(event) {
     case 'action_recovered': return notice('Conductor 답에서 다음 동작을 다시 읽었습니다.');
     case 'run_skipped': return notice(data.reason === 'state_pending'
       ? `설계 상태 반영안을 먼저 검토해야 해서 ${name}은(는) 실행하지 않았습니다.`
+      : data.reason === 'held'
+      ? `${name}은(는) 보류 중인 전문가라 이어서 실행하지 않았습니다. 필요하면 직접 실행하거나 이름으로 부탁해 주세요.`
       : `한 번에 실행하는 전문가 수(${data.limit || '?'}명)를 채워 ${name}은(는) 실행하지 않았습니다. 이어서 하려면 메시지를 보내 주세요.`, 'warn', true);
     case 'conductor_error': return data.after_run
       ? notice(`전문가 결과는 저장됐지만 Conductor가 이어서 답하지 못했습니다. ${data.reason || ''}`.trim(), 'warn', true)
@@ -268,6 +276,7 @@ export function dateTime(value) {
 
 // The "## " sections experts write (agents/*.md, Output Format), in Korean on screen.
 export const SECTION_LABELS = {
+  Facts: '사실', Interpretations: '해석', Unconfirmed: '미확인',
   'Site Conditions': '대지 조건', 'Spatial Conflicts': '공간 충돌', Opportunities: '기회',
   'Missing Information': '부족한 정보', 'Design Implications': '설계 시사점', Handoff: '다음 전문가',
   'Users and Rhythms': '사용자와 리듬', 'Program Components': '프로그램 구성요소',
@@ -285,6 +294,7 @@ export const SECTION_LABELS = {
   'Next Actions': '다음 행동',
   'Essential Diagrams': '핵심 다이어그램', Drawings: '도면', 'Renders / Visuals': '렌더·이미지',
   'Model / Prototype': '모형', 'Presentation Hierarchy': '발표 위계',
+  'Diagram Sequence': '다이어그램 순서', 'Supporting Drawings': '보조 도면', 'Other Media': '그 밖의 자료',
   'One-line Summary': '한 줄 요약', 'Problem Statement': '문제', 'System Summary': '시스템 요약',
   'Key Outputs': '핵심 자료', 'Portfolio Section Structure': '포트폴리오 구성', 'Anticipated Questions': '예상 질문',
 };
@@ -294,6 +304,10 @@ const CERTAINTY_TAGS = [
   { word: /\bcertainly\b/i, ko: /확실/, label: '확실히 적용', tone: 'done' },
   { word: /\bprobably\b/i, ko: /아마|가능성/, label: '아마 적용', tone: 'review' },
   { word: /\bcheck\b/i, ko: /확인/, label: '적용 여부 확인', tone: 'idle' },
+];
+const FACT_SOURCE_TAGS = [
+  { word: /\bsite facts\b/i, ko: /대지 사실|정부/, label: '정부 자료', tone: 'done' },
+  { word: /\bbrief\b/i, ko: /브리프/, label: '브리프', tone: 'review' },
 ];
 const SOURCE_TAGS = [
   { word: /\bbrief\b/i, ko: /브리프/, label: '브리프', tone: 'done' },
@@ -317,8 +331,10 @@ const VERIFY_TAGS = [{ word: /[\s\S]/, label: '사실 확인 필요', tone: 'rev
 // Sections an expert wrote that are not listed here follow at the end as plain lists.
 export const EXPERT_LAYOUTS = {
   site_reader: [
-    { columns: ['Site Conditions', 'Spatial Conflicts', 'Opportunities'], kind: 'cards' },
-    { section: 'Missing Information', kind: 'checklist' },
+    { section: 'Facts', kind: 'tagged', tags: FACT_SOURCE_TAGS, top: true },
+    { section: 'Interpretations', kind: 'cards' },
+    { columns: ['Spatial Conflicts', 'Opportunities'], kind: 'cards' },
+    { section: 'Unconfirmed', kind: 'checklist' },
     { section: 'Design Implications', kind: 'list' },
   ],
   program_analyst: [
@@ -366,9 +382,9 @@ export const EXPERT_LAYOUTS = {
     { columns: ['Contradictions', 'Risks'], kind: 'cards' },
   ],
   representation_planner: [
-    { section: 'Presentation Hierarchy', kind: 'steps', top: true },
-    { columns: ['Essential Diagrams', 'Drawings'], kind: 'cards' },
-    { columns: ['Renders / Visuals', 'Model / Prototype'], kind: 'cards' },
+    { section: 'Essential Diagrams', kind: 'cards', top: true },
+    { section: 'Diagram Sequence', kind: 'steps' },
+    { columns: ['Supporting Drawings', 'Other Media'], kind: 'list' },
   ],
   presentation_editor: [
     { section: 'One-line Summary', kind: 'lead' },

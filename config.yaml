@@ -155,6 +155,9 @@ telemetry:
 
 # ---------------------------------------------------------------------------
 # Experts. Design is not linear: any expert can run alone, in any order.
+#   tier    — core (one of the 7 experts the team develops now) | held (on hold since the
+#             2026-10-10 meeting: still runs when the designer asks for it by name, but the
+#             Conductor does not suggest it or run it on its own, and no path includes it)
 #   phase   — lens group (analysis | concept | development | critique | communication)
 #   desc    — one line the Conductor shows / uses for routing
 #   inputs  — prior outputs this expert reads when present ("all" = every completed output).
@@ -170,8 +173,9 @@ agents:
     file: agents/11_site_reader.md
     name: Site Reader
     output: 11_site_reader.md
+    tier: core
     phase: analysis
-    desc: geographic/spatial site reading — systems, conflicts, opportunities (not codes)
+    desc: geographic/spatial site reading — facts, interpretations, unconfirmed; conflicts, opportunities (not codes)
     inputs: [program_analyst, concept_framer]
     chat: false  # government records: changes go through the site lookup, not a chat
 
@@ -179,6 +183,7 @@ agents:
     file: agents/12_program_analyst.md
     name: Program Analyst
     output: 12_program_analyst.md
+    tier: core
     phase: analysis
     desc: users and rhythms, program components, adjacency, public-private gradient
     inputs: [site_reader, concept_framer]
@@ -187,6 +192,7 @@ agents:
     file: agents/13_regulation_checker.md
     name: Regulation Checker
     output: 13_regulation_checker.md
+    tier: core
     phase: analysis
     desc: site- and program-triggered codes, verify list, binding limits, incentives (KR default)
     inputs: [site_reader, program_analyst]
@@ -195,6 +201,7 @@ agents:
     file: agents/14_precedent_scout.md
     name: Precedent Scout
     output: 14_precedent_scout.md
+    tier: core
     phase: analysis
     desc: precedents and typologies matched to the problem, lessons and cautions
     inputs: [concept_framer, site_reader]
@@ -204,6 +211,7 @@ agents:
     file: agents/21_concept_framer.md
     name: Concept Framer
     output: 21_concept_framer.md
+    tier: held
     phase: concept
     desc: sharpen the designer's idea into a testable concept and operative strategy
     inputs: [site_reader, program_analyst, precedent_scout]
@@ -213,6 +221,7 @@ agents:
     file: agents/41_spatial_reviewer.md
     name: Spatial Reviewer
     output: 41_spatial_reviewer.md
+    tier: held
     phase: development
     desc: test the described organization — circulation, section, thresholds, program fit
     inputs: [concept_framer, site_reader, program_analyst, regulation_checker]
@@ -221,6 +230,7 @@ agents:
     file: agents/42_systems_advisor.md
     name: Systems Advisor
     output: 42_systems_advisor.md
+    tier: held
     phase: development
     desc: structure, envelope, services, egress questions and trade-offs (no sizing)
     inputs: [spatial_reviewer, regulation_checker, site_reader, program_analyst]
@@ -230,6 +240,7 @@ agents:
     file: agents/51_design_critic.md
     name: Design Critic
     output: 51_design_critic.md
+    tier: core
     phase: critique
     desc: jury-style critique of the direction against the core problem
     inputs: all
@@ -239,23 +250,25 @@ agents:
     file: agents/61_representation_planner.md
     name: Representation Planner
     output: 61_representation_planner.md
+    tier: core
     phase: communication
-    desc: which diagrams, drawings, models prove the concept and test weak points
+    desc: the diagrams that carry the concept and test weak points; drawings only where a diagram cannot
     inputs: [concept_framer, spatial_reviewer, design_critic, site_reader]
 
   - id: presentation_editor
     file: agents/62_presentation_editor.md
     name: Presentation Editor
     output: 62_presentation_editor.md
+    tier: core
     phase: communication
     desc: review / portfolio story, structure, anticipated questions
     inputs: [concept_framer, design_critic, representation_planner]
 
 # Suggested entry paths by what drives the project. The Conductor treats these as
-# hints, not sequences.
+# hints, not sequences. Core experts only (held experts are left out).
 paths:
-  site_driven: [site_reader, program_analyst, regulation_checker, concept_framer, design_critic]
-  idea_driven: [concept_framer, precedent_scout, site_reader, program_analyst, spatial_reviewer, design_critic]
-  program_driven: [program_analyst, site_reader, regulation_checker, concept_framer, spatial_reviewer]
-  regulation_driven: [regulation_checker, program_analyst, site_reader, spatial_reviewer, systems_advisor]
+  site_driven: [site_reader, program_analyst, regulation_checker, precedent_scout, design_critic]
+  idea_driven: [precedent_scout, site_reader, program_analyst, design_critic]
+  program_driven: [program_analyst, site_reader, regulation_checker, precedent_scout, design_critic]
+  regulation_driven: [regulation_checker, site_reader, program_analyst, design_critic]
   review_prep: [design_critic, representation_planner, presentation_editor]

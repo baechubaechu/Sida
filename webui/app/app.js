@@ -1,7 +1,7 @@
 // The Sida screen. Draws from the JSON API and keeps no project data in the browser:
 // projects, the Conductor conversation, expert chats and results all live on this PC's server.
 import {
-  PHASES, STATUS_LABELS, PROVIDER_LABELS, MODE_LABELS, STATE_UPDATE_LABELS,
+  phaseLabel, STATUS_LABELS, PROVIDER_LABELS, MODE_LABELS, STATE_UPDATE_LABELS,
   escapeHtml as escape, findProjects, relativeDate, projectSummary, chatItems, eventNotice,
   expertStatus, renderMarkdown, chatTitle, latestChat, chatLabel, DATA_KEYS, keyChanges,
   parseRoute, projectPath as projectUrl, expertPath, dateTime, arrangeDocument, itemTag, renderInline,
@@ -419,7 +419,7 @@ function expertsPanel() {
     return `<details class="expert-row" data-agent="${id}" ${ui.openExperts.has(e.id) ? 'open' : ''}>
         <summary class="expert-row-button">
           <span class="expert-name">${escape(e.name)}</span>
-          <span class="expert-phase">${escape(PHASES[e.phase] || e.phase)}</span>
+          <span class="expert-phase">${escape(phaseLabel(e))}</span>
           <span class="status-badge ${status}">${escape(STATUS_LABELS[status])}</span></summary>
         <div class="expert-threads"><button data-action="open-expert" data-agent="${id}">결과 문서 보기</button>${threads}</div></details>`;
   }).join('')}</aside>`;
@@ -638,7 +638,7 @@ function expertPage(name, agent) {
   return `<section class="expert-page" aria-label="${escape(expert.name)}">
     <header class="expert-head"><div>
       <h1>${escape(expert.name)}</h1>
-      <p class="expert-meta">${escape(PHASES[expert.phase] || expert.phase)} · <span class="status-badge ${status}">${escape(STATUS_LABELS[status])}</span>${expert.updated_at ? ` · 마지막 실행 ${escape(dateTime(expert.updated_at))}` : ''}</p></div>
+      <p class="expert-meta">${escape(phaseLabel(expert))} · <span class="status-badge ${status}">${escape(STATUS_LABELS[status])}</span>${expert.updated_at ? ` · 마지막 실행 ${escape(dateTime(expert.updated_at))}` : ''}</p></div>
       <a class="icon-button" href="${projectUrl(name)}" aria-label="전문가 화면 닫기">×</a>
     </header>
     <nav class="expert-tabs" aria-label="${escape(expert.name)} 화면">

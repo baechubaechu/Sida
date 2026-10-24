@@ -361,6 +361,29 @@ def test_converse_chains_experts_up_to_the_limit(core, scripted, mock_config):
     assert len(turn.replies) == 3
 
 
+RUN_CONCEPT = '개념도 보겠습니다\n```action\n{"type":"run","agent":"concept_framer"}\n```'
+
+
+def test_converse_does_not_chain_into_a_held_expert(core, scripted, mock_config):
+    mock_config["state_update"]["mode"] = "auto"
+    conductor = scripted([RUN_SITE, RUN_CONCEPT])
+    s = core(c_provider=conductor)
+    turn = engine.converse(s, "알아서 진행해")
+    assert turn.outcome == "continue"
+    assert [d["agent"]["id"] for k, d in s.events if k == "module_saved"] == ["site_reader"]
+    assert s.events[-1] == (
+        "run_skipped", {"agent": engine.agent_by_id(s.agents, "concept_framer"), "reason": "held", "limit": 3}
+    )
+    assert "never an expert marked ON HOLD" in conductor.calls[1]["messages"][-1]["content"]
+
+
+def test_converse_runs_a_held_expert_the_designer_asked_for(core, scripted, mock_config):
+    mock_config["state_update"]["mode"] = "auto"
+    s = core(c_provider=scripted([RUN_CONCEPT, NONE]))
+    engine.converse(s, "개념 정리자 돌려줘")
+    assert [d["agent"]["id"] for k, d in s.events if k == "module_saved"] == ["concept_framer"]
+
+
 def test_converse_does_not_chain_while_a_state_proposal_waits(core, scripted):
     conductor = scripted([RUN_SITE, RUN_PROGRAM])
     s = core(c_provider=conductor)

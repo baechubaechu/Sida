@@ -27,10 +27,30 @@ def test_paths_reference_known_experts(mock_config):
         assert set(seq) <= ids, name
     # entry expert reflects the driver
     assert paths["site_driven"][0] == "site_reader"
-    assert paths["idea_driven"][0] == "concept_framer"
+    assert paths["idea_driven"][0] == "precedent_scout"
     assert paths["program_driven"][0] == "program_analyst"
     assert paths["regulation_driven"][0] == "regulation_checker"
     assert paths["review_prep"][0] == "design_critic"
+
+
+HELD = {"concept_framer", "spatial_reviewer", "systems_advisor"}
+
+
+def test_seven_core_and_three_held_experts_and_paths_use_core_only(mock_config):
+    # 10/10 meeting: 7 core experts, 3 on hold
+    agents = sida_config.get_agents(mock_config)
+    tiers = {a["id"]: sida_config.agent_tier(a) for a in agents}
+    assert {i for i, t in tiers.items() if t == "held"} == HELD
+    assert sum(t == "core" for t in tiers.values()) == 7
+    for name, seq in sida_config.get_paths(mock_config).items():
+        assert not HELD & set(seq), name
+
+
+def test_agent_tier_defaults_to_core():
+    assert sida_config.agent_tier({"id": "x"}) == "core"
+    assert sida_config.agent_tier({"tier": " Held "}) == "held"
+    assert sida_config.agent_tier({"tier": "later"}) == "core"
+    assert sida_config.is_held({"tier": "held"}) and not sida_config.is_held({})
 
 
 def test_inputs_reference_known_experts(mock_config):

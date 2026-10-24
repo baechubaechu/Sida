@@ -17,10 +17,10 @@ def test_expected_and_missing_headers():
     prompt = (ROOT / "agents" / "11_site_reader.md").read_text(encoding="utf-8")
     hs = expected_headers(prompt)
     assert hs == [
-        "Site Conditions", "Spatial Conflicts", "Opportunities",
-        "Missing Information", "Design Implications", "Handoff",
+        "Facts", "Interpretations", "Spatial Conflicts", "Opportunities",
+        "Unconfirmed", "Design Implications", "Handoff",
     ]
-    assert missing_headers("# X\n\n## Site Conditions\n- a", hs) == hs[1:]
+    assert missing_headers("# X\n\n## Facts\n- a", hs) == hs[1:]
     assert missing_headers("\n".join(f"## {h}\n-" for h in hs), hs) == []
 
 

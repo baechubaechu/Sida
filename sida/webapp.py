@@ -116,6 +116,7 @@ def project_detail(config: dict, name: str) -> dict:
                 "id": a["id"],
                 "name": agent_name(a),
                 "phase": a.get("phase", ""),
+                "tier": sida_config.agent_tier(a),
                 "done": a["id"] in done,
             }
             for a in agents

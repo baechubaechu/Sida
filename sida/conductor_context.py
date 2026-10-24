@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sida.config import agent_inputs, get_agents, get_paths
+from sida.config import agent_inputs, get_agents, get_paths, is_held
 from sida.runtime import resolve_conductor_runtime
 from sida.state_revisions import content_revision, module_revisions, without_revisions
 
 
 def render_conductor_prompt(template: str, config: dict) -> str:
-    """Fill {{MODULES}} and {{PATHS}} from config so the expert list lives in one place."""
+    """Fill {{MODULES}} and {{PATHS}} from config so the expert list lives in one place.
+
+    Held experts are marked "on hold" and left out of the paths.
+    """
     agents = get_agents(config)
     by_phase: dict[str, list[dict]] = {}
     for a in agents:
@@ -27,12 +30,14 @@ def render_conductor_prompt(template: str, config: dict) -> str:
                 dep = "reads: " + ", ".join(inputs)
             else:
                 dep = "standalone"
-            lines.append(f"- `{a.get('id')}` — {desc}  ({dep})")
+            hold = " — ON HOLD" if is_held(a) else ""
+            lines.append(f"- `{a.get('id')}` — {desc}  ({dep}){hold}")
         lines.append("")
     modules = "\n".join(lines).rstrip()
 
-    paths = get_paths(config)
-    path_lines = [f"- {name}: " + " → ".join(ids) for name, ids in paths.items()]
+    held = {str(a.get("id")) for a in agents if is_held(a)}
+    paths = {name: [i for i in ids if i not in held] for name, ids in get_paths(config).items()}
+    path_lines = [f"- {name}: " + " → ".join(ids) for name, ids in paths.items() if ids]
     paths_text = "\n".join(path_lines) if path_lines else "- (none defined)"
 
     return template.replace("{{MODULES}}", modules).replace("{{PATHS}}", paths_text)
