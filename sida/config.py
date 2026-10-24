@@ -77,6 +77,20 @@ def get_paths(config: dict) -> dict[str, list[str]]:
     return out
 
 
+# 2026-10-10 meeting: 7 core experts are developed now, 3 are held (tier: held in config.yaml).
+TIERS = ("core", "held")
+
+
+def agent_tier(agent: dict) -> str:
+    """The expert's tier, "core" or "held". A held expert runs only when the designer asks for it by name."""
+    tier = str(agent.get("tier") or "core").strip().lower()
+    return tier if tier in TIERS else "core"
+
+
+def is_held(agent: dict) -> bool:
+    return agent_tier(agent) == "held"
+
+
 def agent_inputs(agent: dict) -> list[str] | str:
     """
     Which prior outputs this expert reads: a list of ids, "all", or "legacy"

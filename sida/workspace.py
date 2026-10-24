@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from sida.briefs import BRIEF_FIELD_KEYS, build_brief_markdown
-from sida.config import ROOT, agent_by_id, agent_inputs, get_agents
+from sida.config import ROOT, agent_by_id, agent_inputs, agent_tier, get_agents
 from sida.engine import history_messages
 from sida.i18n import agent_name
 from sida.project import (
@@ -156,6 +156,7 @@ def expert_entries(config: dict, path: Path) -> list[dict]:
             "id": agent["id"],
             "name": agent_name(agent),
             "phase": agent.get("phase", ""),
+            "tier": agent_tier(agent),
             "done": output.exists(),
             "updated_at": _modified_at(output) if output.exists() else "",
             "chat": bool(agent.get("chat", True)),

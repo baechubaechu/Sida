@@ -4,7 +4,7 @@ import {
   escapeHtml, findProjects, relativeDate, projectSummary, chatItems, eventNotice, expertStatus,
   renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges, parseRoute, expertPath, dateTime,
   documentSections, listItems, itemTag, handoffs, questionAnswer, arrangeDocument, EXPERT_LAYOUTS, SECTION_LABELS,
-  stateChangeView,
+  stateChangeView, phaseLabel,
 } from '../../webui/app/model.js';
 import { readFileSync, readdirSync } from 'node:fs';
 
@@ -87,6 +87,15 @@ test('a run the Conductor asked for but Sida held back says why', () => {
   assert.match(limit.text, /프로그램 분석가/);
   const pending = eventNotice({ kind: 'run_skipped', data: { agent, reason: 'state_pending' } });
   assert.match(pending.text, /반영안을 먼저 검토/);
+  const held = eventNotice({ kind: 'run_skipped', data: { agent, reason: 'held' } });
+  assert.match(held.text, /보류 중인 전문가/);
+});
+
+test('held experts say so next to their phase', () => {
+  assert.equal(phaseLabel({ phase: 'concept', tier: 'held' }), '개념 · 보류');
+  assert.equal(phaseLabel({ phase: 'analysis', tier: 'core' }), '분석');
+  assert.equal(phaseLabel({ phase: 'other' }), 'other');
+  assert.equal(phaseLabel({ tier: 'held' }), '보류');
 });
 
 test('a running job marks its expert as running', () => {
@@ -237,6 +246,32 @@ test('an expert document is split into its sections and arranged by that expert\
   // A document in none of the expected sections is shown as written.
   assert.equal(arrangeDocument('regulation_checker', '그냥 글입니다.'), null);
   assert.equal(arrangeDocument('unknown_expert', REGULATION), null);
+});
+
+const SITE = `# Site Reader
+
+## Facts
+- 대지 면적 1,234㎡, 지목 대 — source: site facts
+- 남쪽으로 철도와 접함 — source: brief
+- 정부 자료로 확인한 진입 도로 폭 8m — 출처: 대지 사실
+
+## Interpretations
+- 철도가 남북 보행을 끊는다 — rests on: 철도 접함 (brief)
+
+## Unconfirmed
+- 대지 고저차 — 현장 측량 필요
+
+## Site Conditions
+- 예전 형식의 결과
+`;
+
+test('site reader page puts sourced facts first, then interpretations, then what is unconfirmed', () => {
+  const doc = arrangeDocument('site_reader', SITE);
+  assert.deepEqual(doc.rows.map((r) => r.blocks.map((b) => b.label)), [['사실'], ['해석'], ['미확인'], ['대지 조건']]);
+  assert.equal(doc.rows[0].top, true);
+  const tags = doc.rows[0].blocks[0].items.map((item) => itemTag(item, doc.rows[0].tags)?.label ?? null);
+  assert.deepEqual(tags, ['정부 자료', '브리프', '정부 자료']);
+  assert.equal(doc.rows[2].kind, 'checklist');
 });
 
 test('list items keep their following lines and drop template placeholders', () => {

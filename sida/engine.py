@@ -15,7 +15,7 @@ Event kinds and their data:
   module_started    agent
   module_saved      agent, path, preview, truncated
   module_failed     agent, reason
-  run_skipped       agent, reason ("limit" | "state_pending"), limit
+  run_skipped       agent, reason ("limit" | "state_pending" | "held"), limit
   notice            message          (only when Session.capture_notices is set)
   state_proposing   agent
   state_proposed    agent, proposal  (mode "ask": waits for apply_state / discard_state)
@@ -33,7 +33,7 @@ from typing import Any
 
 from sida.conductor import ask_conductor, parse_action
 from sida.conductor_context import render_conductor_prompt
-from sida.config import ROOT, agent_by_id, get_agents, resolve_agent
+from sida.config import ROOT, agent_by_id, get_agents, is_held, resolve_agent
 from sida.errors import fail
 from sida.i18n import get_language
 from sida.project import Project, open_or_create
@@ -389,8 +389,8 @@ def follow_up_prompt(agent: dict, *, may_run: bool, state_pending: bool = False)
     if may_run:
         text += (
             "If another expert is clearly the necessary next step and nothing has to be asked "
-            "of the designer first, you may run it now. Otherwise run nothing and suggest the "
-            "next step or ask the designer."
+            "of the designer first, you may run it now (never an expert marked ON HOLD). "
+            "Otherwise run nothing and suggest the next step or ask the designer."
         )
     elif state_pending:
         text += (
@@ -411,7 +411,9 @@ def converse(session: Session, user_text: str | None, *, ephemeral: bool = False
     state_update.mode (in "ask" mode the proposal is left pending, never applied).
     The Conductor is then shown the result and either answers or runs the next expert,
     up to conductor.max_expert_runs runs. A pending state proposal ends the chain, since
-    the next run would replace it. For front ends that cannot stop mid-turn to ask (the web UI).
+    the next run would replace it, and so does a held expert (tier: held), which runs only
+    in answer to the designer's message, never as a step the Conductor chose after a run.
+    For front ends that cannot stop mid-turn to ask (the web UI).
     The Turn carries every reply; its error is set only when the first Conductor call failed.
     """
     if user_text is not None and not ephemeral:
@@ -422,8 +424,9 @@ def converse(session: Session, user_text: str | None, *, ephemeral: bool = False
     runs = 0
     state_pending = False
     while turn.outcome == "run" and turn.agent is not None:
-        if runs >= limit or state_pending:
-            reason = "state_pending" if state_pending else "limit"
+        chained_held = runs > 0 and is_held(turn.agent)
+        if runs >= limit or state_pending or chained_held:
+            reason = "state_pending" if state_pending else "held" if chained_held else "limit"
             session.send("run_skipped", agent=turn.agent, reason=reason, limit=limit)
             return Turn("continue", replies=replies, error=None)
         agent = turn.agent

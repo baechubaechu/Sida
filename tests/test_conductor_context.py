@@ -122,6 +122,17 @@ def test_render_conductor_prompt_lists_every_expert_and_path(mock_config):
     assert "**analysis**" in rendered and "**communication**" in rendered
 
 
+def test_conductor_prompt_marks_held_experts_and_keeps_them_out_of_paths(mock_config):
+    template = (ROOT / "agents" / "00_conductor.md").read_text(encoding="utf-8")
+    mock_config["paths"]["idea_driven"] = ["concept_framer", "precedent_scout"]
+    rendered = conductor_context.render_conductor_prompt(template, mock_config)
+    lines = {line.split("`")[1]: line for line in rendered.splitlines() if line.startswith("- `")}
+    assert lines["concept_framer"].endswith("— ON HOLD")
+    assert not lines["site_reader"].endswith("— ON HOLD")
+    assert "- idea_driven: precedent_scout\n" in rendered
+    assert "Run one only when the designer asks for it by name" in rendered
+
+
 def test_conductor_lays_out_conditions_and_decisions_itself(conductor_prompt):
     # 10/10 agreement: no constraint_mapper / synthesizer; their job is the Conductor's
     assert "constraint_mapper" not in conductor_prompt and "synthesizer" not in conductor_prompt

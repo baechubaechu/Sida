@@ -30,7 +30,8 @@
    2026-10-10 회의에서 이 일을 하던 `constraint_mapper`와 `synthesizer`를 빼고 Conductor로 옮겼다
    (`agents/00_conductor.md`의 "Conditions and decisions").
 5. **경로는 제안이다.** `paths`는 출발점별 권장 순서일 뿐이다. Conductor는 브리프의
-   `Primary Driver`와 설계자가 실제로 막힌 지점으로 진입 전문가를 고른다.
+   `Primary Driver`와 설계자가 실제로 막힌 지점으로 진입 전문가를 고른다. 경로에는 필수
+   전문가만 넣는다.
 6. **설정이 곧 목록이다.** Conductor 프롬프트의 전문가 목록과 project_state.md의 Module Status
    표는 `config.yaml`에서 생성된다. 전문가 추가 = 프롬프트 파일 1개 + `agents:` 항목 1개.
 
@@ -39,27 +40,40 @@
 번호는 단계 그룹이다 (1x 분석, 2x 개념, 4x 전개, 5x 비평, 6x 전달). 실행 순서가 아니다.
 3x(통합)는 비어 있다. 조합은 Conductor가 한다.
 
+### 필수 7개와 보류 3개
+
+2026-10-10 회의에서 필수 7개(대지 분석가, 프로그램 분석가, 법규 검토자, 선례 연구자, 설계
+비평가, 표현 계획자, 발표 편집자)와 보류 3개(개념 정리자, 공간 검토자, 시스템 자문가)로 나눴다.
+`config.yaml`의 `tier`가 `core` 또는 `held`다.
+
+보류 전문가는 지우지 않고 다음처럼 다룬다.
+
+- 설계자가 전문가 화면에서 직접 실행하거나 Conductor에게 이름으로 부탁하면 돈다.
+- Conductor는 먼저 권하지 않는다. 프롬프트의 전문가 목록에 `ON HOLD`로 표시되고, 경로(`paths`)에서 빠진다.
+- 한 전문가가 끝난 뒤 Conductor가 이어서 보류 전문가를 부르면 실행하지 않고 `run_skipped`(`reason: held`)로 알린다(`engine.converse`).
+- 세션 API의 `experts` 목록에 `tier`가 나오고, 화면은 단계 옆에 "보류"를 붙인다.
+
 | id | 단계 | 무엇을 하나 | 하지 않는 것 |
 |---|---|---|---|
-| `site_reader` | 분석 | 시스템이 어떻게 만나고 끊는지, 충돌·기회·누락 정보 | 프로그램·형태 제안 |
+| `site_reader` | 분석 | 사실(정부 자료·브리프, 출처 표시)·해석(근거 사실 명시)·미확인을 나눠 쓰고, 시스템이 어떻게 만나고 끊는지, 충돌·기회 | 프로그램·형태 제안, 수치 추정 |
 | `program_analyst` | 분석 | 사용자와 리듬, 구성요소(브리프/후보/가정 구분), 인접·분리, 공사 그라디언트, 상대 면적 논리 | 면적 숫자 발명, 배치 제안 |
 | `regulation_checker` | 분석 | 적용 법령(한국 기본), 확인 항목 표(왜/어디서), 형태를 묶을 제약, 인센티브 | 수치를 사실로 단정 — 항상 "verify" |
 | `precedent_scout` | 분석 | 문제 기준 선례 3–6개: 문제·수법·교훈·주의. 불확실하면 이름 대신 유형 | 형태 복제 권고, 사실 발명 |
-| `concept_framer` | 개념 | 설계자의 의도를 한 문장 개념 + 작동 전략 + 증명해야 할 주장 + 클리셰 위험 | 개념 대체, 형태 제안 |
-| `spatial_reviewer` | 전개 | 설계자가 기술한 조직(레이어·단면·동선·경계·프로그램 배치)의 논리 검증, 약점별 검증 도면 | 대안 설계, 취향 판단 |
-| `systems_advisor` | 전개 | 구조·외피·환경·설비·피난 질문과 옵션별 트레이드오프, 지금 안 정하면 잠기는 결정 | 치수·하중·수치 |
+| `concept_framer` (보류) | 개념 | 설계자의 의도를 한 문장 개념 + 작동 전략 + 증명해야 할 주장 + 클리셰 위험 | 개념 대체, 형태 제안 |
+| `spatial_reviewer` (보류) | 전개 | 설계자가 기술한 조직(레이어·단면·동선·경계·프로그램 배치)의 논리 검증, 약점별 검증 도면 | 대안 설계, 취향 판단 |
+| `systems_advisor` (보류) | 전개 | 구조·외피·환경·설비·피난 질문과 옵션별 트레이드오프, 지금 안 정하면 잠기는 결정 | 치수·하중·수치 |
 | `design_critic` | 비평 | 심사위원 시점: 핵심 문제에 답하는가, 모순, 약한 가정, 빠진 표현, 다음 행동 | 일반론 |
-| `representation_planner` | 전달 | 개념의 주장을 증명하고 약점을 시험하는 다이어그램·도면·모델, 발표 위계 | 도면 나열 |
+| `representation_planner` | 전달 | 다이어그램 위주: 다이어그램마다 종류·주장 하나·보여 줄 것과 뺄 것, 다이어그램 순서. 도면·렌더·모형은 다이어그램으로 안 되는 곳만 | 도면 나열, 개수 채우기 |
 | `presentation_editor` | 전달 | 한 줄 요약, 문제, 시스템, 핵심 산출물, 포트폴리오 구조, 예상 질문 | 새 주장 추가, 과장 |
 
 ## 출발점별 경로 (config `paths`)
 
 | 경로 | 언제 | 순서 |
 |---|---|---|
-| `site_driven` | 인프라·지형·수변이 문제를 만든다 | site_reader → program_analyst → regulation_checker → concept_framer → design_critic |
-| `idea_driven` | 개념이 먼저 있고 근거를 만들어야 한다 | concept_framer → precedent_scout → site_reader → program_analyst → spatial_reviewer → design_critic |
-| `program_driven` | 사용자·운영·구성이 복잡하다 | program_analyst → site_reader → regulation_checker → concept_framer → spatial_reviewer |
-| `regulation_driven` | 법규가 형태를 거의 결정한다 | regulation_checker → program_analyst → site_reader → spatial_reviewer → systems_advisor |
+| `site_driven` | 인프라·지형·수변이 문제를 만든다 | site_reader → program_analyst → regulation_checker → precedent_scout → design_critic |
+| `idea_driven` | 개념이 먼저 있고 근거를 만들어야 한다 | precedent_scout → site_reader → program_analyst → design_critic |
+| `program_driven` | 사용자·운영·구성이 복잡하다 | program_analyst → site_reader → regulation_checker → precedent_scout → design_critic |
+| `regulation_driven` | 법규가 형태를 거의 결정한다 | regulation_checker → site_reader → program_analyst → design_critic |
 | `review_prep` | 크리틱·심사 직전 | design_critic → representation_planner → presentation_editor |
 
 경로는 순서를 강제하지 않는 힌트다. 대화 세션에서 Conductor가 한 번에 하나씩, 필요할 때만 제안한다.
@@ -69,18 +83,18 @@
 ```
 브리프 (Primary Driver: idea)
   │
-  ├─ Conductor: 진입 = concept_framer
-  │     출력 Handoff → precedent_scout: "layer 전략의 선례", → site_reader: "단면 교차가 실제 대지에서 가능한지"
+  ├─ Conductor: 진입 = precedent_scout (개념 정리자는 보류라 먼저 권하지 않음)
+  │     출력 Handoff → site_reader: "단면 교차가 실제 대지에서 가능한지"
   │
-  ├─ site_reader (inputs: concept_framer 읽음) → Handoff → regulation_checker: "철도 인접 이격"
+  ├─ site_reader (inputs: 없는 것은 명시) → Handoff → regulation_checker: "철도 인접 이격"
   ├─ regulation_checker (inputs: site_reader, program_analyst — 후자 없음 → 명시)
   │
   ├─ 3개 완료 → Conductor가 조건·결정을 정리
-  │     충돌 — Concept Framer의 "지상 연속 보행" vs Regulation Checker의 "철도 이격 verify"
+  │     충돌 — 브리프의 "지상 연속 보행" vs Regulation Checker의 "철도 이격 verify"
   │     결정 — 단면 교차 위치: 역사 내부 / 외부 연결부 (옵션·비용·근거)
   │
   └─ 설계자 결정 → project_state.md Confirmed Decisions
-        → spatial_reviewer가 그 결정을 전제로 조직 검증
+        → design_critic이 그 결정을 전제로 방향을 비평
 ```
 
 각 단계에서 `state_update`가 project_state.md의 Module Status 행과 관련 섹션을 갱신하므로,

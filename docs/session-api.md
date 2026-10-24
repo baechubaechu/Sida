@@ -38,7 +38,7 @@
   - `event: "run_requested"`: 설계자가 직접 실행을 누른 자리.
   - `event: "read"`: Conductor가 결과 문서를 읽은 자리. 작은 안내 줄 정도면 됩니다.
 - `job`: 실행 중인 작업. 없으면 `null`. 화면을 새로 열었을 때 값이 있으면 그 작업을 `after=0`부터 이어서 조회하세요.
-- `experts`: 우측 전문가 패널용 목록. `{id, name, phase, done, updated_at, chat, chats, status, inputs}`이고 `chat`은 전문가 채팅이 있는지, `inputs`는 이 전문가가 읽는 다른 전문가 id 목록(config 순서), `chats`는 `GET /experts/{agent}/chats`의 `chats`와 같은 분석 채팅 목록(채팅 없는 전문가는 빈 목록), `status`는 `idle`(실행 전), `running`(실행 중), `review`(설계 상태 반영 승인을 기다림), `done`입니다.
+- `experts`: 우측 전문가 패널용 목록. `{id, name, phase, tier, done, updated_at, chat, chats, status, inputs}`이고 `tier`는 `core`(필수 7개) 또는 `held`(보류 3개: 개념 정리자, 공간 검토자, 시스템 자문가. 설계자가 직접 실행하거나 이름으로 부탁할 때만 돌고, Conductor가 먼저 권하거나 이어서 실행하지 않음), `chat`은 전문가 채팅이 있는지, `inputs`는 이 전문가가 읽는 다른 전문가 id 목록(config 순서), `chats`는 `GET /experts/{agent}/chats`의 `chats`와 같은 분석 채팅 목록(채팅 없는 전문가는 빈 목록), `status`는 `idle`(실행 전), `running`(실행 중), `review`(설계 상태 반영 승인을 기다림), `done`입니다.
 - `proposal`: 기다리는 설계 상태 반영안 `{id, agent, diff, changes}`. `changes`는 섹션별로 바뀌는 항목입니다([state-editing.md](state-editing.md)). 없으면 `null`.
 
 ## 이벤트
@@ -60,7 +60,7 @@
 | `reading`, `read_failed` | `file` / `agent, reason` | 작은 안내 줄 |
 | `unknown_agent`, `action_recovered` | | 작은 안내 줄 |
 | `conductor_error` | `reason`, 때로 `after_run` | 오류 줄. 이 메시지는 기록되지 않았으니 다시 보내게 안내. `after_run: true`이면 전문가 결과는 저장됐고 Conductor의 이어지는 답만 실패한 것이라 다시 보내라고 하지 않음 |
-| `run_skipped` | `agent, reason, limit` | **알림**: Conductor가 실행하려던 전문가를 실행하지 않음. `reason`은 `limit`(한 번에 실행하는 수를 채움) 또는 `state_pending`(설계 상태 반영안 검토가 먼저) |
+| `run_skipped` | `agent, reason, limit` | **알림**: Conductor가 실행하려던 전문가를 실행하지 않음. `reason`은 `limit`(한 번에 실행하는 수를 채움), `state_pending`(설계 상태 반영안 검토가 먼저), `held`(보류 전문가라 다른 전문가 다음에 이어서 실행하지 않음) |
 | `notice` | `message` | 경고 줄(법령 검색 실패, 로컬 모델 준비 등) |
 
 ## 전문가 자동 호출
