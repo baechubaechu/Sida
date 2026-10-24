@@ -184,9 +184,10 @@ def test_main_screen_calls_only_existing_api_paths(client):
         return len(ours) == len(theirs) and all(b in (a, "{}") for a, b in zip(ours, theirs, strict=True))
 
     routes = list(client.app.openapi()["paths"])
-    assert {"/api/projects", "/api/settings", "/api/projects/{}/session/messages"} <= {
-        shape(path) for path in called
-    }
+    assert {
+        "/api/projects", "/api/settings", "/api/projects/{}/session/messages",
+        "/api/site/regions", "/api/site/lots", "/api/projects/{}/site", "/api/projects/{}/site/parcels",
+    } <= {shape(path) for path in called}
     for path in called:
         assert any(fits(path, route) for route in routes), path
 
