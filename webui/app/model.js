@@ -246,7 +246,13 @@ export function expertPath(name, agent, tab = 'doc', id = '') {
   return `${projectPath(name)}/expert/${encodeURIComponent(agent)}${rest}`;
 }
 
+// The site page: tab 'facts' (what was looked up) or 'find' (choose the parcels).
+export function sitePath(name, tab = 'facts') {
+  return `${projectPath(name)}/site${tab === 'facts' ? '' : `/${tab}`}`;
+}
+
 const EXPERT_TABS = ['chat', 'versions'];
+const SITE_TABS = ['find'];
 
 export function parseRoute(hash) {
   const parts = String(hash || '').replace(/^#\/?/, '').split('/').map((p) => {
@@ -254,11 +260,17 @@ export function parseRoute(hash) {
   });
   if (parts[0] === 'new') return { page: 'new' };
   if (parts[0] !== 'project' || !parts[1]) return { page: 'home' };
+  if (parts[2] === 'site') {
+    return {
+      page: 'project', name: parts[1], agent: '', site: true,
+      tab: SITE_TABS.includes(parts[3]) ? parts[3] : 'facts', chat: '', version: '',
+    };
+  }
   const agent = parts[2] === 'expert' ? parts[3] || '' : '';
   const tab = agent && EXPERT_TABS.includes(parts[4]) ? parts[4] : 'doc';
   const id = tab === 'doc' ? '' : parts[5] || '';
   return {
-    page: 'project', name: parts[1], agent, tab,
+    page: 'project', name: parts[1], agent, site: false, tab,
     chat: tab === 'chat' ? id : '', version: tab === 'versions' ? id : '',
   };
 }
@@ -534,4 +546,104 @@ export function stateChangeView(changes, names = {}) {
     ];
     return { title, summary, rows };
   }).filter((section) => section.rows.length);
+}
+
+// ------------------------------------------------------------------ site page
+
+// The saved site facts (GET .../site, docs/site-ordinance.md). Every value comes from a
+// government API; what could not be fetched reads "미확인", never an estimate.
+export const UNKNOWN = '미확인';
+
+export function areaText(m2) {
+  return typeof m2 === 'number' && Number.isFinite(m2) ? `${m2.toLocaleString('ko-KR')}㎡` : UNKNOWN;
+}
+
+// Where a 용도지역 lies on a site of `parcelCount` parcels.
+export function zoneScope(zone, parcelCount) {
+  if (zone.partial) return '필지 일부에 걸침, 면적 비율 미확인';
+  if ((zone.pnus || []).length === parcelCount) return '전 필지';
+  return `필지 ${(zone.pnus || []).length}개, ${areaText(zone.area_m2)}`;
+}
+
+// One line for the site: "경기도 군포시 금정동 689 · 일반공업지역", or '' before a lookup.
+export function siteHeadline(site) {
+  if (!site?.available) return '';
+  const zones = (site.summary?.zoning || []).map((z) => z.zone);
+  return [site.query, zones.length ? zones.join(', ') : `용도지역 ${UNKNOWN}`].filter(Boolean).join(' · ');
+}
+
+// What `parcels[].errors` and `summary.missing[].what` name.
+export const SITE_PART_LABELS = {
+  land_use: '토지이용계획(용도지역·지구)', characteristics: '토지 특성', buildings: '건축물대장', shape: '필지 경계',
+};
+
+export function missingText(item) {
+  return `${item.address || item.pnu}의 ${SITE_PART_LABELS[item.what] || item.what}`;
+}
+
+// The government's reasons a restriction lookup failed (datago.py kinds).
+const LOOKUP_ERRORS = {
+  network: '연결 실패', bad_response: '예상과 다른 응답', no_key: '키 없음', invalid_key: '키 거부', over_limit: '호출 한도 초과',
+};
+
+// One 시·군·구 of `restrictions`: its articles split into national laws and local ordinances.
+export function restrictionGroups(restriction) {
+  const laws = restriction?.laws || [];
+  return {
+    national: laws.filter((l) => !l.local),
+    local: laws.filter((l) => l.local),
+    error: restriction?.error ? LOOKUP_ERRORS[restriction.error] || restriction.error : '',
+  };
+}
+
+// A registered building as one line: "(주)혜창 · 공장 · 철골구조 · 지상 4층/지하 1층 · 연면적 3,210㎡ · 사용승인 1998.05.12".
+export function buildingLine(b) {
+  const floors = [b.floors_above != null && `지상 ${b.floors_above}층`, b.floors_below ? `지하 ${b.floors_below}층` : '']
+    .filter(Boolean).join('/');
+  const approved = /^\d{8}$/.test(b.approved || '')
+    ? `사용승인 ${b.approved.slice(0, 4)}.${b.approved.slice(4, 6)}.${b.approved.slice(6)}` : '';
+  return [
+    [b.name, b.dong].filter(Boolean).join(' ') || '이름 없는 건물',
+    b.purpose, b.structure, floors,
+    b.total_floor_area_m2 != null && `연면적 ${areaText(b.total_floor_area_m2)}`,
+    approved,
+  ].filter(Boolean).join(' · ');
+}
+
+// The 동 or 리 a 지번 is looked up in: the chosen 리, or a 동 that has no 리.
+export function chosenDong(chosen) {
+  if (chosen?.ri) return chosen.ri.dong_code || '';
+  if (chosen?.emd && !chosen.emd.has_ri) return chosen.emd.dong_code || '';
+  return '';
+}
+
+// GET /api/site/lots query for a typed 지번, or the reason it cannot be sent.
+export function lotQuery(dongCode, main, sub = '', mountain = false) {
+  if (!dongCode) return { error: '읍·면·동(리가 있으면 리)까지 골라 주세요.' };
+  const number = (text) => (/^\d+$/.test(String(text).trim()) ? Number(String(text).trim()) : NaN);
+  const m = number(main);
+  if (!(m >= 1 && m <= 9999)) return { error: '본번은 1에서 9999 사이의 숫자로 적어 주세요.' };
+  const params = new URLSearchParams({ dong_code: dongCode, main: String(m) });
+  if (String(sub).trim()) {
+    const s = number(sub);
+    if (!(s >= 0 && s <= 9999)) return { error: '부번은 0에서 9999 사이의 숫자로 적어 주세요. 모르면 비워 두세요.' };
+    params.set('sub', String(s));
+  }
+  if (mountain) params.set('mountain', 'true');
+  return { query: params.toString() };
+}
+
+// PUT .../site body. Parcels that all came from the last address search are sent with that
+// search (the server checks them against it); parcels chosen any other way go by number alone.
+export function lookupBody(picked, search) {
+  const pnus = picked.map((p) => p.pnu);
+  const fromSearch = Boolean(search?.query) && picked.every((p) => search.pnus.includes(p.pnu));
+  return fromSearch ? { query: search.query, pnus } : { pnus };
+}
+
+// The address the brief was made with (brief.md "## Site"), to start the text search from.
+export function briefSite(brief) {
+  const site = documentSections(brief).sections.find((s) => s.key === 'site');
+  const text = (site?.body || '').trim();
+  return text === '-' ? '' : text;
 }

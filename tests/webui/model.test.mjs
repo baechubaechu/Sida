@@ -4,7 +4,8 @@ import {
   escapeHtml, findProjects, relativeDate, projectSummary, chatItems, eventNotice, expertStatus,
   renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges, parseRoute, expertPath, dateTime,
   documentSections, listItems, itemTag, handoffs, questionAnswer, arrangeDocument, EXPERT_LAYOUTS, SECTION_LABELS,
-  stateChangeView, phaseLabel,
+  stateChangeView, phaseLabel, sitePath, areaText, zoneScope, siteHeadline, missingText, restrictionGroups,
+  buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
 } from '../../webui/app/model.js';
 import { readFileSync, readdirSync } from 'node:fs';
 
@@ -168,7 +169,7 @@ test('only typed keys are saved, and the shown VWorld domain only when it change
 
 test('addresses open an expert on its result, analysis chat or earlier result', () => {
   assert.deepEqual(parseRoute('#/project/my%20museum/expert/site_reader'), {
-    page: 'project', name: 'my museum', agent: 'site_reader', tab: 'doc', chat: '', version: '',
+    page: 'project', name: 'my museum', agent: 'site_reader', site: false, tab: 'doc', chat: '', version: '',
   });
   assert.equal(parseRoute('#/project/a/expert/program_analyst/chat/02').chat, '02');
   assert.equal(parseRoute('#/project/a/expert/program_analyst/chat').tab, 'chat');
@@ -301,4 +302,87 @@ test('state proposal changes read as Korean sections, not a diff', () => {
   assert.deepEqual(view[1].rows.map((r) => r.kind), ['added', 'added', 'removed']);
   assert.deepEqual(view[2].rows, [{ kind: 'changed', label: '대지 분석가', before: '대기', text: '완료', note: '역은 접점' }]);
   assert.deepEqual(stateChangeView(undefined), []);
+});
+
+test('the site page opens on its facts or on finding parcels, beside the Conductor conversation', () => {
+  assert.deepEqual(parseRoute(sitePath('뮤지엄 #1')), {
+    page: 'project', name: '뮤지엄 #1', agent: '', site: true, tab: 'facts', chat: '', version: '',
+  });
+  assert.equal(parseRoute(sitePath('a', 'find')).tab, 'find');
+  assert.equal(parseRoute('#/project/a/site/nonsense').tab, 'facts');
+  assert.equal(parseRoute('#/project/a').site, false);
+});
+
+const site = {
+  available: true,
+  query: '경기도 군포시 금정동 689',
+  summary: {
+    parcel_count: 2, total_area_m2: 2028.6, area_complete: true, municipality: '경기도 군포시',
+    zoning: [
+      { zone: '일반공업지역', pnus: ['1', '2'], area_m2: 2028.6, partial: false },
+      { zone: '자연녹지지역', pnus: ['2'], area_m2: 1014.3, partial: false },
+    ],
+  },
+};
+
+test('site facts read as given: areas, where a zone lies, and 미확인 instead of a guess', () => {
+  assert.equal(areaText(1014.3), '1,014.3㎡');
+  assert.equal(areaText(null), '미확인');
+  assert.equal(zoneScope(site.summary.zoning[0], 2), '전 필지');
+  assert.equal(zoneScope(site.summary.zoning[1], 2), '필지 1개, 1,014.3㎡');
+  assert.equal(zoneScope({ partial: true, pnus: ['1'] }, 1), '필지 일부에 걸침, 면적 비율 미확인');
+  assert.equal(siteHeadline(site), '경기도 군포시 금정동 689 · 일반공업지역, 자연녹지지역');
+  assert.equal(siteHeadline({ ...site, summary: { ...site.summary, zoning: [] } }), '경기도 군포시 금정동 689 · 용도지역 미확인');
+  assert.equal(siteHeadline({ available: false }), '');
+  assert.equal(siteHeadline(null), '');
+  assert.equal(missingText({ pnu: '1', address: '금정동 689-14', what: 'buildings' }), '금정동 689-14의 건축물대장');
+  assert.equal(missingText({ pnu: '41410', address: '', what: 'new_kind' }), '41410의 new_kind');
+});
+
+test('restriction articles split into national laws and ordinances, and a failed lookup says why', () => {
+  const groups = restrictionGroups({
+    laws: [{ text: '제71조(용도지역안에서의 건축제한)', local: false }, { text: '제30조', local: true }], error: null,
+  });
+  assert.deepEqual(groups.national.map((l) => l.text), ['제71조(용도지역안에서의 건축제한)']);
+  assert.deepEqual(groups.local.map((l) => l.text), ['제30조']);
+  assert.equal(groups.error, '');
+  assert.equal(restrictionGroups({ laws: [], error: 'network' }).error, '연결 실패');
+});
+
+test('a registered building reads as one line with only what the register holds', () => {
+  assert.equal(
+    buildingLine({ name: '(주)혜창', dong: '', purpose: '공장', structure: '철골구조', floors_above: 4, floors_below: 1, total_floor_area_m2: 3210, approved: '19980512' }),
+    '(주)혜창 · 공장 · 철골구조 · 지상 4층/지하 1층 · 연면적 3,210㎡ · 사용승인 1998.05.12',
+  );
+  assert.equal(buildingLine({ name: '', purpose: '주택', floors_above: null, total_floor_area_m2: null, approved: '' }), '이름 없는 건물 · 주택');
+});
+
+test('a 지번 is looked up in the chosen 리, or in a 동 that has none', () => {
+  const emd = { code: '41410105', dong_code: '4141010500', has_ri: false };
+  const town = { code: '41830250', dong_code: '4183025000', has_ri: true };
+  assert.equal(chosenDong({ emd }), '4141010500');
+  assert.equal(chosenDong({ emd: town }), '');
+  assert.equal(chosenDong({ emd: town, ri: { dong_code: '4183025021' } }), '4183025021');
+  assert.equal(chosenDong({}), '');
+
+  assert.equal(lotQuery('4141010500', ' 689 ', '14').query, 'dong_code=4141010500&main=689&sub=14');
+  assert.equal(lotQuery('4141010500', '689', '', true).query, 'dong_code=4141010500&main=689&mountain=true');
+  assert.equal(lotQuery('4141010500', '689', '0').query, 'dong_code=4141010500&main=689&sub=0');
+  assert.match(lotQuery('', '689').error, /읍·면·동/);
+  for (const main of ['', '0', '10000', '68a', '6.5']) assert.match(lotQuery('4141010500', main).error, /본번/);
+  assert.match(lotQuery('4141010500', '689', '-1').error, /부번/);
+});
+
+test('parcels from the last address search go with that search; others go by number alone', () => {
+  const search = { query: '금정동 689', pnus: ['a', 'b'] };
+  assert.deepEqual(lookupBody([{ pnu: 'b' }, { pnu: 'a' }], search), { query: '금정동 689', pnus: ['b', 'a'] });
+  assert.deepEqual(lookupBody([{ pnu: 'a' }, { pnu: 'c' }], search), { pnus: ['a', 'c'] });
+  assert.deepEqual(lookupBody([{ pnu: 'a' }], null), { pnus: ['a'] });
+});
+
+test('the find tab starts from the address the brief was made with', () => {
+  const brief = '# Project Brief\n\n## Project Type\n미술관\n\n## Site\n경기도 군포시 금정동 689\n\n## Core Problem\n-\n';
+  assert.equal(briefSite(brief), '경기도 군포시 금정동 689');
+  assert.equal(briefSite(brief.replace('경기도 군포시 금정동 689', '-')), '');
+  assert.equal(briefSite(''), '');
 });

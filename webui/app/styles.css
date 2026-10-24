@@ -310,6 +310,47 @@ button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 .settings-group p { margin: 6px 0; font-size: 14px; }
 .settings-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
 dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; }
+/* Site page: the right side of the split, like an expert page, without the review column. */
+.experts-heading { margin-top: 26px !important; }
+.site-row { margin-bottom: 0; border: 1px solid var(--line); }
+.site-note { font-size: 13px; padding: 8px 12px; margin-bottom: 14px; border-radius: 8px; background: #eef3f7; }
+.site-note.warn { background: #fffaf0; color: #7a5313; }
+.site-note a { color: var(--brand); text-decoration: underline; margin-left: 6px; white-space: nowrap; }
+.note-actions { margin-top: 14px; }
+.unknown { color: #7a5313; }
+.site-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.site-table th, .site-table td { border-bottom: 1px solid var(--line); padding: 7px 8px; text-align: left; vertical-align: top; }
+.site-table thead th { color: var(--muted); font-weight: 600; }
+.site-zoning .small-text { margin-top: 8px; }
+.site-flags { border-color: #e8cf9f; background: #fffaf0; }
+.doc-section h3 { font-size: 13px; margin: 10px 0 6px; }
+.doc-section .doc-row { margin-bottom: 0; }
+.site-lines pre { white-space: pre-wrap; font-size: 12px; background: var(--surface-subtle); border-radius: 8px; padding: 10px 12px; }
+.site-find { display: grid; gap: 16px; }
+.mode-switch { display: inline-flex; justify-self: start; padding: 3px; border-radius: 9px; background: var(--surface-subtle); }
+.mode-switch button { padding: 6px 14px; border-radius: 7px; font-size: 13px; color: var(--muted); }
+.mode-switch button[aria-pressed="true"] { background: white; color: var(--brand); font-weight: 700; box-shadow: 0 1px 3px #20262d1a; }
+.site-form label, .lot-inputs legend { display: block; font-size: 13px; font-weight: 700; color: var(--muted); }
+.site-form select, .site-form input:not([type="checkbox"]) { display: block; width: 100%; margin-top: 6px; padding: 9px 12px; }
+.region-grid { display: grid; gap: 4px 12px; }
+@container (min-width: 620px) { .region-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.region-grid label { margin-top: 8px; }
+.lot-inputs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 14px 0 0; padding: 0; border: 0; }
+.lot-inputs legend { width: 100%; margin-bottom: 6px; }
+.lot-inputs .check { display: flex; align-items: center; gap: 6px; font-weight: 400; color: var(--text); }
+.site-form .lot-inputs input:not([type="checkbox"]) { width: 110px; margin: 0; }
+.site-form .small-text { margin-top: 6px; }
+.address-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.site-form .address-row input { margin-top: 0; flex: 1; }
+.candidates, .picked { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.candidates h2, .picked h2 { font-size: 14px; }
+.candidates ul, .picked-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 4px; max-height: 320px; overflow-y: auto; }
+.candidates label { display: flex; gap: 8px; align-items: baseline; padding: 6px 4px; font-size: 14px; cursor: pointer; }
+.picked { border-color: #c9d6e2; background: #f6f9fc; }
+.picked-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 2px 4px 2px 10px; background: white; border-radius: 8px; font-size: 14px; }
+.picked-list .icon-button { width: 30px; height: 30px; font-size: 20px; }
+.picked .form-actions { margin-top: 12px; }
+.picked .form-actions .primary { min-height: 40px; min-width: 0; padding: 8px 18px; }
 @media (min-width: 1800px) { .home { max-width: 1500px; width: 100%; margin: auto; } }
 @media (max-width: 1200px) {
   :root { --sidebar-width: 210px; --expert-width: 290px; --home-gutter: 32px; }
