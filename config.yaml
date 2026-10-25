@@ -126,7 +126,7 @@ site_facts:
     regulation_checker: regulatory
 
 # ---------------------------------------------------------------------------
-# Rhino modeling: a later special feature, not on the web yet (docs/roadmap.md).
+# Rhino modeling: a later special feature, not on the web yet (roadmap in the team Notion).
 # Separate from design projects / Conductor experts.
 # OpenAI API only. Model must be GPT-6 or newer (default: gpt-6-astra).
 # ---------------------------------------------------------------------------
