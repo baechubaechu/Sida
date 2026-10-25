@@ -205,7 +205,7 @@ expert list and the `project_state.md` Module Status table are generated from co
 
 ## Next steps
 
-See [`docs/roadmap.md`](docs/roadmap.md). In short: build the web screens on the JSON API.
+See the [roadmap in the team's Notion](https://app.notion.com/p/3ecf5f66cbb7811596e0e3c69b7a229b) (moved out of the repo on 2026-10-25). In short: build the web screens on the JSON API.
 The terminal CLI was removed (2026-10-16); every feature goes through the web.
 
 ## Development

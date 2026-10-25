@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Sida(시다) 저장소에서 작업하는 모든 AI 에이전트(Claude Code, Cursor, Codex, Copilot 등)가 따를 규칙입니다. Claude Code는 `CLAUDE.md`가 이 파일을 불러옵니다. 프로젝트 개요는 `README.md`, 전문가(에이전트) 구성은 `docs/experts.md`, 팀 규칙 전체는 `CONTRIBUTING.md`, 개발 환경 세팅은 `docs/dev-setup.md`, 앞으로의 방향과 순서는 `docs/roadmap.md`를 보세요.
+Sida(시다) 저장소에서 작업하는 모든 AI 에이전트(Claude Code, Cursor, Codex, Copilot 등)가 따를 규칙입니다. Claude Code는 `CLAUDE.md`가 이 파일을 불러옵니다. 프로젝트 개요는 `README.md`, 전문가(에이전트) 구성은 `docs/experts.md`, 팀 규칙 전체는 `CONTRIBUTING.md`, 개발 환경 세팅은 `docs/dev-setup.md`, 앞으로의 방향과 순서는 Notion 팀 허브의 [로드맵](https://app.notion.com/p/3ecf5f66cbb7811596e0e3c69b7a229b)을 보세요(2026-10-25에 저장소의 `docs/roadmap.md`에서 옮김). 로드맵을 고칠 때는 Notion 페이지를 고치고, 저장소에 로드맵 문서를 다시 만들지 않습니다.
 
 ## 프로젝트 요약
 

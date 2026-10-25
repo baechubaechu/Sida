@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rhino modeling assistant (OpenAI GPT-6+ + Rhino MCP). Not reachable from the web yet: a later special feature (docs/roadmap.md)."""
+"""Rhino modeling assistant (OpenAI GPT-6+ + Rhino MCP). Not reachable from the web yet: a later special feature (roadmap in the team Notion)."""
 
 from __future__ import annotations
 
