@@ -13,7 +13,7 @@ SITE = [("site", SimpleNamespace(board_site=lambda path: {"area_m2": 1000.0, "li
 
 
 def test_a_new_table_holds_only_the_site_and_papers_are_saved_one_by_one(tmp_path):
-    assert board.load_board(tmp_path) == {"rev": 0, "papers": [board._site_paper()], "pins": []}
+    assert board.load_board(tmp_path) == {"rev": 0, "papers": [board._site_paper()], "tray": [], "pins": []}
     assert not board.board_path(tmp_path).exists()  # reading saves nothing
 
     mass = board.add_paper(tmp_path, {**MASS, "id": "mass-a", "x": 40, "y": 10, "w": 300, "h": 210})
@@ -226,3 +226,131 @@ def test_a_local_conductor_has_no_read_board_tool(make_session, table, mock_conf
 
     engine.converse(make_session(c_provider=Tools()), "안녕")
     assert seen == [["run_expert", "read_expert_output"]]
+
+
+# --- the AI section -------------------------------------------------------------
+
+
+def test_the_conductor_proposes_into_the_ai_section_and_never_touches_the_table(tmp_path):
+    board.add_paper(tmp_path, {**MASS, "id": "mass-a"})
+    copy = board.propose_paper(tmp_path, {
+        "kind": "mass", "based_on": "mass-a", "reason": "북측 일조",
+        "blocks": [{"w": 36, "d": 24, "floors": 4.0}],
+    })
+    assert copy["id"].startswith("ai-mass-") and copy["title"] == "안 A · 판상형 수정안"
+    assert copy["origin"] == "conductor" and copy["based_on"] == "mass-a" and copy["blocks"][0]["floors"] == 4
+    note = board.propose_paper(tmp_path, {"kind": "note", "text": "하역 동선 확인", "reason": "동선"})
+
+    saved = board.load_board(tmp_path)
+    assert [p["id"] for p in saved["papers"]] == ["site", "mass-a"]
+    assert saved["papers"][1]["blocks"][0]["floors"] == 5  # the designer's scheme is unchanged
+    assert [p["id"] for p in saved["tray"]] == [copy["id"], note["id"]]
+    assert "(AI copy of mass-a) — why: 북측 일조" in board.paper_text(copy, None)
+
+    for bad, message in [
+        ({"kind": "tracing", "strokes": []}, "kind must be"),
+        ({"kind": "mass", "based_on": "gone", "blocks": [{"w": 1, "d": 1, "floors": 1}]}, "unknown paper"),
+        ({"kind": "note", "based_on": "mass-a"}, "based_on must be a note"),
+        ({"kind": "mass", "blocks": []}, "1 to 20 blocks"),
+    ]:
+        with pytest.raises(ValueError, match=message):
+            board.propose_paper(tmp_path, bad)
+    assert len(board.load_board(tmp_path)["tray"]) == 2
+
+
+def test_the_designer_moves_what_they_like_onto_the_table_and_throws_away_the_rest(tmp_path):
+    board.add_paper(tmp_path, {**MASS, "id": "mass-a"})
+    keep = board.propose_paper(tmp_path, {**MASS, "reason": "대안"})
+    drop = board.propose_paper(tmp_path, {"kind": "note", "text": "x", "reason": "y"})
+
+    placed = board.place_paper(tmp_path, keep["id"], {"x": 80, "y": -5, "text": "ignored"})
+    assert placed["paper"]["x"] == 80 and placed["paper"]["origin"] == "conductor"
+    edited = board.update_paper(tmp_path, keep["id"], {"title": "안 C"})["paper"]
+    assert edited["title"] == "안 C" and edited["origin"] == "conductor"  # still marked as AI-made
+    assert board.discard_paper(tmp_path, drop["id"])["rev"] == placed["rev"] + 2
+
+    saved = board.load_board(tmp_path)
+    assert [p["id"] for p in saved["papers"]] == ["site", "mass-a", keep["id"]] and saved["tray"] == []
+    with pytest.raises(board.PaperNotFound):
+        board.place_paper(tmp_path, "mass-a")  # only papers in the AI section are placed
+    with pytest.raises(board.PaperNotFound):
+        board.discard_paper(tmp_path, drop["id"])
+
+
+def test_the_ai_section_keeps_the_newest_papers(tmp_path):
+    for i in range(board.MAX_TRAY + 3):
+        board.propose_paper(tmp_path, {"kind": "note", "text": str(i), "reason": "r"})
+    tray = board.load_board(tmp_path)["tray"]
+    assert len(tray) == board.MAX_TRAY and tray[0]["text"] == "3"
+
+
+def test_an_expert_result_waits_in_the_ai_section_only_for_projects_that_use_the_table(tmp_path):
+    agent = {"id": "design_critic", "name": "설계 비평가"}
+    assert board.expert_result(tmp_path, agent, "## 결과\n- a", []) is None
+    assert not board.board_path(tmp_path).exists()
+
+    board.add_paper(tmp_path, {**MASS, "id": "mass-a"})
+    first = board.expert_result(tmp_path, agent, "## 결과\n\n- 첫 번째", ["mass-a", "gone"])
+    assert first["about"] == ["mass-a"] and first["text"] == "## 결과\n- 첫 번째"
+    assert board.paper_name(first) == "설계 비평가 결과"
+    second = board.expert_result(tmp_path, agent, "## 결과\n- 두 번째", [])
+    assert [p["id"] for p in board.load_board(tmp_path)["tray"]] == [second["id"]]  # replaced
+
+    board.place_paper(tmp_path, second["id"])
+    with pytest.raises(ValueError, match="only moves"):
+        board.update_paper(tmp_path, second["id"], {"text": "고침"})
+    third = board.expert_result(tmp_path, agent, "## 결과\n- 세 번째", [])
+    saved = board.load_board(tmp_path)
+    assert second["id"] in [p["id"] for p in saved["papers"]] and saved["tray"] == [third]
+
+
+def test_a_cloud_conductor_puts_a_scheme_in_the_ai_section(make_session, table, mock_config, monkeypatch):
+    monkeypatch.setattr(conductor, "_NO_TOOLS", set())
+    mock_config["conductor"]["board_context"] = "full"
+    scheme = {"kind": "mass", "based_on": "mass-a", "reason": "높이 낮춤", "blocks": [{"w": 36, "d": 24, "floors": 4}]}
+
+    class Tools:
+        name = "tools"
+
+        def __init__(self):
+            self.calls = []
+            self.replies = [
+                ("", [{"name": "propose_paper", "arguments": scheme}]),
+                ("", [{"name": "propose_paper", "arguments": {"kind": "tracing", "reason": "x"}}]),
+                ("4층 수정안을 AI 섹션에 두었습니다.", []),
+            ]
+
+        def chat_tools(self, model, messages, tools, temperature, max_tokens, **kw):
+            self.calls.append({"messages": messages, "tools": [t["name"] for t in tools]})
+            text, calls = self.replies.pop(0)
+            return text, calls, {}
+
+    c = Tools()
+    s = make_session(c_provider=c)
+    s.events = []
+    s.emit = lambda kind, data: s.events.append((kind, data))
+    s.table = board.select(table.path, ["mass-a"])
+    turn = engine.converse(s, "안 A 한 층 낮춰 봐")
+    assert turn.replies == ["4층 수정안을 AI 섹션에 두었습니다."]
+    assert "propose_paper" in c.calls[0]["tools"]
+    added = [d["paper"] for k, d in s.events if k == "tray_added"]
+    assert len(added) == 1 and added[0]["based_on"] == "mass-a"
+    assert "gross floor area 3,456.0 m²" in _texts(c.calls[1]["messages"])  # the figures, told back
+    assert [d["reason"] for k, d in s.events if k == "tray_failed"] == ["kind must be one of mass, note"]
+    assert "The paper was refused" in _texts(c.calls[2]["messages"])
+    saved = board.load_board(table.path)
+    assert saved["papers"][1]["blocks"][0]["floors"] == 5 and len(saved["tray"]) == 1
+
+
+def test_an_expert_run_lays_its_result_in_the_ai_section(make_session, scripted, table, mock_config):
+    mock_config["state_update"]["mode"] = "off"
+    w = scripted(["## 결과\n- 북측 동이 높음"] * 2)
+    s = make_session(w_provider=w)
+    s.events = []
+    s.emit = lambda kind, data: s.events.append((kind, data))
+    s.table = board.select(table.path, ["mass-a"])
+    agent = next(a for a in s.agents if a["id"] == "design_critic")
+    engine.run_expert(s, agent)
+    paper = next(d["paper"] for k, d in s.events if k == "tray_added")
+    assert paper["kind"] == "expert" and paper["agent"] == "design_critic" and paper["about"] == ["mass-a"]
+    assert board.load_board(table.path)["tray"] == [paper]

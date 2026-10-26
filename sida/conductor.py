@@ -49,6 +49,7 @@ def should_recover_action(runtime: dict) -> bool:
 RUN_TOOL = "run_expert"
 READ_TOOL = "read_expert_output"
 BOARD_TOOL = "read_board"  # a cloud Conductor reads drafting-table papers (sida/board.py)
+PROPOSE_TOOL = "propose_paper"  # ... and puts new ones in the table's AI section
 ACTION_SECTION = "## Action block (required)"
 TOOLS_SECTION = "## Expert tools"
 
@@ -91,7 +92,7 @@ def conductor_tools(agents: list[dict], *, board: bool = False) -> list[dict]:
             ),
             "parameters": target,
         },
-    ] + ([read_board_spec()] if board else [])
+    ] + ([read_board_spec(), propose_paper_spec()] if board else [])
 
 
 def read_board_spec() -> dict:
@@ -111,12 +112,49 @@ def read_board_spec() -> dict:
     }
 
 
+def propose_paper_spec() -> dict:
+    block = {
+        "type": "object",
+        "properties": {
+            "u": {"type": "number", "description": "Block centre along the site's long side, m."},
+            "v": {"type": "number", "description": "Block centre across it, m."},
+            "w": {"type": "number", "description": "Length, m."},
+            "d": {"type": "number", "description": "Depth, m."},
+            "floors": {"type": "integer"},
+        },
+        "required": ["w", "d", "floors"],
+    }
+    return {
+        "name": PROPOSE_TOOL,
+        "description": (
+            "Put a new massing scheme or note in the AI section next to the drawing table; the "
+            "designer moves it onto the table if they like it. To change a scheme on the table, "
+            "send the whole changed scheme with based_on = its id (the original stays). Only when "
+            "the designer asks for a scheme or a note, or a concrete alternative clearly helps."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": ["mass", "note"]},
+                "title": {"type": "string", "description": "Short name, in the designer's language."},
+                "text": {"type": "string", "description": "The note (kind note)."},
+                "blocks": {"type": "array", "items": block, "description": "The blocks (kind mass)."},
+                "based_on": {"type": "string", "description": "Id of the scheme this changes."},
+                "reason": {"type": "string", "description": "One line: why this scheme or note."},
+            },
+            "required": ["kind", "reason"],
+        },
+    }
+
+
 def action_from_tool_calls(calls: list[dict]) -> dict:
     """The first known tool call → an action dict like parse_action's."""
     for call in calls:
         arguments = call.get("arguments") or {}
         if call.get("name") == BOARD_TOOL and str(arguments.get("paper") or "").strip():
             return {"type": "read_board", "paper": str(arguments["paper"]).strip()}
+        if call.get("name") == PROPOSE_TOOL and isinstance(arguments, dict):
+            return {"type": "propose_paper", "paper": arguments}
         agent = str(arguments.get("agent") or "").strip()
         if call.get("name") == RUN_TOOL and agent:
             return {"type": "run", "agent": agent}

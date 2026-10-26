@@ -1021,6 +1021,35 @@ def test_board_api_lays_moves_and_removes_papers(client, project):
     assert client.get("/api/projects/nope/board").status_code == 404
 
 
+def test_board_api_places_and_discards_ai_papers(client, project):
+    from sida import board
+
+    base = f"/api/projects/{project.name}/board"
+    client.post(f"{base}/papers", json={"kind": "mass", "id": "mass-a", "blocks": [{"w": 30, "d": 20, "floors": 4}]})
+    copy = board.propose_paper(
+        project.path, {"kind": "mass", "based_on": "mass-a", "blocks": [{"w": 30, "d": 20, "floors": 6}], "reason": "층수 +2"}
+    )
+    note = board.propose_paper(project.path, {"kind": "note", "text": "북측 사선 확인", "reason": "검토"})
+
+    got = client.get(base).json()
+    assert [p["id"] for p in got["papers"]] == ["site", "mass-a"]
+    assert [p["id"] for p in got["tray"]] == [copy["id"], note["id"]]
+    assert got["tray"][0]["based_on"] == "mass-a" and got["tray"][0]["origin"] == "conductor"
+
+    r = client.post(f"{base}/tray/{copy['id']}/place", json={"x": 40, "y": 5})
+    assert r.status_code == 200 and r.json()["paper"]["x"] == 40.0
+    got = client.get(base).json()
+    assert [p["id"] for p in got["papers"]] == ["site", "mass-a", copy["id"]]
+    assert got["papers"][2]["blocks"][0]["floors"] == 6
+    assert client.patch(f"{base}/papers/{copy['id']}", json={"title": "안 B"}).json()["paper"]["based_on"] == "mass-a"
+
+    assert client.delete(f"{base}/tray/{note['id']}").status_code == 200
+    assert client.get(base).json()["tray"] == []
+    assert client.post(f"{base}/tray/{note['id']}/place").status_code == 404
+    assert client.delete(f"{base}/tray/mass-a").status_code == 404
+    assert client.post(f"{base}/tray/x/place", json={"x": "far"}).status_code == 404
+
+
 def test_board_context_computes_ratios_from_the_saved_site_facts(client, project, fake_vworld, mock_config):
     from sida.experts.site import site_facts
 

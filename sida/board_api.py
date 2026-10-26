@@ -38,6 +38,14 @@ def create_router(load_config, core) -> APIRouter:
     def delete_paper(name: str, paper_id: str) -> dict:
         return call(board.delete_paper, call(project, name), paper_id)
 
+    @router.post("/tray/{paper_id}/place")
+    def place_paper(name: str, paper_id: str, body: dict | None = None) -> dict:
+        return call(board.place_paper, call(project, name), paper_id, body or {})
+
+    @router.delete("/tray/{paper_id}")
+    def discard_paper(name: str, paper_id: str) -> dict:
+        return call(board.discard_paper, call(project, name), paper_id)
+
     @router.get("/context")
     def context(name: str, ids: str = "") -> dict:
         selected = [i for i in ids.split(",") if i.strip()]

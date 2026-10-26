@@ -15,6 +15,8 @@ Event kinds and their data:
   module_started    agent
   module_saved      agent, path, preview, truncated
   module_failed     agent, reason
+  tray_added        paper            (a paper in the drawing table's AI section, sida/board.py)
+  tray_failed       reason           (the Conductor's paper was refused; it is told why)
   run_skipped       agent, reason ("limit" | "state_pending" | "held"), limit
   notice            message          (only when Session.capture_notices is set)
   state_proposing   agent
@@ -45,6 +47,7 @@ from sida.state_revisions import content_revision, module_revisions
 from sida.worker import run_worker_agent
 
 MAX_READS_PER_TURN = 2
+MAX_PAPERS_PER_TURN = 3  # papers the Conductor may put in the AI section for one message
 READ_CHAR_LIMIT = 6000
 PREVIEW_LINES = 12
 
@@ -283,7 +286,7 @@ def resolve_action(session: Session, action: dict) -> tuple[str, dict | None]:
     kind = str(action.get("type", "none")).lower()
     if kind == "exit":
         return "exit", None
-    if kind == "read_board":
+    if kind in {"read_board", "propose_paper"}:
         return kind, None
     if kind not in {"run", "read"}:
         return "continue", None
@@ -310,6 +313,7 @@ def conductor_turn(
     """
     extra: list[dict] | None = None
     reads = 0
+    proposals = 0
     pending_text = user_text
     replies: list[str] = []
     table_context, board_tool = table_for_conductor(session)
@@ -368,6 +372,28 @@ def conductor_turn(
                     ),
                 }
             ]
+            pending_text = None
+            ephemeral = True
+            continue
+        if kind == "propose_paper":
+            proposals += 1
+            if not board_tool or proposals > MAX_PAPERS_PER_TURN:
+                session.send("tray_failed", reason="limit")
+                return Turn("continue", replies=replies)
+            data = action.get("paper") if isinstance(action.get("paper"), dict) else {}
+            try:
+                paper = board.propose_paper(session.project.path, data)
+            except ValueError as exc:
+                session.send("tray_failed", reason=str(exc))
+                result = f"The paper was refused: {exc}. Fix it or tell the designer."
+            else:
+                session.send("tray_added", paper=paper)
+                site = session.table.site if session.table is not None else board.site_summary(session.project.path)
+                result = (
+                    "Put in the AI section (the designer decides whether it goes on the table):\n"
+                    + board.paper_text(paper, site)
+                )
+            extra = [{"role": "user", "content": result + "\n\nTell the designer briefly what you made."}]
             pending_text = None
             ephemeral = True
             continue
@@ -551,6 +577,10 @@ def run_module(session: Session, agent: dict, *, revision: str | None = None) ->
         preview="\n".join(lines[:PREVIEW_LINES]),
         truncated=len(lines) > PREVIEW_LINES,
     )
+    about = [p["id"] for p in session.table.papers] if session.table is not None else []
+    paper = board.expert_result(session.project.path, agent, text, about)
+    if paper is not None:
+        session.send("tray_added", paper=paper)
     return ModuleRun(agent=agent, text=text, path=path)
 
 

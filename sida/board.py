@@ -1,8 +1,13 @@
 """The drafting table (제도판): sheets of paper laid around the site, saved in the project.
 
 Independent of HTTP and of the screen. The table is stored as board.json in the project
-folder: {"rev", "papers", "pins"}. The designer adds, moves and edits papers one at a time
-(the screen and, later, the experts write to the same table, so nobody saves it whole).
+folder: {"rev", "papers", "tray", "pins"}. The designer adds, moves and edits papers one at
+a time (the screen and the AI write to the same file, so nobody saves it whole).
+
+What the AI makes never lands on the table itself (2026-10-26 지훈 결정). It goes to the AI
+section, `tray`: massing schemes and notes the Conductor proposes (a change to the designer's
+scheme comes as a copy, `based_on` the original) and expert results. The designer moves the
+ones they like onto the table (`place_paper`) and throws the rest away.
 
 Papers the designer selects travel with a message as `context` (paper ids). How much of
 them the Conductor is sent depends on what it runs on (conductor.board_context):
@@ -33,8 +38,11 @@ from sida.storage import atomic_write_text
 
 BOARD_FILE = "board.json"
 SITE_ID = "site"
-KINDS = ("site", "mass", "note", "tracing")  # "expert" papers come from expert runs (later)
+KINDS = ("site", "mass", "note", "tracing", "expert")
 DESIGNER_KINDS = ("mass", "note", "tracing")  # what the screen may add
+AI_KINDS = ("mass", "note")  # what the Conductor may put in the AI section
+MAX_TRAY = 40  # the AI section keeps the newest papers
+PREVIEW_LINES = 12
 MAX_PAPERS = 300
 MAX_CONTEXT = 8  # papers one message may carry
 MAX_TEXT = 4000
@@ -70,7 +78,7 @@ def _site_paper() -> dict:
 
 
 def _empty() -> dict:
-    return {"rev": 0, "papers": [_site_paper()], "pins": []}
+    return {"rev": 0, "papers": [_site_paper()], "tray": [], "pins": []}
 
 
 def load_board(project_path: Path) -> dict:
@@ -87,8 +95,10 @@ def load_board(project_path: Path) -> dict:
     papers = [p for p in data["papers"] if isinstance(p, dict) and p.get("kind") in KINDS]
     if not any(p.get("id") == SITE_ID for p in papers):
         papers.insert(0, _site_paper())
+    tray = data.get("tray") if isinstance(data.get("tray"), list) else []
+    tray = [p for p in tray if isinstance(p, dict) and p.get("kind") in KINDS]
     pins = data.get("pins") if isinstance(data.get("pins"), list) else []
-    return {"rev": int(data.get("rev") or 0), "papers": papers, "pins": pins}
+    return {"rev": int(data.get("rev") or 0), "papers": papers, "tray": tray, "pins": pins}
 
 
 def _save(project_path: Path, board: dict) -> dict:
@@ -97,11 +107,15 @@ def _save(project_path: Path, board: dict) -> dict:
     return board
 
 
-def _find(board: dict, paper_id: str) -> dict:
-    for paper in board["papers"]:
+def _find(board: dict, paper_id: str, where: str = "papers") -> dict:
+    for paper in board[where]:
         if paper.get("id") == paper_id:
             return paper
     raise PaperNotFound(paper_id)
+
+
+def _taken(board: dict, paper_id: str) -> bool:
+    return any(p.get("id") == paper_id for p in board["papers"] + board["tray"])
 
 
 def add_paper(project_path: Path, data: dict) -> dict:
@@ -116,7 +130,7 @@ def add_paper(project_path: Path, data: dict) -> dict:
         paper_id = str(data.get("id") or f"{kind}-{uuid.uuid4().hex[:8]}")
         if not PAPER_ID.fullmatch(paper_id):
             raise ValueError("paper id: letters, digits, '-' and '_' only (at most 64)")
-        if any(p.get("id") == paper_id for p in board["papers"]):
+        if _taken(board, paper_id):
             raise ValueError(f"a paper with this id already exists: {paper_id}")
         paper = clean_paper({**data, "id": paper_id, "kind": kind})
         board["papers"].append(paper)
@@ -130,11 +144,11 @@ def update_paper(project_path: Path, paper_id: str, changes: dict) -> dict:
     with _lock:
         board = load_board(project_path)
         current = _find(board, paper_id)
-        if current["kind"] == "site":
+        if current["kind"] in {"site", "expert"}:
             extra = sorted(set(changes) - set(PLACEMENT))
             if extra:
-                raise ValueError(f"the site paper only moves; cannot change: {', '.join(extra)}")
-        paper = clean_paper({**current, **changes})
+                raise ValueError(f"this paper only moves; cannot change: {', '.join(extra)}")
+        paper = {**clean_paper({**current, **changes}), **_ai_fields(current)}
         board["papers"][board["papers"].index(current)] = paper
         board = _save(project_path, board)
     return {"paper": paper, "rev": board["rev"]}
@@ -149,6 +163,122 @@ def delete_paper(project_path: Path, paper_id: str) -> dict:
             raise ValueError("the site paper cannot be removed")
         board["papers"].remove(paper)
         board["pins"] = [p for p in board["pins"] if p.get("paper") != paper_id]
+        board = _save(project_path, board)
+    return {"rev": board["rev"]}
+
+
+# ---------------------------------------------------------------------------
+# The AI section
+# ---------------------------------------------------------------------------
+
+AI_FIELDS = ("origin", "based_on", "reason", "created_at")
+
+
+def _ai_fields(paper: dict) -> dict:
+    """What marks a paper as made by the AI; kept when it moves to the table and is edited."""
+    return {k: paper[k] for k in AI_FIELDS if k in paper}
+
+
+def _now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _to_tray(board: dict, paper: dict) -> None:
+    board["tray"].append(paper)
+    del board["tray"][: max(0, len(board["tray"]) - MAX_TRAY)]
+
+
+def propose_paper(project_path: Path, data: dict, *, by: str = "conductor") -> dict:
+    """
+    The Conductor puts a massing scheme or a note in the AI section. `based_on` names the
+    designer's scheme it changes; that scheme is left as it is. Returns the paper. Raises ValueError.
+    """
+    kind = str(data.get("kind") or "")
+    if kind not in AI_KINDS:
+        raise ValueError(f"kind must be one of {', '.join(AI_KINDS)}")
+    with _lock:
+        board = load_board(project_path)
+        based_on = str(data.get("based_on") or "").strip()
+        title = data.get("title")
+        if based_on:
+            original = _find_any(board, based_on)
+            if original["kind"] != kind:
+                raise ValueError(f"based_on must be a {kind} paper: {based_on}")
+            title = title or f"{paper_name(original)} 수정안"
+        paper_id = f"ai-{kind}-{uuid.uuid4().hex[:8]}"
+        paper = clean_paper({"x": 0, "y": 0, "w": 300, "h": 210, **data, "title": title, "id": paper_id, "kind": kind})
+        paper["origin"] = by
+        if based_on:
+            paper["based_on"] = based_on
+        reason = _text(data.get("reason"), "reason", MAX_TITLE * 2).strip()
+        if reason:
+            paper["reason"] = reason
+        paper["created_at"] = _now()
+        _to_tray(board, paper)
+        _save(project_path, board)
+    return paper
+
+
+def _find_any(board: dict, paper_id: str) -> dict:
+    try:
+        return _find(board, paper_id)
+    except PaperNotFound:
+        try:
+            return _find(board, paper_id, "tray")
+        except PaperNotFound:
+            raise ValueError(f"unknown paper: {paper_id}") from None
+
+
+def expert_result(project_path: Path, agent: dict, text: str, about: list[str]) -> dict | None:
+    """
+    An expert's result as a paper in the AI section (only for a project that uses the table).
+    The expert's earlier result still waiting there is replaced. Returns the paper or None.
+    """
+    if not board_path(project_path).exists():
+        return None
+    lines = [line for line in text.strip().splitlines() if line.strip()]
+    with _lock:
+        board = load_board(project_path)
+        board["tray"] = [
+            p for p in board["tray"] if not (p["kind"] == "expert" and p.get("agent") == agent["id"])
+        ]
+        paper = {
+            "id": f"ai-expert-{uuid.uuid4().hex[:8]}",
+            "kind": "expert",
+            "x": 0.0, "y": 0.0, "w": 320.0, "h": 270.0,
+            "agent": str(agent["id"]),
+            "title": str(agent.get("name") or agent["id"]),
+            "text": "\n".join(lines[:PREVIEW_LINES]),
+            "about": [i for i in about if _taken(board, i)],
+            "origin": str(agent["id"]),
+            "created_at": _now(),
+        }
+        _to_tray(board, paper)
+        _save(project_path, board)
+    return paper
+
+
+def place_paper(project_path: Path, paper_id: str, placement: dict | None = None) -> dict:
+    """Move a paper from the AI section onto the table, where it is the designer's. Returns {paper, rev}."""
+    placement = {k: v for k, v in (placement or {}).items() if k in PLACEMENT}
+    with _lock:
+        board = load_board(project_path)
+        paper = _find(board, paper_id, "tray")
+        board["tray"].remove(paper)
+        for key, value in placement.items():
+            paper[key] = _number(value, key)
+        board["papers"].append(paper)
+        board = _save(project_path, board)
+    return {"paper": paper, "rev": board["rev"]}
+
+
+def discard_paper(project_path: Path, paper_id: str) -> dict:
+    """Throw a paper in the AI section away. Returns {rev}."""
+    with _lock:
+        board = load_board(project_path)
+        board["tray"].remove(_find(board, paper_id, "tray"))
         board = _save(project_path, board)
     return {"rev": board["rev"]}
 
@@ -185,6 +315,8 @@ def _block(raw, index: int) -> dict:
     if not isinstance(raw, dict):
         raise ValueError(f"blocks[{index}] must be an object")
     floors = raw.get("floors")
+    if isinstance(floors, float) and floors.is_integer():  # a model may write 5.0
+        floors = int(floors)
     if isinstance(floors, bool) or not isinstance(floors, int) or not 1 <= floors <= 200:
         raise ValueError(f"blocks[{index}].floors must be a whole number from 1 to 200")
     return {
@@ -225,6 +357,9 @@ def clean_paper(data: dict) -> dict:
         )
     elif kind == "note":
         paper["text"] = _text(data.get("text"), "text", MAX_TEXT)
+    elif kind == "expert":  # made by the server from an expert run; only moves afterwards
+        for key in ("agent", "title", "text", "about"):
+            paper[key] = data.get(key, "" if key != "about" else [])
     elif kind == "tracing":
         strokes = data.get("strokes", [])
         if not isinstance(strokes, list) or len(strokes) > MAX_STROKES:
@@ -277,8 +412,8 @@ def select(project_path: Path, ids: list[str] | None, *, hooks=None) -> Selectio
     papers = []
     for paper_id in dict.fromkeys(ids):
         try:
-            papers.append(_find(board, paper_id))
-        except PaperNotFound:
+            papers.append(_find_any(board, paper_id))
+        except ValueError:
             raise ValueError(f"unknown paper on the table: {paper_id}") from None
     return Selection(tuple(papers), board, site_summary(project_path, hooks))
 
@@ -295,10 +430,15 @@ def paper_name(paper: dict) -> str:
         return paper.get("title") or "매스안"
     if kind == "tracing":
         return paper.get("title") or "트레이싱지"
+    if kind == "expert":
+        return f"{paper.get('title') or paper.get('agent')} 결과"
     return paper.get("title") or kind
 
 
-KIND_WORDS = {"site": "site", "mass": "massing scheme", "note": "note", "tracing": "tracing sheet"}
+KIND_WORDS = {
+    "site": "site", "mass": "massing scheme", "note": "note", "tracing": "tracing sheet",
+    "expert": "expert result",
+}
 
 
 def _m(value: float) -> str:
@@ -326,7 +466,18 @@ def mass_figures(paper: dict, site_area: float | None) -> dict:
 def paper_text(paper: dict, site: dict | None) -> str:
     """One paper in full, for a model (English frame, the designer's words as written)."""
     head = f"- {paper['id']} · {KIND_WORDS.get(paper['kind'], paper['kind'])} \"{paper_name(paper)}\""
+    if paper.get("based_on"):
+        head += f" (AI copy of {paper['based_on']})"
+    elif paper.get("origin"):
+        head += f" (made by {paper['origin']})"
+    if paper.get("reason"):
+        head += f" — why: {paper['reason']}"
     kind = paper["kind"]
+    if kind == "expert":
+        return (
+            f"{head}: preview of modules output (read_expert_output {paper.get('agent')} for all of it):\n"
+            + "\n".join(f"  {line}" for line in str(paper.get("text") or "").splitlines())
+        )
     if kind == "site":
         lines = (site or {}).get("lines") or []
         if not lines:
@@ -373,11 +524,21 @@ def expert_block(selection: Selection | None) -> str:
     )
 
 
-def board_index(board: dict) -> str:
+def _index(papers: list[dict]) -> str:
     return "\n".join(
         f"- {p['id']} · {KIND_WORDS.get(p['kind'], p['kind'])} \"{paper_name(p)}\""
-        for p in board["papers"]
-    )
+        for p in papers
+    ) or "- (empty)"
+
+
+def board_index(board: dict) -> str:
+    text = _index(board["papers"])
+    if board.get("tray"):
+        text += (
+            "\nAI SECTION (made by you or the experts, not on the table until the designer "
+            "moves a paper there):\n" + _index(board["tray"])
+        )
+    return text
 
 
 def context_mode(config: dict) -> str:
@@ -400,7 +561,12 @@ def conductor_block(selection: Selection | None, board: dict | None, mode: str) 
     """
     if mode != "full" or board is None:
         return ""
-    parts = ["DRAWING TABLE (the designer's workspace; ids are for read_board):", board_index(board)]
+    parts = [
+        "DRAWING TABLE (the designer's workspace; ids are for read_board). You never change "
+        "the table: propose_paper puts a new scheme or note in the AI section, and a change to a "
+        "scheme on the table comes as a copy with based_on.",
+        board_index(board),
+    ]
     if selection is not None:
         parts += [
             "",
@@ -414,8 +580,8 @@ def read_paper(project_path: Path, paper_id: str, *, hooks=None) -> str | None:
     """One paper in full for the read_board tool, or None when it is not on the table."""
     board = load_board(project_path)
     try:
-        paper = _find(board, paper_id)
-    except PaperNotFound:
+        paper = _find_any(board, paper_id)
+    except ValueError:
         return None
     return paper_text(paper, site_summary(project_path, hooks))
 
