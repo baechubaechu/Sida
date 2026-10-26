@@ -26,6 +26,8 @@
 | 설계 상태 반영 승인 | `POST .../state-proposals/{id}/apply`, `.../skip` |
 | 설정 창 | `GET`/`PUT /api/settings`, 키 `PUT /api/settings/keys/{openrouter·vworld·vworld_domain·data_go_kr·law}`, ChatGPT 로그인 `/api/settings/chatgpt...` |
 
+제도판(가운데 디자인 화면)은 아직 화면에 붙이지 않았습니다. 쓸 API는 [board-api.md](board-api.md)에 있습니다.
+
 API의 자세한 내용은 [session-api.md](session-api.md), [state-editing.md](state-editing.md), [settings-api.md](settings-api.md), [chatgpt-login.md](chatgpt-login.md)에 있습니다.
 
 ## 동작

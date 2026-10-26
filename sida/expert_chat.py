@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sida import engine
+from sida import board, engine
 from sida.conductor import parse_action
 from sida.config import ROOT
 from sida.i18n import get_language, t
@@ -166,6 +166,7 @@ def chat_messages(history: list[dict]) -> list[dict]:
     """
     Stored chat as screen entries: {"role": "user" | "expert" | "system", "text"}.
     Action blocks are removed; a revision note becomes {"role": "system", "event": "revised"}.
+    A message sent with drawing-table papers also carries "context" ([{id, name}]).
     """
     messages: list[dict] = []
     for item in history:
@@ -175,7 +176,11 @@ def chat_messages(history: list[dict]) -> list[dict]:
         elif item["role"] == "assistant":
             messages.append({"role": "expert", "text": parse_action(content)[0]})
         else:
-            messages.append({"role": "user", "text": content})
+            text, chips = board.split_mark(content)
+            entry = {"role": "user", "text": text}
+            if chips:
+                entry["context"] = chips
+            messages.append(entry)
     return messages
 
 
@@ -184,12 +189,14 @@ def _context(session: engine.Session, agent: dict) -> str:
     output = session.project.read_module(agent["output"]) or "(not run yet)"
     state = session.project.read_state() or "(none)"
     language = "Korean" if get_language() == "ko" else "English"
+    table = board.expert_block(session.table)
     return (
         f"YOUR ROLE (expert id: {agent['id']}):\n{role}\n\n"
         f"PROJECT BRIEF:\n{session.project_brief}\n\n"
         f"PROJECT STATE:\n{state}\n\n"
         f"YOUR CURRENT OUTPUT (modules/{agent['output']}):\n{output}\n\n"
-        f"Reply in {language}. Keep the action block keys in English."
+        + (f"{table}\n\n" if table else "")
+        + f"Reply in {language}. Keep the action block keys in English."
     )
 
 
@@ -216,7 +223,8 @@ def expert_turn(
         status=t("busy_role", role=agent["id"]),
     )
     reply, action = parse_action(raw)
-    history += [{"role": "user", "content": user_text}, {"role": "assistant", "content": raw}]
+    stored = board.mark_text(user_text, session.table)
+    history += [{"role": "user", "content": stored}, {"role": "assistant", "content": raw}]
     save_chat(session.project.path, agent, history, chat_id)
     session.send("expert_reply", agent=agent, text=reply, usage=format_usage(usage))
     request = str(action.get("request") or "").strip()

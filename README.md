@@ -135,7 +135,7 @@ python webapp.py            # http://127.0.0.1:8765 (--port, --no-browser)
 
 The browser opens the project list (create / open / sample). Inside a project you talk with the
 Conductor, and experts run when needed. The screens call the JSON API under `/api`; see
-`docs/session-api.md`, `docs/settings-api.md`, `docs/chatgpt-login.md`, `docs/site-ordinance.md`, `docs/law-search-api.md`
+`docs/session-api.md`, `docs/board-api.md`, `docs/settings-api.md`, `docs/chatgpt-login.md`, `docs/site-ordinance.md`, `docs/law-search-api.md`
 and `docs/state-editing.md`.
 
 Projects are saved under the user home folder (easy to open in File Explorer):
@@ -255,6 +255,7 @@ Module layout. The code is the `sida/` package: the shared core sits directly in
 | `hardware.py` | GPU detection (NVIDIA) and local-profile recommendation |
 | `workspace.py` | UI-agnostic project hub operations: list, look up, create |
 | `session_api.py` / `session_jobs.py` / `expert_chat.py` | web session: Conductor chat, expert runs in the background, per-expert chat (`docs/session-api.md`) |
+| `board.py` / `board_api.py` | drawing table: papers saved in `board.json`, selected papers sent to the Conductor and experts (`docs/board-api.md`) |
 | `settings.py` / `settings_api.py` | settings screen: run mode, models, API keys → `config.local.yaml` / `.env` (`docs/settings-api.md`) |
 | `chatgpt_auth.py` / `chatgpt_api.py` | Sign in with ChatGPT: the Conductor on the user's own ChatGPT plan (`docs/chatgpt-login.md`) |
 | `experts/regulation/ordinance.py` | finds the municipality's 도시·군계획 조례 on law.go.kr and quotes its 건폐율 / 용적률 articles as written, and reads the figure for the site's zone by fixed rules, shown next to the quoted line; follows "별표 N과 같다" into the annex file (`hwp.py` reads HWP) (stored in `site_facts.json` by the site lookup, given to `regulation_checker`) |

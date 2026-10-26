@@ -19,12 +19,12 @@
 |---|---|---|
 | `GET /session` | | `{messages, job, experts, proposal}` |
 | `POST /session/opening` | 본문 없음 | `202 {job}`. Conductor의 첫 인사. 화면을 열었을 때 `messages`가 비어 있으면 부르세요 |
-| `POST /session/messages` | `{text}` | `202 {job}` |
-| `POST /session/experts/{agent}/run` | 본문 없음, 또는 `{revision}` | `202 {job}`. 설계자가 전문가를 직접 실행. Conductor를 부르지 않음. `revision`을 주면 전문가가 지금 결과를 그 요청대로 고쳐 씀("Request revision") |
+| `POST /session/messages` | `{text, context?}` | `202 {job}`. `context`는 제도판에서 고른 종이 id 목록([board-api.md](board-api.md)) |
+| `POST /session/experts/{agent}/run` | 본문 없음, 또는 `{revision, context}` | `202 {job}`. 설계자가 전문가를 직접 실행. Conductor를 부르지 않음. `revision`을 주면 전문가가 지금 결과를 그 요청대로 고쳐 씀("Request revision") |
 | `GET /experts/{agent}/chats` | | `{agent, name, chat, chats}`. 전문가의 분석 채팅 목록. `chats`는 `{id, messages, preview, updated_at}`이고 오래된 것부터 |
 | `POST /experts/{agent}/chats` | 본문 없음 | `201 {chat}`. 빈 분석 채팅을 새로 만듦. `chat`이 `false`인 전문가는 `400` |
 | `GET /experts/{agent}/chats/{chat_id}` | | `{agent, name, chat, chat_id, messages, job}`. 그 채팅의 기록. 없는 채팅은 `404` |
-| `POST /experts/{agent}/chats/{chat_id}/messages` | `{text}` | `202 {job}`. 그 채팅에서 전문가에게 메시지. `chat`이 `false`인 전문가는 `400`, 없는 채팅은 `404` |
+| `POST /experts/{agent}/chats/{chat_id}/messages` | `{text, context?}` | `202 {job}`. 그 채팅에서 전문가에게 메시지. `chat`이 `false`인 전문가는 `400`, 없는 채팅은 `404` |
 | `GET /experts/{agent}/chat`, `POST /experts/{agent}/chat` | | 예전 경로. `chats/01`과 같음 |
 | `GET /session/jobs/{id}` | `?after=0` | `{id, kind, agent, chat, status, running_agent, error, started_at, finished_at, events}`. `chat`은 전문가 채팅 작업이 쓰는 채팅 id(그 밖의 작업은 `null`) |
 | `GET /modules/{agent}` | | `{agent, name, phase, content, updated_at}`. 전문가 결과 문서(Markdown 원문). 아직 실행 전이면 `404` |
@@ -33,7 +33,7 @@
 
 `GET /session`의 각 항목:
 
-- `messages`: 대화 기록. `{role, text}`이고 `role`은 `user`, `conductor`, `system`입니다. `system`에는 `event`와 `agent`(전문가 id), `name`(화면용 이름)이 더 있습니다.
+- `messages`: 대화 기록. `{role, text}`이고 `role`은 `user`, `conductor`, `system`입니다. 제도판 종이를 함께 보낸 `user` 메시지에는 `context: [{id, name}]`가 더 있습니다. `system`에는 `event`와 `agent`(전문가 id), `name`(화면용 이름)이 더 있습니다.
   - `event: "module_completed"`: 전문가 실행이 끝난 자리. 대화 안에 분석 카드(Figma "Spatial Review Card")를 그리고 "View analysis"로 `GET /modules/{agent}`를 엽니다. `text`는 모델에게 보낸 내부 메모라 화면에 보이지 않습니다.
   - `event: "run_requested"`: 설계자가 직접 실행을 누른 자리.
   - `event: "read"`: Conductor가 결과 문서를 읽은 자리. 작은 안내 줄 정도면 됩니다.
@@ -57,7 +57,7 @@
 | `state_applied` | `agent, path` | 설정이 `auto`일 때. "설계 상태에 반영했습니다" |
 | `state_unchanged` | `agent` | 바뀔 내용 없음 |
 | `state_failed` | `agent, reason` | 반영안을 못 만듦. 결과 문서는 저장됨 |
-| `reading`, `read_failed` | `file` / `agent, reason` | 작은 안내 줄 |
+| `reading`, `read_failed` | `file` / `agent, reason` | 작은 안내 줄. 제도판 종이를 읽으면 `file`이 `board/<종이 id>`, `read_failed`의 `agent`가 종이 id |
 | `unknown_agent`, `action_recovered` | | 작은 안내 줄 |
 | `conductor_error` | `reason`, 때로 `after_run` | 오류 줄. 이 메시지는 기록되지 않았으니 다시 보내게 안내. `after_run: true`이면 전문가 결과는 저장됐고 Conductor의 이어지는 답만 실패한 것이라 다시 보내라고 하지 않음 |
 | `run_skipped` | `agent, reason, limit` | **알림**: Conductor가 실행하려던 전문가를 실행하지 않음. `reason`은 `limit`(한 번에 실행하는 수를 채움), `state_pending`(설계 상태 반영안 검토가 먼저), `held`(보류 전문가라 다른 전문가 다음에 이어서 실행하지 않음) |
@@ -65,7 +65,7 @@
 
 ## 전문가 자동 호출
 
-- Conductor는 모델의 함수 호출(tool calling)로 전문가를 부릅니다. 도구는 `run_expert`(전문가 실행)와 `read_expert_output`(완료된 결과 문서 읽기)이고, OpenRouter·ChatGPT 구독·Ollama에서 씁니다. 함수 호출을 받지 않는 모델이나 제공자는 이전처럼 답 끝의 ```` ```action ```` 블록을 씁니다. 거부되면 그 모델은 서버를 다시 켤 때까지 블록 방식으로 돕니다.
+- Conductor는 모델의 함수 호출(tool calling)로 전문가를 부릅니다. 도구는 `run_expert`(전문가 실행)와 `read_expert_output`(완료된 결과 문서 읽기)이고(클라우드 Conductor는 제도판 종이를 읽는 `read_board`도, [board-api.md](board-api.md)), OpenRouter·ChatGPT 구독·Ollama에서 씁니다. 함수 호출을 받지 않는 모델이나 제공자는 이전처럼 답 끝의 ```` ```action ```` 블록을 씁니다. 거부되면 그 모델은 서버를 다시 켤 때까지 블록 방식으로 돕니다.
 - 전문가가 끝나면 Conductor에게 결과를 보여 주고 이어서 답하게 합니다. 다음 전문가가 분명히 필요하면 바로 실행하고, 아니면 다음 단계를 제안하거나 설계자에게 묻습니다. 메시지 하나에 전문가는 최대 `conductor.max_expert_runs`번(기본 3) 실행합니다.
 - 설계 상태 반영이 `ask`이면 반영안이 생긴 뒤에는 다음 전문가로 넘어가지 않습니다. 다음 실행이 기다리는 반영안을 덮어쓰기 때문입니다. Conductor는 반영안 검토를 권하는 답으로 끝냅니다.
 - 실행이 실패하면 거기서 멈춥니다.

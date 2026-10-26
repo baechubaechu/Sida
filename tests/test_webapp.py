@@ -996,3 +996,96 @@ def test_failed_site_lookup_is_recorded_with_the_address_only_when_shared(client
     first, second = telemetry.queued()
     assert first["data"] == {"stage": "site:search_parcels", "error": "invalid_key"}
     assert second["data"]["inputs"] == ["금정동 689"]
+
+
+# --- Drawing table API -------------------------------------------------------
+
+
+def test_board_api_lays_moves_and_removes_papers(client, project):
+    base = f"/api/projects/{project.name}/board"
+    assert client.get(base).json()["papers"][0]["kind"] == "site"
+
+    mass = {"kind": "mass", "id": "mass-a", "title": "안 A", "blocks": [{"w": 30, "d": 20, "floors": 4}]}
+    r = client.post(f"{base}/papers", json=mass)
+    assert r.status_code == 201 and r.json()["paper"]["blocks"][0]["floors"] == 4
+    r = client.patch(f"{base}/papers/mass-a", json={"x": 12.5})
+    assert r.status_code == 200 and r.json()["paper"]["x"] == 12.5 and r.json()["rev"] == 2
+    assert [p["id"] for p in client.get(base).json()["papers"]] == ["site", "mass-a"]
+    assert client.delete(f"{base}/papers/mass-a").json() == {"rev": 3}
+
+    assert client.post(f"{base}/papers", json={"kind": "site"}).status_code == 400
+    assert client.post(f"{base}/papers", json={**mass, "blocks": []}).status_code == 400
+    assert client.patch(f"{base}/papers/site", json={"text": "x"}).status_code == 400
+    assert client.delete(f"{base}/papers/site").status_code == 400
+    assert client.patch(f"{base}/papers/gone", json={"x": 1}).status_code == 404
+    assert client.get("/api/projects/nope/board").status_code == 404
+
+
+def test_board_context_computes_ratios_from_the_saved_site_facts(client, project, fake_vworld, mock_config):
+    from sida.experts.site import site_facts
+
+    client.put(f"/api/projects/{project.name}/site", json={
+        "query": "경기도 군포시 금정동 689", "pnus": ["4141010500106890014", "4141010500106890015"],
+    })
+    area = site_facts.load_facts(project.path)["summary"]["total_area_m2"]
+    base = f"/api/projects/{project.name}/board"
+    client.post(f"{base}/papers", json={"kind": "mass", "id": "mass-a", "blocks": [{"w": 30, "d": 20, "floors": 4}]})
+
+    mock_config["conductor"]["board_context"] = "full"
+    body = client.get(f"{base}/context", params={"ids": "mass-a,site"}).json()
+    assert body["mode"] == "full"
+    assert body["papers"] == [{"id": "mass-a", "name": "매스안"}, {"id": "site", "name": "대지"}]
+    assert f"building coverage {600 / area * 100:.1f}%" in body["expert"]
+    assert "용도지역: 일반공업지역" in body["expert"]  # the site paper carries the zoning lines
+    assert body["conductor"].startswith("DRAWING TABLE")
+
+    mock_config["conductor"]["board_context"] = "names"
+    body = client.get(f"{base}/context", params={"ids": "mass-a"}).json()
+    assert body["mode"] == "names" and body["conductor"] == "" and "FAR" in body["expert"]
+    assert client.get(f"{base}/context", params={"ids": "gone"}).status_code == 400
+
+
+def test_session_message_carries_the_selected_papers_and_shows_them_as_chips(session_api, project):
+    client, base, conductor = session_api
+    client.post(f"{base}/board/papers", json={"kind": "note", "id": "n1", "text": "북측 일조"})
+    conductor.replies.append('확인하겠습니다.\n```action\n{"type":"none"}\n```')
+
+    job = finished_job(client, base, client.post(
+        f"{base}/session/messages", json={"text": "이 메모 봐 줘", "context": ["n1"]}
+    ))
+    assert job["status"] == "done"
+    first = client.get(f"{base}/session").json()["messages"][0]
+    assert first == {"role": "user", "text": "이 메모 봐 줘", "context": [{"id": "n1", "name": "메모: 북측 일조"}]}
+
+    r = client.post(f"{base}/session/messages", json={"text": "x", "context": ["gone"]})
+    assert r.status_code == 400 and "gone" in r.json()["detail"]
+    r = client.post(f"{base}/session/experts/site_reader/run", json={"context": ["gone"]})
+    assert r.status_code == 400
+    r = client.post(f"{base}/experts/design_critic/chats/01/messages", json={"text": "x", "context": ["gone"]})
+    assert r.status_code == 400
+
+
+def test_expert_run_and_chat_get_the_selected_papers(session_api, project, monkeypatch, scripted, mock_config):
+    from sida import engine
+
+    client, base, _conductor = session_api
+    mock_config["state_update"]["mode"] = "off"
+    # the run (and its retry for missing headers), then the chat reply
+    worker = scripted(["## 결과\n- 메모 확인함"] * 2 + ["메모를 봤습니다.\n```action\n{\"type\":\"none\"}\n```"])
+    monkeypatch.setattr(engine, "worker_provider", lambda *_a: worker)
+    client.post(f"{base}/board/papers", json={"kind": "note", "id": "n1", "text": "북측 일조"})
+
+    job = finished_job(client, base, client.post(
+        f"{base}/session/experts/design_critic/run", json={"context": ["n1"]}
+    ))
+    assert job["status"] == "done"
+    assert "DRAWING TABLE" in worker.calls[0]["messages"][-1]["content"]
+    assert "북측 일조" in worker.calls[0]["messages"][-1]["content"]
+
+    job = finished_job(client, base, client.post(
+        f"{base}/experts/design_critic/chats/01/messages", json={"text": "이거 봐", "context": ["n1"]}
+    ))
+    assert job["status"] == "done", job["error"]
+    assert "DRAWING TABLE" in worker.calls[-1]["messages"][1]["content"]
+    chat = client.get(f"{base}/experts/design_critic/chats/01").json()["messages"]
+    assert chat[0] == {"role": "user", "text": "이거 봐", "context": [{"id": "n1", "name": "메모: 북측 일조"}]}
