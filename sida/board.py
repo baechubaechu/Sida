@@ -23,11 +23,16 @@ conversation history, so a selection is not sent again on later turns.
 Figures for a massing scheme (footprint, floor area, coverage, FAR) are computed here from
 the paper's blocks and the site area the site domain reports (hook `board_site`); nothing
 the screen computed is trusted, and with no known site area no ratio is given.
+
+The screen reads the table through `view`: the saved papers plus the site drawn in metres
+around its middle (`site_plan`) and each scheme's figures. Blocks stand in the site's own
+frame: `u` along the long side of its largest parcel, `v` across it, from that parcel's middle.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import re
 import threading
 import uuid
@@ -52,6 +57,7 @@ MAX_STROKES = 500
 MAX_POINTS = 5000
 DEFAULT_FLOOR_HEIGHT = 4.2
 PLACEMENT = ("x", "y", "w", "h")
+PAPER_SIZE = {"site": (300, 250), "mass": (300, 210), "note": (200, 140), "tracing": (300, 250), "expert": (320, 270)}
 PAPER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 CONTEXT_MODES = ("auto", "full", "names")
 LOCAL_PROVIDERS = frozenset({"ollama", "local"})
@@ -208,7 +214,7 @@ def propose_paper(project_path: Path, data: dict, *, by: str = "conductor") -> d
                 raise ValueError(f"based_on must be a {kind} paper: {based_on}")
             title = title or f"{paper_name(original)} 수정안"
         paper_id = f"ai-{kind}-{uuid.uuid4().hex[:8]}"
-        paper = clean_paper({"x": 0, "y": 0, "w": 300, "h": 210, **data, "title": title, "id": paper_id, "kind": kind})
+        paper = clean_paper({**data, "title": title, "id": paper_id, "kind": kind})
         paper["origin"] = by
         if based_on:
             paper["based_on"] = based_on
@@ -343,8 +349,9 @@ def clean_paper(data: dict) -> dict:
     """A paper with only the fields its kind holds, checked. Raises ValueError."""
     kind = data["kind"]
     paper: dict = {"id": data["id"], "kind": kind}
-    for key in PLACEMENT:
-        paper[key] = _number(data.get(key, 0), key)
+    width, height = PAPER_SIZE.get(kind, (300, 210))  # CSS pixels of paper; the screen shows 1 px as 0.1 m
+    for key, default in zip(PLACEMENT, (0, 0, width, height), strict=True):
+        paper[key] = _number(data.get(key, default), key)
     title = _text(data.get("title"), "title", MAX_TITLE)
     if kind == "mass":
         blocks = data.get("blocks")
@@ -495,7 +502,8 @@ def paper_text(paper: dict, site: dict | None) -> str:
         area = (site or {}).get("area_m2")
         f = mass_figures(paper, area)
         parts = [
-            f"{_m(b['w'])} m × {_m(b['d'])} m × {b['floors']} floors" for b in paper["blocks"]
+            f"{_m(b['w'])} m × {_m(b['d'])} m × {b['floors']} floors at u {_m(b['u'])}, v {_m(b['v'])}"
+            for b in paper["blocks"]
         ]
         text = (
             f"{head}: {len(parts)} block(s) — " + "; ".join(parts) + ". "
@@ -605,6 +613,128 @@ def split_mark(content: str) -> tuple[str, list[dict]]:
         if eq:
             chips.append({"id": paper_id, "name": name})
     return head, chips
+
+
+# ---------------------------------------------------------------------------
+# What the screen draws
+# ---------------------------------------------------------------------------
+
+EARTH_RADIUS = 6378137.0  # m, as the map tiles use
+
+
+def _outer_rings(shape) -> list[list[list[float]]]:
+    """The outer ring of each polygon in a GeoJSON Polygon or MultiPolygon ([lon, lat] points)."""
+    if not isinstance(shape, dict):
+        return []
+    coordinates = shape.get("coordinates")
+    polygons = {"Polygon": [coordinates], "MultiPolygon": coordinates}.get(shape.get("type")) or []
+    rings = []
+    for polygon in polygons:
+        ring = polygon[0] if isinstance(polygon, list) and polygon else None
+        if not isinstance(ring, list):
+            continue
+        points = [
+            [float(p[0]), float(p[1])]
+            for p in ring
+            if isinstance(p, (list, tuple)) and len(p) >= 2
+            and all(isinstance(c, (int, float)) and not isinstance(c, bool) for c in p[:2])
+        ]
+        if len(points) > 1 and points[0] == points[-1]:
+            points.pop()
+        if len(points) >= 3:
+            rings.append(points)
+    return rings
+
+
+def _ring_area(ring: list[list[float]]) -> float:
+    return abs(sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in zip(ring, ring[1:] + ring[:1], strict=True))) / 2
+
+
+def _centroid(ring: list[list[float]]) -> list[float]:
+    a = cx = cy = 0.0
+    for (x1, y1), (x2, y2) in zip(ring, ring[1:] + ring[:1], strict=True):
+        f = x1 * y2 - x2 * y1
+        a += f
+        cx += (x1 + x2) * f
+        cy += (y1 + y2) * f
+    if not a:
+        return [sum(x for x, _ in ring) / len(ring), sum(y for _, y in ring) / len(ring)]
+    return [cx / (3 * a), cy / (3 * a)]
+
+
+def site_plan(parcels: list[dict]) -> dict | None:
+    """
+    The parcels' boundaries in metres around the site's middle (x east, y north), the bounds,
+    and the frame blocks stand in: the middle of the largest parcel and the direction of its
+    longest edge (radians from east, within ±90°). None when no parcel has a boundary.
+    """
+    found = [(p, _outer_rings(p.get("shape"))) for p in parcels or []]
+    points = [pt for _p, rings in found for ring in rings for pt in ring]
+    if not points:
+        return None
+    lon0 = (min(p[0] for p in points) + max(p[0] for p in points)) / 2
+    lat0 = (min(p[1] for p in points) + max(p[1] for p in points)) / 2
+    k = math.pi / 180
+    east = EARTH_RADIUS * k * math.cos(lat0 * k)
+    north = EARTH_RADIUS * k
+
+    def local(ring):
+        return [[round((lon - lon0) * east, 2), round((lat - lat0) * north, 2)] for lon, lat in ring]
+
+    out = []
+    for parcel, rings in found:
+        if rings:
+            out.append({
+                "pnu": parcel.get("pnu", ""),
+                "address": parcel.get("address", ""),
+                "area_m2": parcel.get("area_m2"),
+                "rings": [local(r) for r in rings],
+            })
+    every = [ring for p in out for ring in p["rings"]]
+    largest = max(every, key=_ring_area)
+    angle, longest = 0.0, 0.0
+    for (x1, y1), (x2, y2) in zip(largest, largest[1:] + largest[:1], strict=True):
+        length = math.hypot(x2 - x1, y2 - y1)
+        if length > longest:
+            longest, angle = length, math.atan2(y2 - y1, x2 - x1)
+    if angle > math.pi / 2:
+        angle -= math.pi
+    elif angle <= -math.pi / 2:
+        angle += math.pi
+    xs = [x for ring in every for x, _ in ring]
+    ys = [y for ring in every for _, y in ring]
+    middle = _centroid(largest)
+    return {
+        "parcels": out,
+        "bounds": {"min_x": min(xs), "min_y": min(ys), "max_x": max(xs), "max_y": max(ys)},
+        "frame": {"x": round(middle[0], 2), "y": round(middle[1], 2), "angle": round(angle, 5)},
+    }
+
+
+def view(project_path: Path, *, hooks=None) -> dict:
+    """
+    The table as the screen draws it: the saved board, the site (area, fact lines and the
+    plan from `site_plan`; None without site facts) and each scheme's figures by paper id.
+    """
+    board = load_board(project_path)
+    summary = site_summary(project_path, hooks)
+    area = (summary or {}).get("area_m2")
+    figures = {}
+    for paper in board["papers"] + board["tray"]:
+        if paper.get("kind") != "mass":
+            continue
+        try:
+            figures[paper["id"]] = mass_figures(paper, area)
+        except (KeyError, TypeError, ValueError):  # a hand-edited board.json
+            continue
+    site = None
+    if summary is not None:
+        site = {
+            "area_m2": area,
+            "lines": summary.get("lines") or [],
+            "plan": site_plan(summary.get("parcels") or []),
+        }
+    return {**board, "site": site, "figures": figures}
 
 
 def context_view(project_path: Path, config: dict, ids: list[str] | None) -> dict:

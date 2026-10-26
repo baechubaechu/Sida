@@ -116,8 +116,8 @@ def propose_paper_spec() -> dict:
     block = {
         "type": "object",
         "properties": {
-            "u": {"type": "number", "description": "Block centre along the site's long side, m."},
-            "v": {"type": "number", "description": "Block centre across it, m."},
+            "u": {"type": "number", "description": "Block centre along the site's long side, m from the site's middle."},
+            "v": {"type": "number", "description": "Block centre across it, m from the middle."},
             "w": {"type": "number", "description": "Length, m."},
             "d": {"type": "number", "description": "Depth, m."},
             "floors": {"type": "integer"},

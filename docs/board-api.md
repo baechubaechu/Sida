@@ -1,15 +1,15 @@
 # 제도판 API (디자인 워크스페이스)
 
-가운데 디자인 화면(제도판)이 쓰는 JSON API입니다. 제도판 위의 종이(대지, 매스안, 메모, 트레이싱지)를 프로젝트 폴더의 `board.json`에 저장하고, 설계자가 고른 종이를 Conductor와 전문가에게 함께 보냅니다. AI가 만든 종이는 제도판이 아니라 따로 있는 AI 섹션에 놓이고, 설계자가 마음에 드는 것만 제도판으로 옮깁니다. 로직은 `sida/board.py`, 경로는 `sida/board_api.py`에 있습니다. 화면 시험판은 `proto/drafting-table` 브랜치의 `prototypes/drafting-table/`입니다.
+가운데 디자인 화면(제도판)이 쓰는 JSON API입니다. 제도판 위의 종이(대지, 매스안, 메모, 트레이싱지)를 프로젝트 폴더의 `board.json`에 저장하고, 설계자가 고른 종이를 Conductor와 전문가에게 함께 보냅니다. AI가 만든 종이는 제도판이 아니라 따로 있는 AI 섹션에 놓이고, 설계자가 마음에 드는 것만 제도판으로 옮깁니다. 로직은 `sida/board.py`, 경로는 `sida/board_api.py`에 있습니다. 화면은 `webui/app/table.js`입니다([web-ui.md](web-ui.md)). 처음 시험판은 `prototypes/drafting-table/`에 있습니다.
 
 ## 종이
 
-제도판 하나는 `{rev, papers, tray, pins}`입니다. `papers`는 제도판 위의 종이, `tray`는 AI 섹션의 종이입니다. `rev`는 저장할 때마다 1씩 오릅니다. 종이는 모두 `id`, `kind`, 위치 `x`, `y`(제도판 좌표, m), 크기 `w`, `h`를 가집니다. 서버는 위치와 크기를 그대로 저장하기만 합니다.
+제도판 하나는 `{rev, papers, tray, pins}`입니다. `papers`는 제도판 위의 종이, `tray`는 AI 섹션의 종이입니다. `rev`는 저장할 때마다 1씩 오릅니다. 종이는 모두 `id`, `kind`, 위치 `x`, `y`(제도판 좌표, m. 0, 0이 대지 중심, x는 동쪽, y는 북쪽), 크기 `w`, `h`(화면 px, 1px = 0.1m)를 가집니다. 서버는 위치와 크기를 그대로 저장하기만 합니다. 크기를 주지 않으면 종류별 기본값(대지 300×250, 매스안 300×210, 메모 200×140, 트레이싱지 300×250, 전문가 결과 320×270)이 들어갑니다. 서버가 놓은 종이는 0, 0에 있고, 화면이 빈자리로 옮겨 저장합니다(트레이싱지는 0, 0이 대지 위에 덮인 자리라 그대로 둡니다).
 
 | kind | 더 가지는 것 | 누가 놓나 |
 |---|---|---|
 | `site` | 없음(내용은 대지 사실에서 옴) | 서버. 처음부터 있고 지울 수 없으며 옮기기만 됨. id는 `site` |
-| `mass` | `title`, `blocks`(동 목록: `u`, `v` 위치, `w`·`d` 가로·세로 m, `floors` 층수 1~200, 1~20개), `floor_height`(기본 4.2m) | 설계자 |
+| `mass` | `title`, `blocks`(동 목록: `u`, `v` 위치(아래 "대지 좌표"), `w`·`d` 가로·세로 m, `floors` 층수 1~200, 1~20개), `floor_height`(기본 4.2m) | 설계자 |
 | `note` | `text`(4000자까지) | 설계자 |
 | `tracing` | `title`, `strokes`(펜 획: `[[x, y], ...]` 목록), `overlaid`(대지 위에 덮였는지) | 설계자 |
 | `expert` | `agent`, `title`(전문가 이름), `text`(결과 문서 앞 12줄), `about`(실행할 때 고른 종이 id) | 서버. 전문가 실행이 끝나면 AI 섹션에. 옮기기만 됨 |
@@ -22,7 +22,7 @@
 
 | 메서드·경로 | 요청 | 응답 |
 |---|---|---|
-| `GET` | | `{rev, papers, tray, pins}`. 아직 저장한 적 없으면 대지 종이 하나와 `rev: 0` |
+| `GET` | | `{rev, papers, tray, pins, site, figures}`. 아직 저장한 적 없으면 대지 종이 하나와 `rev: 0`. `site`와 `figures`는 화면이 그리라고 매번 계산하는 값이고 `board.json`에 저장되지 않습니다(아래) |
 | `POST /papers` | 종이(`kind`는 `mass`·`note`·`tracing`, `id`는 없으면 서버가 만듦) | `201 {paper, rev}` |
 | `PATCH /papers/{id}` | 바꿀 필드만. `id`·`kind`는 무시 | `{paper, rev}`. 대지 종이는 `x`·`y`·`w`·`h`만 |
 | `DELETE /papers/{id}` | | `{rev}`. 대지 종이는 `400` |
@@ -31,6 +31,17 @@
 | `GET /context?ids=a,b` | 고른 종이 id(쉼표로) | `{mode, papers, conductor, expert}`. 모델에게 실제로 가는 글. 화면에서 "AI에게 보이는 내용"을 보여 줄 때 |
 
 종이는 하나씩 저장합니다. 설계자와 AI가 같은 제도판에 쓰기 때문에 통째로 덮어쓰면 다른 쪽이 놓은 종이가 사라집니다. 끌어서 옮길 때는 끌기가 끝날 때 `PATCH`를 한 번 부르세요.
+
+## 화면이 그리는 것
+
+`GET`은 저장된 제도판에 두 가지를 더해 줍니다.
+
+- `site`: 대지 사실이 있으면 `{area_m2, lines, plan}`, 없으면 `null`. `lines`는 대지 종이에 쓸 글 줄(Conductor가 받는 것과 같음)입니다. `plan`은 필지 경계가 있을 때 `{parcels: [{pnu, address, area_m2, rings}], bounds: {min_x, min_y, max_x, max_y}, frame: {x, y, angle}}`이고, 없으면 `null`입니다. `rings`는 필지 바깥 경계 점 목록(m)이며 모든 필지 경계를 둘러싼 상자의 가운데가 0, 0입니다. 위경도를 그 가운데에서 평면으로 펼친 값이라 대지 크기에서는 cm 단위까지 맞습니다.
+- `figures`: 매스안 종이 id(제도판과 AI 섹션 모두)별 `{footprint_m2, floor_area_m2, height_m, coverage_pct, far_pct}`. Conductor와 전문가가 받는 수치와 같은 계산입니다. 화면은 이 값만 보여 주고 스스로 계산하지 않습니다.
+
+### 대지 좌표
+
+매스안 동의 `u`, `v`는 `frame` 기준입니다. `frame`의 `x`, `y`는 가장 큰 필지의 중심, `angle`은 그 필지의 가장 긴 변 방향(라디안, 동쪽에서 반시계, -90°~90°)입니다. `u`는 그 변을 따라, `v`는 그 변에 수직으로 m 단위입니다. 그래서 대지가 비스듬해도 `u: 0, v: 0`에 놓은 동은 대지 가운데에 대지와 나란히 섭니다. 대지 사실이 없으면 `frame`이 없고 화면은 `u`를 동쪽, `v`를 북쪽으로 씁니다. Conductor가 받는 매스안 글에도 `at u …, v …`로 위치가 들어갑니다.
 
 ## AI 섹션
 
