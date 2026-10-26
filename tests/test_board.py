@@ -354,3 +354,57 @@ def test_an_expert_run_lays_its_result_in_the_ai_section(make_session, scripted,
     paper = next(d["paper"] for k, d in s.events if k == "tray_added")
     assert paper["kind"] == "expert" and paper["agent"] == "design_critic" and paper["about"] == ["mass-a"]
     assert board.load_board(table.path)["tray"] == [paper]
+
+
+# --- what the screen draws ----------------------------------------------------
+
+
+def _rect(lon, lat, dlon, dlat):
+    return [[lon, lat], [lon + dlon, lat], [lon + dlon, lat + dlat], [lon, lat + dlat], [lon, lat]]
+
+
+def test_the_site_plan_is_in_metres_around_the_middle_and_blocks_follow_the_largest_parcel():
+    big = {"pnu": "1", "address": "가", "area_m2": 900.0,
+           "shape": {"type": "Polygon", "coordinates": [_rect(127.0, 37.0, 0.0004, 0.0002)]}}
+    small = {"pnu": "2", "address": "나", "area_m2": None,
+             "shape": {"type": "MultiPolygon", "coordinates": [[_rect(127.0004, 37.0, 0.0001, 0.0002)]]}}
+    plan = board.site_plan([big, small, {"pnu": "3", "shape": None}, {"pnu": "4", "shape": {"type": "Point"}}])
+
+    assert [p["pnu"] for p in plan["parcels"]] == ["1", "2"]  # parcels without a boundary are left out
+    ring = plan["parcels"][0]["rings"][0]
+    assert len(ring) == 4  # the closing point is dropped
+    width = ring[1][0] - ring[0][0]
+    assert width == pytest.approx(35.6, abs=0.2)  # 0.0004° of longitude at 37°N
+    assert ring[2][1] - ring[1][1] == pytest.approx(22.3, abs=0.2)
+    b = plan["bounds"]
+    assert (b["min_x"] + b["max_x"]) / 2 == pytest.approx(0, abs=0.01)  # the site's middle is 0, 0
+    frame = plan["frame"]
+    assert frame["angle"] == pytest.approx(0, abs=1e-3)  # the long side runs east–west
+    assert frame["x"] == pytest.approx((ring[0][0] + ring[1][0]) / 2, abs=0.05)
+    assert board.site_plan([]) is None and board.site_plan([{"shape": {"type": "Polygon", "coordinates": [[[1, 2]]]}}]) is None
+
+
+def test_the_frame_angle_stays_within_a_quarter_turn():
+    # A parcel whose longest edge runs west → east written backwards still faces east.
+    ring = [[127.0004, 37.0002], [127.0, 37.0002], [127.0, 37.0], [127.0004, 37.0]]
+    plan = board.site_plan([{"shape": {"type": "Polygon", "coordinates": [ring]}}])
+    assert plan["frame"]["angle"] == pytest.approx(0, abs=1e-3)
+
+
+def test_the_view_adds_the_site_and_each_schemes_figures(tmp_path):
+    board.add_paper(tmp_path, {**MASS, "id": "mass-a"})
+    board.propose_paper(tmp_path, {"kind": "mass", "blocks": [{"w": 10, "d": 10, "floors": 2}], "reason": "작게"})
+    hooks = [("site", SimpleNamespace(board_site=lambda path: {
+        "area_m2": 1000.0, "lines": ["대지: 필지 1개"],
+        "parcels": [{"pnu": "1", "shape": {"type": "Polygon", "coordinates": [_rect(127.0, 37.0, 0.0004, 0.0002)]}}],
+    }))]
+    got = board.view(tmp_path, hooks=hooks)
+    assert got["rev"] == 2 and [p["id"] for p in got["papers"]] == ["site", "mass-a"]
+    assert got["figures"]["mass-a"]["coverage_pct"] == 86.4
+    tray_id = got["tray"][0]["id"]
+    assert got["figures"][tray_id]["floor_area_m2"] == 200.0
+    assert got["site"]["lines"] == ["대지: 필지 1개"] and len(got["site"]["plan"]["parcels"]) == 1
+    assert board.load_board(tmp_path).keys() == {"rev", "papers", "tray", "pins"}  # nothing derived is saved
+
+    bare = board.view(tmp_path, hooks=[("site", SimpleNamespace(board_site=lambda path: None))])
+    assert bare["site"] is None and bare["figures"]["mass-a"]["coverage_pct"] is None

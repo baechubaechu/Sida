@@ -11,6 +11,9 @@
 | `webui/app/index.html` | 뼈대, 설정 창 |
 | `webui/app/app.js` | 화면 그리기, API 호출, 작업 진행 따라가기 |
 | `webui/app/model.js` | DOM과 `fetch`를 쓰지 않는 도우미 함수(검색·정렬, 대화 항목, 이벤트 알림 문구, Markdown, 저장할 정부 데이터 키, 화면 주소, 전문가별 결과 배치 `EXPERT_LAYOUTS`). `tests/webui/model.test.mjs`가 확인합니다 |
+| `webui/app/table.js` | 제도판(`DraftingTable`): Three.js 장면, 종이, AI 섹션, 매스안 입력. 프로젝트를 열 때만 불러옵니다 |
+| `webui/app/board-model.js` | 제도판의 DOM 없는 도우미(카메라·확대, 대지 범위, 동 꼭짓점, 새 종이 자리, 3D 이름표와 내용 카드 자리, 종이 이름, 매스안 입력 검사, 고른 종이). `tests/webui/board-model.test.mjs`가 확인합니다 |
+| `webui/app/vendor/three.js` | three.js 0.186.1에서 제도판이 쓰는 부분만 묶은 파일(ESM). 고치지 말고 `scripts/three-vendor/README.md`대로 다시 만드세요 |
 | `webui/app/styles.css` | Figma v0.1 토큰과 화면 스타일 |
 
 서버는 `/`에서 `index.html`을, `/app/...`에서 나머지 파일을 내보냅니다. 브라우저가 매번 새 파일인지 확인하므로(`Cache-Control: no-cache`) `git pull` 뒤 새로고침하면 바로 바뀝니다.
@@ -26,7 +29,7 @@
 | 설계 상태 반영 승인 | `POST .../state-proposals/{id}/apply`, `.../skip` |
 | 설정 창 | `GET`/`PUT /api/settings`, 키 `PUT /api/settings/keys/{openrouter·vworld·vworld_domain·data_go_kr·law}`, ChatGPT 로그인 `/api/settings/chatgpt...` |
 
-제도판(가운데 디자인 화면)은 아직 화면에 붙이지 않았습니다. 쓸 API는 [board-api.md](board-api.md)에 있습니다.
+| 제도판 | `GET .../board`(종이·AI 섹션·대지 도면·매스안 수치), 종이 `POST`/`PATCH`/`DELETE .../board/papers...`, AI 섹션 `POST .../board/tray/{id}/place`, `DELETE .../board/tray/{id}`. 자세한 것은 [board-api.md](board-api.md) |
 
 API의 자세한 내용은 [session-api.md](session-api.md), [state-editing.md](state-editing.md), [settings-api.md](settings-api.md), [chatgpt-login.md](chatgpt-login.md)에 있습니다.
 
@@ -42,6 +45,13 @@ API의 자세한 내용은 [session-api.md](session-api.md), [state-editing.md](
 - 결과 탭 위의 "읽은 전문가"(config `inputs`)와 아래 "다음 전문가"(문서의 Handoff)는 그 전문가 페이지로 가는 링크입니다.
 - 체크리스트의 체크는 지금은 화면에만 남고 프로젝트에 저장되지 않습니다(새로고침하면 사라짐). 저장은 다음 작업입니다.
 - 평가(도움 됨/아쉬움, 한 줄 의견)는 설정의 "사용 기록 보내기"가 켜져 있을 때만 전달됩니다(`docs/telemetry.md`).
+- 프로젝트를 열면 Conductor 대화 오른쪽에 제도판이 나옵니다. 대화 위 "제도판" 버튼으로 숨기거나 다시 열고, 가운데 줄을 끌어 대화 너비를 바꿉니다. 창이 좁으면(900px 이하) 제도판은 숨겨집니다.
+- 제도판은 3D 책상입니다. 대지 도면(필지 경계)이 가운데 있고, 대지 종이·매스안·메모·트레이싱지가 그 옆에 놓입니다. 끌어서 책상을 옮기고, Ctrl+휠로 확대하고, 우클릭(또는 Alt)+끌기로 돌리고 기울입니다. 1 평면, 2 액소, 3 투시, 0 전체 보기, V 선택, N 메모, P 펜, T 트레이싱지, Delete 지우기.
+- 평면에서는 종이가 책상에 누워 있고, 기울이면(10° 넘게) 종이가 제자리에 선 이름표로 접혀서 매스와 대지만 크게 보입니다(2026-10-26 지훈 결정). 이름표를 누르면 옆에 내용 카드가 열리고(3D로 세우기, 고치기, 대화에 보내기, 평면에서 보기), Shift+누르기는 대화에 보낼 종이로 고릅니다. 대지 위에 덮인 트레이싱지는 이름표 없이 선이 땅에 그려집니다. 종이를 옮기거나 펜으로 그리는 것은 평면에서 합니다. 이름표끼리 가까우면 겹쳐 보일 수 있습니다.
+- 매스안은 "＋ 매스안"이나 매스안 종이를 두 번 눌러 숫자로 입력합니다(동마다 가로·세로·층수와 대지 중심에서의 u·v 위치). u는 가장 큰 필지의 가장 긴 변 방향입니다. 고른 매스안은 대지 위에 매스로 서고, 나머지 안은 "다른 안 겹쳐 보기"로 흐리게 볼 수 있습니다. 건폐율·용적률 같은 수치는 서버가 계산한 값만 보여 주고, 필지 면적을 모르면 "미확인"입니다.
+- AI가 만든 종이(Conductor의 매스안·메모, 전문가 결과)는 왼쪽 "AI 섹션"에 쌓입니다. 새 종이가 오면 AI 섹션이 열립니다. 카드마다 "3D 미리 보기", "제도판에 놓기", "대화에 보내기", "버리기"가 있습니다.
+- 종이를 Shift+클릭(AI 섹션은 "대화에 보내기")으로 고르면 입력창 위에 칩이 생기고, 다음 메시지·전문가 실행·수정 요청에 함께 갑니다(8장까지). 보낸 메시지 위에도 칩이 남습니다.
+- 화면은 1초마다 다시 그려지지만 제도판은 그 밖(`#table-host`)에 있어서 3D 장면, 끌기, 입력 중인 메모가 끊기지 않습니다. 서버가 0, 0에 둔 새 종이는 화면이 대지 옆 빈자리에 놓고 그 위치를 저장합니다.
 - 처음 실행(`config.local.yaml` 없음)이면 설정 창이 먼저 뜹니다. 저장을 누르면 다음부터는 뜨지 않습니다.
 - 설정 창에서 Conductor를 "ChatGPT 구독"으로 고르면 로그인 버튼이 나옵니다. 새 창에서 로그인을 마치고 돌아오면 상태와 모델 목록이 바뀝니다.
 

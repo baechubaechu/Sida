@@ -24,7 +24,7 @@ def create_router(load_config, core) -> APIRouter:
 
     @router.get("")
     def get_board(name: str) -> dict:
-        return call(board.load_board, call(project, name))
+        return call(board.view, call(project, name))
 
     @router.post("/papers")
     def add_paper(name: str, body: dict) -> JSONResponse:

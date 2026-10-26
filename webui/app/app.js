@@ -7,6 +7,7 @@ import {
   parseRoute, projectPath as projectUrl, expertPath, dateTime, arrangeDocument, itemTag, renderInline,
   questionAnswer, stateChangeView,
 } from './model.js';
+import { keepSelected, pickedNames } from './board-model.js';
 
 const app = document.querySelector('#app');
 const announcer = document.querySelector('#announcer');
@@ -14,6 +15,7 @@ const toasts = document.querySelector('#toasts');
 const settingsDialog = document.querySelector('#settings-dialog');
 const settingsBody = document.querySelector('#settings-body');
 const settingsForm = document.querySelector('#settings-form');
+const tableHost = document.querySelector('#table-host');
 
 const POLL_MS = 1000;
 const MAIN_JOBS = new Set(['opening', 'message', 'expert']);
@@ -26,12 +28,15 @@ const ui = {
   job: null, live: [], pending: null,
   showExperts: false, revisionOpen: false, creating: false,
   settings: null, settingsDraft: null, settingsError: '', chatgptModels: null, chatgptNote: '',
+  board: null, selected: [], showTable: true, chatWidth: 0,
 };
 const drafts = new Map();
 const openingTried = new Set();
 let currentRoute = { page: 'home' };
 let trackToken = 0; // only the newest polling loop keeps going
 let trackingId = null;
+let table = null; // the drafting table of the open project (table.js, loaded on first use)
+let tableFor = '';
 
 // ------------------------------------------------------------------ helpers
 
@@ -152,8 +157,89 @@ async function loadExpert(name, agent) {
 async function refreshProject() {
   const { name, agent } = currentRoute;
   if (currentRoute.page !== 'project') return;
-  await loadSession(name);
+  await Promise.all([loadSession(name), loadBoard(name)]);
   if (agent && ui.session) await loadExpert(name, agent);
+}
+
+// ------------------------------------------------------------------ the drafting table
+
+async function loadBoard(name) {
+  try {
+    const board = await api(`${projectApi(name)}/board`);
+    if (ui.project !== name) return;
+    ui.board = board;
+    ui.selected = keepSelected(ui.selected, board);
+    table?.setBoard(board);
+    table?.setSelected(ui.selected);
+  } catch (error) {
+    if (error.status !== 404) toast(`제도판을 불러오지 못했습니다. ${error.message}`, 'error');
+  }
+}
+
+// A table edit through the API; on failure say why and redraw the table from the server.
+async function boardCall(name, call, reload = false) {
+  try {
+    const result = await call();
+    if (reload) await loadBoard(name);
+    return result || true;
+  } catch (error) {
+    toast(error.message, 'error');
+    await loadBoard(name);
+    return null;
+  }
+}
+
+function tableHooks(name) {
+  const paperUrl = (id) => `${projectApi(name)}/board/papers/${encodeURIComponent(id)}`;
+  return {
+    add: (paper) => boardCall(name, () => api(`${projectApi(name)}/board/papers`, { method: 'POST', body: paper }), true),
+    update: (id, changes) => boardCall(name, () => api(paperUrl(id), { method: 'PATCH', body: changes }),
+      ['blocks', 'floor_height', 'title'].some((key) => key in changes)),
+    remove: (id) => boardCall(name, () => api(paperUrl(id), { method: 'DELETE' })),
+    place: (id, placement) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}/place`, { method: 'POST', body: placement }), true),
+    discard: (id) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}`, { method: 'DELETE' }), true),
+    select: (ids) => { ui.selected = ids; render(false); },
+    openExpert: (agent) => { location.hash = expertUrl(name, agent); },
+    experts: () => ui.session?.experts || [],
+  };
+}
+
+// The table of this project, made once (three.js is loaded only when a project opens).
+async function openTable(name) {
+  if (tableFor === name && table) return;
+  table?.destroy();
+  table = null;
+  tableFor = name;
+  try {
+    const { DraftingTable } = await import('./table.js');
+    if (tableFor !== name) return;
+    table = new DraftingTable(tableHooks(name));
+    tableHost.replaceChildren(table.root);
+    if (ui.board) { table.setBoard(ui.board); table.setSelected(ui.selected); }
+    placeTable();
+  } catch (error) {
+    tableHost.replaceChildren();
+    toast(`제도판을 열지 못했습니다. ${error.message}`, 'error');
+  }
+}
+
+// The table lives outside the redrawn page (so WebGL, a drag or a note being typed survive
+// redraws) and is laid over the page's #table-slot.
+const slotWatch = new ResizeObserver(() => placeTable());
+
+function placeTable() {
+  const slot = app.querySelector('#table-slot');
+  const r = slot?.getBoundingClientRect();
+  if (!table || !r || !r.width || !r.height) { tableHost.hidden = true; return; }
+  tableHost.hidden = false;
+  Object.assign(tableHost.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+  table.resize();
+}
+
+function unpick(id) {
+  ui.selected = ui.selected.filter((x) => x !== id);
+  table?.setSelected(ui.selected);
+  render(false);
 }
 
 async function navigate() {
@@ -161,6 +247,11 @@ async function navigate() {
   currentRoute = route();
   ui.showExperts = false;
   ui.revisionOpen = false;
+  if (currentRoute.page !== 'project') {
+    table?.destroy();
+    table = null;
+    tableFor = '';
+  }
   if (currentRoute.page === 'home') {
     render();
     await loadProjects();
@@ -175,9 +266,12 @@ async function navigate() {
       ui.live = [];
       ui.pending = null;
       ui.project = name;
+      ui.board = null;
+      ui.selected = [];
       render();
       if (!ui.projects) loadProjects().then(() => render(false));
-      await loadSession(name);
+      openTable(name);
+      await Promise.all([loadSession(name), loadBoard(name)]);
     }
     if (agent && ui.session) {
       if (agent !== previous.agent) ui.showRaw = false;
@@ -220,6 +314,9 @@ async function start(name, path, body, pending = null) {
 }
 
 function handleEvent(event) {
+  if (event.kind === 'tray_added' && ui.project) {
+    loadBoard(ui.project).then(() => table?.openTray());
+  }
   if (event.kind === 'conductor_reply') ui.live.push({ kind: 'conductor', text: event.data.text || '' });
   else if (event.kind === 'expert_reply') ui.live.push({ kind: 'expert', text: event.data.text || '' });
   else {
@@ -352,8 +449,21 @@ function newView() {
     </form></main>`;
 }
 
+// Papers picked on the drafting table go with the next message (and the next expert run).
+function pickedChips() {
+  if (!ui.selected.length) return '';
+  return `<div class="picked" aria-label="제도판에서 고른 종이"><span class="picked-label">제도판에서 고른 종이</span>
+    ${pickedNames(ui.selected, ui.board).map((p) => `<span class="paper-chip">${escape(p.name)}<button type="button" data-action="unpick" data-id="${escape(p.id)}" aria-label="${escape(p.name)} 빼기">×</button></span>`).join('')}</div>`;
+}
+
+function contextChips(context) {
+  if (!context?.length) return '';
+  return `<div class="context-chips" aria-label="함께 보낸 제도판 종이">${context.map((c) => `<span class="paper-chip">${escape(c.name || c.id)}</span>`).join('')}</div>`;
+}
+
 function composer(key, placeholder, label, disabled) {
   return `<form class="composer" data-composer="${escape(key)}" aria-label="${escape(label)} 입력">
+    ${pickedChips()}
     <textarea data-focus="${escape(key)}" aria-label="${escape(label)}에게 메시지" placeholder="${escape(placeholder)}" maxlength="6000" rows="1">${escape(draftFor(key))}</textarea>
     <div class="composer-footer"><span class="composer-hint">${disabled ? '작업이 끝나면 보낼 수 있습니다.' : 'Enter로 보내기, Shift+Enter로 줄바꿈'}</span>
       <button class="send-button" type="submit" aria-label="${escape(label)}에게 보내기" ${disabled ? 'disabled' : ''}>↑</button></div>
@@ -361,7 +471,7 @@ function composer(key, placeholder, label, disabled) {
 }
 
 function bubble(item, speaker) {
-  if (item.kind === 'user') return `<article class="message-user" aria-label="내 메시지">${escape(item.text)}</article>`;
+  if (item.kind === 'user') return `${contextChips(item.context)}<article class="message-user" aria-label="내 메시지">${escape(item.text)}</article>`;
   if (item.kind === 'note') return `<p class="event-note ${item.tone || ''}">${escape(item.text)}</p>`;
   if (item.kind === 'card') {
     const expert = expertById(item.agent);
@@ -391,7 +501,7 @@ function mainChat(name) {
   }
   const items = chatItems(session.messages);
   const live = MAIN_JOBS.has(ui.job?.kind) ? ui.live : [];
-  const pending = ui.pending?.target === 'main' ? [{ kind: 'user', text: ui.pending.text }] : [];
+  const pending = ui.pending?.target === 'main' ? [{ kind: 'user', text: ui.pending.text, context: ui.pending.context }] : [];
   const empty = !items.length && !live.length && !pending.length && !jobRunning();
   return `<div class="chat-scroll" data-scroll="main"><h1>Conductor 대화</h1>
       ${empty ? '<p class="muted intro-line">설계 중인 프로젝트와 지금 고민하는 점을 알려 주세요.</p>' : ''}
@@ -541,7 +651,7 @@ function chatTab(name, agent, expert) {
   const chatOn = (ui.chat ? ui.chat.chat : expert.chat) && !ui.chatMissing;
   const items = chatItems(ui.chat?.messages);
   const live = ui.job?.kind === 'expert_chat' && ui.job.agent === agent && ui.job.chat === chat ? ui.live : [];
-  const pending = ui.pending?.target === `${agent}/${chat}` ? [{ kind: 'user', text: ui.pending.text }] : [];
+  const pending = ui.pending?.target === `${agent}/${chat}` ? [{ kind: 'user', text: ui.pending.text, context: ui.pending.context }] : [];
   const chats = expert.chats?.length ? expert.chats : [{ id: chat }];
   const list = `<nav class="chat-pills" aria-label="분석 채팅">
       ${chats.map((c) => `<a class="chat-pill ${c.id === chat ? 'active' : ''}" href="${expertUrl(name, agent, c.id)}" ${c.id === chat ? 'aria-current="page"' : ''}>${escape(chatTitle(c.id))}${chatAnswering(agent, c.id) ? ' · 답하는 중' : ''}</a>`).join('')}
@@ -656,14 +766,19 @@ function expertPage(name, agent) {
 function workspaceView() {
   const { name, agent } = currentRoute;
   const expert = agent ? expertById(agent) : null;
-  // The Conductor conversation always stays on the left; an expert page takes the right side.
+  // The Conductor conversation always stays on the left; the drafting table sits in the middle
+  // and the experts on the right. An expert page takes the place of both.
+  const withTable = !agent && ui.showTable;
   return `<div class="app-shell workspace">${sidebar(name)}
     <main class="workspace-main" id="main" tabindex="-1">
       <header class="workspace-header"><div class="breadcrumb"><a href="#/">${escape(name)}</a><span>/</span><span>${escape(expert ? expert.name : 'Conductor 대화')}</span></div>
-        <div class="workspace-controls"><button class="mobile-experts" data-action="toggle-experts">${agent || ui.showExperts ? '채팅' : '전문가'}</button></div></header>
-      <div class="chat-layout ${agent ? 'split' : ''} ${ui.showExperts && !agent ? 'show-experts' : ''}">
+        <div class="workspace-controls">
+          ${agent ? '' : `<button class="table-toggle" data-action="toggle-table" aria-pressed="${ui.showTable}">${ui.showTable ? '제도판 숨기기' : '제도판 보기'}</button>`}
+          <button class="mobile-experts" data-action="toggle-experts">${agent || ui.showExperts ? '채팅' : '전문가'}</button></div></header>
+      <div class="chat-layout ${agent ? 'split' : ''} ${withTable ? 'with-table' : ''} ${ui.showExperts && !agent ? 'show-experts' : ''}" ${withTable && ui.chatWidth ? `style="--chat-width: ${ui.chatWidth}px"` : ''}>
         <section class="chat-main" aria-label="Conductor 대화">${mainChat(name)}</section>
         <div class="divider" role="separator" aria-label="패널 너비 조절" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0">⋮</div>
+        ${withTable ? '<section class="table-pane" aria-label="제도판"><div id="table-slot"></div></section>' : ''}
         ${agent ? expertPage(name, agent) : expertsPanel()}
       </div>
     </main></div>`;
@@ -687,6 +802,10 @@ function render(fresh = true) {
     if (!saved) el.scrollTop = fromTop ? 0 : el.scrollHeight;
     else el.scrollTop = saved.bottom && !fromTop ? el.scrollHeight : saved.top;
   }
+  slotWatch.disconnect();
+  const slot = app.querySelector('#table-slot');
+  if (slot) slotWatch.observe(slot);
+  placeTable();
   const again = focused && app.querySelector(`[data-focus="${CSS.escape(focused)}"]`);
   if (again) {
     again.focus({ preventScroll: true });
@@ -723,16 +842,26 @@ async function decideProposal(id, apply) {
   render(false);
 }
 
+// The picked papers go with this request and are let go once it is sent.
+function takePicked() {
+  const ids = ui.selected;
+  const context = pickedNames(ids, ui.board);
+  ui.selected = [];
+  table?.setSelected([]);
+  return { ids, context };
+}
+
 function send(key) {
   const { name, agent } = currentRoute;
   const text = draftFor(key).trim();
   if (!text || jobRunning()) return;
   drafts.delete(key);
+  const { ids, context } = takePicked();
   if (key === 'main') {
-    start(name, `${projectApi(name)}/session/messages`, { text }, { target: 'main', text });
+    start(name, `${projectApi(name)}/session/messages`, { text, context: ids }, { target: 'main', text, context });
   } else {
     const chat = activeChat();
-    start(name, `${projectApi(name)}/experts/${encodeURIComponent(agent)}/chats/${encodeURIComponent(chat)}/messages`, { text }, { target: `${agent}/${chat}`, text });
+    start(name, `${projectApi(name)}/experts/${encodeURIComponent(agent)}/chats/${encodeURIComponent(chat)}/messages`, { text, context: ids }, { target: `${agent}/${chat}`, text, context });
   }
 }
 
@@ -780,7 +909,9 @@ app.addEventListener('click', (event) => {
   if (action === 'open-expert') location.hash = expertUrl(name, button.dataset.agent);
   if (action === 'open-chat') location.hash = expertUrl(name, button.dataset.agent, button.dataset.chat);
   if (action === 'new-chat') newChat(button.dataset.agent);
-  if (action === 'run-expert') start(name, `${projectApi(name)}/session/experts/${encodeURIComponent(button.dataset.agent)}/run`, {});
+  if (action === 'run-expert') start(name, `${projectApi(name)}/session/experts/${encodeURIComponent(button.dataset.agent)}/run`, { context: takePicked().ids });
+  if (action === 'unpick') unpick(button.dataset.id);
+  if (action === 'toggle-table') { ui.showTable = !ui.showTable; render(false); }
   if (action === 'open-revision') { ui.revisionOpen = true; render(false); app.querySelector('#revision-text')?.focus(); }
   if (action === 'close-revision') { ui.revisionOpen = false; render(false); }
   if (action === 'apply-proposal') decideProposal(button.dataset.id, true);
@@ -855,7 +986,7 @@ app.addEventListener('submit', async (event) => {
     if (!revision || jobRunning()) return;
     drafts.delete(key);
     ui.revisionOpen = false;
-    start(name, `${projectApi(name)}/session/experts/${encodeURIComponent(agent)}/run`, { revision });
+    start(name, `${projectApi(name)}/session/experts/${encodeURIComponent(agent)}/run`, { revision, context: takePicked().ids });
   }
 });
 
@@ -865,6 +996,10 @@ function resizePanel(separator, delta, absolute = false) {
   const current = layout.querySelector('.chat-main').getBoundingClientRect().width;
   const width = Math.max(bounds.width * 0.25, Math.min(bounds.width * 0.75, absolute ? delta : current + delta));
   if (layout.classList.contains('split')) layout.style.setProperty('--split-left', `${width}px`);
+  else if (layout.classList.contains('with-table')) {
+    ui.chatWidth = Math.round(Math.min(width, bounds.width * 0.6));
+    layout.style.setProperty('--chat-width', `${ui.chatWidth}px`);
+  }
   else layout.style.setProperty('--expert-width', `${Math.max(240, bounds.width - width - 12)}px`);
   separator.setAttribute('aria-valuenow', String(Math.round((width / bounds.width) * 100)));
 }
@@ -1111,6 +1246,7 @@ window.addEventListener('focus', async () => {
 // ------------------------------------------------------------------ start
 
 window.addEventListener('hashchange', navigate);
+window.addEventListener('resize', placeTable);
 document.querySelector('.skip-link').addEventListener('click', (event) => {
   event.preventDefault();
   document.querySelector('#main')?.focus();

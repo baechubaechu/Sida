@@ -157,7 +157,7 @@ def test_main_screen_is_served_at_root_with_its_assets(client):
     parser = AssetParser()
     parser.feed(r.text)
     assert parser.assets == ["/app/styles.css", "/app/app.js"]
-    for asset in [*parser.assets, "/app/model.js"]:
+    for asset in [*parser.assets, "/app/model.js", "/app/board-model.js", "/app/table.js", "/app/vendor/three.js"]:
         served = client.get(asset)
         assert served.status_code == 200 and served.text.strip()
         assert served.headers["cache-control"] == "no-cache"
@@ -192,7 +192,9 @@ def test_main_screen_calls_only_existing_api_paths(client):
 
 
 def test_main_screen_files_hold_no_keys_or_placeholder_urls():
-    for path in webapp.APP_DIR.iterdir():
+    for path in webapp.APP_DIR.rglob("*"):
+        if not path.is_file():
+            continue
         text = path.read_text(encoding="utf-8")
         assert "figma.com/api/mcp/asset" not in text
         assert "OPENROUTER_API_KEY" not in text
@@ -1059,6 +1061,13 @@ def test_board_context_computes_ratios_from_the_saved_site_facts(client, project
     area = site_facts.load_facts(project.path)["summary"]["total_area_m2"]
     base = f"/api/projects/{project.name}/board"
     client.post(f"{base}/papers", json={"kind": "mass", "id": "mass-a", "blocks": [{"w": 30, "d": 20, "floors": 4}]})
+
+    drawn = client.get(base).json()  # what the screen draws: parcels in metres and the figures
+    plan = drawn["site"]["plan"]
+    assert [p["pnu"] for p in plan["parcels"]] == ["4141010500106890014", "4141010500106890015"]
+    assert plan["bounds"]["max_x"] - plan["bounds"]["min_x"] > 20 and "angle" in plan["frame"]
+    assert drawn["figures"]["mass-a"]["coverage_pct"] == round(600 / area * 100, 1)
+    assert drawn["site"]["area_m2"] == area
 
     mock_config["conductor"]["board_context"] = "full"
     body = client.get(f"{base}/context", params={"ids": "mass-a,site"}).json()

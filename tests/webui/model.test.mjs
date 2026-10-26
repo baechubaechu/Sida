@@ -79,6 +79,25 @@ test('the three expert-run notices raise a toast; replies are not notices', () =
   assert.doesNotMatch(afterRun.text, /다시 보내/);
 });
 
+test('drafting table notices: AI papers land in the AI section and board reads are named', () => {
+  const added = eventNotice({ kind: 'tray_added', data: { paper: { kind: 'mass', title: '안 C' } } });
+  assert.equal(added.text, '안 C을(를) 제도판의 AI 섹션에 놓았습니다.');
+  assert.equal(added.toast, true);
+  assert.match(eventNotice({ kind: 'tray_failed', data: { reason: 'limit' } }).text, /넘어/);
+  assert.match(eventNotice({ kind: 'tray_failed', data: { reason: 'bad block' } }).text, /bad block/);
+  assert.equal(eventNotice({ kind: 'reading', data: { file: 'board/mass-a' } }).text, '제도판 종이 mass-a를 읽는 중입니다.');
+  assert.equal(eventNotice({ kind: 'reading', data: { file: 'site_reader.md' } }).text, 'site_reader.md를 읽는 중입니다.');
+});
+
+test('a message keeps the papers sent with it as chips', () => {
+  const [sent, plain] = chatItems([
+    { role: 'user', text: '이 안 어때?', context: [{ id: 'mass-a', name: '안 A' }] },
+    { role: 'user', text: '안녕' },
+  ]);
+  assert.deepEqual(sent.context, [{ id: 'mass-a', name: '안 A' }]);
+  assert.deepEqual(plain.context, []);
+});
+
 test('a run the Conductor asked for but Sida held back says why', () => {
   const agent = { id: 'program_analyst', name: '프로그램 분석가' };
   const limit = eventNotice({ kind: 'run_skipped', data: { agent, reason: 'limit', limit: 3 } });

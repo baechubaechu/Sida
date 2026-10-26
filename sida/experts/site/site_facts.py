@@ -1034,12 +1034,21 @@ def ordinance_block_for_agent(config: dict, agent: dict, project_path: Path) -> 
 
 
 def board_summary(facts: dict) -> dict:
-    """For the drafting table: the site area (None when not every parcel's area is known)
-    and the site and zoning lines, as experts get them."""
+    """For the drafting table: the site area (None when not every parcel's area is known),
+    the site and zoning lines as experts get them, and each parcel's boundary for drawing."""
     s = facts["summary"]
     area = s["total_area_m2"] if s["area_complete"] else None
     lines = [line for line in regulatory_lines(facts) if line.startswith(("대지:", "용도지역:"))]
-    return {"area_m2": area, "lines": lines}
+    parcels = [
+        {
+            "pnu": p["pnu"],
+            "address": p.get("address", ""),
+            "area_m2": (p.get("characteristics") or {}).get("area_m2"),
+            "shape": p.get("shape"),
+        }
+        for p in facts["parcels"]
+    ]
+    return {"area_m2": area, "lines": lines, "parcels": parcels}
 
 
 def describe(facts: dict) -> str:

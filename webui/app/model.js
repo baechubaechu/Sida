@@ -1,5 +1,6 @@
 // Pure helpers for the Sida screen: no DOM and no fetch, so `node --test` can check them.
 // The data comes from the JSON API (docs/session-api.md, docs/settings-api.md).
+import { paperName } from './board-model.js';
 
 export const PHASES = {
   analysis: '분석', concept: '개념', development: '발전', critique: '비평', communication: '전달',
@@ -84,7 +85,7 @@ export function projectSummary(project) {
 export function chatItems(messages) {
   const items = [];
   for (const m of messages || []) {
-    if (m.role === 'user') items.push({ kind: 'user', text: m.text });
+    if (m.role === 'user') items.push({ kind: 'user', text: m.text, context: m.context || [] });
     else if (m.role === 'conductor' || m.role === 'expert') items.push({ kind: m.role, text: m.text });
     else if (m.role === 'system') {
       const name = m.name || m.agent || '전문가';
@@ -112,8 +113,14 @@ export function eventNotice(event) {
     case 'state_applied': return notice(`${name} 결과를 설계 상태에 반영했습니다.`, 'success');
     case 'state_unchanged': return notice(`${name} 결과로 설계 상태에서 바뀔 내용은 없습니다.`);
     case 'state_failed': return notice(`설계 상태 반영안을 만들지 못했습니다. 결과 문서는 저장됐습니다. ${data.reason || ''}`.trim(), 'warn');
-    case 'reading': return notice(`${data.file || '결과 문서'}를 읽는 중입니다.`);
+    case 'reading': return String(data.file || '').startsWith('board/')
+      ? notice(`제도판 종이 ${data.file.slice(6)}를 읽는 중입니다.`)
+      : notice(`${data.file || '결과 문서'}를 읽는 중입니다.`);
     case 'read_failed': return notice(`결과 문서를 읽지 못했습니다. ${data.reason || ''}`.trim(), 'warn');
+    case 'tray_added': return notice(`${paperName(data.paper) || 'AI가 만든 종이'}을(를) 제도판의 AI 섹션에 놓았습니다.`, 'success', true);
+    case 'tray_failed': return notice(data.reason === 'limit'
+      ? '한 번에 AI 섹션에 놓을 수 있는 종이 수를 넘어 더 놓지 않았습니다.'
+      : `Conductor가 만든 종이가 거부됐습니다. ${data.reason || ''}`.trim(), 'warn');
     case 'unknown_agent': return notice('Conductor가 없는 전문가를 불러서 실행하지 않았습니다.', 'warn');
     case 'action_recovered': return notice('Conductor 답에서 다음 동작을 다시 읽었습니다.');
     case 'run_skipped': return notice(data.reason === 'state_pending'
