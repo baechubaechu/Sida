@@ -38,6 +38,7 @@ def build_worker_prompt(
     knowledge_block: str | None = None,
     facts_block: str | None = None,
     revision_block: str | None = None,
+    board_block: str | None = None,
 ) -> str:
     from sida.i18n import get_language
 
@@ -69,6 +70,10 @@ PROJECT STATE (designer-curated memory — decisions, open questions, expert sta
     if facts_block and facts_block.strip():
         facts = f"""
 {facts_block.strip()}
+"""
+    if board_block and board_block.strip():
+        facts += f"""
+{board_block.strip()}
 """
     return f"""AGENT PROMPT:
 {agent_prompt}
@@ -256,11 +261,13 @@ def run_worker_agent(
     project_state: str | None = None,
     notify=None,
     revision: str | None = None,
+    board_block: str | None = None,
 ) -> str:
     """Run one expert. Raises LLMError on provider failure.
 
     `revision` is the designer's change request: the expert rewrites its current output
-    with it (the previous version is archived as usual).
+    with it (the previous version is archived as usual). `board_block` is the drawing-table
+    papers the designer selected (sida/board.py), placed with the facts.
 
     Experts with an `inputs` declaration receive only the listed completed outputs
     (read from output_dir); other completed experts are named but not included.
@@ -330,6 +337,7 @@ def run_worker_agent(
         other_completed=other_completed,
         facts_block=facts_block or None,
         revision_block=revision_block,
+        board_block=board_block,
     )
     budget = worker_input_budget(rt, len(WORKER_SYSTEM) + len(fixed_prompt))
     if budget is not None:
@@ -350,6 +358,7 @@ def run_worker_agent(
         knowledge_block=knowledge_block or None,
         facts_block=facts_block or None,
         revision_block=revision_block,
+        board_block=board_block,
     )
 
     messages = [

@@ -10,11 +10,13 @@ Event kinds and their data:
   action_recovered  action, agent
   conductor_error   reason [, after_run=True when an expert ran and only the follow-up failed]
   unknown_agent     action ("run" | "read"), agent
-  reading           file
+  reading           file             (a module file, or "board/<paper id>" for read_board)
   read_failed       agent, reason ("empty" | "limit")
   module_started    agent
   module_saved      agent, path, preview, truncated
   module_failed     agent, reason
+  tray_added        paper            (a paper in the drawing table's AI section, sida/board.py)
+  tray_failed       reason           (the Conductor's paper was refused; it is told why)
   run_skipped       agent, reason ("limit" | "state_pending" | "held"), limit
   notice            message          (only when Session.capture_notices is set)
   state_proposing   agent
@@ -31,6 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from sida import board
 from sida.conductor import ask_conductor, parse_action
 from sida.conductor_context import render_conductor_prompt
 from sida.config import ROOT, agent_by_id, get_agents, is_held, resolve_agent
@@ -44,6 +47,7 @@ from sida.state_revisions import content_revision, module_revisions
 from sida.worker import run_worker_agent
 
 MAX_READS_PER_TURN = 2
+MAX_PAPERS_PER_TURN = 3  # papers the Conductor may put in the AI section for one message
 READ_CHAR_LIMIT = 6000
 PREVIEW_LINES = 12
 
@@ -73,6 +77,8 @@ class Session:
     # When set, warnings from an expert run arrive as "notice" events instead of being printed.
     capture_notices: bool = False
     pending_state: StateProposal | None = None
+    # Drawing-table papers the designer sent with this job's message (sida/board.py).
+    table: board.Selection | None = None
 
     @property
     def output_dir(self) -> Path:
@@ -280,6 +286,8 @@ def resolve_action(session: Session, action: dict) -> tuple[str, dict | None]:
     kind = str(action.get("type", "none")).lower()
     if kind == "exit":
         return "exit", None
+    if kind in {"read_board", "propose_paper"}:
+        return kind, None
     if kind not in {"run", "read"}:
         return "continue", None
 
@@ -305,8 +313,10 @@ def conductor_turn(
     """
     extra: list[dict] | None = None
     reads = 0
+    proposals = 0
     pending_text = user_text
     replies: list[str] = []
+    table_context, board_tool = table_for_conductor(session)
     while True:
         try:
             reply, action, usage = ask_conductor(
@@ -324,6 +334,8 @@ def conductor_turn(
                 provider=session.c_provider,
                 ephemeral=ephemeral,
                 extra_messages=extra,
+                table_context=table_context,
+                board_tool=board_tool,
             )
         except LLMError as exc:
             extra_data = {"after_run": True} if after_run else {}
@@ -343,6 +355,48 @@ def conductor_turn(
             )
 
         kind, agent = resolve_action(session, action)
+        if kind == "read_board":
+            reads += 1
+            paper = str(action.get("paper") or "")
+            content = board.read_paper(session.project.path, paper) if board_tool else None
+            if reads > MAX_READS_PER_TURN or not content:
+                session.send("read_failed", agent=paper, reason="empty" if not content else "limit")
+                return Turn("continue", replies=replies)
+            session.send("reading", file=f"board/{paper}")
+            extra = [
+                {
+                    "role": "user",
+                    "content": (
+                        f"DRAWING TABLE PAPER {paper}:\n{content}\n\n"
+                        "Answer the designer's last question using this paper."
+                    ),
+                }
+            ]
+            pending_text = None
+            ephemeral = True
+            continue
+        if kind == "propose_paper":
+            proposals += 1
+            if not board_tool or proposals > MAX_PAPERS_PER_TURN:
+                session.send("tray_failed", reason="limit")
+                return Turn("continue", replies=replies)
+            data = action.get("paper") if isinstance(action.get("paper"), dict) else {}
+            try:
+                paper = board.propose_paper(session.project.path, data)
+            except ValueError as exc:
+                session.send("tray_failed", reason=str(exc))
+                result = f"The paper was refused: {exc}. Fix it or tell the designer."
+            else:
+                session.send("tray_added", paper=paper)
+                site = session.table.site if session.table is not None else board.site_summary(session.project.path)
+                result = (
+                    "Put in the AI section (the designer decides whether it goes on the table):\n"
+                    + board.paper_text(paper, site)
+                )
+            extra = [{"role": "user", "content": result + "\n\nTell the designer briefly what you made."}]
+            pending_text = None
+            ephemeral = True
+            continue
         if kind != "read":
             return Turn(kind, agent=agent, replies=replies)
 
@@ -369,6 +423,16 @@ def conductor_turn(
         ]
         pending_text = None
         ephemeral = True
+
+
+def table_for_conductor(session: Session) -> tuple[str, bool]:
+    """(drawing-table text for the Conductor's calls, whether it gets read_board).
+    A local Conductor gets nothing here: the selected paper names are in the history line."""
+    mode = board.context_mode(session.config)
+    if mode != "full" or not board.board_path(session.project.path).exists():
+        return "", False
+    table = session.table.board if session.table is not None else board.load_board(session.project.path)
+    return board.conductor_block(session.table, table, mode), True
 
 
 def max_expert_runs(session: Session) -> int:
@@ -417,6 +481,7 @@ def converse(session: Session, user_text: str | None, *, ephemeral: bool = False
     The Turn carries every reply; its error is set only when the first Conductor call failed.
     """
     if user_text is not None and not ephemeral:
+        user_text = board.mark_text(user_text, session.table)
         session.project.append_transcript("You", user_text)
     turn = conductor_turn(session, user_text, ephemeral=ephemeral)
     replies = list(turn.replies)
@@ -500,6 +565,7 @@ def run_module(session: Session, agent: dict, *, revision: str | None = None) ->
         project_state=session.project.read_state(),
         notify=notify,
         revision=revision,
+        board_block=board.expert_block(session.table),
     )
     session.refresh_modules()
     path = session.output_dir / agent["output"]
@@ -511,6 +577,10 @@ def run_module(session: Session, agent: dict, *, revision: str | None = None) ->
         preview="\n".join(lines[:PREVIEW_LINES]),
         truncated=len(lines) > PREVIEW_LINES,
     )
+    about = [p["id"] for p in session.table.papers] if session.table is not None else []
+    paper = board.expert_result(session.project.path, agent, text, about)
+    if paper is not None:
+        session.send("tray_added", paper=paper)
     return ModuleRun(agent=agent, text=text, path=path)
 
 
@@ -663,7 +733,8 @@ def history_messages(history: list[dict]) -> list[dict]:
     action blocks are removed from Conductor replies, and the notes Sida writes for the
     model ("[module completed] …", "[read] …", "/run …") become system entries.
 
-    Each entry: {"role": "user" | "conductor" | "system", "text": str}; system entries
+    Each entry: {"role": "user" | "conductor" | "system", "text": str}; a user message sent
+    with drawing-table papers also carries "context" ([{id, name}]); system entries
     also carry "event" ("module_completed" | "read" | "run_requested") and "agent"
     (an expert id, or an output file name for "read").
     """
@@ -688,5 +759,9 @@ def history_messages(history: list[dict]) -> list[dict]:
             if text:  # a reply that was only a tool call
                 messages.append({"role": "conductor", "text": text})
         elif role == "user":
-            messages.append({"role": "user", "text": content})
+            text, chips = board.split_mark(content)
+            entry = {"role": "user", "text": text}
+            if chips:
+                entry["context"] = chips
+            messages.append(entry)
     return messages

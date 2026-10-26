@@ -18,8 +18,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from sida import board, engine, errors, expert_chat, runtime, telemetry, workspace
 from sida import config as sida_config
-from sida import engine, errors, expert_chat, runtime, telemetry, workspace
 from sida.editing import EditingService
 from sida.i18n import agent_name
 from sida.project_documents import DocumentConflict
@@ -168,17 +168,29 @@ class SessionJobs:
     def start_opening(self, config: dict, name: str) -> Job:
         return self._start(config, name, "opening")
 
-    def start_message(self, config: dict, name: str, text: str) -> Job:
+    def start_message(
+        self, config: dict, name: str, text: str, context: list[str] | None = None
+    ) -> Job:
+        """`context`: ids of drawing-table papers the designer sent with the message."""
         text = (text or "").strip()
         if not text:
             raise ValueError("empty message")
-        return self._start(config, name, "message", text=text)
+        table = _selection(config, name, context)
+        return self._start(config, name, "message", text=text, table=table)
 
     def start_expert(
-        self, config: dict, name: str, agent_id: str, revision: str | None = None
+        self,
+        config: dict,
+        name: str,
+        agent_id: str,
+        revision: str | None = None,
+        context: list[str] | None = None,
     ) -> Job:
         agent = _agent(config, agent_id, ValueError)
-        return self._start(config, name, "expert", agent=agent, text=(revision or "").strip())
+        table = _selection(config, name, context)
+        return self._start(
+            config, name, "expert", agent=agent, text=(revision or "").strip(), table=table
+        )
 
     def start_expert_chat(
         self,
@@ -187,6 +199,7 @@ class SessionJobs:
         agent_id: str,
         text: str,
         chat_id: str = expert_chat.FIRST_CHAT,
+        context: list[str] | None = None,
     ) -> Job:
         agent = _agent(config, agent_id, LookupError)
         if not expert_chat.chat_enabled(agent):
@@ -195,7 +208,10 @@ class SessionJobs:
         text = (text or "").strip()
         if not text:
             raise ValueError("empty message")
-        return self._start(config, name, "expert_chat", agent=agent, text=text, chat=chat_id)
+        table = _selection(config, name, context)
+        return self._start(
+            config, name, "expert_chat", agent=agent, text=text, chat=chat_id, table=table
+        )
 
     def _start(
         self,
@@ -206,6 +222,7 @@ class SessionJobs:
         text: str = "",
         agent: dict | None = None,
         chat: str | None = None,
+        table: board.Selection | None = None,
     ) -> Job:
         path = workspace.find_project(config, name).resolve()
         with self._guard:
@@ -215,7 +232,7 @@ class SessionJobs:
             self._active[path] = job
             self._jobs[job.id] = job
             self._prune()
-        self.runner(lambda: self._work(job, config, text, agent))
+        self.runner(lambda: self._work(job, config, text, agent, table))
         return job
 
     def _prune(self) -> None:
@@ -225,11 +242,19 @@ class SessionJobs:
 
     # ------------------------------------------------------------------ working
 
-    def _work(self, job: Job, config: dict, text: str, agent: dict | None) -> None:
+    def _work(
+        self,
+        job: Job,
+        config: dict,
+        text: str,
+        agent: dict | None,
+        table: board.Selection | None = None,
+    ) -> None:
         error: str | None = None
         observer = telemetry.JobObserver(config, job.kind, job.agent)
         try:
             session = self._open(job, config, observer)
+            session.table = table
             if job.kind == "opening":
                 turn = engine.converse(session, engine.opening_prompt(session), ephemeral=True)
                 error = turn.error
@@ -304,6 +329,11 @@ def _agent(config: dict, agent_id: str, missing: type[Exception]) -> dict:
     if agent is None:
         raise missing(f"unknown expert: {agent_id}")
     return agent
+
+
+def _selection(config: dict, name: str, context: list[str] | None) -> board.Selection | None:
+    """The drawing-table papers sent with a request, checked before the job starts."""
+    return board.select(workspace.find_project(config, name).resolve(), context)
 
 
 def _chat_list(path: Path, agent: dict | None) -> list[dict]:

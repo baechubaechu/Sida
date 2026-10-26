@@ -9,6 +9,10 @@ imports a domain by name and adding a domain touches no shared file. `hooks.py` 
       with `run.warn(message)` and carry on — a hook must not stop the expert run.
       Within a slot, blocks with a higher `priority` come first; a local model's context
       trims a slot from its end, so the material that matters most should come first.
+  board_site(project_dir: Path) -> dict | None
+      The site as the drafting table needs it (sida/board.py): {"area_m2": float | None,
+      "lines": [str]}. The area gives a massing scheme its coverage and FAR; None leaves
+      them uncomputed. The first domain that answers is used.
   api_router(load_config, core) -> fastapi.APIRouter
       JSON routes of the domain for the web UI. `core(fn, ...)` runs a core function and
       turns application errors into HTTP errors (see webapp.core).

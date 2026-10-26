@@ -48,6 +48,8 @@ def should_recover_action(runtime: dict) -> bool:
 
 RUN_TOOL = "run_expert"
 READ_TOOL = "read_expert_output"
+BOARD_TOOL = "read_board"  # a cloud Conductor reads drafting-table papers (sida/board.py)
+PROPOSE_TOOL = "propose_paper"  # ... and puts new ones in the table's AI section
 ACTION_SECTION = "## Action block (required)"
 TOOLS_SECTION = "## Expert tools"
 
@@ -64,7 +66,7 @@ def uses_tools(runtime: dict, provider, model: str) -> bool:
     return (str(getattr(provider, "name", "")), model) not in _NO_TOOLS
 
 
-def conductor_tools(agents: list[dict]) -> list[dict]:
+def conductor_tools(agents: list[dict], *, board: bool = False) -> list[dict]:
     ids = [str(a.get("id")) for a in agents]
     target = {
         "type": "object",
@@ -90,13 +92,70 @@ def conductor_tools(agents: list[dict]) -> list[dict]:
             ),
             "parameters": target,
         },
-    ]
+    ] + ([read_board_spec(), propose_paper_spec()] if board else [])
+
+
+def read_board_spec() -> dict:
+    return {
+        "name": BOARD_TOOL,
+        "description": (
+            "Open one paper on the drawing table (a massing scheme with its figures, a note, the "
+            "site, a tracing sheet) by its id from the DRAWING TABLE index, when the designer "
+            "talks about a paper that is not shown in full."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"paper": {"type": "string", "description": "Paper id."}},
+            "required": ["paper"],
+            "additionalProperties": False,
+        },
+    }
+
+
+def propose_paper_spec() -> dict:
+    block = {
+        "type": "object",
+        "properties": {
+            "u": {"type": "number", "description": "Block centre along the site's long side, m."},
+            "v": {"type": "number", "description": "Block centre across it, m."},
+            "w": {"type": "number", "description": "Length, m."},
+            "d": {"type": "number", "description": "Depth, m."},
+            "floors": {"type": "integer"},
+        },
+        "required": ["w", "d", "floors"],
+    }
+    return {
+        "name": PROPOSE_TOOL,
+        "description": (
+            "Put a new massing scheme or note in the AI section next to the drawing table; the "
+            "designer moves it onto the table if they like it. To change a scheme on the table, "
+            "send the whole changed scheme with based_on = its id (the original stays). Only when "
+            "the designer asks for a scheme or a note, or a concrete alternative clearly helps."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": ["mass", "note"]},
+                "title": {"type": "string", "description": "Short name, in the designer's language."},
+                "text": {"type": "string", "description": "The note (kind note)."},
+                "blocks": {"type": "array", "items": block, "description": "The blocks (kind mass)."},
+                "based_on": {"type": "string", "description": "Id of the scheme this changes."},
+                "reason": {"type": "string", "description": "One line: why this scheme or note."},
+            },
+            "required": ["kind", "reason"],
+        },
+    }
 
 
 def action_from_tool_calls(calls: list[dict]) -> dict:
     """The first known tool call → an action dict like parse_action's."""
     for call in calls:
-        agent = str((call.get("arguments") or {}).get("agent") or "").strip()
+        arguments = call.get("arguments") or {}
+        if call.get("name") == BOARD_TOOL and str(arguments.get("paper") or "").strip():
+            return {"type": "read_board", "paper": str(arguments["paper"]).strip()}
+        if call.get("name") == PROPOSE_TOOL and isinstance(arguments, dict):
+            return {"type": "propose_paper", "paper": arguments}
+        agent = str(arguments.get("agent") or "").strip()
         if call.get("name") == RUN_TOOL and agent:
             return {"type": "run", "agent": agent}
         if call.get("name") == READ_TOOL and agent:
@@ -223,9 +282,10 @@ def build_conductor_messages(
     history: list[dict],
     cache_ttl: str,
     history_truncated: bool = False,
+    table_context: str = "",
 ) -> list[dict]:
     """
-    system → brief → [state] → module snapshot → history.
+    system → brief → [state] → module snapshot → [drawing table] → history.
     cache_control markers are for Anthropic-via-OpenRouter; other providers
     flatten and ignore them.
     """
@@ -288,6 +348,9 @@ def build_conductor_messages(
             "content": [{"type": "text", "text": f"{module_header}\n\n{body}\n\n{module_rules}"}],
         }
     )
+    if table_context.strip():
+        # Not cached: the selection changes with every message.
+        messages.append({"role": "user", "content": [{"type": "text", "text": table_context.strip()}]})
 
     return messages + history
 
@@ -308,6 +371,8 @@ def ask_conductor(
     provider=None,
     ephemeral: bool = False,
     extra_messages: list[dict] | None = None,
+    table_context: str = "",
+    board_tool: bool = False,
 ) -> tuple[str, dict, dict]:
     """
     One Conductor turn. Raises LLMError on provider failure (history is left
@@ -317,6 +382,8 @@ def ask_conductor(
     (session openings, system nudges).
     extra_messages are appended after history for this call only
     (module file injected for a `read` action).
+    table_context is the drawing table for this call only (sida/board.py); board_tool adds
+    the read_board tool.
     """
     from sida.i18n import get_language
 
@@ -363,6 +430,7 @@ def ask_conductor(
             history=api_history,
             cache_ttl=cache_ttl,
             history_truncated=truncated,
+            table_context=table_context,
         )
 
     from sida.i18n import t
@@ -379,7 +447,7 @@ def ask_conductor(
                 max_tokens,
                 role="conductor",
                 status=t("busy_conductor"),
-                tools=conductor_tools(agents),
+                tools=conductor_tools(agents, board=board_tool),
             )
         except ToolsUnsupported:
             _NO_TOOLS.add((str(getattr(provider, "name", "")), model))

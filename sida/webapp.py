@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 
 from sida import chatgpt_auth, errors, providers, runtime, telemetry, workspace
 from sida import config as sida_config
+from sida.board_api import create_router as create_board_router
 from sida.chatgpt_api import create_router as create_chatgpt_router
 from sida.document_api import create_router as create_document_router
 from sida.editing import EditingService
@@ -135,6 +136,7 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
     app.include_router(create_document_router(app.state.editing, load_config, core))
     app.state.session_jobs = SessionJobs(app.state.editing)
     app.include_router(create_session_router(app.state.session_jobs, load_config, core))
+    app.include_router(create_board_router(load_config, core))
     app.include_router(create_settings_router(load_config, core))
     app.include_router(create_chatgpt_router(load_config, core))
     app.include_router(create_telemetry_router(load_config, core))

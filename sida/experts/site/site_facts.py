@@ -1033,6 +1033,15 @@ def ordinance_block_for_agent(config: dict, agent: dict, project_path: Path) -> 
     return ordinance_block(facts) if facts else ""
 
 
+def board_summary(facts: dict) -> dict:
+    """For the drafting table: the site area (None when not every parcel's area is known)
+    and the site and zoning lines, as experts get them."""
+    s = facts["summary"]
+    area = s["total_area_m2"] if s["area_complete"] else None
+    lines = [line for line in regulatory_lines(facts) if line.startswith(("대지:", "용도지역:"))]
+    return {"area_m2": area, "lines": lines}
+
+
 def describe(facts: dict) -> str:
     """Everything, for showing to the designer."""
     seen: set[str] = set()

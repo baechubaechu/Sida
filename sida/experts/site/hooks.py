@@ -23,6 +23,11 @@ def prompt_blocks(run: ExpertRun) -> list[PromptBlock]:
     ]
 
 
+def board_site(project_dir) -> dict | None:
+    """The site as the drafting table needs it: area for the massing ratios, a few fact lines."""
+    facts = site_facts.load_facts(project_dir)
+    return site_facts.board_summary(facts) if facts else None
+
 
 def api_router(load_config, core):
     from sida.experts.site.api import create_router

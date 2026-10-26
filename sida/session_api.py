@@ -4,18 +4,20 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from sida import workspace
+from sida import expert_chat, workspace
 from sida.session_jobs import SessionJobs
 
 
 class Message(BaseModel):
     text: str
+    context: list[str] = Field(default_factory=list)  # drawing-table paper ids
 
 
 class Run(BaseModel):
     revision: str | None = None
+    context: list[str] = Field(default_factory=list)
 
 
 def create_router(jobs: SessionJobs, load_config, core) -> APIRouter:
@@ -44,12 +46,14 @@ def create_router(jobs: SessionJobs, load_config, core) -> APIRouter:
 
     @router.post("/session/messages")
     def message(name: str, body: Message) -> JSONResponse:
-        return started(call(jobs.start_message, load_config(), name, body.text))
+        return started(call(jobs.start_message, load_config(), name, body.text, body.context))
 
     @router.post("/session/experts/{agent}/run")
     def run_expert(name: str, agent: str, body: Run | None = None) -> JSONResponse:
-        revision = body.revision if body is not None else None
-        return started(call(jobs.start_expert, load_config(), name, agent, revision))
+        body = body or Run()
+        return started(
+            call(jobs.start_expert, load_config(), name, agent, body.revision, body.context)
+        )
 
     @router.get("/experts/{agent}/chats")
     def list_chats(name: str, agent: str) -> dict:
@@ -66,7 +70,9 @@ def create_router(jobs: SessionJobs, load_config, core) -> APIRouter:
     @router.post("/experts/{agent}/chats/{chat_id}/messages")
     def chat_message(name: str, agent: str, chat_id: str, body: Message) -> JSONResponse:
         return started(
-            call(jobs.start_expert_chat, load_config(), name, agent, body.text, chat_id)
+            call(
+                jobs.start_expert_chat, load_config(), name, agent, body.text, chat_id, body.context
+            )
         )
 
     # The single chat of earlier versions: the same as chats/01.
@@ -76,7 +82,12 @@ def create_router(jobs: SessionJobs, load_config, core) -> APIRouter:
 
     @router.post("/experts/{agent}/chat")
     def first_chat_message(name: str, agent: str, body: Message) -> JSONResponse:
-        return started(call(jobs.start_expert_chat, load_config(), name, agent, body.text))
+        return started(
+            call(
+                jobs.start_expert_chat, load_config(), name, agent, body.text,
+                expert_chat.FIRST_CHAT, body.context,
+            )
+        )
 
     @router.get("/session/jobs/{job_id}")
     def job(name: str, job_id: str, after: int = 0) -> dict:

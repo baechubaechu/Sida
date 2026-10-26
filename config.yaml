@@ -61,6 +61,9 @@ conductor:
   # Experts the Conductor may run one after another for one designer message.
   # After each run it reads the result and either answers or runs the next one.
   max_expert_runs: 3
+  # Drawing-table papers the designer selected (docs/board-api.md):
+  # auto = full for a cloud Conductor (OpenRouter, ChatGPT), names for Ollama | full | names
+  board_context: auto
   # Rolling memory for long projects (tuned for 7B@8K / 9B@16K)
   context:
     state_file: project_state.md
