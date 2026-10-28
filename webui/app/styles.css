@@ -581,3 +581,29 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
   .state-change li.changed { grid-template-columns: minmax(0, 1fr); }
   .state-change .note { grid-column: 1; }
 }
+
+/* Site page: 조례 and 계획 용도 tabs */
+.status-badge.blocked { background: #f6e1df; color: #9b2c22; }
+.ord-name { margin: 0 0 12px; font-size: 14px; }
+.ord-table th { white-space: nowrap; }
+.ord-table td { width: 40%; }
+.law-quote { margin: 6px 0 0; padding: 4px 8px; border-left: 3px solid var(--line); font-size: 12px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.law-text { margin: 6px 0; }
+.law-text summary { cursor: pointer; font-size: 13px; color: var(--brand); }
+.law-text pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 var(--font); background: var(--surface-subtle); border-radius: 8px; padding: 10px 12px; margin: 6px 0 0; }
+.ord-list, .use-acts { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.ord-item { border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; }
+.ord-item.dismissed { background: var(--surface-subtle); }
+.ord-item.dismissed .ord-head strong { color: var(--muted); text-decoration: line-through; }
+.ord-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 14px; }
+.ord-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 6px; }
+.ord-actions .check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.ord-actions .secondary { margin-left: auto; }
+.use-candidates ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.use-candidates h2, .use-card h2 { font-size: 15px; margin: 0; }
+.use-card { margin-top: 14px; }
+.use-head { display: flex; align-items: center; gap: 10px; }
+.use-head .icon-button { margin-left: auto; }
+.use-acts li { font-size: 14px; }
+.use-conditions { margin: 6px 0 0 4px; }
+.use-conditions pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 var(--font); background: #fffaf0; border-radius: 6px; padding: 6px 10px; margin: 4px 0 0; }

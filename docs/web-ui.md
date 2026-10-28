@@ -26,7 +26,7 @@
 | 새 프로젝트 (`#/new`) | `POST /api/projects` (`name`, `fields.type`·`site`·`intention`) |
 | Conductor 대화 (`#/project/<이름>`) | `GET .../session`, 첫 인사 `POST .../session/opening`, 메시지 `POST .../session/messages`, 진행 `GET .../session/jobs/{id}` |
 | 전문가 페이지 (`#/project/<이름>/expert/<id>` 결과, `.../chat/<채팅 id>` 분석 채팅, `.../versions/<버전 id>` 이전 버전) | 결과 문서 `GET .../modules/{agent}`, 이전 버전 `GET .../modules/{agent}/versions`, `.../versions/{id}`, 실행·수정 요청 `POST .../session/experts/{agent}/run`, 분석 채팅 목록과 새 채팅 `GET`/`POST .../experts/{agent}/chats`, 채팅 `GET .../experts/{agent}/chats/{chat_id}`, 메시지 `POST .../chats/{chat_id}/messages`, 평가 `POST .../experts/{agent}/feedback` |
-| 대지 페이지 (`#/project/<이름>/site` 대지 사실, `.../site/find` 찾기) | 대지 사실 `GET .../site`, 지역 목록 `GET /api/site/regions`, 지번으로 찾기 `GET /api/site/lots`, 주소로 찾기 `POST .../site/parcels`, 조회해 저장 `PUT .../site`, 브리프의 대지 주소 `GET /api/projects/{name}` |
+| 대지 페이지 (`#/project/<이름>/site` 대지 사실, `.../site/ordinance` 조례, `.../site/uses` 계획 용도, `.../site/find` 찾기) | 대지 사실 `GET .../site`, 조례 `GET .../site/ordinance`와 조문 선택 `PUT .../site/ordinance/options/{id}`, 용도 이름 찾기 `GET /api/site/uses`, 계획 용도 조회·지우기 `POST`/`DELETE .../site/uses...`, 지역 목록 `GET /api/site/regions`, 지번으로 찾기 `GET /api/site/lots`, 주소로 찾기 `POST .../site/parcels`, 조회해 저장 `PUT .../site`, 브리프의 대지 주소 `GET /api/projects/{name}` |
 | 설계 상태 반영 승인 | `POST .../state-proposals/{id}/apply`, `.../skip` |
 | 설정 창 | `GET`/`PUT /api/settings`, 키 `PUT /api/settings/keys/{openrouter·vworld·vworld_domain·data_go_kr·law}`, ChatGPT 로그인 `/api/settings/chatgpt...` |
 
@@ -49,6 +49,9 @@ API의 자세한 내용은 [session-api.md](session-api.md), [site-ordinance.md]
 - 대지를 저장하면 제도판의 대지 종이가 바로 새 필지 경계와 사실 줄로 다시 그려집니다. 대지 종이에는 정부 자료에서 규칙으로 만든 사실만 올라가고, 대지 분석가 결과(AI가 쓴 해석·미확인)는 다른 전문가처럼 AI 섹션에 놓입니다(2026-10-28 지훈 결정).
 - 대지 페이지의 "찾기" 탭은 시·도 → 시·군·구 → 읍·면·동(→ 리)을 고르고 지번을 넣는 방식이 기본이고, "주소 붙여넣기"로 글자 검색도 합니다. 새 프로젝트를 만들 때 적은 대지 주소가 있으면 글자 검색 칸에 미리 들어갑니다. 찾은 필지를 여러 개 고르면(다른 지번을 찾아 더 고를 수도 있음) 하나의 대지로 조회해 저장합니다.
 - "대지 사실" 탭은 저장된 값을 그대로 보여 줍니다(대지 개요, 용도지역과 법정 건폐율·용적률, 확인 필요, 지역·지구, 도시계획 도로, 필지, 기존 건축물, 건축제한 근거 조문, 미확인). 가져오지 못한 항목은 추정하지 않고 "미확인"으로 둡니다. 맨 아래에서 전문가가 받는 대지 사실 원문을 펼쳐 볼 수 있습니다.
+- "조례" 탭은 대지의 도시계획 조례가 건폐율·용적률에 대해 말하는 조문을 하나도 거르지 않고 보여 줍니다. 맨 위 기본 수치는 조문 줄에서 정해진 규칙으로 읽은 값만 원문 줄·조문 번호와 함께 보여 주고, 읽지 못하면 "미확인"과 이유를 적습니다. 나머지 조문은 세 묶음(대지 위치로 정해지는 것, 설계로 얻을 수 있는 완화, 행정이 지정하는 것)으로 나오고, 조문마다 원문을 펼쳐 보고, 전문가에게 무엇이 가는지 보고, "숨기기"와 (완화·강화 묶음에서) "전문가가 원문 읽기"를 고릅니다. 이 선택은 프로젝트에 저장됩니다.
+- "계획 용도" 탭은 지으려는 용도 이름의 일부로 토지이음 용도 이름을 찾고, 고른 이름이 대지의 용도지역·지구마다 지을 수 있는지(가능·금지 등 토지이음의 판단 그대로)와 단서 조항, 용도의 법적 정의를 보여 줍니다. 조회한 용도는 저장되고 ×로 지웁니다.
+- 대지 분석가가 실행 중이면 대지 페이지 맨 위에 "실행 중"이 나오고, 끝나면 결과 보기와 다시 실행 버튼으로 바뀝니다. AI 섹션의 전문가 결과 종이는 한국어 전문가 이름("대지 분석가 결과")으로, 미리 보기는 Markdown 기호 없이 한국어 섹션 이름(\[사실\] 등)으로 보입니다.
 - 대지 분석가와 법규 검토자 페이지의 결과 탭 위에는 어떤 대지로 실행되는지(조회 전이면 브리프만으로 실행된다는 안내)가 나옵니다.
 - 정부 데이터 키가 없거나 거부되면(503) 오류 문구 옆에 설정 열기 버튼이 나옵니다.
 - 계획 용도, 조례 조문, 지도는 아직 화면이 없습니다(서버 API는 있음).

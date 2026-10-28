@@ -7,6 +7,7 @@ import {
   parseRoute, projectPath as projectUrl, expertPath, dateTime, arrangeDocument, itemTag, renderInline,
   questionAnswer, stateChangeView, sitePath, sitePageFor, needsSiteFirst, siteHeadline, areaText, zoneScope, missingText, SITE_PART_LABELS,
   UNKNOWN, restrictionGroups, buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
+  ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
 } from './model.js';
 import { keepSelected, pickedNames } from './board-model.js';
 
@@ -34,6 +35,7 @@ const ui = {
   settings: null, settingsDraft: null, settingsError: '', chatgptModels: null, chatgptNote: '',
   board: null, selected: [], showTable: true, chatWidth: 0,
   site: null, siteError: '', showSiteLines: false, find: null, siteFirst: false,
+  ordinance: null, ordinanceError: '', ordinanceBusy: '', useFind: null,
 };
 const drafts = new Map();
 const openingTried = new Set();
@@ -133,6 +135,22 @@ function freshFind() {
     chosen: { sido: null, sigungu: null, emd: null, ri: null }, main: '', sub: '', mountain: false,
     query: '', briefTried: false, search: null, candidates: null, picked: [], busy: '', error: '', errorStatus: 0,
   };
+}
+
+function freshUseFind() {
+  return { query: '', candidates: null, busy: '', error: '', errorStatus: 0 };
+}
+
+// What the site's ordinance says about 건폐율·용적률 (GET .../site/ordinance), loaded with the tab.
+async function loadOrdinance(name) {
+  ui.ordinanceError = '';
+  try {
+    const ordinance = await api(`${projectApi(name)}/site/ordinance`);
+    if (ui.project === name) ui.ordinance = ordinance;
+  } catch (error) {
+    if (ui.project === name) ui.ordinanceError = error.message;
+  }
+  render(false);
 }
 
 async function loadSite(name) {
@@ -287,6 +305,9 @@ async function navigate() {
       ui.session = null;
       ui.site = null;
       ui.find = freshFind();
+      ui.ordinance = null;
+      ui.ordinanceError = '';
+      ui.useFind = freshUseFind();
       ui.chat = null;
       ui.job = null;
       trackToken += 1;
@@ -302,6 +323,7 @@ async function navigate() {
       await Promise.all([loadSession(name), loadBoard(name), loadSite(name)]);
     }
     if (currentRoute.site && currentRoute.tab === 'find') prepareFind(name);
+    if (currentRoute.site && currentRoute.tab === 'ordinance' && !ui.ordinance && ui.site?.available) loadOrdinance(name);
     if (agent && ui.session) {
       if (agent !== previous.agent) ui.showRaw = false;
       clearExpert();
@@ -821,7 +843,7 @@ function siteSection(title, inner, extra = '') {
   return `<section class="doc-section ${extra}"><h2>${escape(title)}</h2>${inner}</section>`;
 }
 
-function zoningBlock(site) {
+function zoningBlock(name, site) {
   const s = site.summary;
   if (!s.zoning.length) return siteSection('용도지역', `<p>용도지역: ${UNKNOWN}</p>`);
   const rows = s.zoning.map((z) => `<tr><th scope="row">${escape(z.zone)}</th><td>${escape(zoneScope(z, s.parcel_count))}</td>
@@ -829,7 +851,7 @@ function zoningBlock(site) {
   return siteSection('용도지역', `<div class="table-wrap"><table class="site-table">
       <thead><tr><th scope="col">용도지역</th><th scope="col">범위</th><th scope="col">건폐율 법정 상한</th><th scope="col">용적률 법정 범위</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
-    <p class="muted small-text">법정 범위입니다. 실제 적용값은 ${escape(s.municipality || '해당 지자체')} 도시계획 조례가 이 범위 안에서 정합니다.</p>`, 'site-zoning');
+    <p class="muted small-text">법정 범위입니다. 실제 적용값은 ${escape(s.municipality || '해당 지자체')} 도시계획 조례가 이 범위 안에서 정합니다. <a href="${sitePath(name, 'ordinance')}">조례 보기</a></p>`, 'site-zoning');
 }
 
 function parcelItem(p) {
@@ -869,13 +891,19 @@ function restrictionsBlock(site) {
   return siteSection('건축제한 근거 조문', `${inner}<p class="muted small-text">정부 응답에 법령 이름이 없어 조문 제목만 보여 줍니다.</p>`);
 }
 
-function factsTab(name) {
+// Before any site is saved (or while loading): what the facts, ordinance and uses tabs show instead.
+function siteNotYet(name) {
   const site = ui.site;
   if (!site) return `<p class="${ui.siteError ? 'error-text' : 'muted'}">${escape(ui.siteError || '불러오는 중입니다.')}</p>`;
-  if (!site.available) {
-    return `<div class="expert-note"><p>아직 대지를 조회하지 않았습니다. 주소로 필지를 찾아 저장하면 정부 데이터에서 용도지역, 법정 건폐율·용적률, 기존 건축물, 건축제한 근거 조문을 가져옵니다.</p>
+  if (site.available) return '';
+  return `<div class="expert-note"><p>아직 대지를 조회하지 않았습니다. 주소로 필지를 찾아 저장하면 정부 데이터에서 용도지역, 법정 건폐율·용적률, 조례, 기존 건축물, 건축제한 근거 조문을 가져옵니다.</p>
       <p class="note-actions"><a class="primary small" href="${sitePath(name, 'find')}">대지 찾기</a></p></div>`;
-  }
+}
+
+function factsTab(name) {
+  const site = ui.site;
+  const notYet = siteNotYet(name);
+  if (notYet) return notYet;
   const s = site.summary;
   const overview = [
     `<li>필지 ${s.parcel_count}개${s.parcel_count > 1 ? '를 하나의 대지로 봄' : ''}</li>`,
@@ -889,7 +917,7 @@ function factsTab(name) {
     ? siteSection(UNKNOWN, `<ul>${s.missing.map((m) => `<li>${escape(missingText(m))}</li>`).join('')}</ul><p class="muted small-text">가져오지 못한 항목은 추정하지 않습니다. 다시 조회해 보세요.</p>`)
     : '';
   return `<div class="doc-row top">${siteSection('대지', `<ul>${overview}</ul>`)}</div>
-    <div class="doc-row">${zoningBlock(site)}</div>
+    <div class="doc-row">${zoningBlock(name, site)}</div>
     ${flags ? `<div class="doc-row">${flags}</div>` : ''}
     <div class="doc-row cols-2">${siteSection('그 밖의 지역·지구', listOr(districts, '없음'))}${siteSection('도시계획 도로', listOr(roads, '없음'))}</div>
     <div class="doc-row">${siteSection('필지', `<ul class="card-list">${site.parcels.map(parcelItem).join('')}</ul>`)}</div>
@@ -967,20 +995,121 @@ function findTab() {
     ${form}${searching}${error}${candidateList()}${pickedBlock()}</div>`;
 }
 
+function siteTab(name, tab) {
+  if (tab === 'find') return findTab();
+  if (tab === 'ordinance') return ordinanceTab(name);
+  if (tab === 'uses') return usesTab(name);
+  return factsTab(name);
+}
+
+// ---- 조례: every article on 건폐율·용적률, never filtered; figures only as read by rule, with their line.
+
+function figureCell(figure) {
+  const f = ordinanceFigure(figure);
+  return `<td><strong class="${f.text === UNKNOWN ? 'unknown' : ''}">${escape(f.text)}</strong>
+    ${f.note ? `<br><span class="unknown small-text">${escape(f.note)}</span>` : ''}
+    ${f.quote ? `<blockquote class="law-quote">${escape(f.quote)}${f.label ? ` <span class="muted">${escape(f.label)}</span>` : ''}</blockquote>` : ''}</td>`;
+}
+
+function ordinanceItem(group, item) {
+  const applies = ordinanceApplies(item);
+  const busy = ui.ordinanceBusy === item.id;
+  const detailed = group.id === 'site' ? '' : `<label class="check"><input type="checkbox" data-ord-detailed="${escape(item.id)}" ${item.detailed ? 'checked' : ''} ${item.dismissed || busy ? 'disabled' : ''}> 전문가가 원문 읽기</label>`;
+  return `<li class="ord-item ${item.dismissed ? 'dismissed' : ''}">
+    <div class="ord-head"><strong>${escape(item.label)} ${escape(item.title)}</strong>
+      ${applies ? `<span class="status-badge ${applies.tone}">${escape(applies.text)}</span>` : ''}</div>
+    <details class="law-text"><summary>원문</summary><pre>${escape(item.text)}</pre></details>
+    <div class="ord-actions"><span class="muted small-text">${escape(ordinanceSends(group.id, item))}</span>
+      ${detailed}
+      <button type="button" class="secondary small" data-action="ord-dismiss" data-id="${escape(item.id)}" data-on="${!item.dismissed}" ${busy ? 'disabled' : ''}>${item.dismissed ? '다시 보이기' : '숨기기'}</button></div></li>`;
+}
+
+function ordinanceTab(name) {
+  const notYet = siteNotYet(name);
+  if (notYet) return notYet;
+  const o = ui.ordinance;
+  if (!o) return `<p class="${ui.ordinanceError ? 'error-text' : 'muted'}">${escape(ui.ordinanceError || '조례를 불러오는 중입니다.')}</p>`;
+  if (!o.available) {
+    return `<div class="expert-note"><p>${o.error ? `조례를 가져오지 못했습니다: ${escape(o.error)}.` : '이 대지의 도시계획 조례를 아직 가져오지 않았습니다.'} 건폐율·용적률은 ${UNKNOWN}입니다(대지 사실 탭의 법정 범위만 확인됨).</p>
+      <p class="note-actions"><a class="secondary small" href="${sitePath(name, 'find')}">대지 다시 조회</a></p></div>`;
+  }
+  const rows = o.base.map((b) => `<tr><th scope="row">${escape(b.zone)}</th>${figureCell(b.bcr)}${figureCell(b.far)}</tr>`).join('');
+  const base = siteSection('기본 수치', `<div class="table-wrap"><table class="site-table ord-table">
+      <thead><tr><th scope="col">용도지역</th><th scope="col">건폐율</th><th scope="col">용적률</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="3" class="unknown">대지의 용도지역 줄을 찾지 못했습니다. ${UNKNOWN}</td></tr>`}</tbody></table></div>
+    <p class="muted small-text">조문 줄에서 정해진 규칙으로 읽은 값입니다. 아래 지구·구역 조문이 대지에 해당하면 그 조문이 우선합니다.</p>`);
+  const articles = siteSection('기본 수치를 정하는 조문', o.articles.map((a) => `<details class="law-text"><summary>${escape(a.label)} ${escape(a.title)}</summary><pre>${escape(a.text)}</pre>
+      ${a.annex ? `<h3>${escape(a.annex.label || '별표')}</h3>${a.annex.text ? `<pre>${escape(a.annex.text)}</pre>` : `<p class="unknown">별표 파일을 읽지 못했습니다. 조례 원문에서 직접 확인해 주세요.</p>`}` : ''}</details>`).join(''));
+  const groups = o.groups.map((g) => `<div class="doc-row">${siteSection(`${g.title} (${g.items.length})`, `<p class="muted small-text">${escape(g.note)}</p>
+      ${g.items.length ? `<ul class="ord-list">${g.items.map((item) => ordinanceItem(g, item)).join('')}</ul>` : '<p class="muted">없음</p>'}`)}</div>`).join('');
+  return `<p class="ord-name"><b>${escape(o.name)}</b>${o.effective ? ` <span class="muted">· 시행 ${escape(o.effective)}</span>` : ''}</p>
+    <div class="doc-row">${base}</div>
+    <div class="doc-row">${articles}</div>
+    ${groups}
+    <p class="muted small-text">숨기기와 원문 읽기는 이 프로젝트에 저장되고, 대지 분석가·법규 검토자가 받는 조례 글에 반영됩니다.</p>`;
+}
+
+// ---- 계획 용도: whether a use 토지이음 knows may be built in each of the site's zones.
+
+function useCard(use) {
+  const busy = ui.useFind.busy === `remove:${use.name}`;
+  const head = `<div class="use-head"><h2>${escape(use.name)}</h2>
+    <span class="muted small-text">조회 ${escape(dateTime(use.checked_at))}</span>
+    <button type="button" class="icon-button" data-action="use-remove" data-use="${escape(use.name)}" aria-label="${escape(use.name)} 지우기" ${busy ? 'disabled' : ''}>×</button></div>`;
+  if (use.error) return `<section class="doc-section use-card">${head}<p class="unknown">${escape(useError(use.error))}</p></section>`;
+  if (!use.zones.length) return `<section class="doc-section use-card">${head}<p class="muted">이 대지의 용도지역·지구에는 이 용도에 대한 정보가 없습니다.</p></section>`;
+  const zones = use.zones.map((z) => `<h3>${escape(z.zone || z.code)}${z.zone_law ? ` <span class="muted">${escape(z.zone_law)}</span>` : ''}</h3>
+    <ul class="use-acts">${z.acts.map((a) => {
+      const r = useResult(a.result);
+      return `<li><span class="status-badge ${r.tone}">${escape(r.text)}</span> ${escape(a.act || '행위 미확인')}
+        ${a.conditions.length ? `<div class="use-conditions"><span class="small-text muted">단서 조항</span>${a.conditions.map((c) => `<pre>${escape(c)}</pre>`).join('')}</div>` : ''}</li>`;
+    }).join('')}</ul>`).join('');
+  const defs = useDefinitions(use);
+  const definitions = defs.length
+    ? `<details class="law-text"><summary>용도의 법적 정의</summary><ul>${defs.map((d) => `<li><b>${escape(d.name)}</b>${d.law ? ` <span class="muted">${escape(d.law)}</span>` : ''}${d.definition ? `<br>${escape(d.definition)}` : ''}</li>`).join('')}</ul></details>` : '';
+  return `<section class="doc-section use-card">${head}${zones}${definitions}</section>`;
+}
+
+function usesTab(name) {
+  const notYet = siteNotYet(name);
+  if (notYet) return notYet;
+  const u = ui.useFind;
+  const busy = Boolean(u.busy);
+  const candidates = u.candidates?.length
+    ? `<section class="use-candidates" aria-labelledby="use-candidates-title"><h2 id="use-candidates-title">토지이음 용도 이름 ${u.candidates.length}개</h2>
+      <p class="muted small-text">고르면 이 대지의 용도지역·지구마다 지을 수 있는지 조회해 저장합니다.</p>
+      <ul>${u.candidates.map((c) => `<li><button type="button" class="secondary small" data-action="use-check" data-use="${escape(c.name)}" ${busy ? 'disabled' : ''}>${escape(c.name)}</button></li>`).join('')}</ul></section>` : '';
+  const working = u.busy === 'search' ? '이름을 찾는 중입니다.' : u.busy.startsWith('check:') ? `${u.busy.slice(6)}을(를) 정부 데이터에서 확인하는 중입니다.` : '';
+  const error = u.error
+    ? `<p class="error-text" role="alert">${escape(u.error)}${u.errorStatus === 503 ? ' <button type="button" class="secondary small" data-action="settings">설정 열기</button>' : ''}</p>` : '';
+  const uses = ui.site.uses || [];
+  return `<form class="site-form" id="use-form" novalidate>
+      <label for="use-query">지으려는 용도</label>
+      <div class="address-row"><input id="use-query" data-focus="use-query" maxlength="50" placeholder="예: 공장, 단독주택, 미술관" value="${escape(u.query)}" autocomplete="off">
+        <button class="primary small" type="submit" ${busy ? 'disabled' : ''}>이름 찾기</button></div>
+      <p class="muted small-text">토지이음의 용도 이름과 정확히 같아야 조회됩니다. 이름 일부로 찾은 뒤 고르세요.</p></form>
+    ${working ? `<p class="working" role="status"><span class="spinner" aria-hidden="true"></span>${escape(working)}</p>` : ''}${error}${candidates}
+    ${uses.length ? uses.map(useCard).join('') : '<p class="muted">아직 조회한 용도가 없습니다.</p>'}
+    <p class="muted small-text">결과는 토지이음의 판단(가능·금지 등)을 그대로 보여 줍니다. "금지"여도 단서 조항으로 허용될 수 있으니 단서를 함께 확인하세요. 대지를 다시 조회하면 저장한 용도도 새 용도지역으로 다시 확인합니다.</p>`;
+}
+
 function sitePage(name) {
   const tab = currentRoute.tab;
   const site = ui.site;
   const meta = site?.available
     ? `${escape(siteHeadline(site))}${site.fetched_at ? ` · 조회 ${escape(dateTime(site.fetched_at))}` : ''}`
     : '아직 조회하지 않았습니다';
-  const tabs = [['facts', '대지 사실', sitePath(name)], ['find', '찾기', sitePath(name, 'find')]];
+  const tabs = [
+    ['facts', '대지 사실', sitePath(name)], ['ordinance', '조례', sitePath(name, 'ordinance')],
+    ['uses', '계획 용도', sitePath(name, 'uses')], ['find', '찾기', sitePath(name, 'find')],
+  ];
   return `<section class="expert-page site-page" aria-label="대지">
     <header class="expert-head"><div><h1>대지</h1><p class="expert-meta">${meta}</p></div>
       <a class="icon-button" href="${projectUrl(name)}" aria-label="대지 화면 닫기">×</a></header>
     <nav class="expert-tabs" aria-label="대지 화면">
       ${tabs.map(([id, label, href]) => `<a class="tab ${id === tab ? 'active' : ''}" href="${href}" ${id === tab ? 'aria-current="page"' : ''}>${label}</a>`).join('')}
     </nav>
-    <div class="content-scroll" data-scroll="site:${tab}" data-scroll-from="top">${siteReaderBar(name, tab)}${tab === 'find' ? findTab() : factsTab(name)}</div>
+    <div class="content-scroll" data-scroll="site:${tab}" data-scroll-from="top">${siteReaderBar(name, tab)}${siteTab(name, tab)}</div>
   </section>`;
 }
 
@@ -994,6 +1123,9 @@ function siteReaderBar(name, tab) {
       <button class="secondary small" data-action="run-expert" data-agent="site_reader" data-without-site="true" ${busy ? 'disabled' : ''}>대지 없이 브리프로 실행</button></div>`;
   }
   if (!ui.site?.available) return '';
+  if (expertStatus(expert, ui.job) === 'running') {
+    return `<div class="site-run"><p class="working" role="status"><span class="spinner" aria-hidden="true"></span><b>대지 분석가</b> · 실행 중입니다. 결과는 제도판의 AI 섹션에 놓입니다.</p></div>`;
+  }
   return `<div class="site-run"><p><b>대지 분석가</b> · ${expert.done ? `결과 있음 <a href="${expertPath(name, 'site_reader')}">결과 보기</a>` : '아직 실행 전'}</p>
     <button class="secondary small" data-action="run-expert" data-agent="site_reader" ${busy ? 'disabled' : ''}>${expert.done ? '다시 실행' : '실행'}</button></div>`;
 }
@@ -1250,6 +1382,76 @@ function runExpert(name, agent, withoutSite = false) {
   start(name, `${projectApi(name)}/session/experts/${encodeURIComponent(agent)}/run`, { context: takePicked().ids });
 }
 
+async function setOrdinanceOption(name, id, change) {
+  if (ui.ordinanceBusy) return;
+  ui.ordinanceBusy = id;
+  render(false);
+  try {
+    const ordinance = await api(`${projectApi(name)}/site/ordinance/options/${encodeURIComponent(id)}`, { method: 'PUT', body: change });
+    if (ui.project === name) ui.ordinance = ordinance;
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+  ui.ordinanceBusy = '';
+  render(false);
+}
+
+function useFailed(error) {
+  ui.useFind.error = error.message;
+  ui.useFind.errorStatus = error.status;
+}
+
+async function searchUses() {
+  const u = ui.useFind;
+  const text = u.query.trim();
+  u.errorStatus = 0;
+  if (!text) { u.error = '용도 이름을 적어 주세요.'; render(false); return; }
+  u.error = '';
+  u.busy = 'search';
+  render(false);
+  try {
+    const { uses } = await api(`/api/site/uses?q=${encodeURIComponent(text)}`);
+    u.candidates = uses;
+    if (!uses.length) u.error = `"${text}"이(가) 들어간 용도 이름이 없습니다. 더 짧게 적어 보세요.`;
+  } catch (err) {
+    useFailed(err);
+  }
+  u.busy = '';
+  render(false);
+}
+
+async function checkUse(name, use) {
+  const u = ui.useFind;
+  if (u.busy) return;
+  u.busy = `check:${use}`;
+  u.error = '';
+  u.errorStatus = 0;
+  render(false);
+  try {
+    const site = await api(`${projectApi(name)}/site/uses`, { method: 'POST', body: { name: use } });
+    if (ui.project === name) { ui.site = site; u.candidates = null; u.query = ''; }
+  } catch (err) {
+    useFailed(err);
+  }
+  u.busy = '';
+  render(false);
+}
+
+async function removeUse(name, use) {
+  const u = ui.useFind;
+  if (u.busy) return;
+  u.busy = `remove:${use}`;
+  render(false);
+  try {
+    const site = await api(`${projectApi(name)}/site/uses/${encodeURIComponent(use)}`, { method: 'DELETE' });
+    if (ui.project === name) ui.site = site;
+  } catch (err) {
+    useFailed(err);
+  }
+  u.busy = '';
+  render(false);
+}
+
 async function saveSite(name) {
   const f = ui.find;
   if (!f.picked.length || f.busy) return;
@@ -1260,6 +1462,8 @@ async function saveSite(name) {
   try {
     ui.site = await api(`${projectApi(name)}/site`, { method: 'PUT', body: lookupBody(f.picked, f.search) });
     ui.find = freshFind();
+    ui.ordinance = null; // the new site may fall under another ordinance
+    ui.useFind = freshUseFind();
     loadBoard(name); // the site paper on the table draws the new parcels and facts
     location.hash = sitePath(name);
     if (ui.siteFirst) {
@@ -1300,6 +1504,9 @@ app.addEventListener('click', (event) => {
   if (action === 'site-mode') { ui.find.mode = button.dataset.mode; ui.find.error = ''; render(false); }
   if (action === 'site-unpick') togglePick(button.dataset.pnu, false);
   if (action === 'site-save') saveSite(name);
+  if (action === 'ord-dismiss') setOrdinanceOption(name, button.dataset.id, { dismissed: button.dataset.on === 'true' });
+  if (action === 'use-check') checkUse(name, button.dataset.use);
+  if (action === 'use-remove') removeUse(name, button.dataset.use);
 });
 
 app.addEventListener('input', (event) => {
@@ -1312,6 +1519,7 @@ app.addEventListener('input', (event) => {
   if (target.id === 'revision-text') drafts.set(`revision:${currentRoute.agent}`, target.value);
   if (target.id === 'feedback-text') drafts.set(`feedback:${currentRoute.agent}`, target.value);
   if (target.id === 'site-query') ui.find.query = target.value;
+  if (target.id === 'use-query') ui.useFind.query = target.value;
   if (target.dataset.lot === 'main' || target.dataset.lot === 'sub') ui.find[target.dataset.lot] = target.value;
 });
 
@@ -1324,6 +1532,8 @@ app.addEventListener('change', (event) => {
   if (region) chooseRegion(region, event.target.value);
   if (pick) togglePick(pick, event.target.checked);
   if (lot === 'mountain') ui.find.mountain = event.target.checked;
+  const { ordDetailed } = event.target.dataset || {};
+  if (ordDetailed) setOrdinanceOption(currentRoute.name, ordDetailed, { detailed: event.target.checked });
   // Checklist ticks stay on screen only for now (not saved to the project).
   const check = event.target.dataset?.check;
   if (check) {
@@ -1371,6 +1581,8 @@ app.addEventListener('submit', async (event) => {
     findLot();
   } else if (form.id === 'address-form') {
     searchAddress(currentRoute.name);
+  } else if (form.id === 'use-form') {
+    searchUses();
   } else if (form.matches('.composer')) {
     send(form.dataset.composer);
   } else if (form.id === 'revision-form') {

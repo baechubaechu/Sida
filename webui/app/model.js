@@ -253,7 +253,8 @@ export function expertPath(name, agent, tab = 'doc', id = '') {
   return `${projectPath(name)}/expert/${encodeURIComponent(agent)}${rest}`;
 }
 
-// The site page: tab 'facts' (what was looked up) or 'find' (choose the parcels).
+// The site page: tab 'facts' (what was looked up), 'ordinance' (the 조례 on 건폐율·용적률),
+// 'uses' (whether a planned use may be built) or 'find' (choose the parcels).
 export function sitePath(name, tab = 'facts') {
   return `${projectPath(name)}/site${tab === 'facts' ? '' : `/${tab}`}`;
 }
@@ -272,7 +273,7 @@ export function sitePageFor(event, name, site) {
 }
 
 const EXPERT_TABS = ['chat', 'versions'];
-const SITE_TABS = ['find'];
+const SITE_TABS = ['ordinance', 'uses', 'find'];
 
 export function parseRoute(hash) {
   const parts = String(hash || '').replace(/^#\/?/, '').split('/').map((p) => {
@@ -614,6 +615,63 @@ export function restrictionGroups(restriction) {
     local: laws.filter((l) => l.local),
     error: restriction?.error ? LOOKUP_ERRORS[restriction.error] || restriction.error : '',
   };
+}
+
+// One base figure of the ordinance (GET .../site/ordinance `base[].bcr|far`): the number read by
+// rule, or 미확인 and why; always shown with the line it was read from.
+export function ordinanceFigure(figure) {
+  if (!figure) return { text: UNKNOWN, note: '조문에 이 용도지역이 없음', quote: '', label: '' };
+  const quote = figure.quote || '';
+  const label = figure.label || '';
+  if (typeof figure.value !== 'number') {
+    const note = figure.out_of_range ? '법정 범위를 벗어나 수치를 내지 않음' : '한 가지 수치로 읽히지 않음, 원문 확인';
+    return { text: UNKNOWN, note, quote, label };
+  }
+  return { text: `${figure.value}%`, note: figure.conditional ? '단서·예외 있음, 원문 확인' : '', quote, label };
+}
+
+// Whether a related article is about this site, as far as the saved facts tell: only the "site"
+// group knows (the site's 지구·구역 named in the article); design and admin give null.
+export function ordinanceApplies(item) {
+  if (item.applies === true) return { tone: 'done', text: `해당: ${(item.matched || []).join(', ')}` };
+  if (item.applies === false) return { tone: 'idle', text: '대지의 지구·구역 아님' };
+  return null;
+}
+
+// What the experts receive of a related article (site_facts.ordinance_text): "detailed" only
+// matters for the design and admin groups.
+export function ordinanceSends(groupId, item) {
+  if (item.dismissed) return '숨김 · 전문가에게 보내지 않음';
+  if (groupId === 'site') return item.applies ? '건폐율·용적률 항을 전문가에게 보냄' : '전문가에게 보내지 않음';
+  return item.detailed ? '원문을 전문가에게 보냄' : '제목만 전문가에게 보냄';
+}
+
+// A planned use's answer for one act (토지이음 REG_NM: 가능, 금지, …), as given, with a tone.
+export function useResult(result) {
+  const text = (result || '').trim();
+  if (!text) return { text: UNKNOWN, tone: 'idle' };
+  if (text === '가능') return { text, tone: 'done' };
+  if (text === '금지') return { text, tone: 'blocked' };
+  return { text, tone: 'review' };
+}
+
+// Why a planned-use check could not be made (`uses[].error`).
+export function useError(kind) {
+  return kind ? `가져오지 못했습니다(${LOOKUP_ERRORS[kind] || kind}). ${UNKNOWN}` : '';
+}
+
+// The legal definitions behind a planned use's acts, each once.
+export function useDefinitions(use) {
+  const seen = new Map();
+  for (const zone of use?.zones || []) {
+    for (const act of zone.acts || []) {
+      for (const d of act.uses || []) {
+        const key = `${d.name}|${d.law}|${d.definition}`;
+        if (d.name && !seen.has(key)) seen.set(key, d);
+      }
+    }
+  }
+  return [...seen.values()];
 }
 
 // A registered building as one line: "(주)혜창 · 공장 · 철골구조 · 지상 4층/지하 1층 · 연면적 3,210㎡ · 사용승인 1998.05.12".
