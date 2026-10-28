@@ -5,7 +5,7 @@ import {
   escapeHtml as escape, findProjects, relativeDate, projectSummary, chatItems, eventNotice,
   expertStatus, renderMarkdown, chatTitle, latestChat, chatLabel, DATA_KEYS, keyChanges,
   parseRoute, projectPath as projectUrl, expertPath, dateTime, arrangeDocument, itemTag, renderInline,
-  questionAnswer, stateChangeView, sitePath, siteHeadline, areaText, zoneScope, missingText, SITE_PART_LABELS,
+  questionAnswer, stateChangeView, sitePath, sitePageFor, needsSiteFirst, siteHeadline, areaText, zoneScope, missingText, SITE_PART_LABELS,
   UNKNOWN, restrictionGroups, buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
 } from './model.js';
 import { keepSelected, pickedNames } from './board-model.js';
@@ -33,7 +33,7 @@ const ui = {
   showExperts: false, revisionOpen: false, creating: false,
   settings: null, settingsDraft: null, settingsError: '', chatgptModels: null, chatgptNote: '',
   board: null, selected: [], showTable: true, chatWidth: 0,
-  site: null, siteError: '', showSiteLines: false, find: null,
+  site: null, siteError: '', showSiteLines: false, find: null, siteFirst: false,
 };
 const drafts = new Map();
 const openingTried = new Set();
@@ -272,6 +272,7 @@ async function navigate() {
   currentRoute = route();
   ui.showExperts = false;
   ui.revisionOpen = false;
+  if (!currentRoute.site) ui.siteFirst = false; // left the site page without saving a site
   if (currentRoute.page !== 'project') {
     table?.destroy();
     table = null;
@@ -345,6 +346,8 @@ function handleEvent(event) {
   if (event.kind === 'tray_added' && ui.project) {
     loadBoard(ui.project).then(() => table?.openTray());
   }
+  const sitePage = ui.project ? sitePageFor(event, ui.project, ui.site) : null;
+  if (sitePage && location.hash !== sitePage) location.hash = sitePage;
   if (event.kind === 'conductor_reply') ui.live.push({ kind: 'conductor', text: event.data.text || '' });
   else if (event.kind === 'expert_reply') ui.live.push({ kind: 'expert', text: event.data.text || '' });
   else {
@@ -977,8 +980,22 @@ function sitePage(name) {
     <nav class="expert-tabs" aria-label="대지 화면">
       ${tabs.map(([id, label, href]) => `<a class="tab ${id === tab ? 'active' : ''}" href="${href}" ${id === tab ? 'aria-current="page"' : ''}>${label}</a>`).join('')}
     </nav>
-    <div class="content-scroll" data-scroll="site:${tab}" data-scroll-from="top">${tab === 'find' ? findTab() : factsTab(name)}</div>
+    <div class="content-scroll" data-scroll="site:${tab}" data-scroll-from="top">${siteReaderBar(name, tab)}${tab === 'find' ? findTab() : factsTab(name)}</div>
   </section>`;
+}
+
+// The site reader from the site page: run it on the saved site, or say it waits for one.
+function siteReaderBar(name, tab) {
+  const expert = expertById('site_reader');
+  if (!expert) return '';
+  const busy = jobRunning();
+  if (ui.siteFirst && tab === 'find') {
+    return `<div class="site-run waiting"><p>대지 분석가는 저장한 대지 사실로 실행합니다. 필지를 찾아 저장하면 바로 실행합니다.</p>
+      <button class="secondary small" data-action="run-expert" data-agent="site_reader" data-without-site="true" ${busy ? 'disabled' : ''}>대지 없이 브리프로 실행</button></div>`;
+  }
+  if (!ui.site?.available) return '';
+  return `<div class="site-run"><p><b>대지 분석가</b> · ${expert.done ? `결과 있음 <a href="${expertPath(name, 'site_reader')}">결과 보기</a>` : '아직 실행 전'}</p>
+    <button class="secondary small" data-action="run-expert" data-agent="site_reader" ${busy ? 'disabled' : ''}>${expert.done ? '다시 실행' : '실행'}</button></div>`;
 }
 
 function workspaceView() {
@@ -987,15 +1004,17 @@ function workspaceView() {
   const side = Boolean(agent || site);
   const where = site ? '대지' : expert ? expert.name : 'Conductor 대화';
   // The Conductor conversation always stays on the left; the drafting table sits in the middle
-  // and the experts on the right. An expert page or the site page takes the place of both.
-  const withTable = !side && ui.showTable;
+  // and the experts on the right. The site page takes the experts' place, so the site paper is in
+  // sight while the parcels are chosen; an expert page takes the place of both.
+  const withTable = !agent && ui.showTable;
+  const split = agent || (site && !withTable);
   return `<div class="app-shell workspace">${sidebar(name)}
     <main class="workspace-main" id="main" tabindex="-1">
       <header class="workspace-header"><div class="breadcrumb"><a href="#/">${escape(name)}</a><span>/</span><span>${escape(where)}</span></div>
         <div class="workspace-controls">
-          ${side ? '' : `<button class="table-toggle" data-action="toggle-table" aria-pressed="${ui.showTable}">${ui.showTable ? '제도판 숨기기' : '제도판 보기'}</button>`}
+          ${agent ? '' : `<button class="table-toggle" data-action="toggle-table" aria-pressed="${ui.showTable}">${ui.showTable ? '제도판 숨기기' : '제도판 보기'}</button>`}
           <button class="mobile-experts" data-action="toggle-experts">${side || ui.showExperts ? '채팅' : '전문가'}</button></div></header>
-      <div class="chat-layout ${side ? 'split' : ''} ${withTable ? 'with-table' : ''} ${ui.showExperts && !side ? 'show-experts' : ''}" ${withTable && ui.chatWidth ? `style="--chat-width: ${ui.chatWidth}px"` : ''}>
+      <div class="chat-layout ${split ? 'split' : ''} ${withTable ? 'with-table' : ''} ${withTable && site ? 'site-open' : ''} ${ui.showExperts && !side ? 'show-experts' : ''}" ${withTable && ui.chatWidth ? `style="--chat-width: ${ui.chatWidth}px"` : ''}>
         <section class="chat-main" aria-label="Conductor 대화">${mainChat(name)}</section>
         <div class="divider" role="separator" aria-label="패널 너비 조절" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0">⋮</div>
         ${withTable ? '<section class="table-pane" aria-label="제도판"><div id="table-slot"></div></section>' : ''}
@@ -1219,6 +1238,18 @@ function togglePick(pnu, on) {
   render(false);
 }
 
+// Running the site reader with no site saved opens the site page to find it first; saving the site
+// then runs it (or the designer runs it on the brief alone).
+function runExpert(name, agent, withoutSite = false) {
+  if (!withoutSite && needsSiteFirst(agent, ui.site)) {
+    ui.siteFirst = true;
+    location.hash = sitePath(name, 'find');
+    return;
+  }
+  ui.siteFirst = false;
+  start(name, `${projectApi(name)}/session/experts/${encodeURIComponent(agent)}/run`, { context: takePicked().ids });
+}
+
 async function saveSite(name) {
   const f = ui.find;
   if (!f.picked.length || f.busy) return;
@@ -1229,8 +1260,14 @@ async function saveSite(name) {
   try {
     ui.site = await api(`${projectApi(name)}/site`, { method: 'PUT', body: lookupBody(f.picked, f.search) });
     ui.find = freshFind();
-    toast('대지 사실을 저장했습니다. 대지 분석가와 법규 검토자를 다시 실행하면 반영됩니다.', 'success');
+    loadBoard(name); // the site paper on the table draws the new parcels and facts
     location.hash = sitePath(name);
+    if (ui.siteFirst) {
+      toast('대지 사실을 저장해 제도판의 대지 종이에 그렸습니다. 대지 분석가를 실행합니다.', 'success');
+      runExpert(name, 'site_reader');
+    } else {
+      toast('대지 사실을 저장해 제도판의 대지 종이에 그렸습니다. 대지 분석가와 법규 검토자를 다시 실행하면 반영됩니다.', 'success');
+    }
   } catch (err) {
     findFailed(err);
     f.busy = '';
@@ -1252,7 +1289,7 @@ app.addEventListener('click', (event) => {
   if (action === 'open-expert') location.hash = expertUrl(name, button.dataset.agent);
   if (action === 'open-chat') location.hash = expertUrl(name, button.dataset.agent, button.dataset.chat);
   if (action === 'new-chat') newChat(button.dataset.agent);
-  if (action === 'run-expert') start(name, `${projectApi(name)}/session/experts/${encodeURIComponent(button.dataset.agent)}/run`, { context: takePicked().ids });
+  if (action === 'run-expert') runExpert(name, button.dataset.agent, button.dataset.withoutSite === 'true');
   if (action === 'unpick') unpick(button.dataset.id);
   if (action === 'toggle-table') { ui.showTable = !ui.showTable; render(false); }
   if (action === 'open-revision') { ui.revisionOpen = true; render(false); app.querySelector('#revision-text')?.focus(); }

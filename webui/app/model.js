@@ -258,6 +258,19 @@ export function sitePath(name, tab = 'facts') {
   return `${projectPath(name)}/site${tab === 'facts' ? '' : `/${tab}`}`;
 }
 
+// The site reader reads the saved site facts: run before any site is saved, it would work from the
+// brief alone, so the designer is sent to find the site first. Not while the site is unknown (null).
+export function needsSiteFirst(agent, site) {
+  return agent === 'site_reader' && Boolean(site) && !site.available;
+}
+
+// When the site reader starts (run by the designer or by the Conductor) the site page opens
+// beside the table: on its facts, or on "find" while no site has been looked up. null otherwise.
+export function sitePageFor(event, name, site) {
+  if (event?.kind !== 'module_started' || event.data?.agent?.id !== 'site_reader') return null;
+  return sitePath(name, site?.available ? 'facts' : 'find');
+}
+
 const EXPERT_TABS = ['chat', 'versions'];
 const SITE_TABS = ['find'];
 

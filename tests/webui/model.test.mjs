@@ -4,7 +4,7 @@ import {
   escapeHtml, findProjects, relativeDate, projectSummary, chatItems, eventNotice, expertStatus,
   renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges, parseRoute, expertPath, dateTime,
   documentSections, listItems, itemTag, handoffs, questionAnswer, arrangeDocument, EXPERT_LAYOUTS, SECTION_LABELS,
-  stateChangeView, phaseLabel, sitePath, areaText, zoneScope, siteHeadline, missingText, restrictionGroups,
+  stateChangeView, phaseLabel, sitePath, sitePageFor, needsSiteFirst, areaText, zoneScope, siteHeadline, missingText, restrictionGroups,
   buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
 } from '../../webui/app/model.js';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -404,4 +404,21 @@ test('the find tab starts from the address the brief was made with', () => {
   assert.equal(briefSite(brief), '경기도 군포시 금정동 689');
   assert.equal(briefSite(brief.replace('경기도 군포시 금정동 689', '-')), '');
   assert.equal(briefSite(''), '');
+});
+
+test('the site page opens when the site reader starts, on find while no site is saved', () => {
+  const started = (id) => ({ kind: 'module_started', data: { agent: { id, name: '대지 분석가' } } });
+  assert.equal(sitePageFor(started('site_reader'), 'museum', { available: true }), sitePath('museum'));
+  assert.equal(sitePageFor(started('site_reader'), 'museum', { available: false }), sitePath('museum', 'find'));
+  assert.equal(sitePageFor(started('site_reader'), 'museum', null), sitePath('museum', 'find'));
+  assert.equal(sitePageFor(started('design_critic'), 'museum', { available: true }), null);
+  assert.equal(sitePageFor({ kind: 'module_saved', data: { agent: { id: 'site_reader' } } }, 'museum', null), null);
+  assert.equal(sitePageFor(null, 'museum', null), null);
+});
+
+test('the site reader waits for a saved site, unless the site is unknown', () => {
+  assert.equal(needsSiteFirst('site_reader', { available: false }), true);
+  assert.equal(needsSiteFirst('site_reader', { available: true }), false);
+  assert.equal(needsSiteFirst('site_reader', null), false); // not loaded or no key: run as before
+  assert.equal(needsSiteFirst('regulation_checker', { available: false }), false);
 });

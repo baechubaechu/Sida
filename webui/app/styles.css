@@ -314,6 +314,9 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 :root { --table: #e6e9ec; --table-grid: #d9dfe4; --paper: #fbfaf6; --trace-paper: rgb(250 248 240 / .62); --pen: #2b5d8a; --lot: #cf3f2e; --mass: #e8ebee; --select: #2f6fb0; --note: #fff4c2; --note-ink: #4a3f12; --ok: #2f7d4f; }
 .chat-layout.with-table { grid-template-columns: minmax(300px, var(--chat-width, 30%)) 12px minmax(0, 1fr) var(--expert-narrow, 244px); padding-right: 14px; }
 .with-table > .experts { margin-left: 12px; }
+/* The site page beside the table, in the experts' place and wider, so the site paper stays in sight. */
+.chat-layout.with-table.site-open { grid-template-columns: minmax(280px, var(--chat-width, 26%)) 12px minmax(0, 1fr) minmax(360px, 34%); }
+.with-table > .site-page { margin: 0 0 0 12px; }
 .table-pane { position: relative; min-width: 0; min-height: 0; border: 1px solid #e0e5e9; border-radius: var(--radius); overflow: hidden; background: var(--table); }
 #table-slot { position: absolute; inset: 0; }
 .table-host { position: fixed; z-index: 5; border-radius: var(--radius); overflow: hidden; }
@@ -500,6 +503,10 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .picked-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 2px 4px 2px 10px; background: white; border-radius: 8px; font-size: 14px; }
 .picked-list .icon-button { width: 30px; height: 30px; font-size: 20px; }
 .picked-lots .form-actions { margin-top: 12px; }
+.site-run { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; }
+.site-run p { margin: 0; }
+.site-run a { color: var(--brand); text-decoration: underline; margin-left: 6px; }
+.site-run.waiting { background: #eef3f7; border-color: #c9d6e2; }
 .picked-lots .form-actions .primary { min-height: 40px; min-width: 0; padding: 8px 18px; }
 @media (min-width: 1800px) { .home { max-width: 1500px; width: 100%; margin: auto; } }
 @media (max-width: 1200px) {
@@ -521,6 +528,7 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
   .split .chat-main { display: none; }
   .chat-layout.with-table { grid-template-columns: minmax(0, 1fr); padding-right: 14px; }
   .with-table > .table-pane, .table-toggle { display: none; }  /* the table needs a wide screen */
+  .site-open > .chat-main { display: none; }
   .expert-page { margin: 0; }
   .home-heading .primary { min-width: auto; padding: 12px 18px; }
   .home-heading { flex-wrap: wrap; }
