@@ -123,7 +123,7 @@ def chat_messages(config: dict, path: Path) -> list[dict]:
     stub = Project(path=path, name=path.name, session_id="", created_at="", source_brief=None)
     messages = history_messages(stub.load_history())
     for message in messages:
-        if message["role"] != "system":
+        if message["role"] != "system" or "agent" not in message:
             continue
         if message["event"] == "read":
             agent = by_output.get(message["agent"])

@@ -122,6 +122,8 @@ export class DraftingTable {
     this.selected = this.selected.filter((id) => this.find(id));
     if (this.peekId && !this.papers.some((p) => p.id === this.peekId)) this.peekId = '';
     if (moved || !this.lotDrawn) this.drawSite();
+    if (moved && this.boardSeen) this.fit(); // a newly saved site: bring it into view
+    this.boardSeen = true;
     this.syncPapers();
     this.drawMasses();
     this.drawTray();

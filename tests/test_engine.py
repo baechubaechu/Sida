@@ -429,6 +429,7 @@ def test_history_messages_hide_actions_and_internal_notes():
         {"role": "user", "content": "[read] Showed modules/11_site_reader.md to the Conductor."},
         {"role": "user", "content": "/run program_analyst"},
         {"role": "assistant", "content": "[module completed] program_analyst → 12_program_analyst.md. …"},
+        {"role": "user", "content": "[system] Site facts were looked up from the address and saved …"},
     ]
     messages = engine.history_messages(history)
     assert [(m["role"], m.get("event"), m.get("agent")) for m in messages] == [
@@ -438,6 +439,7 @@ def test_history_messages_hide_actions_and_internal_notes():
         ("system", "read", "11_site_reader.md"),
         ("system", "run_requested", "program_analyst"),
         ("system", "module_completed", "program_analyst"),
+        ("system", "note", None),  # a note for the model: not a chat bubble
     ]
     assert messages[1]["text"] == "사이트부터 보겠습니다"
 

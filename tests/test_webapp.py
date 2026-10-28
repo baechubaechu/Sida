@@ -184,9 +184,10 @@ def test_main_screen_calls_only_existing_api_paths(client):
         return len(ours) == len(theirs) and all(b in (a, "{}") for a, b in zip(ours, theirs, strict=True))
 
     routes = list(client.app.openapi()["paths"])
-    assert {"/api/projects", "/api/settings", "/api/projects/{}/session/messages"} <= {
-        shape(path) for path in called
-    }
+    assert {
+        "/api/projects", "/api/settings", "/api/projects/{}/session/messages",
+        "/api/site/regions", "/api/site/lots", "/api/projects/{}/site", "/api/projects/{}/site/parcels",
+    } <= {shape(path) for path in called}
     for path in called:
         assert any(fits(path, route) for route in routes), path
 
@@ -491,6 +492,9 @@ def test_site_api_lookup_tells_the_conductor_earlier_site_outputs_are_stale(clie
     assert history[:2] == [{"role": "user", "content": "대지부터 보자"}, {"role": "assistant", "content": "네"}]
     assert history[2:] == [{"role": "user", "content": site_facts.STALE_NOTE}]  # same note as terminal /site
     assert "Looked up site facts: 경기도 군포시 금정동 689" in project.transcript_path.read_text(encoding="utf-8")
+    # The note is for the Conductor: the chat shows it as a hidden system entry, not a user bubble.
+    shown = client.get(f"/api/projects/{project.name}/session").json()["messages"]
+    assert shown[-1] == {"role": "system", "event": "note", "text": site_facts.STALE_NOTE}
 
 
 def test_site_api_reports_bad_requests_and_government_api_failures(client, project, fake_vworld, monkeypatch):
