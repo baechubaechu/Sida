@@ -725,18 +725,20 @@ def edit_document(session: Session, kind: str, content: str, *, expected_revisio
 _COMPLETED_PREFIX = "[module completed] "
 _READ_PREFIX = "[read] Showed modules/"
 _RUN_COMMAND_PREFIX = "/run "
+_SYSTEM_NOTE_PREFIX = "[system] "
 
 
 def history_messages(history: list[dict]) -> list[dict]:
     """
     Turn stored Conductor history into what a chat screen shows, without changing it:
     action blocks are removed from Conductor replies, and the notes Sida writes for the
-    model ("[module completed] …", "[read] …", "/run …") become system entries.
+    model ("[module completed] …", "[read] …", "/run …", "[system] …") become system entries.
 
     Each entry: {"role": "user" | "conductor" | "system", "text": str}; a user message sent
     with drawing-table papers also carries "context" ([{id, name}]); system entries
-    also carry "event" ("module_completed" | "read" | "run_requested") and "agent"
-    (an expert id, or an output file name for "read").
+    also carry "event" ("module_completed" | "read" | "run_requested" | "note") and, except
+    for "note" (a note for the model only, such as a saved site lookup), "agent" (an expert
+    id, or an output file name for "read").
     """
     messages: list[dict] = []
     for item in history:
@@ -754,6 +756,8 @@ def history_messages(history: list[dict]) -> list[dict]:
             messages.append(
                 {"role": "system", "event": "run_requested", "agent": agent, "text": content}
             )
+        elif role == "user" and content.startswith(_SYSTEM_NOTE_PREFIX):
+            messages.append({"role": "system", "event": "note", "text": content})
         elif role == "assistant":
             text = parse_action(content)[0]
             if text:  # a reply that was only a tool call
