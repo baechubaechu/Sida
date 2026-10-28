@@ -12,8 +12,8 @@ import { escapeHtml as escape } from './model.js';
 import {
   PX, TILT, MAX_TILT, PAPER_SIZE, cameraFor, riseFor, zoomAround, drawingScale, lerpView,
   siteBounds, traceHome, isOverlaid, blockCorners, placeUnplaced, freeSpot, fitView,
-  folded, pinnedPapers, peekSpot,
-  paperName, KIND_LABELS, originLabel, figureLines, readScheme, schemeRows, toggleSelected, fmt,
+  folded, foldedInPlan, pinnedPapers, peekSpot,
+  paperName, resultPreview, KIND_LABELS, originLabel, figureLines, readScheme, schemeRows, toggleSelected, fmt,
 } from './board-model.js';
 
 const SNAP = 7; // metres: a tracing sheet this close to its place on the site clicks into register
@@ -249,13 +249,16 @@ export class DraftingTable {
     for (const l of labels) l.element.style.opacity = rise < 0.25 ? String(1 - rise * 4) : '0';
     // In plan the papers lie on the table. Once it leans they fold into pins (drawn over the
     // scene, upright), and an overlaid tracing's lines lie on the ground.
+    // A paper the designer folded stays a pin in plan too.
     const fold = folded(v.tilt);
+    const shut = new Set(foldedInPlan(this.papers, this.home));
     traces.visible = fold;
-    for (const obj of objects.values()) obj.visible = !fold;
+    for (const [id, obj] of objects) obj.visible = !fold && !shut.has(id);
     if (fold !== this.root.classList.contains('is-3d')) this.foldChanged(fold);
+    this.root.classList.toggle('has-folded', shut.size > 0);
     renderer.render(scene, camera);
     cssRenderer.render(cssScene, camera);
-    if (fold) this.placePins();
+    if (fold || shut.size) this.placePins(fold ? null : shut);
   }
 
   foldChanged(fold) {
@@ -267,8 +270,9 @@ export class DraftingTable {
     }
   }
 
-  // Each pin stands where its paper lies; the open card follows its pin.
-  placePins() {
+  // Each pin stands where its paper lies; the open card follows its pin. In plan only the
+  // pins of folded papers (`only`) show.
+  placePins(only = null) {
     const { camera } = this.gl;
     const w = this.size?.w || this.root.clientWidth;
     const h = this.size?.h || this.root.clientHeight;
@@ -280,7 +284,7 @@ export class DraftingTable {
       at.set(p.x, p.y, 0.1).project(camera);
       const x = ((at.x + 1) / 2) * w;
       const y = ((1 - at.y) / 2) * h;
-      const shown = at.z < 1 && x > -40 && x < w + 40 && y > -20 && y < h + 60;
+      const shown = (!only || only.has(id)) && at.z < 1 && x > -40 && x < w + 40 && y > -20 && y < h + 60;
       el.hidden = !shown;
       if (shown) el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, calc(-100% - 8px))`;
       if (id === this.peekId && shown) anchor = { x, y: y - 8 - el.offsetHeight / 2, w: el.offsetWidth };
@@ -416,8 +420,10 @@ export class DraftingTable {
     const size = `width:${p.w}px;height:${p.h}px`;
     const made = originLabel(p, this.hooks.experts());
     const madeTag = made ? `<span class="paper-made">${escape(made)}</span>` : '';
+    const foldButton = overlaid || state.editing ? ''
+      : `<button type="button" class="paper-fold" data-fold="${escape(p.id)}" aria-label="${escape(paperName(p))} 이름표로 접기" title="이름표로 접기">접기</button>`;
     if (p.kind === 'note') {
-      el.innerHTML = `<article class="${cls}" data-paper="${escape(p.id)}" style="${size}">${madeTag}
+      el.innerHTML = `<article class="${cls}" data-paper="${escape(p.id)}" style="${size}">${madeTag}${foldButton}
         ${state.editing
     ? `<textarea aria-label="메모 내용" maxlength="4000">${escape(p.text || '')}</textarea>`
     : `<p>${escape(p.text || '메모')}</p>`}</article>`;
@@ -429,11 +435,11 @@ export class DraftingTable {
     }
     if (p.kind === 'tracing') {
       el.innerHTML = `<article class="${cls}" data-paper="${escape(p.id)}" style="width:${this.home.w}px;height:${this.home.h}px">
-        ${this.traceSvg(p)}<span class="paper-tag">${escape(paperName(p))}${overlaid ? ' · 덮음' : ''}</span></article>`;
+        ${this.traceSvg(p)}<span class="paper-tag">${escape(paperName(p))}${overlaid ? ' · 덮음' : ''}</span>${foldButton}</article>`;
       return;
     }
     const { title, body } = this.paperContent(p, state.active, state.f);
-    el.innerHTML = `<article class="${cls}" data-paper="${escape(p.id)}" style="${size}">
+    el.innerHTML = `<article class="${cls}" data-paper="${escape(p.id)}" style="${size}">${foldButton}
       <header class="paper-head"><span class="paper-kind">${escape(KIND_LABELS[p.kind] || p.kind)}</span>${madeTag}<h3>${escape(title)}</h3></header>
       <div class="paper-body">${body}</div></article>`;
   }
@@ -462,7 +468,7 @@ export class DraftingTable {
     if (p.kind === 'expert') {
       return {
         title: paperName(p),
-        body: `<pre class="preview">${escape(p.text || '')}</pre>
+        body: `<pre class="preview">${escape(resultPreview(p.text))}</pre>
           <button type="button" class="paper-link" data-open-expert="${escape(p.agent || '')}">결과 문서 보기 ↗</button>`,
       };
     }
@@ -519,6 +525,7 @@ export class DraftingTable {
       p.kind === 'mass' ? `<button type="button" data-peek="edit" data-id="${id}">고치기</button>` : '',
       p.kind === 'note' ? `<button type="button" data-peek="write" data-id="${id}">평면에서 고치기</button>` : '',
       `<button type="button" data-peek="pick" data-id="${id}" aria-pressed="${picked}">${picked ? '대화에 보냄' : '대화에 보내기'}</button>`,
+      p.folded ? `<button type="button" data-peek="unfold" data-id="${id}">펴기</button>` : '',
       `<button type="button" data-peek="plan" data-id="${id}">평면에서 보기</button>`,
     ].join('');
     card.className = `table-ui peek kind-${p.kind}`;
@@ -566,7 +573,7 @@ export class DraftingTable {
       } else if (p.kind === 'note') {
         body = `<p class="note-text">${escape(p.text || '')}</p>`;
       } else if (p.kind === 'expert') {
-        body = `<pre class="preview">${escape((p.text || '').split('\n').slice(0, 5).join('\n'))}</pre>`;
+        body = `<pre class="preview">${escape(resultPreview(p.text, 5))}</pre>`;
       }
       return `<article class="tray-card kind-${p.kind} ${picked ? 'is-selected' : ''}" data-tray="${id}">
         <p class="tray-meta">${escape(originLabel(p, experts) || 'AI')} · ${escape(KIND_LABELS[p.kind] || p.kind)}</p>
@@ -740,6 +747,22 @@ export class DraftingTable {
     return this.hooks.update(id, changes);
   }
 
+  // Fold a paper into its name tag (in plan too) or open it again; saved with the paper.
+  setFolded(id, on) {
+    const p = this.papers.find((x) => x.id === id);
+    if (!p || Boolean(p.folded) === on) return;
+    if (on) p.folded = true;
+    else delete p.folded;
+    if (!on && this.peekId === id && !folded(this.view.tilt)) this.peekId = '';
+    this.drawPins();
+    this.drawPeek();
+    if (on && !this.toldPlanFold) {
+      this.toldPlanFold = true;
+      this.say('접은 종이는 이름표로 남습니다. 이름표를 누르고 [펴기]를 누르면 다시 펼쳐집니다.');
+    }
+    this.save(id, { folded: on });
+  }
+
   select(ids) {
     this.selected = ids;
     this.hooks.select(ids);
@@ -832,6 +855,7 @@ export class DraftingTable {
     if (t.dataset.openExpert) { this.hooks.openExpert(t.dataset.openExpert); return; }
     if (t.dataset.tool) { this.setTool(t.dataset.tool); return; }
     if (t.dataset.active) { this.showScheme(t.dataset.active); return; }
+    if (t.dataset.fold) { this.setFolded(t.dataset.fold, true); return; }
     if (t.dataset.pin) {
       if (e.shiftKey) this.select(toggleSelected(this.selected, t.dataset.pin, true));
       else this.openPeek(t.dataset.pin);
@@ -876,7 +900,8 @@ export class DraftingTable {
       case 'edit': this.openForm(p); break;
       case 'pick': this.select(toggleSelected(this.selected, id, true)); break;
       case 'plan': this.planAt(p); break;
-      case 'write': this.planAt(p, () => { this.editing = id; this.select([id]); }); break;
+      case 'unfold': this.setFolded(id, false); break;
+      case 'write': this.setFolded(id, false); this.planAt(p, () => { this.editing = id; this.select([id]); }); break;
       default: break;
     }
   }

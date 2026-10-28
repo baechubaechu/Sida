@@ -5,6 +5,7 @@ import {
   renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges, parseRoute, expertPath, dateTime,
   documentSections, listItems, itemTag, handoffs, questionAnswer, arrangeDocument, EXPERT_LAYOUTS, SECTION_LABELS,
   stateChangeView, phaseLabel, sitePath, sitePageFor, needsSiteFirst, areaText, zoneScope, siteHeadline, missingText, restrictionGroups,
+  ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
   buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
 } from '../../webui/app/model.js';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -329,6 +330,8 @@ test('the site page opens on its facts or on finding parcels, beside the Conduct
   });
   assert.equal(parseRoute(sitePath('a', 'find')).tab, 'find');
   assert.equal(parseRoute('#/project/a/site/nonsense').tab, 'facts');
+  assert.equal(parseRoute(sitePath('a', 'ordinance')).tab, 'ordinance');
+  assert.equal(parseRoute(sitePath('a', 'uses')).tab, 'uses');
   assert.equal(parseRoute('#/project/a').site, false);
 });
 
@@ -421,4 +424,43 @@ test('the site reader waits for a saved site, unless the site is unknown', () =>
   assert.equal(needsSiteFirst('site_reader', { available: true }), false);
   assert.equal(needsSiteFirst('site_reader', null), false); // not loaded or no key: run as before
   assert.equal(needsSiteFirst('regulation_checker', { available: false }), false);
+});
+
+test('ordinance figures are the number read by rule with its line, or 미확인 and why', () => {
+  const line = { value: 70, quote: '일반공업지역 : 100분의 70 이하', conditional: false, label: '제49조' };
+  assert.deepEqual(ordinanceFigure(line), { text: '70%', note: '', quote: line.quote, label: '제49조' });
+  assert.equal(ordinanceFigure({ ...line, conditional: true }).note, '단서·예외 있음, 원문 확인');
+  const unread = ordinanceFigure({ ...line, value: null });
+  assert.equal(unread.text, '미확인');
+  assert.equal(unread.quote, line.quote);
+  assert.equal(ordinanceFigure({ ...line, value: null, out_of_range: true }).note, '법정 범위를 벗어나 수치를 내지 않음');
+  assert.deepEqual(ordinanceFigure(null), { text: '미확인', note: '조문에 이 용도지역이 없음', quote: '', label: '' });
+});
+
+test('related articles say whether they concern the site and what the experts receive', () => {
+  const article = { id: '제34조', applies: true, matched: ['자연경관지구'], dismissed: false, detailed: false };
+  assert.deepEqual(ordinanceApplies(article), { tone: 'done', text: '해당: 자연경관지구' });
+  assert.equal(ordinanceApplies({ ...article, applies: false, matched: [] }).text, '대지의 지구·구역 아님');
+  assert.equal(ordinanceApplies({ ...article, applies: null }), null);
+  assert.equal(ordinanceSends('site', article), '건폐율·용적률 항을 전문가에게 보냄');
+  assert.equal(ordinanceSends('site', { ...article, applies: false, detailed: true }), '전문가에게 보내지 않음');
+  assert.equal(ordinanceSends('design', { ...article, applies: null }), '제목만 전문가에게 보냄');
+  assert.equal(ordinanceSends('admin', { ...article, applies: null, detailed: true }), '원문을 전문가에게 보냄');
+  assert.equal(ordinanceSends('design', { ...article, applies: null, detailed: true, dismissed: true }), '숨김 · 전문가에게 보내지 않음');
+});
+
+test('planned uses show the government answer as given, and 미확인 when it is missing', () => {
+  assert.deepEqual(useResult('가능'), { text: '가능', tone: 'done' });
+  assert.deepEqual(useResult('금지'), { text: '금지', tone: 'blocked' });
+  assert.deepEqual(useResult('조건부 가능'), { text: '조건부 가능', tone: 'review' });
+  assert.deepEqual(useResult(''), { text: '미확인', tone: 'idle' });
+  assert.equal(useError('network'), '가져오지 못했습니다(연결 실패). 미확인');
+  assert.equal(useError(null), '');
+  const def = { name: '공장', law: '건축법 시행령', definition: '물품의 제조·가공 시설' };
+  const use = { zones: [
+    { acts: [{ act: '건축', uses: [def] }, { act: '신설·증설·이전', uses: [def] }] },
+    { acts: [{ act: '건축', uses: [def, { name: '', law: '', definition: '' }] }] },
+  ] };
+  assert.deepEqual(useDefinitions(use), [def]);
+  assert.deepEqual(useDefinitions({ zones: [] }), []);
 });

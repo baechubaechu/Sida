@@ -3,6 +3,8 @@
 // x east, y north, 0, 0 the middle of the site (GET .../board → site.plan).
 // Figures (coverage, FAR) are never computed here: they come from the server (`figures`).
 
+import { SECTION_LABELS } from './model.js';
+
 export const PX = 0.1; // metres per CSS pixel of paper lying on the table
 export const TILT = { plan: 0, axo: 35, eye: 68 };
 export const MAX_TILT = 75;
@@ -156,6 +158,12 @@ export function fitView(papers, bounds, aspect) {
 
 export const folded = (tilt) => tilt >= FOLD_TILT;
 
+// Papers the designer folded into their pins, so they stay pins in plan too (2026-10-28):
+// ids. A tracing laid over the site never folds (its lines are the drawing).
+export function foldedInPlan(papers, home) {
+  return papers.filter((p) => p.folded && !isOverlaid(p, home)).map((p) => p.id);
+}
+
 // Papers that get a pin. A tracing sheet on the site has none: its lines lie on the ground.
 export function pinnedPapers(papers, home) {
   return papers.filter((p) => !isOverlaid(p, home));
@@ -188,6 +196,25 @@ export function paperName(paper) {
   if (paper.kind === 'tracing') return paper.title || '트레이싱지';
   if (paper.kind === 'expert') return `${paper.title || paper.agent} 결과`;
   return paper.title || paper.kind;
+}
+
+// An expert result's preview on its paper as plain lines: the "# Name" title goes (the paper
+// has its own), "## Facts" reads "[사실]", list and emphasis marks are dropped.
+export function resultPreview(text, maxLines = Infinity) {
+  const out = [];
+  for (const raw of String(text || '').split('\n')) {
+    if (out.length >= maxLines) break;
+    const line = raw.trim();
+    if (!line || /^#\s/.test(line)) continue;
+    const heading = line.match(/^#{2,6}\s+(.+)$/);
+    if (heading) {
+      const name = heading[1].replace(/[*_`]/g, '').trim();
+      out.push(`[${SECTION_LABELS[name] || name}]`);
+    } else {
+      out.push(line.replace(/^(?:[-*+]|\d+[.)])\s+/, '· ').replace(/\*\*|__|`/g, ''));
+    }
+  }
+  return out.join('\n');
 }
 
 export const KIND_LABELS = { site: '대지', mass: '매스안', note: '메모', tracing: '트레이싱지', expert: '전문가 결과' };
