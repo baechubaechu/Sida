@@ -13,7 +13,7 @@ import {
   PX, TILT, MAX_TILT, PAPER_SIZE, cameraFor, riseFor, zoomAround, drawingScale, lerpView,
   siteBounds, traceHome, isOverlaid, blockCorners, placeUnplaced, freeSpot, fitView,
   folded, pinnedPapers, peekSpot,
-  paperName, KIND_LABELS, originLabel, figureLines, readScheme, schemeRows, toggleSelected, fmt,
+  paperName, resultPreview, KIND_LABELS, originLabel, figureLines, readScheme, schemeRows, toggleSelected, fmt,
 } from './board-model.js';
 
 const SNAP = 7; // metres: a tracing sheet this close to its place on the site clicks into register
@@ -462,7 +462,7 @@ export class DraftingTable {
     if (p.kind === 'expert') {
       return {
         title: paperName(p),
-        body: `<pre class="preview">${escape(p.text || '')}</pre>
+        body: `<pre class="preview">${escape(resultPreview(p.text))}</pre>
           <button type="button" class="paper-link" data-open-expert="${escape(p.agent || '')}">결과 문서 보기 ↗</button>`,
       };
     }
@@ -566,7 +566,7 @@ export class DraftingTable {
       } else if (p.kind === 'note') {
         body = `<p class="note-text">${escape(p.text || '')}</p>`;
       } else if (p.kind === 'expert') {
-        body = `<pre class="preview">${escape((p.text || '').split('\n').slice(0, 5).join('\n'))}</pre>`;
+        body = `<pre class="preview">${escape(resultPreview(p.text, 5))}</pre>`;
       }
       return `<article class="tray-card kind-${p.kind} ${picked ? 'is-selected' : ''}" data-tray="${id}">
         <p class="tray-meta">${escape(originLabel(p, experts) || 'AI')} · ${escape(KIND_LABELS[p.kind] || p.kind)}</p>

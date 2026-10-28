@@ -5,7 +5,7 @@ import {
   PX, TILT, cameraFor, riseFor, zoomAround, drawingScale, lerpView, siteBounds, traceHome,
   isOverlaid, blockCorners, unplaced, placeUnplaced, freeSpot, fitView, paperName, originLabel,
   figureLines, readScheme, schemeRows, keepSelected, toggleSelected, pickedNames, MAX_CONTEXT,
-  folded, pinnedPapers, peekSpot,
+  folded, pinnedPapers, peekSpot, resultPreview,
 } from '../../webui/app/board-model.js';
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -134,4 +134,12 @@ test('a pin opens its card beside it and inside the table, never over the side p
   assert.equal(peekSpot({ x: 100, y: 490, w: 80 }, size, box).y, 300);
   const cramped = peekSpot({ x: 50, y: 50, w: 40 }, { w: 900, h: 900 }, box);
   assert.deepEqual(cramped, { x: 12, y: 12 }, 'a card bigger than the table starts at its corner');
+});
+
+test('an expert result paper previews plain lines with Korean section names, no markdown marks', () => {
+  const text = '# Site Reader\n## Facts\n- 대지 면적 **1,014.3㎡** — source: site facts\n\n## Interpretations\n1. `역` 접근\n## Custom Part\nplain';
+  assert.equal(resultPreview(text), '[사실]\n· 대지 면적 1,014.3㎡ — source: site facts\n[해석]\n· 역 접근\n[Custom Part]\nplain');
+  assert.equal(resultPreview(text, 2), '[사실]\n· 대지 면적 1,014.3㎡ — source: site facts');
+  assert.equal(resultPreview(''), '');
+  assert.equal(resultPreview(undefined), '');
 });

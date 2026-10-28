@@ -304,6 +304,13 @@ def test_an_expert_result_waits_in_the_ai_section_only_for_projects_that_use_the
     assert second["id"] in [p["id"] for p in saved["papers"]] and saved["tray"] == [third]
 
 
+def test_an_expert_result_paper_carries_the_korean_expert_name(tmp_path):
+    board.add_paper(tmp_path, {**MASS, "id": "mass-a"})
+    paper = board.expert_result(tmp_path, {"id": "site_reader", "name": "Site Reader"}, "# Site Reader\n## Facts", [])
+    assert paper["title"] == "대지 분석가"
+    assert board.paper_name(paper) == "대지 분석가 결과"
+
+
 def test_a_cloud_conductor_puts_a_scheme_in_the_ai_section(make_session, table, mock_config, monkeypatch):
     monkeypatch.setattr(conductor, "_NO_TOOLS", set())
     mock_config["conductor"]["board_context"] = "full"

@@ -39,6 +39,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from sida.i18n import agent_name
 from sida.storage import atomic_write_text
 
 BOARD_FILE = "board.json"
@@ -255,7 +256,7 @@ def expert_result(project_path: Path, agent: dict, text: str, about: list[str]) 
             "kind": "expert",
             "x": 0.0, "y": 0.0, "w": 320.0, "h": 270.0,
             "agent": str(agent["id"]),
-            "title": str(agent.get("name") or agent["id"]),
+            "title": agent_name(agent),
             "text": "\n".join(lines[:PREVIEW_LINES]),
             "about": [i for i in about if _taken(board, i)],
             "origin": str(agent["id"]),
