@@ -156,8 +156,9 @@ def test_main_screen_is_served_at_root_with_its_assets(client):
     assert '<html lang="ko">' in r.text
     parser = AssetParser()
     parser.feed(r.text)
-    assert parser.assets == ["/app/styles.css", "/app/app.js"]
-    for asset in [*parser.assets, "/app/model.js", "/app/board-model.js", "/app/table.js", "/app/vendor/three.js"]:
+    assert parser.assets == ["/app/vendor/leaflet.css", "/app/styles.css", "/app/app.js"]
+    others = ["/app/model.js", "/app/board-model.js", "/app/table.js", "/app/site-map.js", "/app/vendor/three.js", "/app/vendor/leaflet.js"]
+    for asset in [*parser.assets, *others]:
         served = client.get(asset)
         assert served.status_code == 200 and served.text.strip()
         assert served.headers["cache-control"] == "no-cache"

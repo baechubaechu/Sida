@@ -62,7 +62,7 @@
 | 지도 클릭으로 필지 찾기 | `GET /api/site/parcel-at?lon=126.945978&lat=37.37025` | 클릭한 지점 | `{lon, lat, candidates: [필지]}` (0개 또는 1개) |
 | 고른 필지들의 경계 | `GET /api/site/shapes?pnu=…&pnu=…` | 필지 번호(최대 50개) | `{shapes: [{pnu, shape}]}` |
 
-- 지도 화면은 Leaflet을 스크립트로 불러 쓰면 됩니다(빌드 없음).
+- 지도 화면은 Leaflet으로 그립니다(대지 페이지 "찾기" 탭, `webui/app/site-map.js`, 빌드 없음).
   - 배경: `L.tileLayer(base.url)`. 브라우저가 브이월드에서 직접 받습니다.
   - 지적도 선: `L.tileLayer.wms(cadastral.url, {...cadastral.params, minZoom: cadastral.min_zoom, opacity: cadastral.opacity})`. 줌 18보다 작으면 브이월드가 빈 이미지를 주므로 그 아래에서는 켜지 않습니다. 투명 옵션을 줘도 이미지가 불투명하게 오므로 반투명으로 겹칩니다.
   - `cadastral.params`에는 `domain`이 없습니다. 브라우저는 Referer를 보내는데, 브이월드는 Referer와 `domain`이 같이 오면 키를 거부합니다(2026-10-14 실제 호출로 확인).

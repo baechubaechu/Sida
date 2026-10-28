@@ -711,6 +711,34 @@ export function lotQuery(dongCode, main, sub = '', mountain = false) {
   return { query: params.toString() };
 }
 
+// ---- the map on the "find" tab (GET /api/site/map, /api/site/parcel-at, /api/site/shapes)
+
+export const MAP_PICK_ZOOM = 16; // further out a click could land on the wrong parcel
+export const MAX_SHAPES = 50; // parcels one GET /api/site/shapes may ask for
+
+// The picked parcels after one is clicked on the map: added if it was not picked, else taken out.
+export function togglePicked(picked, parcel) {
+  return picked.some((p) => p.pnu === parcel.pnu) ? picked.filter((p) => p.pnu !== parcel.pnu) : [...picked, parcel];
+}
+
+// Parcels whose boundary has not been asked for yet (`known`: pnu → shape, or null once asked).
+export function shapesToFetch(parcels, known) {
+  return [...new Set(parcels.map((p) => p.pnu))].filter((pnu) => pnu && !known.has(pnu)).slice(0, MAX_SHAPES);
+}
+
+// [[south, west], [north, east]] around GeoJSON Polygons / MultiPolygons ([lon, lat]), or null.
+export function shapesBounds(shapes) {
+  let box = null;
+  const visit = (c) => {
+    if (typeof c[0] === 'number') {
+      const [lon, lat] = c;
+      box = box ? [[Math.min(box[0][0], lat), Math.min(box[0][1], lon)], [Math.max(box[1][0], lat), Math.max(box[1][1], lon)]] : [[lat, lon], [lat, lon]];
+    } else c.forEach(visit);
+  };
+  for (const shape of shapes) if (shape?.coordinates) visit(shape.coordinates);
+  return box;
+}
+
 // PUT .../site body. Parcels that all came from the last address search are sent with that
 // search (the server checks them against it); parcels chosen any other way go by number alone.
 export function lookupBody(picked, search) {
