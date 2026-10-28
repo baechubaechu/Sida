@@ -14,6 +14,8 @@
 | `webui/app/table.js` | 제도판(`DraftingTable`): Three.js 장면, 종이, AI 섹션, 매스안 입력. 프로젝트를 열 때만 불러옵니다 |
 | `webui/app/board-model.js` | 제도판의 DOM 없는 도우미(카메라·확대, 대지 범위, 동 꼭짓점, 새 종이 자리, 3D 이름표와 내용 카드 자리, 종이 이름, 매스안 입력 검사, 고른 종이). `tests/webui/board-model.test.mjs`가 확인합니다 |
 | `webui/app/vendor/three.js` | three.js 0.186.1에서 제도판이 쓰는 부분만 묶은 파일(ESM). 고치지 말고 `scripts/three-vendor/README.md`대로 다시 만드세요 |
+| `webui/app/site-map.js` | 대지 페이지 "찾기" 탭의 지도(`SiteMap`): 브이월드 배경·지적도, 찾은·고른·저장한 필지 경계, 클릭. 대지 페이지를 처음 열 때 불러옵니다 |
+| `webui/app/vendor/leaflet.js`, `leaflet.css` | Leaflet 1.9.4(ESM으로 묶은 것, BSD-2 `LICENSE-leaflet.txt`). 고치지 말고 `scripts/leaflet-vendor/README.md`대로 다시 만드세요 |
 | `webui/app/styles.css` | Figma v0.1 토큰과 화면 스타일 |
 
 서버는 `/`에서 `index.html`을, `/app/...`에서 나머지 파일을 내보냅니다. 브라우저가 매번 새 파일인지 확인하므로(`Cache-Control: no-cache`) `git pull` 뒤 새로고침하면 바로 바뀝니다.
@@ -26,7 +28,7 @@
 | 새 프로젝트 (`#/new`) | `POST /api/projects` (`name`, `fields.type`·`site`·`intention`) |
 | Conductor 대화 (`#/project/<이름>`) | `GET .../session`, 첫 인사 `POST .../session/opening`, 메시지 `POST .../session/messages`, 진행 `GET .../session/jobs/{id}` |
 | 전문가 페이지 (`#/project/<이름>/expert/<id>` 결과, `.../chat/<채팅 id>` 분석 채팅, `.../versions/<버전 id>` 이전 버전) | 결과 문서 `GET .../modules/{agent}`, 이전 버전 `GET .../modules/{agent}/versions`, `.../versions/{id}`, 실행·수정 요청 `POST .../session/experts/{agent}/run`, 분석 채팅 목록과 새 채팅 `GET`/`POST .../experts/{agent}/chats`, 채팅 `GET .../experts/{agent}/chats/{chat_id}`, 메시지 `POST .../chats/{chat_id}/messages`, 평가 `POST .../experts/{agent}/feedback` |
-| 대지 페이지 (`#/project/<이름>/site` 대지 사실, `.../site/ordinance` 조례, `.../site/uses` 계획 용도, `.../site/find` 찾기) | 대지 사실 `GET .../site`, 조례 `GET .../site/ordinance`와 조문 선택 `PUT .../site/ordinance/options/{id}`, 용도 이름 찾기 `GET /api/site/uses`, 계획 용도 조회·지우기 `POST`/`DELETE .../site/uses...`, 지역 목록 `GET /api/site/regions`, 지번으로 찾기 `GET /api/site/lots`, 주소로 찾기 `POST .../site/parcels`, 조회해 저장 `PUT .../site`, 브리프의 대지 주소 `GET /api/projects/{name}` |
+| 대지 페이지 (`#/project/<이름>/site` 대지 사실, `.../site/ordinance` 조례, `.../site/uses` 계획 용도, `.../site/find` 찾기) | 대지 사실 `GET .../site`, 조례 `GET .../site/ordinance`와 조문 선택 `PUT .../site/ordinance/options/{id}`, 용도 이름 찾기 `GET /api/site/uses`, 계획 용도 조회·지우기 `POST`/`DELETE .../site/uses...`, 지역 목록 `GET /api/site/regions`, 지번으로 찾기 `GET /api/site/lots`, 주소로 찾기 `POST .../site/parcels`, 조회해 저장 `PUT .../site`, 지도 `GET /api/site/map`·`GET /api/site/parcel-at`·`GET /api/site/shapes`, 브리프의 대지 주소 `GET /api/projects/{name}` |
 | 설계 상태 반영 승인 | `POST .../state-proposals/{id}/apply`, `.../skip` |
 | 설정 창 | `GET`/`PUT /api/settings`, 키 `PUT /api/settings/keys/{openrouter·vworld·vworld_domain·data_go_kr·law}`, ChatGPT 로그인 `/api/settings/chatgpt...` |
 
@@ -54,7 +56,7 @@ API의 자세한 내용은 [session-api.md](session-api.md), [site-ordinance.md]
 - 대지 분석가가 실행 중이면 대지 페이지 맨 위에 "실행 중"이 나오고, 끝나면 결과 보기와 다시 실행 버튼으로 바뀝니다. AI 섹션의 전문가 결과 종이는 한국어 전문가 이름("대지 분석가 결과")으로, 미리 보기는 Markdown 기호 없이 한국어 섹션 이름(\[사실\] 등)으로 보입니다.
 - 대지 분석가와 법규 검토자 페이지의 결과 탭 위에는 어떤 대지로 실행되는지(조회 전이면 브리프만으로 실행된다는 안내)가 나옵니다.
 - 정부 데이터 키가 없거나 거부되면(503) 오류 문구 옆에 설정 열기 버튼이 나옵니다.
-- 계획 용도, 조례 조문, 지도는 아직 화면이 없습니다(서버 API는 있음).
+- "찾기" 탭의 지도(`GET /api/site/map`)에는 저장한 대지(빨간 점선), 찾은 필지(얇은 선), 고른 필지(채움)가 그려집니다(경계는 `GET /api/site/shapes`). 지도를 누르면 그 자리의 필지(`GET /api/site/parcel-at`)가 고른 필지에 들어가고, 고른 필지를 다시 누르면 빠집니다. 줌 16보다 멀리서 누르면 확대하라는 안내만 나옵니다. 지적선은 브이월드가 줌 18부터 그려 줍니다. 지도 키가 없거나 거부되면 지도 대신 오류와 설정 버튼이 나옵니다.
 - 체크리스트의 체크는 지금은 화면에만 남고 프로젝트에 저장되지 않습니다(새로고침하면 사라짐). 저장은 다음 작업입니다.
 - 평가(도움 됨/아쉬움, 한 줄 의견)는 설정의 "사용 기록 보내기"가 켜져 있을 때만 전달됩니다(`docs/telemetry.md`).
 - 프로젝트를 열면 Conductor 대화 오른쪽에 제도판이 나옵니다. 대화 위 "제도판" 버튼으로 숨기거나 다시 열고, 가운데 줄을 끌어 대화 너비를 바꿉니다. 창이 좁으면(900px 이하) 제도판은 숨겨집니다.

@@ -8,6 +8,7 @@ import {
   questionAnswer, stateChangeView, sitePath, sitePageFor, needsSiteFirst, siteHeadline, areaText, zoneScope, missingText, SITE_PART_LABELS,
   UNKNOWN, restrictionGroups, buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
   ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
+  togglePicked, shapesToFetch, MAP_PICK_ZOOM,
 } from './model.js';
 import { keepSelected, pickedNames } from './board-model.js';
 
@@ -35,7 +36,7 @@ const ui = {
   settings: null, settingsDraft: null, settingsError: '', chatgptModels: null, chatgptNote: '',
   board: null, selected: [], showTable: true, chatWidth: 0,
   site: null, siteError: '', showSiteLines: false, find: null, siteFirst: false,
-  ordinance: null, ordinanceError: '', ordinanceBusy: '', useFind: null,
+  ordinance: null, ordinanceError: '', ordinanceBusy: '', useFind: null, mapLayers: null, mapError: '', mapErrorStatus: 0,
 };
 const drafts = new Map();
 const openingTried = new Set();
@@ -44,6 +45,8 @@ let trackToken = 0; // only the newest polling loop keeps going
 let trackingId = null;
 let table = null; // the drafting table of the open project (table.js, loaded on first use)
 let tableFor = '';
+let siteMap = null; // the map on the site page's "찾기" tab (site-map.js, loaded on first use)
+let siteMapLoading = false;
 
 // ------------------------------------------------------------------ helpers
 
@@ -134,6 +137,7 @@ function freshFind() {
     mode: 'steps', lists: { sido: null, sigungu: null, emd: null, ri: null }, loading: '',
     chosen: { sido: null, sigungu: null, emd: null, ri: null }, main: '', sub: '', mountain: false,
     query: '', briefTried: false, search: null, candidates: null, picked: [], busy: '', error: '', errorStatus: 0,
+    shapes: new Map(), mapBusy: false, // pnu → boundary (null once asked and none came)
   };
 }
 
@@ -962,6 +966,17 @@ function pickedBlock() {
     <div class="form-actions"><button type="button" class="primary" data-action="site-save" ${f.busy ? 'disabled' : ''}>이 필지로 대지 조회해 저장</button></div></section>`;
 }
 
+function mapBlock() {
+  const f = ui.find;
+  if (ui.mapError) {
+    return `<p class="site-note warn">지도를 띄우지 못했습니다. ${escape(ui.mapError)} 지번이나 주소로는 찾을 수 있습니다.${ui.mapErrorStatus === 503 ? ' <button type="button" class="secondary small" data-action="settings">설정 열기</button>' : ''}</p>`;
+  }
+  const hint = f.mapBusy ? '누른 곳의 필지를 찾는 중입니다.' : '지도에서 필지를 누르면 고르고, 고른 필지를 다시 누르면 뺍니다. 지적선은 가까이 확대해야 보입니다.';
+  return `<section class="site-map-wrap" aria-label="지도에서 필지 고르기">
+    <div id="site-map-slot" class="site-map-slot">${ui.mapLayers ? '' : '<p class="muted">지도를 불러오는 중입니다.</p>'}</div>
+    <p class="muted small-text" ${f.mapBusy ? 'role="status"' : ''}>${hint}</p></section>`;
+}
+
 function findTab() {
   const f = ui.find;
   const steps = f.mode === 'steps';
@@ -992,7 +1007,7 @@ function findTab() {
     <div class="mode-switch" role="group" aria-label="찾는 방법">
       <button type="button" data-action="site-mode" data-mode="steps" aria-pressed="${steps}">지역 고르기</button>
       <button type="button" data-action="site-mode" data-mode="text" aria-pressed="${!steps}">주소 붙여넣기</button></div>
-    ${form}${searching}${error}${candidateList()}${pickedBlock()}</div>`;
+    ${form}${searching}${error}${mapBlock()}${candidateList()}${pickedBlock()}</div>`;
 }
 
 function siteTab(name, tab) {
@@ -1177,6 +1192,7 @@ function render(fresh = true) {
   const slot = app.querySelector('#table-slot');
   if (slot) slotWatch.observe(slot);
   placeTable();
+  placeSiteMap();
   const again = focused && app.querySelector(`[data-focus="${CSS.escape(focused)}"]`);
   if (again) {
     again.focus({ preventScroll: true });
@@ -1293,6 +1309,7 @@ async function loadRegions(level, parent) {
 async function prepareFind(name) {
   const f = ui.find;
   if (!f.lists.sido && !f.loading) loadRegions('sido', '');
+  if (!ui.mapLayers && !ui.mapError) loadMapLayers();
   if (f.briefTried) return;
   f.briefTried = true;
   try {
@@ -1304,6 +1321,90 @@ async function prepareFind(name) {
       render(false);
     }
   } catch { /* the brief is only a convenience here */ }
+}
+
+// ---- the map (site-map.js): background and 지적 line URLs once, parcel boundaries as they are needed
+
+async function loadMapLayers() {
+  try {
+    ui.mapLayers = await api('/api/site/map');
+  } catch (error) {
+    ui.mapError = error.message;
+    ui.mapErrorStatus = error.status;
+  }
+  render(false);
+}
+
+// The map element is moved into the redrawn page's slot (created once, on first need).
+function placeSiteMap() {
+  const slot = app.querySelector('#site-map-slot');
+  if (!slot || !ui.mapLayers) return;
+  if (!siteMap) { openSiteMap(); return; }
+  siteMap.attach(slot);
+  siteMap.show(mapGroups());
+}
+
+async function openSiteMap() {
+  if (siteMapLoading) return;
+  siteMapLoading = true;
+  try {
+    const { SiteMap } = await import('./site-map.js');
+    siteMap = new SiteMap(ui.mapLayers, pickOnMap);
+  } catch (error) {
+    ui.mapError = error.message;
+  }
+  siteMapLoading = false;
+  render(false);
+}
+
+// What the map draws: the saved site, the parcels found (not yet picked) and the picked ones.
+function mapGroups() {
+  const f = ui.find;
+  const withShape = (p) => ({ pnu: p.pnu, shape: p.shape ?? f.shapes.get(p.pnu) ?? null });
+  const picked = new Set(f.picked.map((p) => p.pnu));
+  return {
+    saved: ui.site?.available ? ui.site.parcels.map((p) => ({ pnu: p.pnu, shape: p.shape || null })) : [],
+    candidate: (f.candidates || []).filter((c) => !picked.has(c.pnu)).map(withShape),
+    picked: f.picked.map(withShape),
+  };
+}
+
+async function fetchShapes() {
+  const f = ui.find;
+  if (!ui.mapLayers) return;
+  const pnus = shapesToFetch([...(f.candidates || []), ...f.picked], f.shapes);
+  if (!pnus.length) return;
+  for (const pnu of pnus) f.shapes.set(pnu, null); // asked once, whatever comes back
+  try {
+    const { shapes } = await api(`/api/site/shapes?${pnus.map((p) => `pnu=${encodeURIComponent(p)}`).join('&')}`);
+    for (const s of shapes) f.shapes.set(s.pnu, s.shape);
+  } catch { /* the map just leaves those parcels out */ }
+  if (ui.find === f) render(false);
+}
+
+// A click on the map: the parcel there goes into the picked list, or out if it was in.
+async function pickOnMap(lon, lat, zoom) {
+  const f = ui.find;
+  if (f.busy || f.mapBusy) return;
+  f.errorStatus = 0;
+  if (zoom < MAP_PICK_ZOOM) { f.error = '필지를 고르려면 지도를 더 확대해 주세요.'; render(false); return; }
+  f.error = '';
+  f.mapBusy = true;
+  render(false);
+  try {
+    const { candidates } = await api(`/api/site/parcel-at?lon=${lon.toFixed(7)}&lat=${lat.toFixed(7)}`);
+    if (ui.find !== f) return;
+    const [parcel] = candidates;
+    if (!parcel) f.error = '누른 곳에 필지가 없습니다(도로·하천 등). 다른 곳을 눌러 주세요.';
+    else {
+      f.shapes.set(parcel.pnu, parcel.shape || null);
+      f.picked = togglePicked(f.picked, parcel);
+    }
+  } catch (err) {
+    findFailed(err);
+  }
+  f.mapBusy = false;
+  render(false);
 }
 
 function chooseRegion(level, code) {
@@ -1340,6 +1441,7 @@ async function findLot() {
   }
   f.busy = '';
   render(false);
+  fetchShapes();
 }
 
 async function searchAddress(name) {
@@ -1360,6 +1462,7 @@ async function searchAddress(name) {
   }
   f.busy = '';
   render(false);
+  fetchShapes();
 }
 
 function togglePick(pnu, on) {

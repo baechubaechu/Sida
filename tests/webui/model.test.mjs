@@ -7,6 +7,7 @@ import {
   stateChangeView, phaseLabel, sitePath, sitePageFor, needsSiteFirst, areaText, zoneScope, siteHeadline, missingText, restrictionGroups,
   ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
   buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
+  togglePicked, shapesToFetch, shapesBounds, MAX_SHAPES,
 } from '../../webui/app/model.js';
 import { readFileSync, readdirSync } from 'node:fs';
 
@@ -463,4 +464,25 @@ test('planned uses show the government answer as given, and 미확인 when it is
   ] };
   assert.deepEqual(useDefinitions(use), [def]);
   assert.deepEqual(useDefinitions({ zones: [] }), []);
+});
+
+test('a map click adds an unpicked parcel and takes a picked one out', () => {
+  const a = { pnu: '1' }, b = { pnu: '2' };
+  assert.deepEqual(togglePicked([a], b), [a, b]);
+  assert.deepEqual(togglePicked([a, b], { pnu: '1' }), [b]);
+  assert.deepEqual(togglePicked([], a), [a]);
+});
+
+test('boundaries are asked for once per parcel, at most one request worth', () => {
+  const known = new Map([['1', { type: 'Polygon', coordinates: [] }], ['2', null]]);
+  assert.deepEqual(shapesToFetch([{ pnu: '1' }, { pnu: '2' }, { pnu: '3' }, { pnu: '3' }, { pnu: '' }], known), ['3']);
+  const many = Array.from({ length: MAX_SHAPES + 5 }, (_, i) => ({ pnu: String(i) }));
+  assert.equal(shapesToFetch(many, new Map()).length, MAX_SHAPES);
+});
+
+test('map bounds wrap every polygon as [[south, west], [north, east]]', () => {
+  const square = { type: 'Polygon', coordinates: [[[127.0, 37.5], [127.1, 37.5], [127.1, 37.6], [127.0, 37.5]]] };
+  const multi = { type: 'MultiPolygon', coordinates: [[[[126.9, 37.55], [127.05, 37.7], [126.9, 37.55]]]] };
+  assert.deepEqual(shapesBounds([square, null, multi]), [[37.5, 126.9], [37.7, 127.1]]);
+  assert.equal(shapesBounds([null, {}]), null);
 });
