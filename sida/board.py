@@ -58,6 +58,7 @@ MAX_STROKES = 500
 MAX_POINTS = 5000
 DEFAULT_FLOOR_HEIGHT = 4.2
 PLACEMENT = ("x", "y", "w", "h")
+ARRANGE = (*PLACEMENT, "folded")  # what a site or expert paper may change: where it lies, folded or not
 PAPER_SIZE = {"site": (300, 250), "mass": (300, 210), "note": (200, 140), "tracing": (300, 250), "expert": (320, 270)}
 PAPER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 CONTEXT_MODES = ("auto", "full", "names")
@@ -152,7 +153,7 @@ def update_paper(project_path: Path, paper_id: str, changes: dict) -> dict:
         board = load_board(project_path)
         current = _find(board, paper_id)
         if current["kind"] in {"site", "expert"}:
-            extra = sorted(set(changes) - set(PLACEMENT))
+            extra = sorted(set(changes) - set(ARRANGE))
             if extra:
                 raise ValueError(f"this paper only moves; cannot change: {', '.join(extra)}")
         paper = {**clean_paper({**current, **changes}), **_ai_fields(current)}
@@ -353,6 +354,11 @@ def clean_paper(data: dict) -> dict:
     width, height = PAPER_SIZE.get(kind, (300, 210))  # CSS pixels of paper; the screen shows 1 px as 0.1 m
     for key, default in zip(PLACEMENT, (0, 0, width, height), strict=True):
         paper[key] = _number(data.get(key, default), key)
+    folded = data.get("folded", False)
+    if not isinstance(folded, bool):
+        raise ValueError("folded must be true or false")
+    if folded:  # the designer folded it into a name tag, in plan too (kept only when true)
+        paper["folded"] = True
     title = _text(data.get("title"), "title", MAX_TITLE)
     if kind == "mass":
         blocks = data.get("blocks")

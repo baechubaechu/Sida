@@ -329,7 +329,7 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .table-css { pointer-events: none; }
 .table-error { position: absolute; inset: 40% 20px auto; text-align: center; color: var(--muted); }
 .slot { pointer-events: auto; }
-.paper { background: var(--paper); color: var(--text); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 2px 10px rgb(0 0 0 / .14); display: flex; flex-direction: column; overflow: hidden; font: 14px/1.5 var(--font); }
+.paper { position: relative; background: var(--paper); color: var(--text); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 2px 10px rgb(0 0 0 / .14); display: flex; flex-direction: column; overflow: hidden; font: 14px/1.5 var(--font); }
 .paper.is-selected { outline: 3px solid var(--select); outline-offset: 3px; }
 .paper-head { padding: 10px 14px 8px; border-bottom: 1px solid var(--line); cursor: move; }
 .paper-kind { font-size: 11px; font-weight: 700; letter-spacing: .06em; color: var(--muted); }
@@ -359,7 +359,11 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .table-ui { position: absolute; z-index: 2; }
 /* In 3D the papers fold into pins standing where they lie; a pin opens its paper as a card. */
 .table-pins { position: absolute; inset: 0; z-index: 1; pointer-events: none; display: none; }
-.table.is-3d .table-pins { display: block; }
+.table.is-3d .table-pins, .table.has-folded .table-pins { display: block; }
+.paper-fold { position: absolute; right: 8px; top: 8px; z-index: 1; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: 13px; opacity: 0; transition: opacity .15s; }
+.paper:hover .paper-fold, .paper.is-selected .paper-fold, .paper-fold:focus-visible { opacity: 1; }
+.paper-fold:hover { color: var(--brand); border-color: var(--brand); }
+@media (hover: none) { .paper-fold { opacity: 1; } }
 .pin { position: absolute; left: 0; top: 0; display: inline-flex; align-items: center; gap: 6px; max-width: 200px; padding: 4px 10px 4px 6px; border-radius: 999px; background: var(--paper); color: var(--text); border: 1px solid var(--line); box-shadow: 0 2px 8px rgb(0 0 0 / .16); font-size: 12px; font-weight: 600; white-space: nowrap; pointer-events: auto; cursor: pointer; animation: pin-in .18s ease-out; }
 .pin[hidden] { display: none; }
 .pin::after { content: ""; position: absolute; left: calc(50% - 1px); top: 100%; width: 2px; height: 8px; background: color-mix(in srgb, var(--text) 45%, transparent); }

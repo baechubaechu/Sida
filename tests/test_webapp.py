@@ -1022,6 +1022,9 @@ def test_board_api_lays_moves_and_removes_papers(client, project):
     assert client.post(f"{base}/papers", json={"kind": "site"}).status_code == 400
     assert client.post(f"{base}/papers", json={**mass, "blocks": []}).status_code == 400
     assert client.patch(f"{base}/papers/site", json={"text": "x"}).status_code == 400
+    assert client.patch(f"{base}/papers/site", json={"folded": True}).json()["paper"]["folded"] is True
+    assert "folded" not in client.patch(f"{base}/papers/site", json={"folded": False}).json()["paper"]
+    assert client.patch(f"{base}/papers/site", json={"folded": "yes"}).status_code == 400
     assert client.delete(f"{base}/papers/site").status_code == 400
     assert client.patch(f"{base}/papers/gone", json={"x": 1}).status_code == 404
     assert client.get("/api/projects/nope/board").status_code == 404

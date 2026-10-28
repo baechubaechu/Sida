@@ -158,6 +158,12 @@ export function fitView(papers, bounds, aspect) {
 
 export const folded = (tilt) => tilt >= FOLD_TILT;
 
+// Papers the designer folded into their pins, so they stay pins in plan too (2026-10-28):
+// ids. A tracing laid over the site never folds (its lines are the drawing).
+export function foldedInPlan(papers, home) {
+  return papers.filter((p) => p.folded && !isOverlaid(p, home)).map((p) => p.id);
+}
+
 // Papers that get a pin. A tracing sheet on the site has none: its lines lie on the ground.
 export function pinnedPapers(papers, home) {
   return papers.filter((p) => !isOverlaid(p, home));
