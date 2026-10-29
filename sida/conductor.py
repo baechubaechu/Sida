@@ -74,6 +74,13 @@ def conductor_tools(agents: list[dict], *, board: bool = False) -> list[dict]:
         "required": ["agent"],
         "additionalProperties": False,
     }
+    run = {**target, "properties": {**target["properties"], "address": {
+        "type": "string",
+        "description": (
+            "site_reader only: the site address the designer gave in this conversation, exactly "
+            "as written. Omit when none was given."
+        ),
+    }}}
     return [
         {
             "name": RUN_TOOL,
@@ -82,7 +89,7 @@ def conductor_tools(agents: list[dict], *, board: bool = False) -> list[dict]:
                 "Call it at most once per reply, only when the designer wants that expert now "
                 "or the next step is obvious and useful."
             ),
-            "parameters": target,
+            "parameters": run,
         },
         {
             "name": READ_TOOL,
@@ -157,7 +164,8 @@ def action_from_tool_calls(calls: list[dict]) -> dict:
             return {"type": "propose_paper", "paper": arguments}
         agent = str(arguments.get("agent") or "").strip()
         if call.get("name") == RUN_TOOL and agent:
-            return {"type": "run", "agent": agent}
+            address = str(arguments.get("address") or "").strip()
+            return {"type": "run", "agent": agent, **({"address": address} if address else {})}
         if call.get("name") == READ_TOOL and agent:
             return {"type": "read", "module": agent}
     return {"type": "none"}

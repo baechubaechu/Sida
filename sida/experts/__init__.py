@@ -13,6 +13,11 @@ imports a domain by name and adding a domain touches no shared file. `hooks.py` 
       The site as the drafting table needs it (sida/board.py): {"area_m2": float | None,
       "lines": [str]}. The area gives a massing scheme its coverage and FAR; None leaves
       them uncomputed. The first domain that answers is used.
+  run_needs(config: dict, agent: dict, project_dir: Path) -> str | None
+      Something the designer must do before the Conductor may run this expert, as a short
+      reason code ("no_site": no site looked up yet), or None. Asked only for runs the
+      Conductor chooses; the expert is then not run and the designer is told (event
+      "run_skipped"). The first domain that answers is used. A designer's own run is not asked.
   api_router(load_config, core) -> fastapi.APIRouter
       JSON routes of the domain for the web UI. `core(fn, ...)` runs a core function and
       turns application errors into HTTP errors (see webapp.core).
@@ -106,6 +111,16 @@ def join_blocks(blocks: list[PromptBlock]) -> str:
 def collect_prompt_blocks(run: ExpertRun, hooks=None) -> dict[str, str]:
     """Ask every domain for prompt text; returns the joined text per slot ("" when none)."""
     return {slot: join_blocks(blocks) for slot, blocks in collect_prompt_parts(run, hooks).items()}
+
+
+def run_needs(config: dict, agent: dict, project_dir: Path, hooks=None) -> str | None:
+    """What must happen before the Conductor runs `agent` (a domain's reason code), or None."""
+    for _domain, module in domain_hooks() if hooks is None else hooks:
+        ask = getattr(module, "run_needs", None)
+        reason = ask(config, agent, project_dir) if ask is not None else None
+        if reason:
+            return str(reason)
+    return None
 
 
 def expert_routers(load_config, core, hooks=None) -> list:

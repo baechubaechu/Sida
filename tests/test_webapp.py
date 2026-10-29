@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from sida import config as sida_config
-from sida import errors, providers, runtime, webapp
+from sida import engine, errors, providers, runtime, webapp
 from sida.briefs import BRIEF_FIELD_KEYS
 from tests.conftest import land_fixture
 
@@ -680,8 +680,24 @@ def finished_job(client, base, response):
     return client.get(f"{base}/session/jobs/{job['id']}").json()
 
 
-def test_session_message_runs_expert_and_waits_for_state_approval(session_api, project):
+def test_session_message_waits_for_the_site_before_the_site_reader(session_api, project):
     client, base, conductor = session_api
+    run = '대지부터 보겠습니다\n```action\n{"type":"run","agent":"site_reader","address":"군포시 금정동 689"}\n```'
+    conductor.replies.append(run)
+    job = finished_job(client, base, client.post(f"{base}/session/messages", json={"text": "대지 조사"}))
+    assert [e["kind"] for e in job["events"]] == ["conductor_reply", "run_skipped"]
+    skipped = job["events"][1]["data"]
+    assert skipped["agent"] == {"id": "site_reader", "name": "대지 분석가"}
+    assert skipped["reason"] == "no_site" and skipped["address"] == "군포시 금정동 689"
+    assert not (project.path / "modules" / "11_site_reader.md").exists()
+    messages = client.get(f"{base}/session").json()["messages"]
+    assert [m["role"] for m in messages] == ["user", "conductor", "system"]
+    assert messages[-1]["event"] == "note"
+
+
+def test_session_message_runs_expert_and_waits_for_state_approval(session_api, project, monkeypatch):
+    client, base, conductor = session_api
+    monkeypatch.setattr(engine, "run_needs", lambda *a, **k: None)  # as if the site were saved
     conductor.replies.extend([RUN_SITE, '결과를 검토해 주세요.\n```action\n{"type":"none"}\n```'])
     before = project.state_path.read_bytes()
 

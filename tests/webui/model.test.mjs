@@ -418,6 +418,16 @@ test('the site page opens when the site reader starts, on find while no site is 
   assert.equal(sitePageFor(started('design_critic'), 'museum', { available: true }), null);
   assert.equal(sitePageFor({ kind: 'module_saved', data: { agent: { id: 'site_reader' } } }, 'museum', null), null);
   assert.equal(sitePageFor(null, 'museum', null), null);
+  const waited = (reason) => ({ kind: 'run_skipped', data: { agent: { id: 'site_reader' }, reason } });
+  assert.equal(sitePageFor(waited('no_site'), 'museum', { available: false }), sitePath('museum', 'find'));
+  assert.equal(sitePageFor(waited('limit'), 'museum', { available: false }), null);
+});
+
+test('a Conductor run that waits for the site says how it continues', () => {
+  const notice = eventNotice({ kind: 'run_skipped', data: { agent: { id: 'site_reader', name: '대지 분석가' }, reason: 'no_site', address: '군포시 금정동 689' } });
+  assert.equal(notice.tone, 'warn');
+  assert.match(notice.text, /대지를 아직 저장하지 않아 대지 분석가 실행을 미뤘습니다/);
+  assert.match(notice.text, /저장하면 바로 실행합니다/);
 });
 
 test('the site reader waits for a saved site, unless the site is unknown', () => {

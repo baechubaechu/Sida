@@ -237,6 +237,17 @@ def test_tool_call_becomes_a_run_action(mock_config, agents, project, conductor_
     assert call["tools"][0]["parameters"]["properties"]["agent"]["enum"] == [a["id"] for a in agents]
 
 
+def test_run_tool_carries_the_site_address(mock_config, agents, project, conductor_prompt, no_tools_cache):
+    arguments = {"agent": "site_reader", "address": " 대구광역시 서구 국채보상로81안길 3 "}
+    provider = ToolProvider([("대지부터 보겠습니다", [{"name": "run_expert", "arguments": arguments}])])
+    reply, action, history = _ask(mock_config, project, agents, conductor_prompt, provider)
+    assert action == {"type": "run", "agent": "site_reader", "address": "대구광역시 서구 국채보상로81안길 3"}
+    assert parse_action(history[-1]["content"])[1] == action  # a later turn reads it back
+    run, read = provider.calls[0]["tools"]
+    assert "address" in run["parameters"]["properties"]
+    assert "address" not in read["parameters"]["properties"]
+
+
 def test_read_tool_and_tool_only_reply(mock_config, agents, project, conductor_prompt, no_tools_cache):
     provider = ToolProvider([("", [{"name": "read_expert_output", "arguments": {"agent": "site_reader"}}])])
     reply, action, history = _ask(mock_config, project, agents, conductor_prompt, provider)

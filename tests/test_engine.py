@@ -15,6 +15,13 @@ from tests.conftest import ROOT
 NONE = 'ok\n```action\n{"type":"none"}\n```'
 
 
+@pytest.fixture(autouse=True)
+def site_saved(monkeypatch):
+    """Runs here are on a project as if its site had been looked up; the site domain holds the
+    Conductor's site reader back until it is (tests at test_converse_waits_for_the_site...)."""
+    monkeypatch.setattr(engine, "run_needs", lambda *a, **k: None)
+
+
 @pytest.fixture
 def core(make_session):
     """A Session with an event recorder instead of the terminal renderer."""
@@ -492,3 +499,34 @@ def test_tool_only_reply_is_kept_in_history_but_not_shown(core, monkeypatch):
     assert [(m["role"], m.get("event")) for m in shown] == [
         ("user", None), ("system", "module_completed"), ("conductor", None),
     ]
+
+
+def test_converse_waits_for_the_site_before_running_the_site_reader(core, scripted, monkeypatch):
+    from sida.experts import run_needs
+
+    monkeypatch.setattr(engine, "run_needs", run_needs)  # the real site hook: no site saved here
+    run = '대지부터 보겠습니다\n```action\n{"type":"run","agent":"site_reader","address":"대구광역시 서구 국채보상로81안길 3"}\n```'
+    conductor = scripted([run])
+    s = core(c_provider=conductor)
+    turn = engine.converse(s, "대구광역시 서구 국채보상로81안길 3 대지 조사해 줘")
+    assert turn.outcome == "continue" and turn.replies == ["대지부터 보겠습니다"]
+    assert not (s.output_dir / "11_site_reader.md").exists()
+    assert len(conductor.calls) == 1  # no follow-up call: the screen takes over
+    assert kinds(s) == ["conductor_reply", "run_skipped"]
+    skipped = s.events[1][1]
+    assert skipped["agent"]["id"] == "site_reader" and skipped["reason"] == "no_site"
+    assert skipped["address"] == "대구광역시 서구 국채보상로81안길 3"
+    # The Conductor is told next time that it did not run; the chat screen hides the note.
+    assert s.history[-1]["content"].startswith("[system] site_reader was not run (no_site)")
+    assert engine.history_messages(s.history)[-1]["event"] == "note"
+
+
+def test_site_reader_runs_on_a_saved_site_and_other_experts_never_wait(tmp_path):
+    from sida.experts import run_needs
+    from sida.experts.site import site_facts
+
+    site, other = {"id": "site_reader"}, {"id": "program_analyst"}
+    assert run_needs({}, site, tmp_path) == "no_site"
+    assert run_needs({}, other, tmp_path) is None
+    site_facts.save_facts(tmp_path, {"parcels": [{"pnu": "4141010500106890014"}]})
+    assert run_needs({}, site, tmp_path) is None
