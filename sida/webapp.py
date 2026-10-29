@@ -215,6 +215,11 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
     def api_project(name: str) -> dict:
         return core(project_detail, load_config(), name)
 
+    @app.delete("/api/projects/{name}")
+    def api_delete_project(name: str) -> dict:
+        core(app.state.session_jobs.delete_project, load_config(), name)
+        return {"deleted": name}
+
     # --------------------------------------------------------------- HTML pages
 
     @app.get("/", response_class=FileResponse)

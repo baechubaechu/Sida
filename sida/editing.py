@@ -86,6 +86,13 @@ class EditingService:
     def pending(self, path: Path) -> PendingApproval | None:
         return self._pending.get(path.resolve())
 
+    def forget(self, path: Path) -> None:
+        """Drop what is kept for a project that no longer exists."""
+        path = path.resolve()
+        with self._guard:
+            self._pending.pop(path, None)
+            self._locks.pop(path, None)
+
     def _approval(self, path: Path, proposal_id: str) -> PendingApproval:
         pending = self._pending.get(path)
         if pending is None or pending.id != proposal_id:

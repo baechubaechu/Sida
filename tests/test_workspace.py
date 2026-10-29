@@ -72,3 +72,30 @@ def test_find_project_only_inside_projects_folder(mock_config, project, tmp_path
     for bad in ("", "nope", "..", "../outside", "..\\outside", str(outside)):
         with pytest.raises(workspace.ProjectNotFound):
             workspace.find_project(mock_config, bad)
+
+
+def test_delete_project_removes_only_that_folder(mock_config, project):
+    other, _ = workspace.create_project(mock_config, "남길 프로젝트")
+    (project.modules_dir / "11_site_reader.md").write_text("# x", encoding="utf-8")
+    workspace.delete_project(mock_config, project.name)
+    assert not project.path.exists()
+    assert [s["name"] for s in workspace.list_project_summaries(mock_config)] == [other.name]
+    with pytest.raises(workspace.ProjectNotFound):
+        workspace.delete_project(mock_config, project.name)
+
+
+def test_delete_project_refuses_paths_outside_and_links(mock_config, project, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "brief.md").write_text("# keep", encoding="utf-8")
+    for bad in ("", "..", "../outside", str(outside)):
+        with pytest.raises(workspace.ProjectNotFound):
+            workspace.delete_project(mock_config, bad)
+    link = project.path.parent / "linked"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks not available")
+    with pytest.raises(workspace.ProjectNotFound):
+        workspace.delete_project(mock_config, "linked")
+    assert (outside / "brief.md").exists() and project.path.exists()

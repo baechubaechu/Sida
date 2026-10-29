@@ -44,6 +44,11 @@ h1, h2, h3, p { margin: 0; }
 .nav-new { margin-top: 16px; font-size: 15px; }
 .nav-label { margin: 56px 14px 14px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .recent .nav-link { min-height: 39px; color: var(--muted); }
+.nav-row { display: flex; align-items: center; gap: 2px; }
+.nav-row .nav-link { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.nav-delete { flex-shrink: 0; padding: 6px 8px; border-radius: 6px; color: var(--muted); font-size: 12px; opacity: 0; }
+.nav-row:hover .nav-delete, .nav-row:focus-within .nav-delete { opacity: 1; }
+.nav-delete:hover, .card-delete:hover { color: #a83232; background: #a832320f; }
 .sidebar-bottom { margin-top: auto; padding-top: 40px; color: var(--muted); font-size: 13px; }
 .home { padding: 82px var(--home-gutter) 70px; }
 .home-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
@@ -58,10 +63,13 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 .project-tools select { width: 189px; padding: 0 16px; font-size: 14px; }
 .section-label { color: var(--muted); font-size: 13px; line-height: 20px; margin: 30px 0 26px; }
 .project-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; }
-.project-card { min-height: 207px; border: 1px solid var(--line); border-top: 9px solid var(--surface-subtle); border-radius: var(--radius); display: flex; flex-direction: column; transition: border-color .15s, box-shadow .15s; }
+.project-card { position: relative; min-height: 207px; border: 1px solid var(--line); border-top: 9px solid var(--surface-subtle); border-radius: var(--radius); display: flex; flex-direction: column; transition: border-color .15s, box-shadow .15s; }
 .project-card:hover { border-color: #acbac6; border-top-color: #dce5ec; box-shadow: 0 3px 14px #24344308; }
 .project-open { display: flex; flex-direction: column; flex: 1; padding: 22px 23px 20px; }
-.project-card h3 { font-size: 19px; line-height: 28px; overflow-wrap: anywhere; }
+.project-card h3 { font-size: 19px; line-height: 28px; overflow-wrap: anywhere; padding-right: 36px; }
+.card-delete { position: absolute; top: 14px; right: 14px; padding: 6px 9px; border-radius: 6px; color: var(--muted); font-size: 12px; opacity: 0; }
+.project-card:hover .card-delete, .project-card:focus-within .card-delete { opacity: 1; }
+@media (hover: none) { .nav-delete, .card-delete { opacity: 1; } }
 .project-type { color: var(--muted); font-size: 14px; margin-top: 13px; }
 .project-summary { font-size: 13px; margin-top: 20px; }
 .project-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; margin-top: auto; padding-top: 24px; }
@@ -87,7 +95,8 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 .workspace .nav-main { margin-top: 27px; }
 .workspace .nav-new { margin-top: 0; }
 .workspace .nav-label { margin-top: 35px; }
-.workspace .project-nav .nav-link { min-height: 47px; margin-top: 12px; }
+.workspace .project-nav .nav-row { margin-top: 12px; }
+.workspace .project-nav .nav-link { min-height: 47px; }
 .workspace .history-label { margin-top: 23px; }
 .history-link { font-weight: 700; }
 .workspace-main { min-width: 0; display: flex; flex-direction: column; height: 100dvh; }
@@ -215,6 +224,8 @@ dialog::backdrop { background: #20262d55; }
 dialog h2 { font-size: 21px; }
 dialog p { margin: 18px 0; }
 dialog .primary { margin-top: 10px; }
+.primary.danger { background: #a83232; }
+#delete-dialog .form-actions .primary, #delete-dialog .form-actions .secondary { min-width: 0; margin-top: 0; }
 /* Connected screen: live state from the server. */
 button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 .error-text { color: #a83232; }

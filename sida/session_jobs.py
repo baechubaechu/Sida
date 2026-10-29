@@ -240,6 +240,19 @@ class SessionJobs:
         for old in finished[: max(0, len(finished) - MAX_FINISHED_JOBS)]:
             self._jobs.pop(old.id, None)
 
+    # ------------------------------------------------------------------ deleting
+
+    def delete_project(self, config: dict, name: str) -> None:
+        """Delete a project's folder, unless a job is still writing to it."""
+        path = workspace.find_project(config, name).resolve()
+        with self._guard:  # no job can start on it while the folder goes
+            if path in self._active:
+                raise DocumentConflict("이 프로젝트에서 실행 중인 작업이 있습니다. 끝난 뒤 삭제하세요.")
+            workspace.delete_project(config, name)
+            for job_id in [i for i, j in self._jobs.items() if j.project == path]:
+                del self._jobs[job_id]
+        self.editing.forget(path)
+
     # ------------------------------------------------------------------ working
 
     def _work(
