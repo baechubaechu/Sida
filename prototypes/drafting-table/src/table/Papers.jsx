@@ -1,5 +1,6 @@
 // Sheets of paper on the drafting table. Sizes are CSS pixels; on the table 1px = PX metres.
 import { useEffect, useRef } from 'react';
+import { cardTitle } from '../shared/Cards.jsx';
 import { SITE, SITE_AREA, SITE_BOUNDS, SCHEMES, LIMITS, schemeFigures, fmt } from '../shared/geometry.js';
 
 export const PX = 0.1; // metres per CSS pixel of paper
@@ -32,11 +33,11 @@ function NoteText({ paper, editing, onText, onDone }) {
     : <p>{paper.text || '메모'}</p>;
 }
 
-export function Paper({ paper, selected, overlaid, editing, onText, onDone, draft }) {
+export function Paper({ paper, selected, overlaid, editing, onText, onDone, draft, onInspect }) {
   const cls = `paper kind-${paper.kind} ${selected ? 'is-selected' : ''} ${overlaid ? 'is-overlaid' : ''}`;
   if (paper.kind === 'note') {
     return (
-      <article className={cls} data-paper={paper.id} style={{ width: paper.w, height: paper.h }}>
+      <article className={cls} data-paper={paper.id} tabIndex={0} aria-label={cardTitle(paper)} onKeyDown={(e) => { if (e.target === e.currentTarget && e.key === 'Enter') { e.stopPropagation(); onInspect?.(paper.id); } }} style={{ width: paper.w, height: paper.h }}>
         <NoteText paper={paper} editing={editing} onText={onText} onDone={onDone} />
       </article>
     );
@@ -45,7 +46,7 @@ export function Paper({ paper, selected, overlaid, editing, onText, onDone, draf
     const b = SITE_BOUNDS;
     const m = TRACE_MARGIN;
     return (
-      <article className={cls} data-paper={paper.id} style={{ width: paper.w, height: paper.h }}>
+      <article className={cls} data-paper={paper.id} tabIndex={0} aria-label={cardTitle(paper)} onKeyDown={(e) => { if (e.target === e.currentTarget && e.key === 'Enter') { e.stopPropagation(); onInspect?.(paper.id); } }} style={{ width: paper.w, height: paper.h }}>
         <svg viewBox={`${b.minX - m} ${-(b.maxY + m)} ${b.maxX - b.minX + m * 2} ${b.maxY - b.minY + m * 2}`} aria-hidden="true">
           {[[b.minX, b.minY], [b.maxX, b.minY], [b.minX, b.maxY], [b.maxX, b.maxY]].map(([x, y]) => (
             <path key={`${x}${y}`} className="reg" d={`M${x - 3} ${-y} H${x + 3} M${x} ${-y - 3} V${-y + 3}`} />
@@ -57,10 +58,21 @@ export function Paper({ paper, selected, overlaid, editing, onText, onDone, draf
       </article>
     );
   }
-  let title = '';
+  return (
+    <article className={cls} data-paper={paper.id} tabIndex={0} aria-label={cardTitle(paper)} onKeyDown={(e) => { if (e.target === e.currentTarget && e.key === 'Enter') { e.stopPropagation(); onInspect?.(paper.id); } }} style={{ width: paper.w, height: paper.h }}>
+      <header className="paper-head" data-drag>
+        <span className="paper-kind">{{ site: '대지', mass: '매스안', expert: paper.agentName }[paper.kind]}</span>
+        <h3>{cardTitle(paper)}</h3>
+        <button type="button" className="paper-open" onClick={() => onInspect?.(paper.id)} aria-label={`${cardTitle(paper)} 상세 보기`}>상세 보기 ↗</button>
+      </header>
+      <div className="paper-body"><PaperContent paper={paper} /></div>
+    </article>
+  );
+}
+
+export function PaperContent({ paper }) {
   let body = null;
   if (paper.kind === 'site') {
-    title = '대지 사실';
     body = (
       <dl className="facts">
         <div><dt>필지</dt><dd>{SITE.map((p) => p.address.replace('경기도 군포시 금정동 ', '')).join(', ')}</dd></div>
@@ -74,7 +86,6 @@ export function Paper({ paper, selected, overlaid, editing, onText, onDone, draf
   } else if (paper.kind === 'mass') {
     const s = SCHEMES[paper.scheme];
     const f = schemeFigures(s);
-    title = s.name;
     body = (
       <>
         <div className="gauges">
@@ -85,7 +96,6 @@ export function Paper({ paper, selected, overlaid, editing, onText, onDone, draf
       </>
     );
   } else if (paper.kind === 'expert') {
-    title = paper.title;
     body = (
       <>
         <ul>{paper.points.map((p) => <li key={p}>{p}</li>)}</ul>
@@ -93,13 +103,5 @@ export function Paper({ paper, selected, overlaid, editing, onText, onDone, draf
       </>
     );
   }
-  return (
-    <article className={cls} data-paper={paper.id} style={{ width: paper.w, height: paper.h }}>
-      <header className="paper-head" data-drag>
-        <span className="paper-kind">{{ site: '대지', mass: '매스안', expert: paper.agentName }[paper.kind]}</span>
-        <h3>{title}</h3>
-      </header>
-      <div className="paper-body">{body}</div>
-    </article>
-  );
+  return body;
 }
