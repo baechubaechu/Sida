@@ -68,6 +68,17 @@ def test_api_unknown_project_is_404(client):
     assert client.get("/api/projects/..%2F..%2Fsecret").status_code == 404
 
 
+def test_api_delete_project_removes_it_from_the_list(client):
+    for name in ("지울 프로젝트", "남길 프로젝트"):
+        assert client.post("/api/projects", json={"name": name}).status_code == 201
+    r = client.delete("/api/projects/지울_프로젝트")
+    assert r.status_code == 200 and r.json() == {"deleted": "지울_프로젝트"}
+    assert [p["name"] for p in client.get("/api/projects").json()["projects"]] == ["남길_프로젝트"]
+    assert client.get("/api/projects/지울_프로젝트").status_code == 404
+    assert client.delete("/api/projects/지울_프로젝트").status_code == 404
+    assert client.delete("/api/projects/..%2F..%2Fsecret").status_code == 404
+
+
 def test_api_runtime_reports_mode_and_missing_key(client, mock_config, monkeypatch):
     monkeypatch.setattr("sida.settings.read_key", lambda name: "")
     body = client.get("/api/runtime").json()
@@ -290,6 +301,15 @@ def test_state_api_requires_explicit_decision_and_blocks_replay(state_api, proje
         assert project.state_path.read_bytes() == before
         assert module_revisions(project.read_state()) == {}
     assert client.post(url).status_code == 409
+
+
+def test_deleted_project_leaves_no_approval_for_a_new_one_of_that_name(state_api, project):
+    client, base, agent = state_api
+    proposal = client.post(f"{base}/state-proposals", json={"agent": agent["id"]}).json()["proposal"]
+    assert client.delete(base).status_code == 200
+    assert client.post("/api/projects", json={"name": project.name}).status_code == 201
+    assert client.get(f"{base}/session").json()["proposal"] is None
+    assert client.post(f"{base}/state-proposals/{proposal['id']}/apply").status_code == 409
 
 
 @pytest.mark.parametrize("source", ["state", "brief", "module"])
@@ -832,6 +852,22 @@ def test_session_allows_one_job_per_project(session_api):
     held.pop()()
     assert client.get(f"{base}/session").json()["job"] is None
     assert client.post(f"{base}/session/messages", json={"text": "둘"}).status_code == 202
+
+
+def test_delete_waits_for_a_running_job(session_api, project):
+    client, base, conductor = session_api
+    held = []
+    client.app.state.session_jobs.runner = held.append  # start, but do not run yet
+    assert client.post(f"{base}/session/messages", json={"text": "하나"}).status_code == 202
+    refused = client.delete(base)
+    assert refused.status_code == 409 and "실행 중" in refused.json()["detail"]
+    assert project.path.exists()
+
+    conductor.replies.append('네\n```action\n{"type":"none"}\n```')
+    held.pop()()
+    assert client.delete(base).status_code == 200
+    assert not project.path.exists()
+    assert client.get(f"{base}/session").status_code == 404
 
 
 def test_session_runs_jobs_on_a_background_thread(session_api):

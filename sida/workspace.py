@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -78,6 +79,14 @@ def find_project(config: dict, name: str) -> Path:
     if not is_project_dir(path):
         raise ProjectNotFound(name)
     return path
+
+
+def delete_project(config: dict, name: str) -> None:
+    """Remove a project folder and everything in it. Raises ProjectNotFound; cannot be undone."""
+    path = find_project(config, name)
+    if path.is_symlink():  # a linked folder may live outside the projects folder; leave it alone
+        raise ProjectNotFound(name)
+    shutil.rmtree(path)
 
 
 def create_project(config: dict, name: str, fields: dict[str, str] | None = None) -> tuple[Project, bool]:

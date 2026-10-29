@@ -19,6 +19,9 @@ const settingsDialog = document.querySelector('#settings-dialog');
 const settingsBody = document.querySelector('#settings-body');
 const settingsForm = document.querySelector('#settings-form');
 const tableHost = document.querySelector('#table-host');
+const deleteDialog = document.querySelector('#delete-dialog');
+const deleteError = document.querySelector('#delete-error');
+const deleteConfirm = document.querySelector('#delete-confirm');
 
 const POLL_MS = 1000;
 const MAIN_JOBS = new Set(['opening', 'message', 'expert']);
@@ -433,6 +436,12 @@ async function track(name, job) {
 
 // ------------------------------------------------------------------ views
 
+// A project link in the sidebar, with its delete button beside it.
+function navProject(p, active = false) {
+  return `<div class="nav-row"><a class="nav-link ${active ? 'active' : ''}" href="${projectUrl(p.name)}" ${active ? 'aria-current="page"' : ''}>${escape(p.name)}</a>
+    <button type="button" class="nav-delete" data-action="delete-project" data-project="${escape(p.name)}" aria-label="${escape(p.name)} 프로젝트 삭제" title="프로젝트 삭제">삭제</button></div>`;
+}
+
 function sidebar(active) {
   const home = currentRoute.page !== 'project';
   const projects = ui.projects ? findProjects(ui.projects) : [];
@@ -446,10 +455,10 @@ function sidebar(active) {
     </nav>
     ${home
     ? `<section class="recent"><h2 class="nav-label">최근 항목</h2>
-      ${others.map((p) => `<a class="nav-link" href="${projectUrl(p.name)}">${escape(p.name)}</a>`).join('')}</section>`
+      ${others.map((p) => navProject(p)).join('')}</section>`
     : `<div class="project-nav"><h2 class="nav-label">프로젝트</h2>
-        <a class="nav-link active" href="${projectUrl(active)}" aria-current="page">${escape(active)}</a>
-        ${others.map((p) => `<a class="nav-link" href="${projectUrl(p.name)}">${escape(p.name)}</a>`).join('')}
+        ${navProject({ name: active }, true)}
+        ${others.map((p) => navProject(p)).join('')}
       </div>
       <h2 class="nav-label history-label">대화</h2>
       <a class="nav-link history-link" href="${projectUrl(active)}" ${currentRoute.agent || currentRoute.site ? '' : 'aria-current="true"'}>Conductor 대화</a>`}
@@ -475,7 +484,7 @@ function projectCards() {
     <p class="project-type">${escape(p.project_type || '건축 설계')}</p>
     <p class="project-summary">${escape(projectSummary(p))}</p>
     <div class="project-footer"><span>${escape(relativeDate(p.updated_at))}</span><span aria-hidden="true">↗</span></div>
-  </a></article>`).join('');
+  </a><button type="button" class="card-delete" data-action="delete-project" data-project="${escape(p.name)}" aria-label="${escape(p.name)} 프로젝트 삭제" title="프로젝트 삭제">삭제</button></article>`).join('');
 }
 
 function homeView() {
@@ -1206,6 +1215,35 @@ function render(fresh = true) {
 
 // ------------------------------------------------------------------ actions
 
+function askDelete(name) {
+  deleteDialog.dataset.project = name;
+  deleteDialog.querySelector('#delete-text').textContent = `‘${name}’ 프로젝트를 삭제할까요? 브리프, Conductor 대화, 전문가 결과와 채팅, 제도판, 대지 정보가 모두 지워지며 되돌릴 수 없습니다.`;
+  deleteError.textContent = '';
+  deleteConfirm.disabled = false;
+  deleteDialog.showModal();
+}
+
+async function deleteProject() {
+  const name = deleteDialog.dataset.project;
+  deleteConfirm.disabled = true;
+  deleteError.textContent = '';
+  try {
+    await api(projectApi(name), { method: 'DELETE' });
+  } catch (error) {
+    deleteError.textContent = error.message;
+    deleteConfirm.disabled = false;
+    if (error.status !== 404) return;
+  }
+  deleteDialog.close();
+  openingTried.delete(name);
+  if (ui.projects) ui.projects = ui.projects.filter((p) => p.name !== name);
+  toast(`‘${name}’ 프로젝트를 삭제했습니다.`, 'success');
+  announce(`${name} 프로젝트를 삭제했습니다.`);
+  if (currentRoute.page === 'project' && currentRoute.name === name) location.hash = '#/';
+  else render(false);
+  loadProjects().then(() => render(false));
+}
+
 async function createSample() {
   try {
     const { project } = await api('/api/projects/sample', { method: 'POST' });
@@ -1603,6 +1641,7 @@ app.addEventListener('click', (event) => {
   const { name, agent } = currentRoute;
   if (action === 'settings') openSettings();
   if (action === 'sample') createSample();
+  if (action === 'delete-project') askDelete(button.dataset.project);
   if (action === 'toggle-experts') {
     if (agent || currentRoute.site) location.hash = projectUrl(name);
     else { ui.showExperts = !ui.showExperts; render(false); }
@@ -1946,6 +1985,8 @@ settingsDialog.addEventListener('click', async (event) => {
     renderSettings();
   }
 });
+
+deleteConfirm.addEventListener('click', deleteProject);
 
 settingsForm.addEventListener('submit', (event) => {
   event.preventDefault(); // Enter in a field must not close the dialog unsaved
