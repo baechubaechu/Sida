@@ -2,13 +2,15 @@
 // paper lie around it, and tilting the table turns the plan into an axonometric and then a
 // perspective. Masses rise as the table leans. Tracing paper laid on the site snaps into register;
 // dragged aside it becomes a sheet of its own.
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useReducer, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as THREE from 'three';
 import { CSS3DRenderer, CSS3DObject } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
 import { SITE, SITE_BOUNDS, SITE_ANGLE, MASS_ORIGIN, FLOOR_HEIGHT, SCHEMES, blockFootprint } from '../shared/geometry.js';
 import { Paper, PX, TRACE_HOME } from './Papers.jsx';
 import { TILT, MAX_TILT, cameraFor, riseFor, zoomAround, drawingScale, lerpView } from './view.js';
+import { createHistory, historyReducer, canUndo } from './history.js';
+import { CardDetails } from './CardDetails.jsx';
 
 const SNAP = 7; // metres: a tracing sheet this close to its place on the site clicks into register
 const css = (name, fallback) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
@@ -29,11 +31,15 @@ const TOOLS = [
   { id: 'pen', label: '펜', key: 'p', icon: '✎' },
 ];
 
-export const Table = forwardRef(function Table({ initialPapers, onSelection }, ref) {
+export const Table = forwardRef(function Table({ initialPapers, onSelection, onAsk }, ref) {
   const host = useRef(null);
   const gl = useRef(null);
-  const [papers, setPapers] = useState(initialPapers);
-  const [pins, setPins] = useState([]);
+  const [history, dispatch] = useReducer(historyReducer, { papers: initialPapers, pins: [] }, createHistory);
+  const { papers, pins } = history.present;
+  const setPapers = useCallback((update) => dispatch({ type: 'change', update: (doc) => ({ ...doc, papers: typeof update === 'function' ? update(doc.papers) : update }) }), []);
+  const beginEdit = useCallback(() => dispatch({ type: 'begin' }), []);
+  const finishEdit = useCallback(() => dispatch({ type: 'finish' }), []);
+  const [inspected, setInspected] = useState('');
   const [view, setView] = useState({ x: TRACE_HOME.x + 20, y: TRACE_HOME.y, span: 260, tilt: 0, turn: 0 });
   const [scheme, setScheme] = useState('A');
   const [ghost, setGhost] = useState(false);
@@ -231,6 +237,23 @@ export const Table = forwardRef(function Table({ initialPapers, onSelection }, r
     onSelection(papers.filter((p) => selected.has(p.id)));
   }, [papers, selected, onSelection]);
 
+  useEffect(() => {
+    setSelected((previous) => {
+      const next = new Set([...previous].filter((id) => papers.some((p) => p.id === id)));
+      return next.size === previous.size ? previous : next;
+    });
+    if (inspected && !papers.some((p) => p.id === inspected)) setInspected('');
+  }, [papers, inspected]);
+
+  const travel = useCallback((type) => {
+    gesture.current = null;
+    setDraft(null);
+    setEditing('');
+    dispatch({ type });
+  }, []);
+  const undo = useCallback(() => travel('undo'), [travel]);
+  const redo = useCallback(() => travel('redo'), [travel]);
+
   // ------------------------------------------------------------------ view helpers
   const ground = useCallback((clientX, clientY, v = live.current.view) => {
     const g = gl.current;
@@ -290,8 +313,9 @@ export const Table = forwardRef(function Table({ initialPapers, onSelection }, r
       const ps = live.current.papers;
       const east = Math.max(SITE_BOUNDS.maxX, ...ps.map((p) => p.x + (p.w * PX) / 2));
       const paper = { ...card, x: east + 4 + (card.w * PX) / 2, y: SITE_BOUNDS.maxY - (card.h * PX) / 2 };
-      setPapers([...ps, paper]);
-      if (pin) setPins((list) => [...list, { ...pin, id: newId('pin'), kind: 'pin', paper: paper.id }]);
+      finishEdit();
+      const marker = pin ? { ...pin, id: newId('pin'), kind: 'pin', paper: paper.id } : null;
+      dispatch({ type: 'change', update: (doc) => ({ papers: [...doc.papers, paper], pins: marker ? [...doc.pins, marker] : doc.pins }) });
       setSelected(new Set([paper.id]));
       animateTo({ x: (paper.x + TRACE_HOME.x) / 2, y: TRACE_HOME.y, span: 200, tilt: 0, turn: 0 });
     },
@@ -301,13 +325,17 @@ export const Table = forwardRef(function Table({ initialPapers, onSelection }, r
       setSelected(new Set([id]));
       animateTo({ x: p.x, y: p.y, span: Math.max(60, p.h * PX * 1.6), tilt: 0, turn: 0 });
     },
+    inspectCard(id) { setInspected(id); },
+    deselectCard(id) { setSelected((ids) => new Set([...ids].filter((value) => value !== id))); },
+    selectCards(ids) { setSelected(new Set(ids)); setTool('select'); },
+    selectMasses() { setSelected(new Set(live.current.papers.filter((p) => p.kind === 'mass').map((p) => p.id))); setTool('select'); },
   }), [animateTo]);
 
   // ------------------------------------------------------------------ input
   useEffect(() => {
     const el = host.current;
     const onWheel = (e) => {
-      if (typing(e.target)) return;
+      if (typing(e.target) || e.target.closest('.table-ui, dialog')) return;
       e.preventDefault();
       const v = live.current.view;
       tween.current += 1;
@@ -327,7 +355,7 @@ export const Table = forwardRef(function Table({ initialPapers, onSelection }, r
   }, [ground]);
 
   const down = (e) => {
-    if (e.target.closest('.table-ui') || typing(e.target)) return;
+    if (e.target.closest('.table-ui, dialog, button') || typing(e.target)) return;
     e.preventDefault(); // no text selection while dragging across the panes
     const { view: v, tool: t, papers: ps, selected: sel } = live.current;
     host.current.setPointerCapture(e.pointerId);
@@ -353,6 +381,7 @@ export const Table = forwardRef(function Table({ initialPapers, onSelection }, r
     if (t === 'note') {
       e.preventDefault();
       const note = { id: newId('note'), kind: 'note', text: '', x: g0.x, y: g0.y, w: 200, h: 140 };
+      beginEdit();
       setPapers([...ps, note]);
       setSelected(new Set([note.id]));
       setEditing(note.id);
@@ -364,7 +393,7 @@ export const Table = forwardRef(function Table({ initialPapers, onSelection }, r
       let next = sel;
       if (e.shiftKey) { next = new Set(sel); if (next.has(paperId)) next.delete(paperId); else next.add(paperId); } else if (!sel.has(paperId)) next = new Set([paperId]);
       setSelected(next);
-      gesture.current = { kind: 'move', g0, ids: next, from: new Map(ps.map((p) => [p.id, { x: p.x, y: p.y }])), moved: false, x: e.clientX, y: e.clientY };
+      gesture.current = { kind: 'move', g0, ids: next, multiple: e.shiftKey, from: new Map(ps.map((p) => [p.id, { x: p.x, y: p.y }])), moved: false, x: e.clientX, y: e.clientY };
       return;
     }
     gesture.current = { kind: 'pan', g0, v, x: e.clientX, y: e.clientY, moved: false };
@@ -383,6 +412,7 @@ export const Table = forwardRef(function Table({ initialPapers, onSelection }, r
       const p = ground(e.clientX, e.clientY);
       if (!p) return;
       if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 3) return;
+      if (!g.moved) beginEdit();
       g.moved = true;
       const dx = p.x - g.g0.x;
       const dy = p.y - g.g0.y;
@@ -415,57 +445,82 @@ export const Table = forwardRef(function Table({ initialPapers, onSelection }, r
     } else if (g.kind === 'pan' && !g.moved) {
       setSelected(new Set());
     } else if (g.kind === 'move' && g.moved && g.ids.size === 1) {
+      finishEdit();
       const p = live.current.papers.find((q) => g.ids.has(q.id));
       if (p?.kind === 'tracing') say(atHome(p) ? `${p.title}을(를) 대지 위에 다시 덮었습니다.` : `${p.title}을(를) 떼어냈습니다. 배치도 옆에 두고 보거나, 다시 대지 위로 끌어 덮으세요.`);
+    } else if (g.kind === 'move' && g.moved) {
+      finishEdit();
+    } else if (g.kind === 'move' && !g.multiple && g.ids.size === 1) {
+      const id = [...g.ids][0];
+      if (live.current.papers.find((p) => p.id === id)?.kind !== 'note') setInspected(id);
     }
+  };
+
+  const cancel = () => {
+    if (gesture.current?.kind === 'move' && gesture.current.moved) dispatch({ type: 'cancel' });
+    gesture.current = null;
+    setDraft(null);
   };
 
   const onDouble = (e) => {
     const id = e.target.closest('[data-paper]')?.dataset.paper;
-    if (live.current.papers.find((p) => p.id === id)?.kind === 'note') setEditing(id);
+    if (live.current.papers.find((p) => p.id === id)?.kind === 'note') { beginEdit(); setEditing(id); }
   };
 
   const remove = useCallback(() => {
     const { selected: sel } = live.current;
     if (!sel.size) return;
-    setPapers((ps) => ps.filter((p) => !sel.has(p.id) || p.kind === 'site'));
-    setPins((list) => list.filter((pin) => !sel.has(pin.paper)));
+    finishEdit();
+    dispatch({ type: 'change', update: (doc) => {
+      const keep = doc.papers.filter((p) => !sel.has(p.id) || p.kind === 'site');
+      return { papers: keep, pins: doc.pins.filter((pin) => keep.some((p) => p.id === pin.paper)) };
+    } });
     setSelected(new Set());
   }, []);
 
   useEffect(() => {
     const key = (e) => {
-      if (typing(e.target) || e.metaKey || e.ctrlKey) return;
+      if (e.defaultPrevented || typing(e.target) || e.target.closest('dialog')) return;
       const k = e.key.toLowerCase();
+      if (e.metaKey || e.ctrlKey) {
+        if (k === 'z' || k === 'y') { e.preventDefault(); if (k === 'y' || e.shiftKey) redo(); else undo(); }
+        return;
+      }
       if (k === '1') animateTo({ tilt: TILT.plan, turn: 0 });
       else if (k === '2') animateTo({ tilt: TILT.axo, turn: live.current.view.turn || -30 });
       else if (k === '3') animateTo({ tilt: TILT.eye, turn: live.current.view.turn || -30 });
       else if (k === '0') fit();
       else if (k === 't') layTracing();
-      else if (k === 'delete' || k === 'backspace') remove();
+      else if (k === 'delete' || k === 'backspace') { e.preventDefault(); remove(); }
       else if (k === 'escape') { setSelected(new Set()); setTool('select'); }
       else { const tl = TOOLS.find((x) => x.key === k); if (tl) setTool(tl.id); }
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [animateTo, fit, layTracing, remove]);
+  }, [animateTo, fit, layTracing, remove, undo, redo]);
 
-  const onText = useCallback((id, text) => setPapers((ps) => ps.map((p) => (p.id === id ? { ...p, text } : p))), []);
-  const onDone = useCallback(() => setEditing(''), []);
+  const onText = useCallback((id, text) => { beginEdit(); setPapers((ps) => ps.map((p) => (p.id === id ? { ...p, text } : p))); }, [beginEdit, setPapers]);
+  const onDone = useCallback(() => { finishEdit(); setEditing(''); }, [finishEdit]);
 
   const tiltPreset = (name) => animateTo({ tilt: TILT[name], turn: name === 'plan' ? 0 : (view.turn || -30) });
   return (
-    <div className={`table tool-${tool}`} ref={host} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
+    <div className={`table tool-${tool}`} ref={host} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel}
       onDoubleClick={onDouble} onContextMenu={(e) => e.preventDefault()} role="application" aria-label="제도판">
       {papers.map((p) => createPortal(
         <Paper paper={p} selected={selected.has(p.id)} overlaid={atHome(p)} editing={editing === p.id} onText={onText} onDone={onDone}
-          draft={draft?.id === p.id ? draft.points : null} />, slot(p.id), p.id))}
+          onInspect={setInspected} draft={draft?.id === p.id ? draft.points : null} />, slot(p.id), p.id))}
       <div className="pin-layer" ref={pinLayer}>
         {pins.map((pin) => (
-          <button key={pin.id} type="button" className="pin" data-pin={pin.id} title={`${pin.label} · 누르면 이 자리를 봅니다`}>
+          <button key={pin.id} type="button" className="pin" data-pin={pin.id} title={`${pin.label} · 누르면 이 자리를 봅니다`}
+            onClick={() => { setScheme(pin.scheme); animateTo({ x: pin.x, y: pin.y, span: 110, tilt: 52, turn: pin.turn }, 700); }}>
             <span>{pin.label}</span>
           </button>
         ))}
+      </div>
+
+      <div className="table-ui ui-history" role="group" aria-label="편집 기록">
+        <button type="button" onClick={undo} disabled={!canUndo(history)} aria-label="실행 취소" title="실행 취소 (Ctrl/⌘+Z)">↶</button>
+        <button type="button" onClick={redo} disabled={!history.future.length} aria-label="다시 실행" title="다시 실행 (Ctrl/⌘+Shift+Z, Ctrl+Y)">↷</button>
       </div>
 
       <div className="table-ui ui-tools" role="toolbar" aria-label="도구">
@@ -476,7 +531,7 @@ export const Table = forwardRef(function Table({ initialPapers, onSelection }, r
         ))}
         <span className="sep" />
         <button type="button" onClick={layTracing} title="트레이싱지 덮기 (T)">트레이싱지 덮기</button>
-        <button type="button" onClick={remove} disabled={!selected.size} title="삭제 (Delete)">삭제</button>
+        <button type="button" onClick={remove} disabled={!papers.some((p) => selected.has(p.id) && p.kind !== 'site')} title="삭제 (Delete)">삭제</button>
       </div>
 
       <div className="table-ui ui-scheme">
@@ -511,6 +566,10 @@ export const Table = forwardRef(function Table({ initialPapers, onSelection }, r
 
       <p className="table-ui ui-help">끌기: 책상 이동 · ⌘/Ctrl+휠: 확대 · 우클릭(Alt)+끌기: 돌리고 기울이기 · 1 평면 2 액소 3 투시</p>
       {hint ? <p className="table-ui ui-hint" role="status">{hint}</p> : null}
+      {papers.find((p) => p.id === inspected) ? <CardDetails paper={papers.find((p) => p.id === inspected)}
+        onClose={() => setInspected('')} onBeginEdit={beginEdit} onFinishEdit={finishEdit} onText={onText}
+        onFocus={() => { const p = papers.find((item) => item.id === inspected); setInspected(''); animateTo({ x: p.x, y: p.y, span: Math.max(60, p.h * PX * 1.6), tilt: 0, turn: 0 }); }}
+        onAsk={() => { setSelected((ids) => new Set([...ids, inspected])); setInspected(''); onAsk?.(); }} /> : null}
     </div>
   );
 });

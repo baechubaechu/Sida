@@ -11,7 +11,7 @@ export default defineConfig({
     cssCodeSplit: false,
     assetsInlineLimit: 0,
     rollupOptions: {
-      input: `src/${which}-main.jsx`,
+      input: which === 'test-shell' ? 'tests/shell.html' : which === 'test-workflow' ? 'tests/workflow.html' : `src/${which}-main.jsx`,
       output: { entryFileNames: 'app.js', assetFileNames: '[name][extname]', codeSplitting: false },
     },
   },

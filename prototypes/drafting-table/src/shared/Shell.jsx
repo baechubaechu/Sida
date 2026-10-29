@@ -62,18 +62,39 @@ function resultCard(expert, context) {
   };
 }
 
-export function Shell({ library, title = '디자인 보드', hint, board, world, selection, addCard, focusCard, center: centerProp, onCenter }) {
+export function Shell({ library, title = '디자인 보드', hint, board, world, selection, addCard, focusCard, inspectCard, onDeselect, onClearSelection, onSelectMasses, questionRequest = 0, center: centerProp, onCenter }) {
   const [messages, setMessages] = useState(FIRST);
   const [draft, setDraft] = useState('');
   const [experts, setExperts] = useState(EXPERTS);
   const [runs, setRuns] = useState([]);
   const [pane, setPane] = useState('board');
   const [collapsed, setCollapsed] = useState(false);
+  const [expertsCollapsed, setExpertsCollapsed] = useState(false);
+  const [composerFocus, setComposerFocus] = useState(0);
   const [centerState, setCenterState] = useState('board');
   const center = centerProp ?? centerState;
   const setCenter = onCenter ?? setCenterState;
   const scroller = useRef(null);
+  const composerInput = useRef(null);
   useEffect(() => { scroller.current?.scrollTo(0, scroller.current.scrollHeight); }, [messages]);
+  useEffect(() => {
+    if (!questionRequest) return;
+    setCollapsed(false);
+    setPane('conductor');
+    setComposerFocus((value) => value + 1);
+  }, [questionRequest]);
+  useEffect(() => {
+    if (composerFocus && pane === 'conductor' && !collapsed) composerInput.current?.focus();
+  }, [composerFocus, pane, collapsed]);
+
+  const prepareQuestion = (text = '') => {
+    setCollapsed(false);
+    setPane('conductor');
+    if (text) setDraft((current) => current.trim() ? `${current}\n${text}` : text);
+    setComposerFocus((value) => value + 1);
+  };
+  const compareQuestion = '선택한 두 매스안의 배치와 건폐율·용적률을 비교하고, 검토할 차이점을 알려줘.';
+  const canCompare = selection.filter((card) => card.kind === 'mass').length >= 2;
 
   const send = (e) => {
     e.preventDefault();
@@ -103,21 +124,16 @@ export function Shell({ library, title = '디자인 보드', hint, board, world,
   };
 
   return (
-    <div className={`shell pane-${pane} ${collapsed ? 'conductor-collapsed' : ''}`}>
-      <nav className="rail" aria-label="Sida">
-        <span className="logo" aria-hidden="true">S</span>
-        <span className="rail-dot" title="프로젝트">▦</span>
-        <span className="rail-dot" title="설정">⚙</span>
-      </nav>
-
+    <div className={`shell pane-${pane} ${collapsed ? 'conductor-collapsed' : ''} ${expertsCollapsed ? 'experts-collapsed' : ''}`}>
       <section className="conductor" aria-label="Conductor 대화">
         <header className="pane-head">
-          <div><h2>Conductor</h2><p>금정동 공장 증축 · 예시 프로젝트</p></div>
+          <div><span className="eyebrow">설계 대화</span><h2>Conductor</h2><p>금정동 공장 증축</p></div>
           <button className="ghost" onClick={() => setCollapsed(true)} aria-label="Conductor 접기">⟨</button>
         </header>
         <div className="messages" ref={scroller} role="log">
           {messages.map((m, i) => (
-            <div key={i} className={`msg ${m.role}`}>
+            <div key={i} className={`msg ${m.role === 'conductor' ? 'assistant' : m.role}`}>
+              {m.role === 'conductor' ? <span className="speaker">Sida <span>Conductor</span></span> : null}
               {m.context?.length ? <div className="chips">{m.context.map((t) => <span key={t} className="chip">{t}</span>)}</div> : null}
               <p>{m.text}</p>
               {m.card ? <button className="link" onClick={() => { setCenter('board'); focusCard(m.card); }}>보드에서 보기 →</button> : null}
@@ -126,24 +142,36 @@ export function Shell({ library, title = '디자인 보드', hint, board, world,
           ))}
         </div>
         <form className="composer" onSubmit={send}>
-          <div className="chips context">
+          <div className="context" aria-label="질문에 함께 보낼 자료">
+            {selection.length ? <span className="attachment-label">함께 보낼 자료 {selection.length}개</span> : null}
+            <div className="chips">
             {selection.length
-              ? selection.map((c) => <span key={c.id} className="chip on">{cardTitle(c)}</span>)
-              : <span className="hint">보드에서 카드를 고르면 질문에 함께 보냅니다</span>}
+              ? selection.map((c) => <span key={c.id} className="attachment">
+                <button type="button" className="attachment-title" onClick={() => (inspectCard || focusCard)(c.id)}>{cardTitle(c)}</button>
+                {onDeselect ? <button type="button" className="attachment-remove" onClick={() => onDeselect(c.id)} aria-label={`${cardTitle(c)} 질문 자료에서 빼기`}>×</button> : null}
+              </span>)
+              : <span className="hint">카드를 선택하면 이 질문에 자료로 붙습니다</span>}
+            </div>
           </div>
           <label className="sr" htmlFor="ask">Conductor에게 메시지</label>
-          <textarea id="ask" rows={2} value={draft} onChange={(e) => setDraft(e.target.value)}
+          <textarea ref={composerInput} id="ask" rows={2} value={draft} onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }}
-            placeholder={selection.length >= 2 ? '예: 두 안 비교해 줘' : '설계에 대해 물어보세요'} />
+            placeholder={canCompare ? '선택한 두 안에 대해 물어보세요' : selection.length ? '선택한 자료에 대해 물어보세요' : '설계에 대해 물어보세요'} />
           <button className="send" type="submit" aria-label="보내기">↑</button>
+          <span className="composer-note">Enter로 보내기 · Shift+Enter로 줄 바꿈</span>
         </form>
       </section>
-      {collapsed ? <button className="expand" onClick={() => setCollapsed(false)} aria-label="Conductor 펼치기">Conductor ⟩</button> : null}
-
       <main className="board" aria-label="디자인 보드">
         <header className="board-head">
-          <h1>{title}</h1>
-          <span className="tag">{library} 시험판</span>
+          <div className="board-heading"><span className="eyebrow">금정동 공장 증축 <span aria-hidden="true">/</span> 디자인</span><h1>{title}</h1></div>
+          <span className="tag">{library} · 미리보기</span>
+          <div className="panel-toggles">
+            {collapsed ? <button type="button" className="panel-toggle" onClick={() => setCollapsed(false)} aria-label="Conductor 펼치기">대화 펼치기</button> : null}
+            <button type="button" className="panel-toggle" aria-controls="experts-panel" aria-expanded={!expertsCollapsed}
+              aria-label={expertsCollapsed ? '전문가 펼치기' : '전문가 접기'} onClick={() => setExpertsCollapsed((value) => !value)}>
+              <span aria-hidden="true">{expertsCollapsed ? '‹' : '›'}</span> 전문가
+            </button>
+          </div>
           {world ? (
             <div className="center-switch" role="group" aria-label="가운데 화면">
               <button type="button" aria-pressed={center === 'board'} onClick={() => setCenter('board')}>보드</button>
@@ -152,12 +180,23 @@ export function Shell({ library, title = '디자인 보드', hint, board, world,
           ) : null}
           <span className="muted">{hint || (center === 'world' ? '평면에서 트레이싱지를 덮고 그린 뒤 떼어내면 보드에 붙습니다' : '카드 머리를 끌어 옮기고, 카드 안 3D는 끌어서 돌립니다')}</span>
         </header>
+        <div className={`selection-bar ${selection.length ? 'has-selection' : ''}`} aria-label="선택한 카드">
+          {selection.length ? <>
+            <span className="selection-count" role="status">선택 {selection.length}개</span>
+            <div className="selection-items">{selection.map((card) => <button key={card.id} type="button" onClick={() => (inspectCard || focusCard)(card.id)} title="상세 보기">{cardTitle(card)} ↗</button>)}</div>
+            <button type="button" className="selection-ask" onClick={() => prepareQuestion(canCompare ? compareQuestion : '')}>{canCompare ? '두 안 비교 질문 →' : '이 자료로 질문 →'}</button>
+            {onClearSelection ? <button type="button" className="selection-clear" aria-label="선택 모두 해제" onClick={onClearSelection}>×</button> : null}
+          </> : <><span className="selection-guide">카드 클릭: 선택·상세 보기 · Shift+클릭: 여러 장 선택</span>{onSelectMasses ? <button type="button" className="selection-ask" onClick={onSelectMasses}>매스안 선택</button> : null}</>}
+        </div>
         <div className="board-canvas" hidden={center !== 'board'}>{board}</div>
         {world ? <div className="board-canvas" hidden={center !== 'world'}>{world}</div> : null}
       </main>
 
-      <aside className="experts" aria-label="전문가">
-        <header className="pane-head"><div><h2>전문가</h2><p>{selection.length ? `선택한 카드 ${selection.length}개로 실행` : '보드 전체를 보고 실행'}</p></div></header>
+      <aside id="experts-panel" className="experts" aria-label="전문가">
+        <header className="pane-head"><div><span className="eyebrow">함께 검토하기</span><h2>전문가 <span className="expert-count">{experts.length}</span></h2><p>{selection.length ? `선택한 카드 ${selection.length}개로 실행` : '보드 전체를 보고 실행'}</p></div>
+          <button type="button" className="ghost" aria-label="전문가 패널 닫기" aria-controls="experts-panel" aria-expanded={!expertsCollapsed}
+            onClick={() => { setExpertsCollapsed(true); setPane('board'); }}>›</button>
+        </header>
         <ul className="expert-list">
           {experts.map((x) => (
             <li key={x.id}>
@@ -168,7 +207,7 @@ export function Shell({ library, title = '디자인 보드', hint, board, world,
           ))}
         </ul>
         <div className="runs">
-          <h3>진행</h3>
+          <h3>검토 진행</h3>
           {runs.length ? runs.map((r) => (
             <div key={r.id} className="run">
               <b>{r.expert.name}</b>
@@ -180,7 +219,7 @@ export function Shell({ library, title = '디자인 보드', hint, board, world,
 
       <nav className="tabs" aria-label="화면 바꾸기">
         {[['conductor', '대화'], ['board', '보드'], ['experts', '전문가']].map(([id, label]) => (
-          <button key={id} aria-pressed={pane === id} onClick={() => setPane(id)}>{label}</button>
+          <button key={id} aria-pressed={pane === id} onClick={() => { setPane(id); if (id === 'experts') setExpertsCollapsed(false); }}>{label}</button>
         ))}
       </nav>
     </div>

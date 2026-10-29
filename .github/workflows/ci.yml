@@ -15,7 +15,7 @@ jobs:
         with:
           node-version: "22"
       - name: Test web screen helpers (offline)
-        run: node --test tests/webui/model.test.mjs tests/webui/board-model.test.mjs
+        run: node --test tests/webui/model.test.mjs tests/webui/board-model.test.mjs prototypes/drafting-table/tests/history.test.mjs
       - name: Check browser scripts
         run: |
           node --check webui/app/app.js

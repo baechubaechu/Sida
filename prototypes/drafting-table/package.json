@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:history": "node --test tests/history.test.mjs",
+    "test:workflow": "BOARD=test-workflow vite build",
+    "test:shell": "BOARD=test-shell vite build",
     "build:table": "BOARD=table vite build",
     "build:own": "BOARD=own vite build",
     "build:tldraw": "BOARD=tldraw NODE_ENV=development vite build",
