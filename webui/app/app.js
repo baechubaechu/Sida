@@ -374,6 +374,7 @@ function handleEvent(event) {
   }
   const sitePage = ui.project ? sitePageFor(event, ui.project, ui.site) : null;
   if (sitePage && location.hash !== sitePage) location.hash = sitePage;
+  if (event.kind === 'run_skipped' && event.data?.reason === 'no_site' && ui.project) askForSite(ui.project, event.data.address);
   if (event.kind === 'conductor_reply') ui.live.push({ kind: 'conductor', text: event.data.text || '' });
   else if (event.kind === 'expert_reply') ui.live.push({ kind: 'expert', text: event.data.text || '' });
   else {
@@ -1471,6 +1472,19 @@ function togglePick(pnu, on) {
   f.picked = f.picked.filter((p) => p.pnu !== pnu);
   if (on && found) f.picked.push(found);
   render(false);
+}
+
+// The Conductor wanted the site reader before a site was saved: the find tab searches the address
+// it passed (the brief's otherwise), and saving the site runs the site reader.
+function askForSite(name, address) {
+  ui.siteFirst = true;
+  const f = ui.find;
+  const text = String(address || '').trim();
+  if (!text || f.busy) return;
+  f.query = text;
+  f.mode = 'text';
+  f.briefTried = true;
+  searchAddress(name);
 }
 
 // Running the site reader with no site saved opens the site page to find it first; saving the site

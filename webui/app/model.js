@@ -123,7 +123,9 @@ export function eventNotice(event) {
       : `Conductor가 만든 종이가 거부됐습니다. ${data.reason || ''}`.trim(), 'warn');
     case 'unknown_agent': return notice('Conductor가 없는 전문가를 불러서 실행하지 않았습니다.', 'warn');
     case 'action_recovered': return notice('Conductor 답에서 다음 동작을 다시 읽었습니다.');
-    case 'run_skipped': return notice(data.reason === 'state_pending'
+    case 'run_skipped': return data.reason === 'no_site'
+      ? notice(`대지를 아직 저장하지 않아 ${name} 실행을 미뤘습니다. 찾기 탭에서 필지를 고르고 저장하면 바로 실행합니다.`, 'warn', true)
+      : notice(data.reason === 'state_pending'
       ? `설계 상태 반영안을 먼저 검토해야 해서 ${name}은(는) 실행하지 않았습니다.`
       : data.reason === 'held'
       ? `${name}은(는) 보류 중인 전문가라 이어서 실행하지 않았습니다. 필요하면 직접 실행하거나 이름으로 부탁해 주세요.`
@@ -266,8 +268,10 @@ export function needsSiteFirst(agent, site) {
 }
 
 // When the site reader starts (run by the designer or by the Conductor) the site page opens
-// beside the table: on its facts, or on "find" while no site has been looked up. null otherwise.
+// beside the table: on its facts, or on "find" while no site has been looked up. It opens on
+// "find" too when the Conductor's run waited for a site (run_skipped "no_site"). null otherwise.
 export function sitePageFor(event, name, site) {
+  if (event?.kind === 'run_skipped' && event.data?.reason === 'no_site') return sitePath(name, 'find');
   if (event?.kind !== 'module_started' || event.data?.agent?.id !== 'site_reader') return null;
   return sitePath(name, site?.available ? 'facts' : 'find');
 }

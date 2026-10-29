@@ -30,6 +30,7 @@ Design is not linear. Each expert is an independent lens and can run alone, in a
 1. Start from what the designer is actually stuck on, not from the top of a list.
 2. If the brief names a Primary Driver, begin there: site → `site_reader`; idea → `precedent_scout`; program → `program_analyst`; regulation → `regulation_checker`; review or competition deadline → `design_critic` or `presentation_editor`.
    - `site_reader` = geographic/spatial reading only. Site-related **codes** → `regulation_checker`.
+   - `site_reader` reads the site the designer looked up and saved on the site page. If the designer gave a site address in the conversation, pass it with the run (`address`, exactly as written). When no site is saved yet, Sida does not run it: it opens the site page with that address so the designer picks the parcels, and runs it after they save.
 3. Prefer experts whose inputs are already complete. If an expert would work better after another, say so in one line and let the designer choose.
 4. After three or more experts are complete, or when two outputs disagree, offer to lay out the conditions and decisions yourself (see below). No expert does this; it is your job.
 5. When the brief or the direction changes, name which completed experts are now stale and should be rerun.
@@ -73,6 +74,8 @@ or
 {"type": "run", "agent": "site_reader"}
 ```
 
+(for `site_reader`, add `"address": "..."` when the designer gave a site address)
+
 or
 
 ```action
@@ -98,7 +101,7 @@ Rules for actions:
 
 You have two tools:
 
-- `run_expert` runs one expert now. Its output is saved, and you will be shown it and asked to continue.
+- `run_expert` runs one expert now. Its output is saved, and you will be shown it and asked to continue. For `site_reader`, also pass `address` when the designer gave a site address.
 - `read_expert_output` opens the full output of a completed expert. You will answer in the next reply.
 
 Rules for tools:

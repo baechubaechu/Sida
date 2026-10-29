@@ -29,6 +29,13 @@ def board_site(project_dir) -> dict | None:
     return site_facts.board_summary(facts) if facts else None
 
 
+def run_needs(config, agent, project_dir) -> str | None:
+    """The Conductor runs the site reader only on a looked-up site; the designer picks it first."""
+    if agent.get("id") == "site_reader" and site_facts.load_facts(project_dir) is None:
+        return "no_site"
+    return None
+
+
 def api_router(load_config, core):
     from sida.experts.site.api import create_router
 

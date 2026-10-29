@@ -17,7 +17,9 @@ Event kinds and their data:
   module_failed     agent, reason
   tray_added        paper            (a paper in the drawing table's AI section, sida/board.py)
   tray_failed       reason           (the Conductor's paper was refused; it is told why)
-  run_skipped       agent, reason ("limit" | "state_pending" | "held"), limit
+  run_skipped       agent, reason ("limit" | "state_pending" | "held", or a domain's run_needs
+                    reason such as "no_site"), limit; with a run_needs reason also address
+                    (a site address the Conductor passed, "" when none)
   notice            message          (only when Session.capture_notices is set)
   state_proposing   agent
   state_proposed    agent, proposal  (mode "ask": waits for apply_state / discard_state)
@@ -38,6 +40,7 @@ from sida.conductor import ask_conductor, parse_action
 from sida.conductor_context import render_conductor_prompt
 from sida.config import ROOT, agent_by_id, get_agents, is_held, resolve_agent
 from sida.errors import fail
+from sida.experts import run_needs
 from sida.i18n import get_language
 from sida.project import Project, open_or_create
 from sida.project_documents import Document, DocumentConflict, read_document, save_document
@@ -119,6 +122,7 @@ class Turn:
     agent: dict | None = None
     replies: list[str] = field(default_factory=list)
     error: str | None = None
+    address: str = ""  # with "run": a site address the Conductor passed along ("" when none)
 
 
 @dataclass
@@ -398,7 +402,8 @@ def conductor_turn(
             ephemeral = True
             continue
         if kind != "read":
-            return Turn(kind, agent=agent, replies=replies)
+            address = str(action.get("address") or "").strip() if kind == "run" else ""
+            return Turn(kind, agent=agent, replies=replies, address=address)
 
         reads += 1
         content = session.project.read_module(agent["output"])
@@ -495,6 +500,15 @@ def converse(session: Session, user_text: str | None, *, ephemeral: bool = False
             session.send("run_skipped", agent=turn.agent, reason=reason, limit=limit)
             return Turn("continue", replies=replies, error=None)
         agent = turn.agent
+        need = run_needs(session.config, agent, session.project.path)
+        if need:  # e.g. no site looked up yet: the screen sends the designer to do that first
+            session.send("run_skipped", agent=agent, reason=need, limit=limit, address=turn.address)
+            session.note(
+                "user",
+                f"{_SYSTEM_NOTE_PREFIX}{agent['id']} was not run ({need}); the designer was "
+                "asked to do that first on the screen, and it runs after that.",
+            )
+            return Turn("continue", replies=replies, error=None)
         result = run_expert(session, agent)
         runs += 1
         if result.run is None:

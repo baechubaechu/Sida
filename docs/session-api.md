@@ -61,7 +61,7 @@
 | `reading`, `read_failed` | `file` / `agent, reason` | 작은 안내 줄. 제도판 종이를 읽으면 `file`이 `board/<종이 id>`, `read_failed`의 `agent`가 종이 id |
 | `unknown_agent`, `action_recovered` | | 작은 안내 줄 |
 | `conductor_error` | `reason`, 때로 `after_run` | 오류 줄. 이 메시지는 기록되지 않았으니 다시 보내게 안내. `after_run: true`이면 전문가 결과는 저장됐고 Conductor의 이어지는 답만 실패한 것이라 다시 보내라고 하지 않음 |
-| `run_skipped` | `agent, reason, limit` | **알림**: Conductor가 실행하려던 전문가를 실행하지 않음. `reason`은 `limit`(한 번에 실행하는 수를 채움), `state_pending`(설계 상태 반영안 검토가 먼저), `held`(보류 전문가라 다른 전문가 다음에 이어서 실행하지 않음) |
+| `run_skipped` | `agent, reason, limit` (`no_site`이면 `address`도) | **알림**: Conductor가 실행하려던 전문가를 실행하지 않음. `reason`은 `limit`(한 번에 실행하는 수를 채움), `state_pending`(설계 상태 반영안 검토가 먼저), `held`(보류 전문가라 다른 전문가 다음에 이어서 실행하지 않음), `no_site`(대지를 저장하기 전에 Conductor가 대지 분석가를 부름. `address`는 Conductor가 대화에서 넘긴 대지 주소, 없으면 `""`) |
 | `notice` | `message` | 경고 줄(법령 검색 실패, 로컬 모델 준비 등) |
 | `tray_added` | `paper` | **알림**: AI가 만든 종이(Conductor의 매스안·메모·수정안, 전문가 결과)가 제도판의 AI 섹션에 놓임. 제도판 화면이 `GET .../board`를 다시 부르면 `tray`에 있음([board-api.md](board-api.md)) |
 | `tray_failed` | `reason` | Conductor가 만든 종이가 거부됨(`limit`이면 한 메시지에 3장을 넘김). Conductor가 이유를 받고 다시 하거나 설계자에게 말함 |
@@ -69,6 +69,7 @@
 ## 전문가 자동 호출
 
 - Conductor는 모델의 함수 호출(tool calling)로 전문가를 부릅니다. 도구는 `run_expert`(전문가 실행)와 `read_expert_output`(완료된 결과 문서 읽기)이고(클라우드 Conductor는 제도판 종이를 읽는 `read_board`와 AI 섹션에 종이를 놓는 `propose_paper`도, [board-api.md](board-api.md)), OpenRouter·ChatGPT 구독·Ollama에서 씁니다. 함수 호출을 받지 않는 모델이나 제공자는 이전처럼 답 끝의 ```` ```action ```` 블록을 씁니다. 거부되면 그 모델은 서버를 다시 켤 때까지 블록 방식으로 돕니다.
+- 대지를 아직 저장하지 않은 프로젝트에서 Conductor가 대지 분석가를 부르면 실행하지 않고 `run_skipped`(`reason: no_site`)를 보냅니다(영역 hook `run_needs`, `sida/experts/site/hooks.py`). Conductor는 대화에 나온 대지 주소를 `run_expert`의 `address`(블록 방식은 `"address"`)로 함께 넘기고, 화면은 그 주소로 찾기 탭을 엽니다. 설계자가 직접 누른 실행(`POST .../session/experts/{agent}/run`)은 막지 않습니다("대지 없이 브리프로 실행").
 - 전문가가 끝나면 Conductor에게 결과를 보여 주고 이어서 답하게 합니다. 다음 전문가가 분명히 필요하면 바로 실행하고, 아니면 다음 단계를 제안하거나 설계자에게 묻습니다. 메시지 하나에 전문가는 최대 `conductor.max_expert_runs`번(기본 3) 실행합니다.
 - 설계 상태 반영이 `ask`이면 반영안이 생긴 뒤에는 다음 전문가로 넘어가지 않습니다. 다음 실행이 기다리는 반영안을 덮어쓰기 때문입니다. Conductor는 반영안 검토를 권하는 답으로 끝냅니다.
 - 실행이 실패하면 거기서 멈춥니다.
