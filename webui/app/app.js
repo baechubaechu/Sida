@@ -10,7 +10,7 @@ import {
   ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
   togglePicked, shapesToFetch, MAP_PICK_ZOOM,
 } from './model.js';
-import { keepSelected, pickedNames } from './board-model.js';
+import { keepSelected, pickedNames, massIds, canCompare, COMPARE_QUESTION, addQuestion } from './board-model.js';
 
 const app = document.querySelector('#app');
 const announcer = document.querySelector('#announcer');
@@ -35,7 +35,10 @@ const ui = {
   chat: null, chatMissing: false, module: null, moduleMissing: false, openExperts: new Set(),
   versions: null, version: null, versionMissing: false, showRaw: false, checks: new Set(), feedback: {},
   job: null, live: [], pending: null,
-  showExperts: false, revisionOpen: false, creating: false,
+  revisionOpen: false, creating: false,
+  // The workspace's three panels (Conductor · drafting table · experts): which are folded away,
+  // and on a phone which one is shown ('conductor', 'board' or 'side').
+  conductorCollapsed: false, expertsCollapsed: false, pane: 'conductor', focusComposer: false,
   settings: null, settingsDraft: null, settingsError: '', chatgptModels: null, chatgptNote: '',
   board: null, selected: [], showTable: true, chatWidth: 0,
   site: null, siteError: '', showSiteLines: false, find: null, siteFirst: false,
@@ -244,11 +247,12 @@ function tableHooks(name) {
   return {
     add: (paper) => boardCall(name, () => api(`${projectApi(name)}/board/papers`, { method: 'POST', body: paper }), true),
     update: (id, changes) => boardCall(name, () => api(paperUrl(id), { method: 'PATCH', body: changes }),
-      ['blocks', 'floor_height', 'title'].some((key) => key in changes)),
+      ['blocks', 'floor_height', 'title', 'text'].some((key) => key in changes)),
     remove: (id) => boardCall(name, () => api(paperUrl(id), { method: 'DELETE' })),
     place: (id, placement) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}/place`, { method: 'POST', body: placement }), true),
     discard: (id) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}`, { method: 'DELETE' }), true),
     select: (ids) => { ui.selected = ids; render(false); },
+    ask: () => askAbout(),
     openExpert: (agent) => { location.hash = expertUrl(name, agent); },
     experts: () => ui.session?.experts || [],
   };
@@ -286,6 +290,17 @@ function placeTable() {
   table.resize();
 }
 
+// Ask about what is picked: the Conductor panel opens (on a phone too) with the cursor in its
+// composer, and a prepared question goes under what is already typed. Nothing is sent yet.
+function askAbout(question = '') {
+  if (currentRoute.page !== 'project') return;
+  ui.conductorCollapsed = false;
+  ui.pane = 'conductor';
+  if (question) drafts.set('main', addQuestion(draftFor('main'), question));
+  ui.focusComposer = true;
+  render(false);
+}
+
 function unpick(id) {
   ui.selected = ui.selected.filter((x) => x !== id);
   table?.setSelected(ui.selected);
@@ -295,7 +310,8 @@ function unpick(id) {
 async function navigate() {
   const previous = currentRoute;
   currentRoute = route();
-  ui.showExperts = false;
+  if (currentRoute.agent || currentRoute.site) ui.pane = 'side';
+  else if (previous.agent || previous.site) ui.pane = 'conductor';
   ui.revisionOpen = false;
   if (!currentRoute.site) ui.siteFirst = false; // left the site page without saving a site
   if (currentRoute.page !== 'project') {
@@ -437,31 +453,23 @@ async function track(name, job) {
 // ------------------------------------------------------------------ views
 
 // A project link in the sidebar, with its delete button beside it.
-function navProject(p, active = false) {
-  return `<div class="nav-row"><a class="nav-link ${active ? 'active' : ''}" href="${projectUrl(p.name)}" ${active ? 'aria-current="page"' : ''}>${escape(p.name)}</a>
+function navProject(p) {
+  return `<div class="nav-row"><a class="nav-link" href="${projectUrl(p.name)}">${escape(p.name)}</a>
     <button type="button" class="nav-delete" data-action="delete-project" data-project="${escape(p.name)}" aria-label="${escape(p.name)} 프로젝트 삭제" title="프로젝트 삭제">삭제</button></div>`;
 }
 
-function sidebar(active) {
-  const home = currentRoute.page !== 'project';
+// The project list's sidebar. Inside a project the Conductor panel links back here instead.
+function sidebar() {
   const projects = ui.projects ? findProjects(ui.projects) : [];
   const warned = ui.settings && Object.values(ui.settings.warnings || {}).some(Boolean);
-  const others = projects.filter((p) => p.name !== active).slice(0, home ? 3 : 2);
   return `<aside class="sidebar" aria-label="프로젝트 탐색">
     <a class="brand" href="#/" aria-label="Sida 프로젝트 홈">Sida</a>
     <nav class="nav-main" aria-label="주 메뉴">
-      ${home ? `<a class="nav-link ${currentRoute.page === 'home' ? 'active' : ''}" href="#/" ${currentRoute.page === 'home' ? 'aria-current="page"' : ''}>▦&nbsp; 프로젝트</a>` : ''}
+      <a class="nav-link active" href="#/" aria-current="page">▦&nbsp; 프로젝트</a>
       <a class="nav-link nav-new" href="#/new">＋&nbsp; 새 프로젝트</a>
     </nav>
-    ${home
-    ? `<section class="recent"><h2 class="nav-label">최근 항목</h2>
-      ${others.map((p) => navProject(p)).join('')}</section>`
-    : `<div class="project-nav"><h2 class="nav-label">프로젝트</h2>
-        ${navProject({ name: active }, true)}
-        ${others.map((p) => navProject(p)).join('')}
-      </div>
-      <h2 class="nav-label history-label">대화</h2>
-      <a class="nav-link history-link" href="${projectUrl(active)}" ${currentRoute.agent || currentRoute.site ? '' : 'aria-current="true"'}>Conductor 대화</a>`}
+    <section class="recent"><h2 class="nav-label">최근 항목</h2>
+      ${projects.slice(0, 3).map((p) => navProject(p)).join('')}</section>
     <button class="nav-link sidebar-bottom" data-action="settings">설정${warned ? ' <span class="warn-dot" aria-label="확인할 설정 있음">●</span>' : ''}</button>
   </aside>`;
 }
@@ -488,7 +496,7 @@ function projectCards() {
 }
 
 function homeView() {
-  return `<div class="app-shell">${sidebar('')}
+  return `<div class="app-shell">${sidebar()}
     <main class="home" id="main" tabindex="-1">
       <header class="home-heading"><div><h1>프로젝트</h1><p>건축 설계 프로젝트를 관리하고 이전 작업을 이어가세요.</p></div>
         <a class="primary" href="#/new">＋&nbsp; 새 프로젝트</a></header>
@@ -517,10 +525,21 @@ function newView() {
 }
 
 // Papers picked on the drafting table go with the next message (and the next expert run).
+// A chip's name opens the paper at reading size; × takes it out.
 function pickedChips() {
-  if (!ui.selected.length) return '';
-  return `<div class="picked" aria-label="제도판에서 고른 종이"><span class="picked-label">제도판에서 고른 종이</span>
-    ${pickedNames(ui.selected, ui.board).map((p) => `<span class="paper-chip">${escape(p.name)}<button type="button" data-action="unpick" data-id="${escape(p.id)}" aria-label="${escape(p.name)} 빼기">×</button></span>`).join('')}</div>`;
+  const withTable = tableShown();
+  if (!ui.selected.length) {
+    return withTable ? '<div class="picked" aria-label="질문에 함께 보낼 자료"><span class="picked-hint">제도판에서 종이를 고르면 이 질문에 자료로 붙습니다</span></div>' : '';
+  }
+  return `<div class="picked" aria-label="질문에 함께 보낼 자료"><span class="picked-label">함께 보낼 자료 ${ui.selected.length}개</span>
+    <div class="picked-chips">${pickedNames(ui.selected, ui.board).map((p) => `<span class="attachment">${withTable
+    ? `<button type="button" class="attachment-title" data-action="inspect-paper" data-id="${escape(p.id)}" title="상세 보기">${escape(p.name)}</button>`
+    : `<span class="attachment-title">${escape(p.name)}</span>`}<button type="button" class="attachment-remove" data-action="unpick" data-id="${escape(p.id)}" aria-label="${escape(p.name)} 질문 자료에서 빼기">×</button></span>`).join('')}</div></div>`;
+}
+
+// The table is in the workspace (not on an expert page, not hidden).
+function tableShown() {
+  return currentRoute.page === 'project' && !currentRoute.agent && ui.showTable;
 }
 
 function contextChips(context) {
@@ -532,7 +551,7 @@ function composer(key, placeholder, label, disabled) {
   return `<form class="composer" data-composer="${escape(key)}" aria-label="${escape(label)} 입력">
     ${pickedChips()}
     <textarea data-focus="${escape(key)}" aria-label="${escape(label)}에게 메시지" placeholder="${escape(placeholder)}" maxlength="6000" rows="1">${escape(draftFor(key))}</textarea>
-    <div class="composer-footer"><span class="composer-hint">${disabled ? '작업이 끝나면 보낼 수 있습니다.' : 'Enter로 보내기, Shift+Enter로 줄바꿈'}</span>
+    <div class="composer-footer"><span class="composer-hint">${disabled ? '작업이 끝나면 보낼 수 있습니다.' : 'Enter로 보내기 · Shift+Enter로 줄 바꿈'}</span>
       <button class="send-button" type="submit" aria-label="${escape(label)}에게 보내기" ${disabled ? 'disabled' : ''}>↑</button></div>
   </form>`;
 }
@@ -548,7 +567,8 @@ function bubble(item, speaker) {
       <p class="analysis-meta">${escape(item.name)}${status ? ` · ${escape(status)}` : ''}</p>
       <span class="analysis-link">분석 보기 ↗</span></button>`;
   }
-  return `<article><h3 class="speaker">${escape(speaker)}</h3><div class="assistant-copy markdown">${renderMarkdown(item.text)}</div></article>`;
+  const [who, role] = Array.isArray(speaker) ? speaker : [speaker, ''];
+  return `<article><h3 class="speaker">${escape(who)}${role ? ` <span>${escape(role)}</span>` : ''}</h3><div class="assistant-copy markdown">${renderMarkdown(item.text)}</div></article>`;
 }
 
 function workingLine(forMain) {
@@ -570,13 +590,15 @@ function mainChat(name) {
   const live = MAIN_JOBS.has(ui.job?.kind) ? ui.live : [];
   const pending = ui.pending?.target === 'main' ? [{ kind: 'user', text: ui.pending.text, context: ui.pending.context }] : [];
   const empty = !items.length && !live.length && !pending.length && !jobRunning();
-  return `<div class="chat-scroll" data-scroll="main"><h1>Conductor 대화</h1>
+  const placeholder = canCompare(ui.selected, ui.board) ? '선택한 두 안에 대해 물어보세요'
+    : ui.selected.length ? '선택한 자료에 대해 물어보세요' : 'Sida에게 설계에 관해 질문하세요...';
+  return `<div class="chat-scroll" data-scroll="main">
       ${empty ? '<p class="muted intro-line">설계 중인 프로젝트와 지금 고민하는 점을 알려 주세요.</p>' : ''}
       <div class="message-list" role="log" aria-label="대화 메시지">
-        ${[...items, ...pending, ...live].map((item) => bubble(item, 'Sida')).join('')}
+        ${[...items, ...pending, ...live].map((item) => bubble(item, ['Sida', 'Conductor'])).join('')}
         ${workingLine(true)}
       </div>
-    </div>${composer('main', 'Sida에게 설계에 관해 질문하세요...', 'Sida', jobRunning())}`;
+    </div>${composer('main', placeholder, 'Sida', jobRunning())}`;
 }
 
 function chatAnswering(agent, chat) {
@@ -585,31 +607,49 @@ function chatAnswering(agent, chat) {
 
 function siteRow(name) {
   const looked = Boolean(ui.site?.available);
-  return `<a class="site-row expert-row-button" href="${sitePath(name)}">
-      <span class="expert-name">대지 사실</span>
-      <span class="expert-phase">${escape(siteHeadline(ui.site) || '주소로 필지를 찾아 저장합니다')}</span>
-      <span class="status-badge ${looked ? 'done' : 'idle'}">${looked ? '조회함' : '조회 전'}</span></a>`;
+  return `<a class="site-row" href="${sitePath(name)}">
+      <span class="dot ${looked ? 'done' : 'idle'}" aria-hidden="true"></span>
+      <span class="expert-text"><span class="expert-name">대지 사실</span>
+      <span class="expert-phase">${escape(siteHeadline(ui.site) || '주소로 필지를 찾아 저장합니다')} · ${looked ? '조회함' : '조회 전'}</span></span>
+      <span class="row-open" aria-hidden="true">↗</span></a>`;
+}
+
+// What the experts are doing now, under the list.
+function runsBlock() {
+  const job = ui.job;
+  const running = jobRunning() && job.running_agent ? expertById(job.running_agent) : null;
+  if (running) {
+    return `<p class="working" role="status"><span class="spinner" aria-hidden="true"></span><span><b>${escape(running.name)}</b> 실행 중입니다. 결과는 제도판의 AI 섹션에 놓입니다.</span></p>`;
+  }
+  return '<p class="runs-empty">전문가를 실행하면 결과가 제도판의 AI 섹션에 놓이고, 여기서 결과 문서와 분석 채팅을 엽니다.</p>';
 }
 
 function expertsPanel() {
   const experts = ui.session?.experts || [];
-  return `<aside class="experts" aria-label="전문가 목록"><h2>대지</h2><p class="experts-intro">정부 데이터에서 가져온 대지 사실</p>
-    ${siteRow(currentRoute.name)}
-    <h2 class="experts-heading">전문가</h2><p class="experts-intro">결과 문서와 전문가별 분석 채팅</p>
-    ${experts.map((e) => {
+  const busy = jobRunning();
+  const picked = ui.selected.length;
+  return `<aside id="experts-panel" class="experts panel" aria-label="전문가">
+    <header class="pane-head"><div><span class="eyebrow">함께 검토하기</span><h2>전문가 <span class="expert-count">${experts.length}</span></h2>
+      <p>${picked ? `고른 종이 ${picked}장과 함께 실행` : '브리프와 제도판을 보고 실행'}</p></div>
+      <button type="button" class="ghost" data-action="collapse-experts" aria-label="전문가 패널 접기" aria-controls="experts-panel" aria-expanded="true">›</button></header>
+    <div class="experts-scroll">
+    <h3 class="panel-label">대지</h3>${siteRow(currentRoute.name)}
+    <h3 class="panel-label">전문가</h3>
+    <ul class="expert-list">${experts.map((e) => {
     const status = expertStatus(e, ui.job);
     const id = escape(e.id);
     const threads = e.chat
       ? `<button class="thread-new" data-action="new-chat" data-agent="${id}">＋ 새 분석 채팅</button>
         ${(e.chats || []).map((c) => `<button data-action="open-chat" data-agent="${id}" data-chat="${escape(c.id)}">${escape(chatLabel(c))}${chatAnswering(e.id, c.id) ? ' · 답하는 중' : ''}</button>`).join('')}`
       : '<p class="muted small-text">채팅 없음. 결과 문서와 수정 요청만 있습니다.</p>';
-    return `<details class="expert-row" data-agent="${id}" ${ui.openExperts.has(e.id) ? 'open' : ''}>
-        <summary class="expert-row-button">
-          <span class="expert-name">${escape(e.name)}</span>
-          <span class="expert-phase">${escape(phaseLabel(e))}</span>
-          <span class="status-badge ${status}">${escape(STATUS_LABELS[status])}</span></summary>
-        <div class="expert-threads"><button data-action="open-expert" data-agent="${id}">결과 문서 보기</button>${threads}</div></details>`;
-  }).join('')}</aside>`;
+    return `<li class="expert-item"><span class="dot ${status}" aria-hidden="true"></span>
+      <details class="expert-row" data-agent="${id}" ${ui.openExperts.has(e.id) ? 'open' : ''}>
+        <summary><span class="expert-name">${escape(e.name)}</span>
+          <span class="expert-phase">${escape(phaseLabel(e))} · ${escape(STATUS_LABELS[status])}</span></summary>
+        <div class="expert-threads"><button data-action="open-expert" data-agent="${id}">결과 문서 보기</button>${threads}</div></details>
+      <button type="button" class="mini" data-action="run-expert" data-agent="${id}" ${busy ? 'disabled' : ''} title="${e.done ? '다시 실행' : '실행'}${picked ? ` (고른 종이 ${picked}장과 함께)` : ''}">${status === 'running' ? '실행 중' : e.done ? '다시' : '실행'}</button></li>`;
+  }).join('')}</ul></div>
+    <section class="runs" aria-label="검토 진행"><h3>검토 진행</h3>${runsBlock()}</section></aside>`;
 }
 
 function proposalBlock(agent) {
@@ -1155,29 +1195,62 @@ function siteReaderBar(name, tab) {
     <button class="secondary small" data-action="run-expert" data-agent="site_reader" ${busy ? 'disabled' : ''}>${expert.done ? '다시 실행' : '실행'}</button></div>`;
 }
 
+// The board panel's head: where we are, the panel toggles, and what is picked on the table.
+function boardHead(name, site) {
+  const picked = pickedNames(ui.selected, ui.board);
+  const compare = canCompare(ui.selected, ui.board);
+  const masses = massIds(ui.board);
+  const selection = picked.length
+    ? `<span class="selection-count" role="status">선택 ${picked.length}개</span>
+      <div class="selection-items">${picked.map((p) => `<button type="button" data-action="inspect-paper" data-id="${escape(p.id)}" title="상세 보기">${escape(p.name)} ↗</button>`).join('')}</div>
+      <button type="button" class="selection-ask" data-action="ask-selection" data-compare="${compare}">${compare ? '두 안 비교 질문 →' : '이 자료로 질문 →'}</button>
+      <button type="button" class="selection-clear" data-action="clear-selection" aria-label="선택 모두 해제">×</button>`
+    : `<span class="selection-guide">종이 클릭: 상세 보기 · Shift+클릭: 여러 장 골라 대화에 보내기</span>
+      ${masses.length ? '<button type="button" class="selection-ask" data-action="select-masses">매스안 선택</button>' : ''}`;
+  return `<header class="board-head">
+      <div class="board-heading"><span class="eyebrow"><a href="#/">프로젝트</a><span aria-hidden="true">/</span>${escape(name)}<span aria-hidden="true">/</span>${site ? '대지' : '디자인'}</span><h1>제도판</h1></div>
+      <div class="panel-toggles">
+        ${ui.conductorCollapsed ? '<button type="button" class="panel-toggle" data-action="expand-conductor">대화 펼치기</button>' : ''}
+        <button type="button" class="panel-toggle" data-action="toggle-table" title="제도판을 접고 대화를 넓게 봅니다">제도판 숨기기</button>
+        ${site ? '' : `<button type="button" class="panel-toggle" data-action="toggle-experts-panel" aria-controls="experts-panel" aria-expanded="${!ui.expertsCollapsed}"><span aria-hidden="true">${ui.expertsCollapsed ? '‹' : '›'}</span> 전문가</button>`}
+      </div>
+      <p class="board-hint">기울이면 배치도가 3D가 됩니다 · 트레이싱지는 대지 위에 덮고, 옆으로 끌어내면 떼어집니다</p>
+    </header>
+    <div class="selection-bar ${picked.length ? 'has-selection' : ''}" aria-label="고른 종이">${selection}</div>`;
+}
+
 function workspaceView() {
   const { name, agent, site } = currentRoute;
   const expert = agent ? expertById(agent) : null;
-  const side = Boolean(agent || site);
-  const where = site ? '대지' : expert ? expert.name : 'Conductor 대화';
+  const withTable = tableShown();
   // The Conductor conversation always stays on the left; the drafting table sits in the middle
   // and the experts on the right. The site page takes the experts' place, so the site paper is in
-  // sight while the parcels are chosen; an expert page takes the place of both.
-  const withTable = !agent && ui.showTable;
-  const split = agent || (site && !withTable);
-  return `<div class="app-shell workspace">${sidebar(name)}
-    <main class="workspace-main" id="main" tabindex="-1">
-      <header class="workspace-header"><div class="breadcrumb"><a href="#/">${escape(name)}</a><span>/</span><span>${escape(where)}</span></div>
-        <div class="workspace-controls">
-          ${agent ? '' : `<button class="table-toggle" data-action="toggle-table" aria-pressed="${ui.showTable}">${ui.showTable ? '제도판 숨기기' : '제도판 보기'}</button>`}
-          <button class="mobile-experts" data-action="toggle-experts">${side || ui.showExperts ? '채팅' : '전문가'}</button></div></header>
-      <div class="chat-layout ${split ? 'split' : ''} ${withTable ? 'with-table' : ''} ${withTable && site ? 'site-open' : ''} ${ui.showExperts && !side ? 'show-experts' : ''}" ${withTable && ui.chatWidth ? `style="--chat-width: ${ui.chatWidth}px"` : ''}>
-        <section class="chat-main" aria-label="Conductor 대화">${mainChat(name)}</section>
-        <div class="divider" role="separator" aria-label="패널 너비 조절" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0">⋮</div>
-        ${withTable ? '<section class="table-pane" aria-label="제도판"><div id="table-slot"></div></section>' : ''}
-        ${site ? sitePage(name) : agent ? expertPage(name, agent) : expertsPanel()}
-      </div>
-    </main></div>`;
+  // sight while the parcels are chosen; an expert page takes the place of both. With the table
+  // shown, the Conductor and the experts fold away to give it room.
+  const split = Boolean(agent || (site && !withTable));
+  const conductorFolded = withTable && ui.conductorCollapsed;
+  const expertsFolded = !agent && !site && ui.expertsCollapsed;
+  const layout = withTable ? (site ? 'with-table site-open' : 'with-table') : split ? 'split' : 'chat-only';
+  const warned = ui.settings && Object.values(ui.settings.warnings || {}).some(Boolean);
+  const sideLabel = site ? '대지' : expert ? expert.name : '전문가';
+  const tabs = [['conductor', '대화'], ...(withTable ? [['board', '제도판']] : []), ['side', sideLabel]];
+  const style = withTable && ui.chatWidth ? `--conductor-width: ${ui.chatWidth}px` : '';
+  return `<main class="studio ${layout} pane-${ui.pane} ${conductorFolded ? 'conductor-collapsed' : ''} ${expertsFolded ? 'experts-collapsed' : ''}" id="main" tabindex="-1" ${style ? `style="${style}"` : ''}>
+      <section class="conductor panel" aria-label="Conductor 대화">
+        <header class="pane-head"><div><span class="eyebrow"><a href="#/" class="back-home">← 프로젝트</a></span><h2>Conductor</h2><p>${escape(name)}</p></div>
+          <div class="pane-actions">
+            ${!withTable && !agent ? '<button type="button" class="panel-toggle" data-action="toggle-table">제도판 보기</button>' : ''}
+            ${expertsFolded && !withTable ? '<button type="button" class="panel-toggle" data-action="toggle-experts-panel" aria-controls="experts-panel" aria-expanded="false">‹ 전문가</button>' : ''}
+            <button type="button" class="ghost settings-button" data-action="settings" aria-label="설정" title="설정">⚙${warned ? '<span class="warn-dot" aria-label="확인할 설정 있음">●</span>' : ''}</button>
+            ${withTable ? '<button type="button" class="ghost" data-action="collapse-conductor" aria-label="Conductor 접기" title="대화 접기">⟨</button>' : ''}
+          </div></header>
+        ${mainChat(name)}
+      </section>
+      <div class="divider" role="separator" aria-label="패널 너비 조절" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0"></div>
+      ${withTable ? `<section class="board panel" aria-label="제도판">${boardHead(name, site)}<div class="board-canvas"><div id="table-slot"></div></div></section>` : ''}
+      ${site ? sitePage(name) : agent ? expertPage(name, agent) : expertsPanel()}
+      <nav class="pane-tabs" aria-label="화면 바꾸기">${tabs.map(([id, label]) => `<button type="button" data-action="pane" data-pane="${id}" aria-pressed="${ui.pane === id}">${escape(label)}</button>`).join('')}</nav>
+    </main>`;
 }
 
 function render(fresh = true) {
@@ -1203,8 +1276,13 @@ function render(fresh = true) {
   if (slot) slotWatch.observe(slot);
   placeTable();
   placeSiteMap();
+  const ask = ui.focusComposer && app.querySelector('[data-focus="main"]');
+  ui.focusComposer = false;
   const again = focused && app.querySelector(`[data-focus="${CSS.escape(focused)}"]`);
-  if (again) {
+  if (ask) {
+    ask.focus({ preventScroll: true });
+    ask.setSelectionRange(ask.value.length, ask.value.length);
+  } else if (again) {
     again.focus({ preventScroll: true });
     // Only text fields keep a cursor (a select or a checkbox has none to restore).
     if (selection && again.selectionStart != null && typeof again.setSelectionRange === 'function') again.setSelectionRange(...selection);
@@ -1642,16 +1720,26 @@ app.addEventListener('click', (event) => {
   if (action === 'settings') openSettings();
   if (action === 'sample') createSample();
   if (action === 'delete-project') askDelete(button.dataset.project);
-  if (action === 'toggle-experts') {
-    if (agent || currentRoute.site) location.hash = projectUrl(name);
-    else { ui.showExperts = !ui.showExperts; render(false); }
-  }
+  if (action === 'pane') { ui.pane = button.dataset.pane; render(false); }
+  if (action === 'collapse-conductor') { ui.conductorCollapsed = true; render(false); }
+  if (action === 'expand-conductor') { ui.conductorCollapsed = false; render(false); }
+  if (action === 'collapse-experts') { ui.expertsCollapsed = true; if (ui.pane === 'side') ui.pane = 'board'; render(false); }
+  if (action === 'toggle-experts-panel') { ui.expertsCollapsed = !ui.expertsCollapsed; render(false); }
+  if (action === 'inspect-paper') table?.inspect(button.dataset.id);
+  if (action === 'clear-selection') { ui.selected = []; table?.setSelected([]); render(false); }
+  if (action === 'select-masses') table?.selectMasses();
+  if (action === 'ask-selection') askAbout(button.dataset.compare === 'true' ? COMPARE_QUESTION : '');
   if (action === 'open-expert') location.hash = expertUrl(name, button.dataset.agent);
   if (action === 'open-chat') location.hash = expertUrl(name, button.dataset.agent, button.dataset.chat);
   if (action === 'new-chat') newChat(button.dataset.agent);
   if (action === 'run-expert') runExpert(name, button.dataset.agent, button.dataset.withoutSite === 'true');
   if (action === 'unpick') unpick(button.dataset.id);
-  if (action === 'toggle-table') { ui.showTable = !ui.showTable; render(false); }
+  if (action === 'toggle-table') {
+    ui.showTable = !ui.showTable;
+    if (ui.showTable) ui.pane = 'board';
+    else { ui.conductorCollapsed = false; if (ui.pane === 'board') ui.pane = 'conductor'; }
+    render(false);
+  }
   if (action === 'open-revision') { ui.revisionOpen = true; render(false); app.querySelector('#revision-text')?.focus(); }
   if (action === 'close-revision') { ui.revisionOpen = false; render(false); }
   if (action === 'apply-proposal') decideProposal(button.dataset.id, true);
@@ -1755,12 +1843,12 @@ app.addEventListener('submit', async (event) => {
 function resizePanel(separator, delta, absolute = false) {
   const layout = separator.parentElement;
   const bounds = layout.getBoundingClientRect();
-  const current = layout.querySelector('.chat-main').getBoundingClientRect().width;
-  const width = Math.max(bounds.width * 0.25, Math.min(bounds.width * 0.75, absolute ? delta : current + delta));
+  const current = layout.querySelector('.conductor').getBoundingClientRect().width;
+  const width = Math.max(bounds.width * 0.2, Math.min(bounds.width * 0.75, absolute ? delta : current + delta));
   if (layout.classList.contains('split')) layout.style.setProperty('--split-left', `${width}px`);
   else if (layout.classList.contains('with-table')) {
-    ui.chatWidth = Math.round(Math.min(width, bounds.width * 0.6));
-    layout.style.setProperty('--chat-width', `${ui.chatWidth}px`);
+    ui.chatWidth = Math.round(Math.max(260, Math.min(width, bounds.width * 0.6)));
+    layout.style.setProperty('--conductor-width', `${ui.chatWidth}px`);
   }
   else layout.style.setProperty('--expert-width', `${Math.max(240, bounds.width - width - 12)}px`);
   separator.setAttribute('aria-valuenow', String(Math.round((width / bounds.width) * 100)));
@@ -1781,7 +1869,7 @@ app.addEventListener('pointerdown', (event) => {
   if (!event.target.matches('.divider') || event.button !== 0) return;
   const separator = event.target;
   separator.setPointerCapture(event.pointerId);
-  const bounds = separator.parentElement.getBoundingClientRect();
+  const bounds = separator.parentElement.querySelector('.conductor').getBoundingClientRect();
   const move = (e) => resizePanel(separator, e.clientX - bounds.left, true);
   separator.addEventListener('pointermove', move);
   separator.addEventListener('lostpointercapture', () => separator.removeEventListener('pointermove', move), { once: true });
