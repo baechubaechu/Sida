@@ -10,7 +10,7 @@
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
 import {
-  PX, TILT, MAX_TILT, PAPER_SIZE, cameraFor, riseFor, zoomAround, drawingScale, lerpView, dragMode, wheelZoom, orbitBy, viewName, viewFor, panBy, EDGE_TILT,
+  PX, TILT, MAX_TILT, PAPER_SIZE, cameraFor, riseFor, groundFor, zoomAround, drawingScale, lerpView, dragMode, wheelZoom, orbitBy, viewName, viewFor, panBy, EDGE_TILT,
   siteBounds, traceHome, isOverlaid, blockCorners, placeUnplaced, freeSpot, fitView,
   folded, foldedInPlan, pinnedPapers, peekSpot,
   paperName, resultPreview, KIND_LABELS, originLabel, figureLines, readScheme, schemeRows, toggleSelected, fmt,
@@ -73,7 +73,7 @@ export class DraftingTable {
       <div class="table-ui ui-scheme"></div>
       <div class="table-ui ui-tilt" aria-label="기울기"></div>
       <div class="table-ui ui-zoom"></div>
-      <p class="table-ui ui-help">휠: 커서 기준 확대 · 우클릭 끌기: 평면에선 이동, 3D에선 돌리기 · Shift+우클릭 끌기: 이동 · Ctrl+우클릭 끌기: 확대 · 1 평면 2 3D · Shift+클릭: 여러 장 골라 대화에 보내기 · Ctrl+Z: 되돌리기</p>
+      <p class="table-ui ui-help">휠: 커서 기준 확대 · 우클릭 끌기: 돌리기(평면에서 바로 3D로) · Shift+우클릭 끌기: 이동 · Ctrl+우클릭 끌기: 확대 · 1 평면 2 3D · Shift+클릭: 여러 장 골라 대화에 보내기 · Ctrl+Z: 되돌리기</p>
       <p class="table-ui ui-hint" role="status" hidden></p>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
       <section class="table-ui peek" aria-label="종이 내용" hidden></section>
@@ -237,12 +237,17 @@ export class DraftingTable {
     const grid = new THREE.GridHelper(2000, 200, this.colors.line, this.colors.line);
     grid.rotation.x = Math.PI / 2;
     grid.position.z = 0.02;
+    grid.material.transparent = true;
     scene.add(grid);
+    // The ground line of an elevation: one long line across the view, through the target.
+    const horizon = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-5000, 0, 0), new THREE.Vector3(5000, 0, 0)]),
+      new THREE.LineBasicMaterial({ color: this.colors.ink, transparent: true }));
+    scene.add(horizon);
     const lot = new THREE.Group();
     const masses = new THREE.Group();
     const traces = new THREE.Group();
     scene.add(lot, masses, traces);
-    this.gl = { renderer, cssRenderer, scene, cssScene, camera, lot, masses, traces, labels: [], objects: new Map(), raycaster: new THREE.Raycaster() };
+    this.gl = { renderer, cssRenderer, scene, cssScene, camera, grid, catcher, horizon, lot, masses, traces, labels: [], objects: new Map(), raycaster: new THREE.Raycaster() };
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(this.root);
   }
@@ -280,18 +285,27 @@ export class DraftingTable {
 
   render() {
     if (!this.gl || !this.root.isConnected || !this.root.clientWidth) return;
-    const { renderer, cssRenderer, scene, cssScene, camera, masses, traces, labels, objects } = this.gl;
+    const { renderer, cssRenderer, scene, cssScene, camera, grid, catcher, horizon, lot, masses, traces, labels, objects } = this.gl;
     const v = this.view;
     this.aimCamera(camera, v);
     const rise = riseFor(v.tilt);
     masses.scale.z = rise;
+    // Lying flat for an elevation the ground fades away and only the buildings stand, on a ground line.
+    const ground = groundFor(v.tilt);
+    grid.material.opacity = ground;
+    catcher.material.opacity = 0.22 * ground;
+    lot.visible = ground > 0.5;
+    horizon.visible = ground < 1;
+    horizon.material.opacity = 1 - ground;
+    horizon.position.set(v.x, v.y, 0.1);
+    horizon.rotation.z = (-v.turn * Math.PI) / 180; // across the view, square to where the viewer faces
     for (const l of labels) l.element.style.opacity = rise < 0.25 ? String(1 - rise * 4) : '0';
     // In plan the papers lie on the table. Once it leans they fold into pins (drawn over the
     // scene, upright), and an overlaid tracing's lines lie on the ground.
     // A paper the designer folded stays a pin in plan too.
     const fold = folded(v.tilt);
     const shut = new Set(foldedInPlan(this.papers, this.home));
-    traces.visible = fold;
+    traces.visible = fold && ground > 0.5;
     for (const [id, obj] of objects) obj.visible = !fold && !shut.has(id);
     if (fold !== this.root.classList.contains('is-3d')) this.foldChanged(fold);
     this.root.classList.toggle('has-folded', shut.size > 0);
@@ -1193,7 +1207,7 @@ export class DraftingTable {
     this.root.setPointerCapture(e.pointerId);
     this.tween += 1;
     const v = this.view;
-    const mode = dragMode({ button: e.button, shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, alt: e.altKey, tilt: v.tilt });
+    const mode = dragMode({ button: e.button, shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, alt: e.altKey });
     if (mode === 'orbit') { this.gesture = { kind: 'orbit', x: e.clientX, y: e.clientY, v }; return; }
     const g0 = this.ground(e.clientX, e.clientY);
     if (mode) { this.gesture = { kind: mode, g0: (v.tilt < EDGE_TILT && g0) || { x: v.x, y: v.y }, edge: v.tilt >= EDGE_TILT || !g0, v, x: e.clientX, y: e.clientY, moved: false, button: e.button }; return; }
