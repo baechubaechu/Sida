@@ -42,7 +42,7 @@ from sida.config import ROOT, agent_by_id, get_agents, is_held, resolve_agent
 from sida.errors import fail
 from sida.experts import run_needs
 from sida.i18n import get_language
-from sida.project import Project, open_or_create
+from sida.project import MAIN_TALK, Project, open_or_create
 from sida.project_documents import Document, DocumentConflict, read_document, save_document
 from sida.providers import LLMError, format_usage
 from sida.runtime import conductor_provider, worker_provider
@@ -93,7 +93,8 @@ class Session:
 
     def persist(self) -> None:
         self.project.save_history(self.history)
-        self.project.save_session(history_messages=len(self.history))
+        if self.project.talk == MAIN_TALK:  # session.json counts the first talk only
+            self.project.save_session(history_messages=len(self.history))
 
     def reload_brief(self) -> None:
         self.project_brief = self.project.read_brief()
@@ -207,6 +208,7 @@ def build_session(
     *,
     created: bool | None = None,
     before_providers: Callable[[dict], None] | None = None,
+    talk: str = MAIN_TALK,
 ) -> Session:
     """
     Open (or create) the project and assemble a Session. No model call.
@@ -214,6 +216,7 @@ def build_session(
     `created` overrides detection when the caller just made the folder.
     `before_providers` runs after the project is open and before providers are built
     (the web session uses it to start Ollama). Raises LLMError when a provider cannot be built.
+    `talk` is the Conductor talk whose history the session reads and saves (sida/talks.py).
     """
     agents = get_agents(config)
 
@@ -225,6 +228,7 @@ def build_session(
     conductor_prompt = render_conductor_prompt(prompt_path.read_text(encoding="utf-8"), config)
 
     project, detected = open_or_create(target, name=project_name, config=config)
+    project.talk = talk
     if created is None:
         created = detected
 

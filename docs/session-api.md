@@ -17,16 +17,20 @@
 
 | 메서드·경로 | 요청 | 응답 |
 |---|---|---|
-| `GET /session` | | `{messages, job, experts, proposal}` |
+| `GET /session` | | `{messages, talks, job, experts, proposal}` |
 | `POST /session/opening` | 본문 없음 | `202 {job}`. Conductor의 첫 인사. 화면을 열었을 때 `messages`가 비어 있으면 부르세요 |
 | `POST /session/messages` | `{text, context?}` | `202 {job}`. `context`는 제도판에서 고른 종이 id 목록([board-api.md](board-api.md)) |
+| `GET /talks` | | `{talks}`. Conductor 대화(talk) 목록. 각 항목은 `{id, title, messages, updated_at}`이고 오래된 것부터. `01`은 위의 `messages` 대화이고 늘 있음. `title`은 첫 질문(아직 없으면 `""`) |
+| `POST /talks` | 본문 없음 | `201 {talk}`. 빈 대화를 새로 만듦(`02`, `03`, …). 명령창에서 질문할 때마다 하나씩 만들어 팝업으로 엶 |
+| `GET /talks/{talk_id}` | | `{talk, messages, job}`. 그 대화의 기록(`messages` 모양은 아래와 같음). 없는 대화는 `404` |
+| `POST /talks/{talk_id}/messages` | `{text, context?}` | `202 {job}`. 그 대화에서 Conductor에게 메시지. `talks/01/messages`는 `POST /session/messages`와 같음. 없는 대화는 `404` |
 | `POST /session/experts/{agent}/run` | 본문 없음, 또는 `{revision, context}` | `202 {job}`. 설계자가 전문가를 직접 실행. Conductor를 부르지 않음. `revision`을 주면 전문가가 지금 결과를 그 요청대로 고쳐 씀("Request revision") |
 | `GET /experts/{agent}/chats` | | `{agent, name, chat, chats}`. 전문가의 분석 채팅 목록. `chats`는 `{id, messages, preview, updated_at}`이고 오래된 것부터 |
 | `POST /experts/{agent}/chats` | 본문 없음 | `201 {chat}`. 빈 분석 채팅을 새로 만듦. `chat`이 `false`인 전문가는 `400` |
 | `GET /experts/{agent}/chats/{chat_id}` | | `{agent, name, chat, chat_id, messages, job}`. 그 채팅의 기록. 없는 채팅은 `404` |
 | `POST /experts/{agent}/chats/{chat_id}/messages` | `{text, context?}` | `202 {job}`. 그 채팅에서 전문가에게 메시지. `chat`이 `false`인 전문가는 `400`, 없는 채팅은 `404` |
 | `GET /experts/{agent}/chat`, `POST /experts/{agent}/chat` | | 예전 경로. `chats/01`과 같음 |
-| `GET /session/jobs/{id}` | `?after=0` | `{id, kind, agent, chat, status, running_agent, error, started_at, finished_at, events}`. `chat`은 전문가 채팅 작업이 쓰는 채팅 id(그 밖의 작업은 `null`) |
+| `GET /session/jobs/{id}` | `?after=0` | `{id, kind, agent, chat, talk, status, running_agent, error, started_at, finished_at, events}`. `chat`은 전문가 채팅 작업이 쓰는 채팅 id, `talk`은 Conductor 메시지·첫 인사 작업이 쓰는 대화 id(그 밖의 작업은 둘 다 `null`) |
 | `GET /modules/{agent}` | | `{agent, name, phase, content, updated_at}`. 전문가 결과 문서(Markdown 원문). 아직 실행 전이면 `404` |
 | `GET /modules/{agent}/versions` | | `{agent, versions}`. 다시 실행이나 수정 요청 전의 결과들. `versions`는 `{id, saved_at}`이고 최신부터. `saved_at`은 그 결과를 저장한 이 PC의 시각(시간대 없음). 지금 결과는 들어 있지 않음 |
 | `GET /modules/{agent}/versions/{id}` | | `{agent, id, saved_at, content}`. 이전 결과 하나. 없는 버전은 `404` |
@@ -38,6 +42,7 @@
   - `event: "run_requested"`: 설계자가 직접 실행을 누른 자리.
   - `event: "read"`: Conductor가 결과 문서를 읽은 자리. 작은 안내 줄 정도면 됩니다.
   - `event: "note"`: 모델에게만 남긴 메모(예: 대지를 조회해 저장했다는 알림). `agent`가 없고 화면에 보이지 않습니다.
+- `talks`: `GET /talks`의 `talks`와 같은 Conductor 대화 목록. 대화마다 기록만 따로이고, 브리프·설계 상태·전문가 결과·제도판은 모든 대화가 같이 읽습니다. 작업은 프로젝트에 하나라서 한 대화가 답하는 동안 다른 대화에 보내면 `409`입니다.
 - `job`: 실행 중인 작업. 없으면 `null`. 화면을 새로 열었을 때 값이 있으면 그 작업을 `after=0`부터 이어서 조회하세요.
 - `experts`: 우측 전문가 패널용 목록. `{id, name, phase, tier, done, updated_at, chat, chats, status, inputs}`이고 `tier`는 `core`(필수 7개) 또는 `held`(보류 3개: 개념 정리자, 공간 검토자, 시스템 자문가. 설계자가 직접 실행하거나 이름으로 부탁할 때만 돌고, Conductor가 먼저 권하거나 이어서 실행하지 않음), `chat`은 전문가 채팅이 있는지, `inputs`는 이 전문가가 읽는 다른 전문가 id 목록(config 순서), `chats`는 `GET /experts/{agent}/chats`의 `chats`와 같은 분석 채팅 목록(채팅 없는 전문가는 빈 목록), `status`는 `idle`(실행 전), `running`(실행 중), `review`(설계 상태 반영 승인을 기다림), `done`입니다.
 - `proposal`: 기다리는 설계 상태 반영안 `{id, agent, diff, changes}`. `changes`는 섹션별로 바뀌는 항목입니다([state-editing.md](state-editing.md)). 없으면 `null`.

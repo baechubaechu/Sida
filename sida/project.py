@@ -20,6 +20,10 @@ BRIEF_FILE = "brief.md"
 STATE_FILE = "project_state.md"
 TRANSCRIPT_FILE = "transcript.md"
 HISTORY_FILE = "history.json"
+# Conductor talks: "01" is the first conversation (history.json); a talk opened from the command
+# line is another conversation with the same project, kept in talks/<id>.json (sida/talks.py).
+MAIN_TALK = "01"
+TALKS_DIRNAME = "talks"
 MODULES_DIRNAME = "modules"
 STATE_TEMPLATE_PATH = ROOT / "data" / "project_state_template.md"
 DEFAULT_PROJECTS_DIR = Path.home() / "Sida" / "projects"
@@ -101,6 +105,13 @@ def projects_dir() -> Path:
     return resolve_projects_dir()
 
 
+def talk_history_path(project_path: Path, talk: str = MAIN_TALK) -> Path:
+    """Where one Conductor talk is stored: history.json for the first, talks/<id>.json after."""
+    if talk == MAIN_TALK:
+        return project_path / HISTORY_FILE
+    return project_path / TALKS_DIRNAME / f"{talk}.json"
+
+
 @dataclass
 class Project:
     path: Path
@@ -108,6 +119,7 @@ class Project:
     session_id: str
     created_at: str
     source_brief: str | None
+    talk: str = MAIN_TALK  # the Conductor talk this project's history is read from and saved to
 
     @property
     def brief_path(self) -> Path:
@@ -127,7 +139,7 @@ class Project:
 
     @property
     def history_path(self) -> Path:
-        return self.path / HISTORY_FILE
+        return talk_history_path(self.path, self.talk)
 
     @property
     def state_path(self) -> Path:
@@ -227,6 +239,7 @@ class Project:
             content = item.get("content")
             if role in {"user", "assistant"} and isinstance(content, str):
                 clean.append({"role": role, "content": content})
+        self.history_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(
             self.history_path,
             json.dumps(clean, ensure_ascii=False, indent=2) + "\n",
