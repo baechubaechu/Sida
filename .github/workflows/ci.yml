@@ -15,13 +15,14 @@ jobs:
         with:
           node-version: "22"
       - name: Test web screen helpers (offline)
-        run: node --test tests/webui/model.test.mjs tests/webui/board-model.test.mjs prototypes/drafting-table/tests/history.test.mjs
+        run: node --test tests/webui/model.test.mjs tests/webui/board-model.test.mjs tests/webui/command-model.test.mjs prototypes/drafting-table/tests/history.test.mjs
       - name: Check browser scripts
         run: |
           node --check webui/app/app.js
           node --check webui/app/model.js
           node --check webui/app/board-model.js
           node --check webui/app/table.js
+          node --check webui/app/command-model.js
 
   test:
     runs-on: ubuntu-latest

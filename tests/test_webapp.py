@@ -197,7 +197,7 @@ def test_main_screen_calls_only_existing_api_paths(client):
 
     routes = list(client.app.openapi()["paths"])
     assert {
-        "/api/projects", "/api/settings", "/api/projects/{}/session/messages",
+        "/api/projects", "/api/settings", "/api/projects/{}/talks", "/api/projects/{}/talks/{}/messages",
         "/api/site/regions", "/api/site/lots", "/api/projects/{}/site", "/api/projects/{}/site/parcels",
     } <= {shape(path) for path in called}
     for path in called:

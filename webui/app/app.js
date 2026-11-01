@@ -11,6 +11,9 @@ import {
   togglePicked, shapesToFetch, MAP_PICK_ZOOM,
 } from './model.js';
 import { keepSelected, pickedNames, massIds, canCompare, COMPARE_QUESTION, addQuestion } from './board-model.js';
+import {
+  COMMANDS, GROUP_LABELS, readLine, suggest, pickOption, addHistory, remember, HISTORY_LINES,
+} from './command-model.js';
 
 const app = document.querySelector('#app');
 const announcer = document.querySelector('#announcer');
@@ -43,6 +46,12 @@ const ui = {
   board: null, selected: [], showTable: true, chatWidth: 0,
   site: null, siteError: '', showSiteLines: false, find: null, siteFirst: false,
   ordinance: null, ordinanceError: '', ordinanceBusy: '', useFind: null, mapLayers: null, mapError: '', mapErrorStatus: 0,
+  // Conductor talks (sida/talks.py): the loaded ones by id, and the popups open on screen
+  // ({id, folded, context: paper ids sent with the next question}).
+  talks: new Map(), popups: [],
+  // The command line: history lines, typed lines for ↑↓, a command's open question, the last
+  // command (an empty Enter repeats it), the highlighted suggestion and the help card.
+  cmd: { lines: [], typed: [], back: -1, prompt: null, last: '', pick: 0, help: false },
 };
 const drafts = new Map();
 const openingTried = new Set();
@@ -210,7 +219,7 @@ async function loadExpert(name, agent) {
 async function refreshProject() {
   const { name, agent } = currentRoute;
   if (currentRoute.page !== 'project') return;
-  await Promise.all([loadSession(name), loadBoard(name)]);
+  await Promise.all([loadSession(name), loadBoard(name), ...ui.popups.map((p) => loadTalk(name, p.id))]);
   if (agent && ui.session) await loadExpert(name, agent);
 }
 
@@ -252,6 +261,7 @@ function tableHooks(name) {
     place: (id, placement) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}/place`, { method: 'POST', body: placement }), true),
     discard: (id) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}`, { method: 'DELETE' }), true),
     select: (ids) => { ui.selected = ids; render(false); },
+    viewMoved: () => foldPopups(),
     ask: () => askAbout(),
     openExpert: (agent) => { location.hash = expertUrl(name, agent); },
     experts: () => ui.session?.experts || [],
@@ -290,13 +300,11 @@ function placeTable() {
   table.resize();
 }
 
-// Ask about what is picked: the Conductor panel opens (on a phone too) with the cursor in its
-// composer, and a prepared question goes under what is already typed. Nothing is sent yet.
+// Ask about what is picked: the cursor goes to the command line, and a prepared question goes
+// under what is already typed. Nothing is sent yet; Enter opens a talk with the picked papers.
 function askAbout(question = '') {
   if (currentRoute.page !== 'project') return;
-  ui.conductorCollapsed = false;
-  ui.pane = 'conductor';
-  if (question) drafts.set('main', addQuestion(draftFor('main'), question));
+  if (question) drafts.set('command', addQuestion(draftFor('command'), question));
   ui.focusComposer = true;
   render(false);
 }
@@ -340,6 +348,10 @@ async function navigate() {
       ui.project = name;
       ui.board = null;
       ui.selected = [];
+      ui.talks = new Map();
+      ui.popups = [];
+      ui.cmd = { lines: [], typed: [], back: -1, prompt: null, last: '', pick: 0, help: false };
+      drafts.delete('command');
       render();
       if (!ui.projects) loadProjects().then(() => render(false));
       openTable(name);
@@ -356,9 +368,13 @@ async function navigate() {
     if (currentRoute.name !== name) return;
     render();
     if (!ui.session) return;
-    if (ui.session.job) track(name, ui.session.job);
+    if (ui.session.job) {
+      if (ui.session.job.talk) openPopup(name, ui.session.job.talk);
+      track(name, ui.session.job);
+    }
     else if (!ui.session.messages.length && !openingTried.has(name)) {
       openingTried.add(name);
+      openPopup(name, '01');
       start(name, `${projectApi(name)}/session/opening`, {});
     }
     return;
@@ -399,7 +415,10 @@ function handleEvent(event) {
   else {
     const notice = eventNotice(event);
     if (!notice) return;
-    ui.live.push({ kind: 'note', text: notice.text, tone: notice.tone });
+    // A talk shows its own progress; an expert run started from the command line reports
+    // on the command line.
+    if (ui.job?.kind === 'expert') ui.cmd.lines = addHistory(ui.cmd.lines, notice.text, notice.tone);
+    else ui.live.push({ kind: 'note', text: notice.text, tone: notice.tone });
     if (notice.toast) toast(notice.text, notice.tone);
     announce(notice.text);
   }
@@ -580,25 +599,164 @@ function workingLine(forMain) {
   return `<p class="working" role="status"><span class="spinner" aria-hidden="true"></span>${escape(text)}</p>`;
 }
 
-function mainChat(name) {
+// ------------------------------------------------------------------ talks and the command line
+// The Conductor answers in popups: each question typed on the command line opens a talk
+// (sida/talks.py) in its own popup, and the follow-up questions go in that popup. The left panel
+// lists every talk, so a closed popup can be opened again.
+
+const MAX_OPEN_POPUPS = 3;
+
+function talkTitle(talk) {
+  if (talk?.title) return talk.title;
+  return talk?.id === '01' ? '첫 대화' : '새 대화';
+}
+
+function talkSummary(id) {
+  return ui.session?.talks?.find((t) => t.id === id) || { id, title: '', messages: 0, updated_at: '' };
+}
+
+// The left panel: every talk, newest first. Pressing one opens its popup.
+function talkList() {
   const session = ui.session;
   if (!session) {
     return `<div class="chat-scroll"><p class="${ui.sessionError ? 'error-text' : 'muted'}">${escape(ui.sessionError || '대화를 불러오는 중입니다.')}</p>
       ${ui.sessionError ? '<p><a class="back-link" href="#/">← 프로젝트로 돌아가기</a></p>' : ''}</div>`;
   }
-  const items = chatItems(session.messages);
-  const live = MAIN_JOBS.has(ui.job?.kind) ? ui.live : [];
-  const pending = ui.pending?.target === 'main' ? [{ kind: 'user', text: ui.pending.text, context: ui.pending.context }] : [];
-  const empty = !items.length && !live.length && !pending.length && !jobRunning();
-  const placeholder = canCompare(ui.selected, ui.board) ? '선택한 두 안에 대해 물어보세요'
-    : ui.selected.length ? '선택한 자료에 대해 물어보세요' : 'Sida에게 설계에 관해 질문하세요...';
-  return `<div class="chat-scroll" data-scroll="main">
-      ${empty ? '<p class="muted intro-line">설계 중인 프로젝트와 지금 고민하는 점을 알려 주세요.</p>' : ''}
-      <div class="message-list" role="log" aria-label="대화 메시지">
-        ${[...items, ...pending, ...live].map((item) => bubble(item, ['Sida', 'Conductor'])).join('')}
-        ${workingLine(true)}
+  const talks = [...(session.talks || [{ id: '01', title: '', messages: session.messages.length, updated_at: '' }])].reverse();
+  const open = new Set(ui.popups.map((p) => p.id));
+  return `<div class="chat-scroll" data-scroll="talks">
+      <p class="muted intro-line">아래 명령창에 질문을 쓰면 새 대화가 팝업으로 열립니다. 닫은 대화는 여기서 다시 엽니다.</p>
+      <ul class="talk-list" aria-label="Conductor 대화 목록">${talks.map((t) => `<li>
+        <button type="button" class="talk-row" data-action="talk-open" data-talk="${escape(t.id)}" aria-pressed="${open.has(t.id)}">
+          <span class="talk-row-title">${escape(talkTitle(t))}</span>
+          <span class="talk-row-meta">${t.messages ? `메시지 ${t.messages}개` : '아직 비어 있음'}${t.updated_at ? ` · ${escape(relativeDate(t.updated_at))}` : ''}${jobRunning() && ui.job.talk === t.id ? ' · 답하는 중' : ''}</span>
+        </button></li>`).join('')}</ul>
+    </div>`;
+}
+
+function talkWorking(id) {
+  if (!jobRunning() || ui.job.talk !== id) return '';
+  const running = ui.job.running_agent ? expertById(ui.job.running_agent) : null;
+  const text = running ? `${running.name} 실행 중입니다…` : 'Conductor가 답을 쓰는 중입니다…';
+  return `<p class="working" role="status"><span class="spinner" aria-hidden="true"></span>${escape(text)}</p>`;
+}
+
+// The papers a popup's next question carries: × takes one out, and what is picked on the table
+// now can be added.
+function popupContext(popup) {
+  const names = pickedNames(popup.context, ui.board);
+  const more = ui.selected.filter((id) => !popup.context.includes(id));
+  if (!names.length && !more.length) return '';
+  return `<div class="talk-context" aria-label="이번 질문에 함께 보낼 자료">
+      ${names.map((p) => `<span class="attachment"><button type="button" class="attachment-title" data-action="inspect-paper" data-id="${escape(p.id)}" title="상세 보기">${escape(p.name)}</button><button type="button" class="attachment-remove" data-action="talk-unpick" data-talk="${escape(popup.id)}" data-id="${escape(p.id)}" aria-label="${escape(p.name)} 빼기">×</button></span>`).join('')}
+      ${more.length ? `<button type="button" class="talk-add-picked" data-action="talk-add-picked" data-talk="${escape(popup.id)}">＋ 고른 종이 ${more.length}개 넣기</button>` : ''}
+    </div>`;
+}
+
+function talkPopup(popup, index) {
+  const { id } = popup;
+  const loaded = ui.talks.get(id);
+  const items = chatItems(loaded?.messages || []);
+  const key = `talk:${id}`;
+  const pending = ui.pending?.target === key ? [{ kind: 'user', text: ui.pending.text, context: ui.pending.context }] : [];
+  const live = ui.job?.talk === id ? ui.live : [];
+  const busy = jobRunning();
+  const empty = !items.length && !pending.length && !live.length && !talkWorking(id);
+  return `<section class="talk-popup" data-talk="${escape(id)}" style="--slot: ${index}" aria-label="대화: ${escape(talkTitle(talkSummary(id)))}">
+      <header class="talk-head"><strong>${escape(talkTitle(talkSummary(id)))}</strong>
+        <button type="button" class="ghost" data-action="talk-fold" data-talk="${escape(id)}" aria-label="대화 접기" title="접기">–</button>
+        <button type="button" class="ghost" data-action="talk-close" data-talk="${escape(id)}" aria-label="대화 닫기" title="닫기 (기록은 왼쪽 목록에 남습니다)">×</button></header>
+      <div class="talk-scroll" data-scroll="${escape(key)}">
+        ${loaded?.error ? `<p class="error-text">${escape(loaded.error)}</p>` : ''}
+        ${empty && !loaded?.error ? `<p class="muted">${loaded ? '아직 대화가 없습니다.' : '대화를 불러오는 중입니다.'}</p>` : ''}
+        <div class="message-list" role="log" aria-label="대화 메시지">
+          ${[...items, ...pending, ...live].map((item) => bubble(item, ['Sida', 'Conductor'])).join('')}
+          ${talkWorking(id)}
+        </div>
       </div>
-    </div>${composer('main', placeholder, 'Sida', jobRunning())}`;
+      <form class="composer talk-composer" data-composer="${escape(key)}" aria-label="이 대화에 이어서 묻기">
+        ${popupContext(popup)}
+        <textarea data-focus="${escape(key)}" aria-label="이 대화에 이어서 묻기" placeholder="이어서 묻기" maxlength="6000" rows="1">${escape(draftFor(key))}</textarea>
+        <div class="composer-footer"><span class="composer-hint">${busy ? '작업이 끝나면 보낼 수 있습니다.' : 'Enter로 보내기 · Shift+Enter로 줄 바꿈'}</span>
+          <button class="send-button" type="submit" aria-label="이 대화에 보내기" ${busy ? 'disabled' : ''}>↑</button></div>
+      </form>
+    </section>`;
+}
+
+// What Enter does with the line: while one word is typed, the highlighted suggestion runs.
+function resolveLine(text) {
+  const line = readLine(text);
+  if (line.kind !== 'ask') return line;
+  const offered = suggest(text);
+  return offered.length ? readLine(offered[Math.min(ui.cmd.pick, offered.length - 1)].name) : line;
+}
+
+// What Enter will do with the line, shown before the input.
+function commandMode(text) {
+  if (ui.cmd.prompt) return { label: '답', tone: 'prompt' };
+  const line = resolveLine(text);
+  if (line.kind === 'command') return { label: line.command.name, tone: 'command' };
+  if (line.kind === 'ask') return { label: 'AI에게', tone: 'ask' };
+  return { label: '명령', tone: 'idle' };
+}
+
+function suggestionItems(text) {
+  if (ui.cmd.prompt) return '';
+  return suggest(text).map((c, i) => `<li role="option" id="cmd-opt-${i}" aria-selected="${i === ui.cmd.pick}" data-action="cmd-pick" data-command="${escape(c.name)}">
+      <b>${escape(c.name)}</b>${c.aliases.length ? `<span class="cmd-alias">${escape(c.aliases.join(', '))}</span>` : ''}<span>${escape(c.label)}</span></li>`).join('');
+}
+
+function helpCard() {
+  const groups = Object.keys(GROUP_LABELS).map((g) => `<div><h3>${escape(GROUP_LABELS[g])}</h3><dl>${COMMANDS.filter((c) => c.group === g)
+    .map((c) => `<dt>${escape([c.name, ...c.aliases].join(' · '))}</dt><dd>${escape(c.label)}</dd>`).join('')}</dl></div>`).join('');
+  return `<section class="command-help" aria-label="명령 목록"><header><strong>명령</strong>
+      <button type="button" class="ghost" data-action="cmd-help" aria-label="명령 목록 닫기">×</button></header>
+      <p class="muted">띄어쓰기 없는 영어 한 단어가 명령입니다. 그 밖의 글은 모두 Conductor에게 갑니다. Enter 실행 · Shift+Enter 줄 바꿈 · 빈 칸에서 Enter는 직전 명령 반복 · Esc 취소</p>
+      <div class="command-help-groups">${groups}</div></section>`;
+}
+
+function commandBar() {
+  const c = ui.cmd;
+  const text = draftFor('command');
+  const mode = commandMode(text);
+  const items = suggestionItems(text);
+  const open = ui.popups.filter((p) => !p.folded).slice(-MAX_OPEN_POPUPS);
+  const folded = ui.popups.filter((p) => !open.includes(p));
+  const picked = pickedNames(ui.selected, ui.board);
+  return `<section class="command-bar" aria-label="명령창">
+      <div class="talk-layer">${open.map((p, i) => talkPopup(p, open.length - 1 - i)).join('')}</div>
+      ${c.help ? helpCard() : ''}
+      <div class="command-top"><ol class="command-history" aria-label="명령 기록">${c.lines.slice(-HISTORY_LINES).map((l) => `<li class="${escape(l.tone)}">${escape(l.text)}</li>`).join('')}
+        ${c.prompt ? `<li class="command-question">${escape(c.prompt.text)} ${c.prompt.options.map((o, i) => `<button type="button" data-action="cmd-option" data-index="${i}">${i + 1} ${escape(o.label)}</button>`).join('')}</li>` : ''}</ol>
+      ${folded.length ? `<div class="talk-tags" aria-label="접힌 대화">${folded.map((p) => `<button type="button" class="talk-tag" data-action="talk-unfold" data-talk="${escape(p.id)}" title="대화 펼치기">
+        ${jobRunning() && ui.job.talk === p.id ? '<span class="spinner" aria-hidden="true"></span>' : '<span aria-hidden="true">💬</span>'}<span class="talk-tag-title">${escape(talkTitle(talkSummary(p.id)))}</span></button>`).join('')}</div>` : ''}</div>
+      <form class="command-form" id="command-form">
+        <span class="command-mode ${mode.tone}" id="command-mode">${escape(mode.label)}</span>
+        ${picked.length ? `<span class="command-picked" title="${escape(picked.map((p) => p.name).join(', '))}">자료 ${picked.length}개</span>` : ''}
+        <textarea id="command-input" data-focus="command" rows="1" maxlength="6000" spellcheck="false" autocomplete="off"
+          role="combobox" aria-expanded="${Boolean(items)}" aria-controls="command-suggest" aria-autocomplete="list" ${items ? `aria-activedescendant="cmd-opt-${c.pick}"` : ''}
+          aria-label="명령 또는 질문" placeholder="${c.prompt ? '번호나 이름을 입력하세요 (Esc 취소)' : '명령(plan, zoom, help…) 또는 Conductor에게 질문'}">${escape(text)}</textarea>
+        <button type="submit" class="command-run" aria-label="실행">↵</button>
+      </form>
+      <ul class="command-suggest" id="command-suggest" role="listbox" aria-label="명령 제안" ${items ? '' : 'hidden'}>${items}</ul>
+    </section>`;
+}
+
+// The line's mode and suggestions change as it is typed, without redrawing the page.
+function updateCommandLine() {
+  const input = app.querySelector('#command-input');
+  if (!input) return;
+  const mode = commandMode(input.value);
+  const label = app.querySelector('#command-mode');
+  label.textContent = mode.label;
+  label.className = `command-mode ${mode.tone}`;
+  const items = suggestionItems(input.value);
+  const list = app.querySelector('#command-suggest');
+  list.innerHTML = items;
+  list.hidden = !items;
+  input.setAttribute('aria-expanded', String(Boolean(items)));
+  if (items) input.setAttribute('aria-activedescendant', `cmd-opt-${ui.cmd.pick}`);
+  else input.removeAttribute('aria-activedescendant');
 }
 
 function chatAnswering(agent, chat) {
@@ -1244,11 +1402,12 @@ function workspaceView() {
             <button type="button" class="ghost settings-button" data-action="settings" aria-label="설정" title="설정">⚙${warned ? '<span class="warn-dot" aria-label="확인할 설정 있음">●</span>' : ''}</button>
             ${withTable ? '<button type="button" class="ghost" data-action="collapse-conductor" aria-label="Conductor 접기" title="대화 접기">⟨</button>' : ''}
           </div></header>
-        ${mainChat(name)}
+        ${talkList()}
       </section>
       <div class="divider" role="separator" aria-label="패널 너비 조절" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0"></div>
       ${withTable ? `<section class="board panel" aria-label="제도판">${boardHead(name, site)}<div class="board-canvas"><div id="table-slot"></div></div></section>` : ''}
       ${site ? sitePage(name) : agent ? expertPage(name, agent) : expertsPanel()}
+      ${commandBar()}
       <nav class="pane-tabs" aria-label="화면 바꾸기">${tabs.map(([id, label]) => `<button type="button" data-action="pane" data-pane="${id}" aria-pressed="${ui.pane === id}">${escape(label)}</button>`).join('')}</nav>
     </main>`;
 }
@@ -1276,7 +1435,7 @@ function render(fresh = true) {
   if (slot) slotWatch.observe(slot);
   placeTable();
   placeSiteMap();
-  const ask = ui.focusComposer && app.querySelector('[data-focus="main"]');
+  const ask = ui.focusComposer && app.querySelector('[data-focus="command"]');
   ui.focusComposer = false;
   const again = focused && app.querySelector(`[data-focus="${CSS.escape(focused)}"]`);
   if (ask) {
@@ -1362,11 +1521,190 @@ function send(key) {
   if (!text || jobRunning()) return;
   drafts.delete(key);
   const { ids, context } = takePicked();
-  if (key === 'main') {
-    start(name, `${projectApi(name)}/session/messages`, { text, context: ids }, { target: 'main', text, context });
-  } else {
-    const chat = activeChat();
-    start(name, `${projectApi(name)}/experts/${encodeURIComponent(agent)}/chats/${encodeURIComponent(chat)}/messages`, { text, context: ids }, { target: `${agent}/${chat}`, text, context });
+  const chat = activeChat();
+  start(name, `${projectApi(name)}/experts/${encodeURIComponent(agent)}/chats/${encodeURIComponent(chat)}/messages`, { text, context: ids }, { target: `${agent}/${chat}`, text, context });
+}
+
+// ------------------------------------------------------------------ talk popups
+
+async function loadTalk(name, id) {
+  try {
+    const talk = await api(`${projectApi(name)}/talks/${encodeURIComponent(id)}`);
+    if (ui.project === name) ui.talks.set(id, { messages: talk.messages });
+  } catch (error) {
+    if (ui.project === name) ui.talks.set(id, { messages: ui.talks.get(id)?.messages || [], error: error.message });
+  }
+}
+
+// Open (or bring back) a talk's popup. The newest popups stay open; older ones fold into tags.
+function openPopup(name, id, context = []) {
+  const known = ui.popups.find((p) => p.id === id);
+  ui.popups = [...ui.popups.filter((p) => p.id !== id), { id, folded: false, context: known?.context || context }];
+  const open = ui.popups.filter((p) => !p.folded);
+  for (const p of open.slice(0, Math.max(0, open.length - MAX_OPEN_POPUPS))) p.folded = true;
+  if (!ui.talks.has(id)) loadTalk(name, id).then(() => render(false));
+  render(false);
+}
+
+function popupById(id) {
+  return ui.popups.find((p) => p.id === id);
+}
+
+// The view moved by hand: open popups fold into tags above the command line.
+function foldPopups() {
+  if (!ui.popups.some((p) => !p.folded)) return;
+  for (const p of ui.popups) p.folded = true;
+  render(false);
+}
+
+function sendTalk(id) {
+  const name = currentRoute.name;
+  const key = `talk:${id}`;
+  const text = draftFor(key).trim();
+  const popup = popupById(id);
+  if (!text || !popup) return;
+  if (jobRunning()) { toast('이전 작업이 아직 실행 중입니다. 끝나면 다시 보내 주세요.', 'warn'); return; }
+  drafts.delete(key);
+  start(name, `${projectApi(name)}/talks/${encodeURIComponent(id)}/messages`, { text, context: popup.context },
+    { target: key, text, context: pickedNames(popup.context, ui.board) });
+}
+
+// A question typed on the command line starts a new talk with the papers picked on the table.
+async function askFromLine(name, text) {
+  if (jobRunning()) { toast('이전 작업이 아직 실행 중입니다. 끝나면 다시 보내 주세요.', 'warn'); return false; }
+  const context = [...ui.selected];
+  try {
+    const { talk } = await api(`${projectApi(name)}/talks`, { method: 'POST' });
+    ui.talks.set(talk.id, { messages: [] });
+    if (ui.session) ui.session.talks = [...(ui.session.talks || []), { ...talk, title: text.split(/\s+/).join(' ').slice(0, 60) }];
+    openPopup(name, talk.id, context);
+    await start(name, `${projectApi(name)}/talks/${encodeURIComponent(talk.id)}/messages`, { text, context },
+      { target: `talk:${talk.id}`, text, context: pickedNames(context, ui.board) });
+    return true;
+  } catch (error) {
+    toast(error.message, 'error');
+    return false;
+  }
+}
+
+// ------------------------------------------------------------------ the command line
+
+function say(text, tone = 'info') {
+  ui.cmd.lines = addHistory(ui.cmd.lines, text, tone);
+}
+
+function focusCommandLine() {
+  const input = app.querySelector('#command-input');
+  if (!input) return false;
+  input.focus({ preventScroll: true });
+  input.setSelectionRange(input.value.length, input.value.length);
+  return true;
+}
+
+// Enter on the command line: answer the open question, run a command, or ask the Conductor.
+async function runCommandLine() {
+  const name = currentRoute.name;
+  const input = app.querySelector('#command-input');
+  const text = input ? input.value : draftFor('command');
+  const c = ui.cmd;
+  c.back = -1;
+  if (c.prompt) {
+    const option = pickOption(text, c.prompt.options);
+    if (!text.trim()) { cancelCommand(); return; }
+    if (!option) { say(`'${text.trim()}'은(는) 보기에 없습니다. 번호나 이름을 입력하세요.`, 'warn'); drafts.delete('command'); render(false); focusCommandLine(); return; }
+    const { prompt } = c;
+    c.prompt = null;
+    drafts.delete('command');
+    prompt.answer(option);
+    render(false);
+    focusCommandLine();
+    return;
+  }
+  const line = resolveLine(text);
+  if (line.kind === 'empty') {
+    if (c.last) runCommand(name, COMMANDS.find((x) => x.name === c.last));
+    render(false);
+    focusCommandLine();
+    return;
+  }
+  c.typed = remember(c.typed, text);
+  drafts.delete('command');
+  c.pick = 0;
+  if (line.kind === 'command') {
+    if (line.viaKorean) say(`한글 자판으로 친 '${text.trim()}'을(를) ${line.command.name}(으)로 읽었습니다.`);
+    runCommand(name, line.command);
+    render(false);
+    focusCommandLine();
+    return;
+  }
+  render(false);
+  if (!(await askFromLine(name, line.text))) drafts.set('command', text);
+  render(false);
+}
+
+function cancelCommand() {
+  const c = ui.cmd;
+  if (c.prompt) say('취소했습니다.');
+  c.prompt = null;
+  c.help = false;
+  c.pick = 0;
+  c.back = -1;
+  drafts.delete('command');
+  render(false);
+  focusCommandLine();
+}
+
+const TABLE_COMMANDS = new Set(['plan', 'axo', 'persp', 'zoom', 'north', 'select', 'note', 'pen', 'trace', 'mass', 'delete', 'undo', 'redo', 'tray']);
+
+function runCommand(name, command) {
+  if (!command) return;
+  const c = ui.cmd;
+  c.last = command.name;
+  c.help = false;
+  if (TABLE_COMMANDS.has(command.name)) {
+    if (!tableShown() || !table) {
+      if (!currentRoute.agent) { ui.showTable = true; ui.pane = 'board'; }
+      say(currentRoute.agent ? '전문가 페이지에서는 제도판 명령을 쓸 수 없습니다. 프로젝트 화면으로 돌아가 주세요.' : '제도판을 열었습니다. 명령을 다시 입력해 주세요.', 'warn');
+      return;
+    }
+    const problem = table.command(command.name);
+    say(problem ? `${command.name}: ${problem}` : `${command.name} — ${command.label}`, problem ? 'warn' : 'info');
+    return;
+  }
+  switch (command.name) {
+    case 'board':
+      ui.showTable = !ui.showTable || Boolean(currentRoute.agent);
+      if (currentRoute.agent) location.hash = projectUrl(name);
+      ui.pane = ui.showTable ? 'board' : 'conductor';
+      say(ui.showTable ? 'board — 제도판을 보입니다.' : 'board — 제도판을 숨겼습니다.');
+      break;
+    case 'site':
+      location.hash = sitePath(name);
+      say('site — 대지 페이지를 엽니다.');
+      break;
+    case 'talks':
+      ui.conductorCollapsed = !ui.conductorCollapsed;
+      ui.pane = 'conductor';
+      say(ui.conductorCollapsed ? 'talks — 대화 목록을 접었습니다.' : 'talks — 대화 목록을 폈습니다.');
+      break;
+    case 'settings':
+      openSettings();
+      break;
+    case 'help':
+      c.help = true;
+      break;
+    case 'run': {
+      const experts = ui.session?.experts || [];
+      if (!experts.length) { say('run: 전문가 목록을 아직 불러오지 못했습니다.', 'warn'); break; }
+      c.prompt = {
+        text: '어느 전문가를 실행할까요?',
+        options: experts.map((e) => ({ key: e.id, label: e.name })),
+        answer: (option) => { say(`run — ${option.label}을(를) 실행합니다.`); runExpert(name, option.key); },
+      };
+      break;
+    }
+    default:
+      say(`${command.name}: 아직 쓸 수 없는 명령입니다.`, 'warn');
   }
 }
 
@@ -1734,6 +2072,28 @@ app.addEventListener('click', (event) => {
   if (action === 'new-chat') newChat(button.dataset.agent);
   if (action === 'run-expert') runExpert(name, button.dataset.agent, button.dataset.withoutSite === 'true');
   if (action === 'unpick') unpick(button.dataset.id);
+  const talkId = button.dataset.talk;
+  if (action === 'talk-open' || action === 'talk-unfold') {
+    openPopup(name, talkId);
+    loadTalk(name, talkId).then(() => render(false));
+    app.querySelector(`[data-focus="talk:${CSS.escape(talkId)}"]`)?.focus({ preventScroll: true });
+  }
+  if (action === 'talk-fold') { const p = popupById(talkId); if (p) p.folded = true; render(false); }
+  if (action === 'talk-close') { ui.popups = ui.popups.filter((p) => p.id !== talkId); render(false); }
+  if (action === 'talk-unpick') { const p = popupById(talkId); if (p) p.context = p.context.filter((id) => id !== button.dataset.id); render(false); }
+  if (action === 'talk-add-picked') { const p = popupById(talkId); if (p) p.context = [...new Set([...p.context, ...ui.selected])]; render(false); }
+  if (action === 'cmd-help') { ui.cmd.help = false; render(false); focusCommandLine(); }
+  if (action === 'cmd-option' && ui.cmd.prompt) {
+    drafts.set('command', String(Number(button.dataset.index) + 1));
+    render(false);
+    runCommandLine();
+  }
+  if (action === 'cmd-pick') {
+    drafts.set('command', button.dataset.command);
+    ui.cmd.pick = 0;
+    render(false);
+    runCommandLine();
+  }
   if (action === 'toggle-table') {
     ui.showTable = !ui.showTable;
     if (ui.showTable) ui.pane = 'board';
@@ -1760,6 +2120,11 @@ app.addEventListener('input', (event) => {
     document.querySelector('#project-grid').innerHTML = projectCards();
   }
   if (target.matches('.composer textarea')) drafts.set(target.closest('form').dataset.composer, target.value);
+  if (target.id === 'command-input') {
+    drafts.set('command', target.value);
+    ui.cmd.pick = 0;
+    updateCommandLine();
+  }
   if (target.id === 'revision-text') drafts.set(`revision:${currentRoute.agent}`, target.value);
   if (target.id === 'feedback-text') drafts.set(`feedback:${currentRoute.agent}`, target.value);
   if (target.id === 'site-query') ui.find.query = target.value;
@@ -1827,6 +2192,10 @@ app.addEventListener('submit', async (event) => {
     searchAddress(currentRoute.name);
   } else if (form.id === 'use-form') {
     searchUses();
+  } else if (form.id === 'command-form') {
+    runCommandLine();
+  } else if (form.matches('.talk-composer')) {
+    sendTalk(form.dataset.composer.slice('talk:'.length));
   } else if (form.matches('.composer')) {
     send(form.dataset.composer);
   } else if (form.id === 'revision-form') {
@@ -1854,7 +2223,45 @@ function resizePanel(separator, delta, absolute = false) {
   separator.setAttribute('aria-valuenow', String(Math.round((width / bounds.width) * 100)));
 }
 
+// Keys on the command line: Enter runs, Shift+Enter breaks the line, ↑↓ pick a suggestion or
+// go through earlier lines, Tab completes, Esc cancels. Enter while a Korean letter is still
+// being composed belongs to the input method, not to the line.
+function commandKey(event) {
+  const input = event.target;
+  const c = ui.cmd;
+  const offered = c.prompt ? [] : suggest(input.value);
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
+    event.preventDefault();
+    runCommandLine();
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    cancelCommand();
+  } else if (event.key === 'Tab' && offered.length && !event.shiftKey) {
+    event.preventDefault();
+    input.value = offered[Math.min(c.pick, offered.length - 1)].name;
+    drafts.set('command', input.value);
+    c.pick = 0;
+    updateCommandLine();
+  } else if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.isComposing) {
+    const down = event.key === 'ArrowDown';
+    if (offered.length > 1) {
+      event.preventDefault();
+      c.pick = (c.pick + (down ? 1 : -1) + offered.length) % offered.length;
+      updateCommandLine();
+    } else if (!input.value.includes('\n') && c.typed.length) {
+      event.preventDefault();
+      const at = c.back < 0 ? c.typed.length : c.back;
+      const next = down ? at + 1 : Math.max(0, at - 1);
+      c.back = next >= c.typed.length ? -1 : next;
+      input.value = c.back < 0 ? '' : c.typed[c.back];
+      drafts.set('command', input.value);
+      updateCommandLine();
+    }
+  }
+}
+
 app.addEventListener('keydown', (event) => {
+  if (event.target.id === 'command-input') { commandKey(event); return; }
   if (event.target.matches('.composer textarea') && event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     event.target.closest('form').requestSubmit();
@@ -1863,6 +2270,15 @@ app.addEventListener('keydown', (event) => {
     event.preventDefault();
     resizePanel(event.target, event.key === 'ArrowLeft' ? -24 : 24);
   }
+});
+
+// Space anywhere outside a text field puts the cursor on the command line (the table's
+// one-letter keys stay as they are).
+window.addEventListener('keydown', (event) => {
+  if (event.key !== ' ' || event.ctrlKey || event.metaKey || event.altKey || currentRoute.page !== 'project') return;
+  const el = event.target;
+  if (el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'BUTTON' || el.isContentEditable || el.closest?.('dialog'))) return;
+  if (focusCommandLine()) event.preventDefault();
 });
 
 app.addEventListener('pointerdown', (event) => {
