@@ -39,11 +39,13 @@ const ui = {
   versions: null, version: null, versionMissing: false, showRaw: false, checks: new Set(), feedback: {},
   job: null, live: [], pending: null,
   revisionOpen: false, creating: false,
-  // The workspace's three panels (Conductor · drafting table · experts): which are folded away,
-  // and on a phone which one is shown ('conductor', 'board' or 'side').
-  conductorCollapsed: false, expertsCollapsed: false, pane: 'conductor', focusComposer: false,
+  // The workspace: the drafting table, and beside it the experts, the site page or an expert's
+  // page. The Conductor has no panel: it is the command line at the bottom and its popups.
+  // Whether the experts are folded away, whether the talk list is open, and on a phone which
+  // pane is shown ('board' or 'side').
+  expertsCollapsed: false, talksOpen: false, pane: 'board', focusComposer: false,
   settings: null, settingsDraft: null, settingsError: '', chatgptModels: null, chatgptNote: '',
-  board: null, selected: [], showTable: true, chatWidth: 0,
+  board: null, selected: [], 
   site: null, siteError: '', showSiteLines: false, find: null, siteFirst: false,
   ordinance: null, ordinanceError: '', ordinanceBusy: '', useFind: null, mapLayers: null, mapError: '', mapErrorStatus: 0,
   // Conductor talks (sida/talks.py): the loaded ones by id, and the popups open on screen
@@ -319,7 +321,7 @@ async function navigate() {
   const previous = currentRoute;
   currentRoute = route();
   if (currentRoute.agent || currentRoute.site) ui.pane = 'side';
-  else if (previous.agent || previous.site) ui.pane = 'conductor';
+  else if (previous.agent || previous.site) ui.pane = 'board';
   ui.revisionOpen = false;
   if (!currentRoute.site) ui.siteFirst = false; // left the site page without saving a site
   if (currentRoute.page !== 'project') {
@@ -556,9 +558,9 @@ function pickedChips() {
     : `<span class="attachment-title">${escape(p.name)}</span>`}<button type="button" class="attachment-remove" data-action="unpick" data-id="${escape(p.id)}" aria-label="${escape(p.name)} 질문 자료에서 빼기">×</button></span>`).join('')}</div></div>`;
 }
 
-// The table is in the workspace (not on an expert page, not hidden).
+// The table is always in the workspace of a project, next to what is open on the right.
 function tableShown() {
-  return currentRoute.page === 'project' && !currentRoute.agent && ui.showTable;
+  return currentRoute.page === 'project';
 }
 
 function contextChips(context) {
@@ -615,23 +617,23 @@ function talkSummary(id) {
   return ui.session?.talks?.find((t) => t.id === id) || { id, title: '', messages: 0, updated_at: '' };
 }
 
-// The left panel: every talk, newest first. Pressing one opens its popup.
-function talkList() {
+// The talk list, a card above the command line (the talks button or the talks command):
+// every talk, newest first. Pressing one opens its popup, so a closed talk can be found again.
+function talksCard() {
   const session = ui.session;
-  if (!session) {
-    return `<div class="chat-scroll"><p class="${ui.sessionError ? 'error-text' : 'muted'}">${escape(ui.sessionError || '대화를 불러오는 중입니다.')}</p>
-      ${ui.sessionError ? '<p><a class="back-link" href="#/">← 프로젝트로 돌아가기</a></p>' : ''}</div>`;
-  }
-  const talks = [...(session.talks || [{ id: '01', title: '', messages: session.messages.length, updated_at: '' }])].reverse();
+  const talks = [...(session?.talks || [])].reverse();
   const open = new Set(ui.popups.map((p) => p.id));
-  return `<div class="chat-scroll" data-scroll="talks">
-      <p class="muted intro-line">아래 명령창에 질문을 쓰면 새 대화가 팝업으로 열립니다. 닫은 대화는 여기서 다시 엽니다.</p>
-      <ul class="talk-list" aria-label="Conductor 대화 목록">${talks.map((t) => `<li>
+  const body = !session
+    ? `<p class="${ui.sessionError ? 'error-text' : 'muted'}">${escape(ui.sessionError || '대화를 불러오는 중입니다.')}</p>`
+    : `<ul class="talk-list" aria-label="Conductor 대화 목록">${talks.map((t) => `<li>
         <button type="button" class="talk-row" data-action="talk-open" data-talk="${escape(t.id)}" aria-pressed="${open.has(t.id)}">
           <span class="talk-row-title">${escape(talkTitle(t))}</span>
           <span class="talk-row-meta">${t.messages ? `메시지 ${t.messages}개` : '아직 비어 있음'}${t.updated_at ? ` · ${escape(relativeDate(t.updated_at))}` : ''}${jobRunning() && ui.job.talk === t.id ? ' · 답하는 중' : ''}</span>
-        </button></li>`).join('')}</ul>
-    </div>`;
+        </button></li>`).join('')}</ul>`;
+  return `<section class="command-talks-card" aria-label="대화 목록"><header><strong>Conductor 대화</strong>
+      <button type="button" class="ghost" data-action="talks-toggle" aria-label="대화 목록 닫기">×</button></header>
+      <p class="muted">명령창에 질문을 쓰면 새 대화가 팝업으로 열립니다. 닫은 대화는 여기서 다시 엽니다.</p>
+      <div class="talk-list-scroll" data-scroll="talks" data-scroll-from="top">${body}</div></section>`;
 }
 
 function talkWorking(id) {
@@ -665,7 +667,7 @@ function talkPopup(popup, index) {
   return `<section class="talk-popup" data-talk="${escape(id)}" style="--slot: ${index}" aria-label="대화: ${escape(talkTitle(talkSummary(id)))}">
       <header class="talk-head"><strong>${escape(talkTitle(talkSummary(id)))}</strong>
         <button type="button" class="ghost" data-action="talk-fold" data-talk="${escape(id)}" aria-label="대화 접기" title="접기">–</button>
-        <button type="button" class="ghost" data-action="talk-close" data-talk="${escape(id)}" aria-label="대화 닫기" title="닫기 (기록은 왼쪽 목록에 남습니다)">×</button></header>
+        <button type="button" class="ghost" data-action="talk-close" data-talk="${escape(id)}" aria-label="대화 닫기" title="닫기 (기록은 대화 목록에 남습니다)">×</button></header>
       <div class="talk-scroll" data-scroll="${escape(key)}">
         ${loaded?.error ? `<p class="error-text">${escape(loaded.error)}</p>` : ''}
         ${empty && !loaded?.error ? `<p class="muted">${loaded ? '아직 대화가 없습니다.' : '대화를 불러오는 중입니다.'}</p>` : ''}
@@ -725,12 +727,14 @@ function commandBar() {
   const picked = pickedNames(ui.selected, ui.board);
   return `<section class="command-bar" aria-label="명령창">
       <div class="talk-layer">${open.map((p, i) => talkPopup(p, open.length - 1 - i)).join('')}</div>
-      ${c.help ? helpCard() : ''}
+      ${c.help ? helpCard() : ui.talksOpen ? talksCard() : ''}
       <div class="command-top"><ol class="command-history" aria-label="명령 기록">${c.lines.slice(-HISTORY_LINES).map((l) => `<li class="${escape(l.tone)}">${escape(l.text)}</li>`).join('')}
+        ${ui.sessionError ? `<li class="error">${escape(ui.sessionError)} <a href="#/">← 프로젝트로 돌아가기</a></li>` : ''}
         ${c.prompt ? `<li class="command-question">${escape(c.prompt.text)} ${c.prompt.options.map((o, i) => `<button type="button" data-action="cmd-option" data-index="${i}">${i + 1} ${escape(o.label)}</button>`).join('')}</li>` : ''}</ol>
       ${folded.length ? `<div class="talk-tags" aria-label="접힌 대화">${folded.map((p) => `<button type="button" class="talk-tag" data-action="talk-unfold" data-talk="${escape(p.id)}" title="대화 펼치기">
         ${jobRunning() && ui.job.talk === p.id ? '<span class="spinner" aria-hidden="true"></span>' : '<span aria-hidden="true">💬</span>'}<span class="talk-tag-title">${escape(talkTitle(talkSummary(p.id)))}</span></button>`).join('')}</div>` : ''}</div>
       <form class="command-form" id="command-form">
+        <button type="button" class="command-talks ${ui.talksOpen ? 'open' : ''}" data-action="talks-toggle" aria-expanded="${ui.talksOpen}" title="Conductor 대화 목록 (talks)">대화 ${ui.session?.talks?.length || ''}</button>
         <span class="command-mode ${mode.tone}" id="command-mode">${escape(mode.label)}</span>
         ${picked.length ? `<span class="command-picked" title="${escape(picked.map((p) => p.name).join(', '))}">자료 ${picked.length}개</span>` : ''}
         <textarea id="command-input" data-focus="command" rows="1" maxlength="6000" spellcheck="false" autocomplete="off"
@@ -1354,7 +1358,7 @@ function siteReaderBar(name, tab) {
 }
 
 // The board panel's head: where we are, the panel toggles, and what is picked on the table.
-function boardHead(name, site) {
+function boardHead(name, site, agent) {
   const picked = pickedNames(ui.selected, ui.board);
   const compare = canCompare(ui.selected, ui.board);
   const masses = massIds(ui.board);
@@ -1368,44 +1372,29 @@ function boardHead(name, site) {
   return `<header class="board-head">
       <div class="board-heading"><span class="eyebrow"><a href="#/">프로젝트</a><span aria-hidden="true">/</span>${escape(name)}<span aria-hidden="true">/</span>${site ? '대지' : '디자인'}</span><h1>제도판</h1></div>
       <div class="panel-toggles">
-        ${ui.conductorCollapsed ? '<button type="button" class="panel-toggle" data-action="expand-conductor">대화 펼치기</button>' : ''}
-        <button type="button" class="panel-toggle" data-action="toggle-table" title="제도판을 접고 대화를 넓게 봅니다">제도판 숨기기</button>
-        ${site ? '' : `<button type="button" class="panel-toggle" data-action="toggle-experts-panel" aria-controls="experts-panel" aria-expanded="${!ui.expertsCollapsed}"><span aria-hidden="true">${ui.expertsCollapsed ? '‹' : '›'}</span> 전문가</button>`}
+        ${site || agent ? '' : `<button type="button" class="panel-toggle" data-action="toggle-experts-panel" aria-controls="experts-panel" aria-expanded="${!ui.expertsCollapsed}"><span aria-hidden="true">${ui.expertsCollapsed ? '‹' : '›'}</span> 전문가</button>`}
+        <button type="button" class="ghost settings-button" data-action="settings" aria-label="설정" title="설정">⚙${settingsWarned() ? '<span class="warn-dot" aria-label="확인할 설정 있음">●</span>' : ''}</button>
       </div>
       <p class="board-hint">기울이면 배치도가 3D가 됩니다 · 트레이싱지는 대지 위에 덮고, 옆으로 끌어내면 떼어집니다</p>
     </header>
     <div class="selection-bar ${picked.length ? 'has-selection' : ''}" aria-label="고른 종이">${selection}</div>`;
 }
 
+function settingsWarned() {
+  return Boolean(ui.settings && Object.values(ui.settings.warnings || {}).some(Boolean));
+}
+
 function workspaceView() {
   const { name, agent, site } = currentRoute;
   const expert = agent ? expertById(agent) : null;
-  const withTable = tableShown();
-  // The Conductor conversation always stays on the left; the drafting table sits in the middle
-  // and the experts on the right. The site page takes the experts' place, so the site paper is in
-  // sight while the parcels are chosen; an expert page takes the place of both. With the table
-  // shown, the Conductor and the experts fold away to give it room.
-  const split = Boolean(agent || (site && !withTable));
-  const conductorFolded = withTable && ui.conductorCollapsed;
+  // The drafting table fills the screen; the experts sit on the right (and fold away), and the
+  // site page or an expert's page takes their place. The Conductor is the command line below.
+  const side = site ? 'site-open' : agent ? 'expert-open' : '';
   const expertsFolded = !agent && !site && ui.expertsCollapsed;
-  const layout = withTable ? (site ? 'with-table site-open' : 'with-table') : split ? 'split' : 'chat-only';
-  const warned = ui.settings && Object.values(ui.settings.warnings || {}).some(Boolean);
   const sideLabel = site ? '대지' : expert ? expert.name : '전문가';
-  const tabs = [['conductor', '대화'], ...(withTable ? [['board', '제도판']] : []), ['side', sideLabel]];
-  const style = withTable && ui.chatWidth ? `--conductor-width: ${ui.chatWidth}px` : '';
-  return `<main class="studio ${layout} pane-${ui.pane} ${conductorFolded ? 'conductor-collapsed' : ''} ${expertsFolded ? 'experts-collapsed' : ''}" id="main" tabindex="-1" ${style ? `style="${style}"` : ''}>
-      <section class="conductor panel" aria-label="Conductor 대화">
-        <header class="pane-head"><div><span class="eyebrow"><a href="#/" class="back-home">← 프로젝트</a></span><h2>Conductor</h2><p>${escape(name)}</p></div>
-          <div class="pane-actions">
-            ${!withTable && !agent ? '<button type="button" class="panel-toggle" data-action="toggle-table">제도판 보기</button>' : ''}
-            ${expertsFolded && !withTable ? '<button type="button" class="panel-toggle" data-action="toggle-experts-panel" aria-controls="experts-panel" aria-expanded="false">‹ 전문가</button>' : ''}
-            <button type="button" class="ghost settings-button" data-action="settings" aria-label="설정" title="설정">⚙${warned ? '<span class="warn-dot" aria-label="확인할 설정 있음">●</span>' : ''}</button>
-            ${withTable ? '<button type="button" class="ghost" data-action="collapse-conductor" aria-label="Conductor 접기" title="대화 접기">⟨</button>' : ''}
-          </div></header>
-        ${talkList()}
-      </section>
-      <div class="divider" role="separator" aria-label="패널 너비 조절" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0"></div>
-      ${withTable ? `<section class="board panel" aria-label="제도판">${boardHead(name, site)}<div class="board-canvas"><div id="table-slot"></div></div></section>` : ''}
+  const tabs = [['board', '제도판'], ['side', sideLabel]];
+  return `<main class="studio with-table ${side} pane-${ui.pane} ${expertsFolded ? 'experts-collapsed' : ''}" id="main" tabindex="-1">
+      <section class="board panel" aria-label="제도판">${boardHead(name, site, agent)}<div class="board-canvas"><div id="table-slot"></div></div></section>
       ${site ? sitePage(name) : agent ? expertPage(name, agent) : expertsPanel()}
       ${commandBar()}
       <nav class="pane-tabs" aria-label="화면 바꾸기">${tabs.map(([id, label]) => `<button type="button" data-action="pane" data-pane="${id}" aria-pressed="${ui.pane === id}">${escape(label)}</button>`).join('')}</nav>
@@ -1647,6 +1636,7 @@ function cancelCommand() {
   if (c.prompt) say('취소했습니다.');
   c.prompt = null;
   c.help = false;
+  ui.talksOpen = false;
   c.pick = 0;
   c.back = -1;
   drafts.delete('command');
@@ -1662,30 +1652,33 @@ function runCommand(name, command) {
   c.last = command.name;
   c.help = false;
   if (TABLE_COMMANDS.has(command.name)) {
-    if (!tableShown() || !table) {
-      if (!currentRoute.agent) { ui.showTable = true; ui.pane = 'board'; }
-      say(currentRoute.agent ? '전문가 페이지에서는 제도판 명령을 쓸 수 없습니다. 프로젝트 화면으로 돌아가 주세요.' : '제도판을 열었습니다. 명령을 다시 입력해 주세요.', 'warn');
+    if (!table) {
+      say(`${command.name}: 제도판을 아직 불러오지 못했습니다.`, 'warn');
       return;
     }
+    ui.pane = 'board';
     const problem = table.command(command.name);
     say(problem ? `${command.name}: ${problem}` : `${command.name} — ${command.label}`, problem ? 'warn' : 'info');
     return;
   }
   switch (command.name) {
     case 'board':
-      ui.showTable = !ui.showTable || Boolean(currentRoute.agent);
-      if (currentRoute.agent) location.hash = projectUrl(name);
-      ui.pane = ui.showTable ? 'board' : 'conductor';
-      say(ui.showTable ? 'board — 제도판을 보입니다.' : 'board — 제도판을 숨겼습니다.');
+      if (currentRoute.agent || currentRoute.site) {
+        location.hash = projectUrl(name);
+        say('board — 오른쪽 페이지를 닫았습니다.');
+      } else {
+        ui.expertsCollapsed = !ui.expertsCollapsed;
+        say(ui.expertsCollapsed ? 'board — 전문가 칸을 접었습니다.' : 'board — 전문가 칸을 폈습니다.');
+      }
+      ui.pane = 'board';
       break;
     case 'site':
       location.hash = sitePath(name);
       say('site — 대지 페이지를 엽니다.');
       break;
     case 'talks':
-      ui.conductorCollapsed = !ui.conductorCollapsed;
-      ui.pane = 'conductor';
-      say(ui.conductorCollapsed ? 'talks — 대화 목록을 접었습니다.' : 'talks — 대화 목록을 폈습니다.');
+      ui.talksOpen = !ui.talksOpen;
+      say(ui.talksOpen ? 'talks — 대화 목록을 열었습니다.' : 'talks — 대화 목록을 닫았습니다.');
       break;
     case 'settings':
       openSettings();
@@ -2059,8 +2052,7 @@ app.addEventListener('click', (event) => {
   if (action === 'sample') createSample();
   if (action === 'delete-project') askDelete(button.dataset.project);
   if (action === 'pane') { ui.pane = button.dataset.pane; render(false); }
-  if (action === 'collapse-conductor') { ui.conductorCollapsed = true; render(false); }
-  if (action === 'expand-conductor') { ui.conductorCollapsed = false; render(false); }
+  if (action === 'talks-toggle') { ui.talksOpen = !ui.talksOpen; ui.cmd.help = false; render(false); }
   if (action === 'collapse-experts') { ui.expertsCollapsed = true; if (ui.pane === 'side') ui.pane = 'board'; render(false); }
   if (action === 'toggle-experts-panel') { ui.expertsCollapsed = !ui.expertsCollapsed; render(false); }
   if (action === 'inspect-paper') table?.inspect(button.dataset.id);
@@ -2074,6 +2066,7 @@ app.addEventListener('click', (event) => {
   if (action === 'unpick') unpick(button.dataset.id);
   const talkId = button.dataset.talk;
   if (action === 'talk-open' || action === 'talk-unfold') {
+    ui.talksOpen = false;
     openPopup(name, talkId);
     loadTalk(name, talkId).then(() => render(false));
     app.querySelector(`[data-focus="talk:${CSS.escape(talkId)}"]`)?.focus({ preventScroll: true });
@@ -2093,12 +2086,6 @@ app.addEventListener('click', (event) => {
     ui.cmd.pick = 0;
     render(false);
     runCommandLine();
-  }
-  if (action === 'toggle-table') {
-    ui.showTable = !ui.showTable;
-    if (ui.showTable) ui.pane = 'board';
-    else { ui.conductorCollapsed = false; if (ui.pane === 'board') ui.pane = 'conductor'; }
-    render(false);
   }
   if (action === 'open-revision') { ui.revisionOpen = true; render(false); app.querySelector('#revision-text')?.focus(); }
   if (action === 'close-revision') { ui.revisionOpen = false; render(false); }
@@ -2209,20 +2196,6 @@ app.addEventListener('submit', async (event) => {
   }
 });
 
-function resizePanel(separator, delta, absolute = false) {
-  const layout = separator.parentElement;
-  const bounds = layout.getBoundingClientRect();
-  const current = layout.querySelector('.conductor').getBoundingClientRect().width;
-  const width = Math.max(bounds.width * 0.2, Math.min(bounds.width * 0.75, absolute ? delta : current + delta));
-  if (layout.classList.contains('split')) layout.style.setProperty('--split-left', `${width}px`);
-  else if (layout.classList.contains('with-table')) {
-    ui.chatWidth = Math.round(Math.max(260, Math.min(width, bounds.width * 0.6)));
-    layout.style.setProperty('--conductor-width', `${ui.chatWidth}px`);
-  }
-  else layout.style.setProperty('--expert-width', `${Math.max(240, bounds.width - width - 12)}px`);
-  separator.setAttribute('aria-valuenow', String(Math.round((width / bounds.width) * 100)));
-}
-
 // Keys on the command line: Enter runs, Shift+Enter breaks the line, ↑↓ pick a suggestion or
 // go through earlier lines, Tab completes, Esc cancels. Enter while a Korean letter is still
 // being composed belongs to the input method, not to the line.
@@ -2266,10 +2239,6 @@ app.addEventListener('keydown', (event) => {
     event.preventDefault();
     event.target.closest('form').requestSubmit();
   }
-  if (event.target.matches('.divider') && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
-    event.preventDefault();
-    resizePanel(event.target, event.key === 'ArrowLeft' ? -24 : 24);
-  }
 });
 
 // Space anywhere outside a text field puts the cursor on the command line (the table's
@@ -2279,16 +2248,6 @@ window.addEventListener('keydown', (event) => {
   const el = event.target;
   if (el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'BUTTON' || el.isContentEditable || el.closest?.('dialog'))) return;
   if (focusCommandLine()) event.preventDefault();
-});
-
-app.addEventListener('pointerdown', (event) => {
-  if (!event.target.matches('.divider') || event.button !== 0) return;
-  const separator = event.target;
-  separator.setPointerCapture(event.pointerId);
-  const bounds = separator.parentElement.querySelector('.conductor').getBoundingClientRect();
-  const move = (e) => resizePanel(separator, e.clientX - bounds.left, true);
-  separator.addEventListener('pointermove', move);
-  separator.addEventListener('lostpointercapture', () => separator.removeEventListener('pointermove', move), { once: true });
 });
 
 // ------------------------------------------------------------------ settings

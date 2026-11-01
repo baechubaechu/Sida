@@ -90,21 +90,17 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 .form-actions { display: flex; justify-content: flex-end; gap: 14px; margin-top: 30px; }
 .form-actions .secondary { min-width: 132px; }
 .form-actions .primary { min-width: 189px; }
-/* Workspace (drafting table prototype, PR #63): three panels side by side, Conductor · table ·
-   experts, each a card on the grey desk. The side panels fold away; phones switch panes with tabs. */
-.studio { --conductor-width: clamp(300px, 26%, 420px); --experts-width: 260px; height: 100dvh; overflow: hidden; display: grid; grid-template-rows: minmax(0, 1fr) auto; padding: 16px max(12px, env(safe-area-inset-right, 0px)) 16px max(12px, env(safe-area-inset-left, 0px)); background: var(--surface-subtle); }
-.studio.with-table { grid-template-columns: var(--conductor-width) 12px minmax(0, 1fr) var(--experts-width); }
-.studio.with-table.site-open { grid-template-columns: var(--conductor-width) 12px minmax(0, 1fr) minmax(360px, 34%); }
+/* Workspace (drafting table prototype, PR #63): the drafting table and, on its right, the
+   experts (they fold away), the site page or an expert's page, each a card on the grey desk. The
+   Conductor has no panel: it is the command line along the bottom (2026-11-01). Phones switch
+   panes with tabs. */
+.studio { --experts-width: 260px; height: 100dvh; overflow: hidden; display: grid; grid-template-rows: minmax(0, 1fr) auto; padding: 16px max(12px, env(safe-area-inset-right, 0px)) 16px max(12px, env(safe-area-inset-left, 0px)); background: var(--surface-subtle); }
+.studio.with-table { grid-template-columns: minmax(0, 1fr) var(--experts-width); }
+.studio.with-table.site-open { grid-template-columns: minmax(0, 1fr) minmax(360px, 34%); }
+.studio.with-table.expert-open { grid-template-columns: minmax(0, 1fr) minmax(420px, 46%); }
 /* A folded panel leaves the grid (display: none), so the columns drop with it. */
-.studio.with-table.conductor-collapsed { grid-template-columns: minmax(0, 1fr) var(--experts-width); }
-.studio.with-table.site-open.conductor-collapsed { grid-template-columns: minmax(0, 1fr) minmax(360px, 34%); }
-.studio.with-table.experts-collapsed { grid-template-columns: var(--conductor-width) 12px minmax(0, 1fr); }
-.studio.with-table.conductor-collapsed.experts-collapsed { grid-template-columns: minmax(0, 1fr); }
-.studio.split { grid-template-columns: minmax(0, var(--split-left, 1fr)) 12px minmax(0, 1fr); }
-.studio.chat-only { grid-template-columns: minmax(0, 1fr) 12px var(--expert-width); }
-.studio.chat-only.experts-collapsed { grid-template-columns: minmax(0, 1fr); }
-.studio.conductor-collapsed > .conductor, .studio.conductor-collapsed > .divider,
-.studio.experts-collapsed > .experts, .studio.chat-only.experts-collapsed > .divider { display: none; }
+.studio.with-table.experts-collapsed { grid-template-columns: minmax(0, 1fr); }
+.studio.experts-collapsed > .experts { display: none; }
 .studio.with-table > .experts, .studio.with-table > .expert-page { margin-left: 12px; }
 .panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .eyebrow { display: block; color: var(--muted); font-size: 11px; font-weight: 500; letter-spacing: .02em; margin-bottom: 5px; }
@@ -142,14 +138,10 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 .message-list > article:first-child { margin-top: 0; }
 .message-list .assistant-copy { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* The gap between the Conductor and the middle is the handle that sets the Conductor's width. */
-.divider { position: relative; cursor: col-resize; touch-action: none; user-select: none; }
-.divider::after { content: ""; position: absolute; left: 5px; top: 50%; width: 2px; height: 36px; margin-top: -18px; border-radius: 2px; background: #c9d1d9; opacity: 0; transition: opacity .15s; }
-.divider:hover::after, .divider:focus-visible::after { opacity: 1; }
-.divider:focus-visible { outline: none; }
-.split .assistant-copy { font-size: 14px; }
-.split .analysis-card { padding-left: 20px; padding-right: 20px; }
-.expert-note { background: #eef3f7; padding: 23px 14px; border-radius: 10px; min-height: 87px; font-size: 14px; }
-/* Expert page: the right side of the split, next to the Conductor conversation. */
+.expert-open .assistant-copy { font-size: 14px; }
+.expert-open .analysis-card { padding-left: 20px; padding-right: 20px; }
+
+/* Expert page: the right side of the workspace, next to the drafting table. */
 .expert-page { container-type: inline-size; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: white; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; color: #243443; }
 .expert-head { padding: 17px 20px 0; display: flex; justify-content: space-between; align-items: start; gap: 8px; }
 .expert-head h1 { font-size: 21px; line-height: 32px; }
@@ -578,7 +570,7 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
   .detail-actions { padding: 14px; }
   .detail-actions .detail-primary { flex: 1; }
 }
-/* Site page: the right side of the split, like an expert page, without the review column. */
+/* Site page: the right side of the workspace, like an expert page, without the review column. */
 .site-note { font-size: 13px; padding: 8px 12px; margin-bottom: 14px; border-radius: 8px; background: #eef3f7; }
 .site-note.warn { background: #fffaf0; color: #7a5313; }
 .site-note a { color: var(--brand); text-decoration: underline; margin-left: 6px; white-space: nowrap; }
@@ -626,17 +618,18 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
   :root { --sidebar-width: 210px; --expert-width: 290px; --home-gutter: 32px; }
   .project-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .studio { --experts-width: 230px; }
-  .studio.with-table.site-open { grid-template-columns: var(--conductor-width) 12px minmax(0, 1fr) minmax(320px, 38%); }
+  .studio.with-table.site-open { grid-template-columns: minmax(0, 1fr) minmax(320px, 38%); }
+  .studio.with-table.expert-open { grid-template-columns: minmax(0, 1fr) minmax(360px, 50%); }
 }
 @media (max-width: 900px) {
   :root { --sidebar-width: 185px; }
   /* One panel at a time, picked with the tabs at the bottom. */
-  .studio, .studio.with-table, .studio.with-table.site-open, .studio.split, .studio.chat-only,
-  .studio.conductor-collapsed, .studio.experts-collapsed { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto; padding: 8px 8px 0; }
+  .studio, .studio.with-table, .studio.with-table.site-open, .studio.with-table.expert-open,
+  .studio.experts-collapsed { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto; padding: 8px 8px 0; }
   .pane-tabs { grid-row: 3; }
-  .studio > .conductor, .studio > .board, .studio > .experts, .studio > .expert-page, .studio > .divider { display: none !important; grid-row: 1; grid-column: 1; margin: 0; }
-  .studio.pane-conductor > .conductor, .studio.pane-board > .board, .studio.pane-side > .experts, .studio.pane-side > .expert-page { display: flex !important; }
-  .panel-toggles, .pane-actions [data-action="collapse-conductor"], .pane-head [data-action="collapse-experts"] { display: none; }
+  .studio > .board, .studio > .experts, .studio > .expert-page { display: none !important; grid-row: 1; grid-column: 1; margin: 0; }
+  .studio.pane-board > .board, .studio.pane-side > .experts, .studio.pane-side > .expert-page { display: flex !important; }
+  .panel-toggles [data-action="toggle-experts-panel"], .pane-head [data-action="collapse-experts"] { display: none; }
   .pane-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; margin: 8px -8px 0; border-top: 1px solid var(--line); background: var(--surface); padding-bottom: env(safe-area-inset-bottom, 0px); }
   .pane-tabs button { padding: 12px 0; color: var(--muted); font-size: 14px; }
   .pane-tabs button[aria-pressed="true"] { color: var(--brand); font-weight: 700; }
@@ -729,7 +722,7 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 /* ------------------------------------------------------------------ command line and talk popups */
 /* The command line runs along the bottom of the workspace (2026-11-01). One English word is a
    command; anything else opens a Conductor talk in a popup above the line. */
-.studio > .panel, .studio > .divider { grid-row: 1; }
+.studio > .panel { grid-row: 1; }
 .command-bar { grid-row: 2; grid-column: 1 / -1; position: relative; z-index: 20; margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
 .command-top { display: flex; align-items: end; gap: 12px; min-height: 0; }
 .command-history { flex: 1; min-width: 0; list-style: none; margin: 0; padding: 0 6px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); }
@@ -776,7 +769,13 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .talk-tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; padding: 0 4px 2px; max-width: 60%; }
 .talk-tag { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 4px 10px; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; font-size: 12px; color: var(--brand); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 8px rgb(20 30 40 / .08); }
 .talk-tag-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.talk-list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 6px; }
+.command-talks { flex-shrink: 0; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); font-size: 12px; font-weight: 600; color: var(--brand); }
+.command-talks.open { background: var(--selected); border-color: var(--brand); }
+.command-talks-card { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 7; width: min(420px, 100%); max-height: 60vh; display: flex; flex-direction: column; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 10px 30px rgb(20 30 40 / .16); }
+.command-talks-card header { display: flex; justify-content: space-between; align-items: center; }
+.command-talks-card > p { font-size: 12px; margin: 6px 0 0; }
+.talk-list-scroll { min-height: 0; overflow-y: auto; }
+.talk-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
 .talk-row { width: 100%; text-align: left; display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .talk-row[aria-pressed="true"] { border-color: var(--brand); background: var(--selected); }
 .talk-row-title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
