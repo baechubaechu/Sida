@@ -10,8 +10,7 @@
 // group: shown in help. Only commands that work are listed; drawing commands come next.
 export const COMMANDS = [
   { name: 'plan', aliases: ['top'], label: '평면으로 보기', group: 'view' },
-  { name: 'axo', aliases: [], label: '액소로 보기', group: 'view' },
-  { name: 'persp', aliases: ['perspective'], label: '투시로 보기', group: 'view' },
+  { name: 'persp', aliases: ['perspective'], label: '3D로 보기', group: 'view' },
   { name: 'zoom', aliases: ['z'], label: '전체 맞춤', group: 'view' },
   { name: 'north', aliases: [], label: '북쪽을 위로', group: 'view' },
   { name: 'select', aliases: [], label: '선택 도구', group: 'draw' },

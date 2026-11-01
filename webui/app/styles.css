@@ -437,18 +437,21 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .peek-trace svg { width: 100%; height: 100%; display: block; }
 .peek-trace .trace { fill: none; stroke: var(--pen); stroke-width: 2; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .peek-trace .reg { stroke: var(--text); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.ui-history { left: 16px; bottom: 76px; display: flex; padding: 4px; gap: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 3px 12px rgb(36 52 67 / .05); }
+/* Undo/redo and the tools stand along the left wall of the table (2026-11-01 지훈). */
+.ui-left { left: 16px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-height: calc(100% - 150px); }
+.ui-history { display: flex; padding: 4px; gap: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 3px 12px rgb(36 52 67 / .05); }
 .ui-history button { width: 34px; height: 32px; border-radius: 5px; color: var(--brand); font-size: 22px; line-height: 1; }
 .ui-history button:hover { background: var(--selected); }
 .ui-history button:disabled { opacity: .3; }
 .ui-tools, .ui-zoom, .ui-scheme, .ui-tilt { display: flex; align-items: center; gap: 4px; padding: 5px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 3px 12px rgb(36 52 67 / .05); }
-.ui-tools { left: 16px; bottom: 16px; max-width: calc(100% - 32px); overflow-x: auto; }
+.ui-tools { flex-direction: column; align-items: stretch; min-height: 0; overflow-y: auto; }
 .ui-tools button, .ui-zoom button { border-radius: 6px; padding: 9px 11px; font-size: 12px; white-space: nowrap; }
+.ui-tools button { text-align: left; padding: 7px 10px; }
 .ui-tools button:hover, .ui-zoom button:hover { background: var(--surface-subtle); }
 .ui-tools button[aria-pressed="true"] { background: var(--selected); color: var(--brand); font-weight: 700; }
 .ui-tools button:disabled { opacity: .35; }
 .ui-tools button b { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--ok); color: white; font-size: 11px; }
-.ui-tools .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; flex-shrink: 0; }
+.ui-tools .sep { height: 1px; background: var(--line); margin: 3px 4px; flex-shrink: 0; }
 .ui-scheme { left: 16px; top: 16px; gap: 10px; padding: 6px 10px 6px 6px; max-width: calc(100% - 110px); flex-wrap: wrap; }
 .ui-scheme[hidden] { display: none; }
 .ui-scheme .check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
@@ -464,14 +467,13 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .compass small { font-size: 10px; font-weight: 700; color: var(--muted); }
 .ui-zoom { right: 16px; bottom: 16px; }
 .ui-zoom .scale { padding: 0 6px; }
-.ui-help { left: 16px; bottom: 124px; font-size: 10px; line-height: 1.8; color: var(--muted); pointer-events: none; max-width: 45%; }
-.ui-hint { left: 50%; bottom: 128px; transform: translateX(-50%); padding: 10px 14px; border-radius: 8px; background: var(--brand); color: white; font-size: 12px; max-width: min(520px, 90%); }
+.ui-help { left: 16px; bottom: 16px; font-size: 10px; line-height: 1.8; color: var(--muted); pointer-events: none; max-width: 45%; }
+.ui-hint { left: 50%; bottom: 76px; transform: translateX(-50%); padding: 10px 14px; border-radius: 8px; background: var(--brand); color: white; font-size: 12px; max-width: min(520px, 90%); }
 .ui-hint[hidden] { display: none; }
 .tray { left: 0; top: 0; bottom: 0; width: var(--tray-width); display: none; flex-direction: column; gap: 10px; padding: 14px; overflow-y: auto; background: var(--surface); border-right: 1px solid var(--line); box-shadow: 6px 0 18px rgb(0 0 0 / .08); z-index: 3; cursor: auto; user-select: text; }
 .tray.open { display: flex; }
 .table { --tray-width: min(320px, 70%); }
-.table.tray-open .ui-scheme, .table.tray-open .ui-tools, .table.tray-open .ui-help, .table.tray-open .ui-history { left: calc(var(--tray-width) + 16px); }
-.table.tray-open .ui-tools { max-width: calc(100% - var(--tray-width) - 32px); }
+.table.tray-open .ui-scheme, .table.tray-open .ui-left, .table.tray-open .ui-help { left: calc(var(--tray-width) + 16px); }
 .table.tray-open .ui-hint { left: calc(var(--tray-width) + (100% - var(--tray-width)) / 2); }
 .tray header, .scheme-form header { display: flex; justify-content: space-between; align-items: center; }
 .tray h3, .scheme-form h3 { font-size: 15px; }
@@ -519,10 +521,11 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .context-chips .paper-chip { padding-right: 10px; }
 @container (max-width: 1000px) { .ui-help { display: none; } .ui-tools button { padding: 7px 8px; } }
 @container (max-width: 640px) {
-  .ui-history { bottom: 100px; }
-  .ui-tools { flex-wrap: wrap; gap: 2px; }
+  /* On a phone the tools go back to a row along the bottom. */
+  .ui-left { top: auto; bottom: 16px; transform: none; max-height: none; max-width: calc(100% - 32px); }
+  .ui-tools { flex-direction: row; flex-wrap: wrap; gap: 2px; }
   .ui-tools button { padding: 8px; font-size: 11px; }
-  .ui-tools .sep { margin: 0; }
+  .ui-tools .sep { width: 1px; height: 22px; margin: 0; }
   .ui-zoom { bottom: 100px; }
   .ui-hint { bottom: 152px; }
 }

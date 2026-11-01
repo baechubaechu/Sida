@@ -1369,10 +1369,11 @@ function boardHead(name, site, agent) {
       <button type="button" class="selection-clear" data-action="clear-selection" aria-label="선택 모두 해제">×</button>`
     : `<span class="selection-guide">종이 클릭: 상세 보기 · Shift+클릭: 여러 장 골라 대화에 보내기</span>
       ${masses.length ? '<button type="button" class="selection-ask" data-action="select-masses">매스안 선택</button>' : ''}`;
+  // The experts panel folds with its own › (2026-11-01 지훈): the head only offers it back once folded.
   return `<header class="board-head">
       <div class="board-heading"><span class="eyebrow"><a href="#/">프로젝트</a><span aria-hidden="true">/</span>${escape(name)}<span aria-hidden="true">/</span>${site ? '대지' : '디자인'}</span><h1>제도판</h1></div>
       <div class="panel-toggles">
-        ${site || agent ? '' : `<button type="button" class="panel-toggle" data-action="toggle-experts-panel" aria-controls="experts-panel" aria-expanded="${!ui.expertsCollapsed}"><span aria-hidden="true">${ui.expertsCollapsed ? '‹' : '›'}</span> 전문가</button>`}
+        ${site || agent || !ui.expertsCollapsed ? '' : '<button type="button" class="panel-toggle" data-action="toggle-experts-panel" aria-controls="experts-panel" aria-expanded="false"><span aria-hidden="true">‹</span> 전문가</button>'}
         <button type="button" class="ghost settings-button" data-action="settings" aria-label="설정" title="설정">⚙${settingsWarned() ? '<span class="warn-dot" aria-label="확인할 설정 있음">●</span>' : ''}</button>
       </div>
       <p class="board-hint">기울이면 배치도가 3D가 됩니다 · 트레이싱지는 대지 위에 덮고, 옆으로 끌어내면 떼어집니다</p>
@@ -1644,7 +1645,7 @@ function cancelCommand() {
   focusCommandLine();
 }
 
-const TABLE_COMMANDS = new Set(['plan', 'axo', 'persp', 'zoom', 'north', 'select', 'note', 'pen', 'trace', 'mass', 'delete', 'undo', 'redo', 'tray']);
+const TABLE_COMMANDS = new Set(['plan', 'persp', 'zoom', 'north', 'select', 'note', 'pen', 'trace', 'mass', 'delete', 'undo', 'redo', 'tray']);
 
 function runCommand(name, command) {
   if (!command) return;

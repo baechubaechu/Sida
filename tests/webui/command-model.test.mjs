@@ -43,6 +43,8 @@ test('a single Korean letter or a Korean word is never a command', () => {
 test('suggestions follow the word being typed and stop at a space', () => {
   assert.deepEqual(suggest('p').map((c) => c.name), ['plan', 'persp', 'pen']);
   assert.deepEqual(suggest('z').map((c) => c.name), ['zoom']);
+  assert.equal(findCommand('perspective').command.name, 'persp'); // one 3D view (2026-11-01)
+  assert.equal(findCommand('axo'), null);
   assert.deepEqual(suggest('ㅔㅣ').map((c) => c.name), ['plan']);
   assert.equal(suggest('zoom ').length, 0);
   assert.equal(suggest('').length, 0);

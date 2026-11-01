@@ -6,8 +6,10 @@
 import { SECTION_LABELS } from './model.js';
 
 export const PX = 0.1; // metres per CSS pixel of paper lying on the table
-export const TILT = { plan: 0, axo: 35, eye: 68 };
-export const MAX_TILT = 75;
+// Two views, as in Rhino's Top and Perspective (2026-11-01 지훈): the plan, and one 3D view whose
+// angle the right mouse button sets. `persp` is where the 3D button lands from a plan.
+export const TILT = { plan: 0, persp: 35 };
+export const MAX_TILT = 90; // lying flat to the table shows elevations (2026-11-01 지훈)
 export const FOLD_TILT = 10; // past this lean papers fold into pins, so the model reads (2026-10-26)
 export const VIEW_LIMITS = { min: 12, max: 2500 }; // metres of table shown top to bottom
 export const TRACE_MARGIN = 14; // metres of tracing paper around the site
@@ -21,8 +23,8 @@ const rad = (d) => (d * Math.PI) / 180;
 export const fmt = (n, digits = 0) => Number(n).toLocaleString('ko-KR', { maximumFractionDigits: digits, minimumFractionDigits: digits });
 
 // ------------------------------------------------------------------ camera
-// One camera, as plain numbers. tilt 0° looks straight down (a plan), 35° reads as an
-// axonometric, 68° is near eye level. A long lens at low tilt keeps the plan flat.
+// One camera, as plain numbers. tilt 0° looks straight down (a plan); leaning further goes from a
+// bird's-eye view toward eye level. A long lens at low tilt keeps the plan flat.
 
 export function lensFor(tilt) {
   return 6 + 32 * smooth(0, 40, tilt); // field of view in degrees
@@ -33,8 +35,12 @@ export function riseFor(tilt) {
   return Math.max(0.004, smooth(3, 28, tilt));
 }
 
-// Camera position, up vector and lens for a view {x, y, span, tilt, turn}.
+// Camera position, up vector and lens for a view {x, y, span, tilt, turn, z}. z (metres, 0 when
+// left out) lifts the point looked at off the table, so an elevation can be panned up a tower.
+// Lying near flat the eye also rises a little, so the ground sits low on the screen and the
+// buildings fill it, instead of the horizon cutting the picture in half.
 export function cameraFor(v) {
+  const z = (v.z || 0) + v.span * 0.3 * smooth(70, 90, v.tilt);
   const fov = lensFor(v.tilt);
   const dist = v.span / 2 / Math.tan(rad(fov) / 2);
   const t = rad(v.tilt);
@@ -42,10 +48,21 @@ export function cameraFor(v) {
   const fy = Math.cos(rad(v.turn)); // the direction the viewer faces on the table
   return {
     fov, dist,
-    position: [v.x - fx * dist * Math.sin(t), v.y - fy * dist * Math.sin(t), dist * Math.cos(t)],
+    position: [v.x - fx * dist * Math.sin(t), v.y - fy * dist * Math.sin(t), z + dist * Math.cos(t)],
     up: [fx * Math.cos(t), fy * Math.cos(t), Math.sin(t)],
-    target: [v.x, v.y, 0],
+    target: [v.x, v.y, z],
   };
+}
+
+// Pan by (dx, dy) screen pixels so the picture follows the mouse, measured at the point looked at:
+// for a view seen near edge-on (an elevation), where the table under the cursor is too far off or
+// not there at all. Moving up the screen in an elevation climbs the building (z), never below 0.
+export function panBy(v, dx, dy, heightPx) {
+  const k = v.span / Math.max(1, heightPx); // metres per pixel at the target
+  const c = cameraFor(v);
+  const right = [Math.cos(rad(v.turn)), -Math.sin(rad(v.turn)), 0];
+  const move = right.map((r, i) => -r * dx * k + c.up[i] * dy * k);
+  return { ...v, x: v.x + move[0], y: v.y + move[1], z: Math.max(0, (v.z || 0) + move[2]) };
 }
 
 // Zoom by `factor` around a table point (gx, gy) that stays under the cursor.
@@ -53,6 +70,52 @@ export function zoomAround(v, gx, gy, factor) {
   const span = Math.min(VIEW_LIMITS.max, Math.max(VIEW_LIMITS.min, v.span * factor));
   const k = span / v.span;
   return { ...v, span, x: gx + (v.x - gx) * k, y: gy + (v.y - gy) * k };
+}
+
+// Mouse like Rhino (2026-11-01 지훈): which view move a drag makes. In plan the right button
+// pans (the table follows the mouse); once the table leans it orbits and Shift+right pans.
+// Ctrl+right zooms, Ctrl+Shift+right orbits even in plan, the middle button always pans, and
+// Alt+left orbits for a trackpad. null: the left button's own work (select, move, draw).
+export const PLAN_TILT = 4; // below this lean the view counts as a plan
+export const EDGE_TILT = 70; // past this lean the table is seen near edge-on: pan and zoom on the screen, not the table
+export function dragMode({ button = 0, shift = false, ctrl = false, alt = false, tilt = 0 } = {}) {
+  if (button === 1) return 'pan';
+  if (button === 2) {
+    if (ctrl && shift) return 'orbit';
+    if (ctrl) return 'zoom';
+    if (shift) return 'pan';
+    return tilt < PLAN_TILT ? 'pan' : 'orbit';
+  }
+  if (button === 0 && alt) return 'orbit';
+  return null;
+}
+
+// Turn and tilt after an orbit drag of (dx, dy) screen pixels from the view `v`, Rhino's way:
+// the model follows the mouse, so dragging right brings its near side right (turn grows) and
+// dragging down brings its top toward the viewer (tilt shrinks toward a plan).
+export function orbitBy(v, dx, dy) {
+  return { turn: v.turn + dx * 0.3, tilt: Math.min(MAX_TILT, Math.max(0, v.tilt - dy * 0.25)) };
+}
+
+// Which view button is lit: 'plan' near 0°, '3d' at any other lean.
+export function viewName(tilt) {
+  return tilt < PLAN_TILT ? 'plan' : '3d';
+}
+
+// Where a view button (or the keys 1 and 2, or the plan/persp commands) takes the view `v`.
+// The plan faces north. The 3D button leaves a 3D view as it is, and from a plan stands the
+// table up to TILT.persp, turned a little so the masses read. null: nothing to do.
+export function viewFor(name, v) {
+  if (name === 'plan') return { tilt: TILT.plan, turn: 0, z: 0 };
+  if (name !== '3d' || viewName(v.tilt) === '3d') return null;
+  return { tilt: TILT.persp, turn: v.turn || -30 };
+}
+
+// Zoom factor for one wheel event: rolling forward (deltaY < 0) zooms in. A mouse notch is
+// about 100 px and zooms ~16%; a trackpad pinch (ctrlKey) sends small steps and gets more.
+export function wheelZoom(deltaY, deltaMode = 0, pinch = false) {
+  const px = deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * 400 : deltaY;
+  return Math.exp(px * (pinch ? 0.01 : 0.0015));
 }
 
 // Drawing scale for the corner, for a 96 dpi screen: "1:500".
@@ -66,7 +129,7 @@ export function lerpView(a, b, k) {
   const dt = ((b.turn - a.turn + 540) % 360) - 180;
   return {
     x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, span: a.span + (b.span - a.span) * k,
-    tilt: a.tilt + (b.tilt - a.tilt) * k, turn: a.turn + dt * k,
+    tilt: a.tilt + (b.tilt - a.tilt) * k, turn: a.turn + dt * k, z: (a.z || 0) + ((b.z || 0) - (a.z || 0)) * k,
   };
 }
 
@@ -149,7 +212,7 @@ export function fitView(papers, bounds, aspect) {
   const y0 = Math.min(bounds.minY, ...boxes.map((b) => b.y0));
   const y1 = Math.max(bounds.maxY, ...boxes.map((b) => b.y1));
   const span = Math.max(y1 - y0, (x1 - x0) / Math.max(0.2, aspect)) * 1.12;
-  return { x: (x0 + x1) / 2, y: (y0 + y1) / 2, span: Math.min(VIEW_LIMITS.max, Math.max(VIEW_LIMITS.min, span)), tilt: 0, turn: 0 };
+  return { x: (x0 + x1) / 2, y: (y0 + y1) / 2, span: Math.min(VIEW_LIMITS.max, Math.max(VIEW_LIMITS.min, span)), tilt: 0, turn: 0, z: 0 };
 }
 
 // ------------------------------------------------------------------ pins in 3D
