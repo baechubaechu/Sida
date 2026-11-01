@@ -6,6 +6,8 @@ import {
   isOverlaid, blockCorners, unplaced, placeUnplaced, freeSpot, fitView, paperName, originLabel,
   figureLines, readScheme, schemeRows, keepSelected, toggleSelected, pickedNames, MAX_CONTEXT,
   folded, foldedInPlan, pinnedPapers, peekSpot, resultPreview,
+  massIds, canCompare, COMPARE_QUESTION, addQuestion, createHistory, changedFields, recordStep, undoStep, redoStep,
+  invertStep, HISTORY_LIMIT, planDrawing,
 } from '../../webui/app/board-model.js';
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -154,4 +156,74 @@ test('papers the designer folded stay pins in plan, except a tracing laid over t
   ];
   assert.deepEqual(foldedInPlan(papers, home), ['n1', 't2']);
   assert.deepEqual(foldedInPlan([], home), []);
+});
+
+test('the selection bar picks the schemes on the table and offers a comparison for two or more', () => {
+  const board = {
+    papers: [{ id: 'site', kind: 'site' }, { id: 'a', kind: 'mass' }, { id: 'n', kind: 'note' }, { id: 'b', kind: 'mass' }],
+    tray: [{ id: 'ai', kind: 'mass' }],
+  };
+  assert.deepEqual(massIds(board), ['a', 'b'], 'schemes still in the AI section are not picked');
+  assert.deepEqual(massIds(null), []);
+  assert.equal(canCompare(['a', 'n'], board), false);
+  assert.equal(canCompare(['a', 'ai'], board), true, 'a scheme in the AI section can be compared too');
+  assert.equal(addQuestion('', COMPARE_QUESTION), COMPARE_QUESTION);
+  assert.equal(addQuestion('북측 일조도', COMPARE_QUESTION), `북측 일조도\n${COMPARE_QUESTION}`, 'what was typed stays');
+  assert.equal(addQuestion('그대로', ''), '그대로');
+});
+
+test('undo sends the inverse of the last step, redo sends it again, a new edit drops the redo', () => {
+  const note = { id: 'n1', kind: 'note', text: '', x: 0, y: 0 };
+  let h = recordStep(createHistory(), [{ op: 'add', paper: note }]);
+  h = recordStep(h, [
+    { op: 'update', id: 'n1', before: { x: 0, y: 0 }, after: { x: 5, y: 2 } },
+    { op: 'update', id: 'm1', before: { x: 1, y: 1 }, after: { x: 6, y: 3 } },
+  ]);
+  assert.equal(h.past.length, 2);
+  let out = undoStep(h);
+  assert.deepEqual(out.step, [
+    { op: 'update', id: 'm1', before: { x: 6, y: 3 }, after: { x: 1, y: 1 } },
+    { op: 'update', id: 'n1', before: { x: 5, y: 2 }, after: { x: 0, y: 0 } },
+  ], 'a drag of two papers comes back as one step, last edit first');
+  out = undoStep(out.history);
+  assert.deepEqual(out.step, [{ op: 'remove', paper: note }], 'undoing an added paper removes it');
+  assert.equal(undoStep(out.history).step, null, 'nothing left to undo');
+  out = redoStep(out.history);
+  assert.deepEqual(out.step, [{ op: 'add', paper: note }]);
+  assert.equal(out.history.future.length, 1);
+  const fresh = recordStep(out.history, [{ op: 'update', id: 'n1', before: { text: '' }, after: { text: '메모' } }]);
+  assert.deepEqual(fresh.future, [], 'a new edit after undo drops what could be redone');
+  assert.deepEqual(invertStep(invertStep(h.past[1])), h.past[1]);
+});
+
+test('history keeps only edits that change something and papers that can come back', () => {
+  let h = recordStep(createHistory(), [{ op: 'update', id: 'a', before: { x: 1 }, after: { x: 1 } }]);
+  assert.deepEqual(h, createHistory(), 'a click without a move is not a step');
+  h = recordStep(h, [{ op: 'remove', paper: { id: 'ai-expert-1', kind: 'expert' } }, { op: 'remove', paper: { id: 'site', kind: 'site' } }]);
+  assert.deepEqual(h.past, [], 'an expert result or the site paper cannot be laid again by the screen');
+  for (let i = 0; i < HISTORY_LIMIT + 5; i += 1) h = recordStep(h, [{ op: 'update', id: 'a', before: { x: i }, after: { x: i + 1 } }]);
+  assert.equal(h.past.length, HISTORY_LIMIT);
+  assert.equal(h.past[0][0].before.x, 5, 'the oldest steps go first');
+  assert.deepEqual(changedFields({ x: 1, y: 2, strokes: [[0, 0]] }, { x: 1, y: 3, strokes: [[0, 0]] }), { before: { y: 2 }, after: { y: 3 } });
+});
+
+test('a card draws the lots and the scheme\'s blocks in the site frame, with a scale bar', () => {
+  const site = { plan: { parcels: [{ rings: [[[-20, -10], [20, -10], [20, 10], [-20, 10]]] }], frame: { x: 0, y: 0, angle: Math.PI / 2 } } };
+  const mass = { kind: 'mass', blocks: [{ u: 0, v: 0, w: 10, d: 4, floors: 5 }] };
+  const plan = planDrawing(site, mass);
+  assert.equal(plan.lots.length, 1);
+  assert.equal(plan.lots[0], 'M-20.00 10.00 L20.00 10.00 L20.00 -10.00 L-20.00 -10.00 Z', 'north is up: y is flipped');
+  assert.equal(plan.blocks.length, 1);
+  assert.equal(plan.blocks[0].floors, 5);
+  close(plan.blocks[0].x, 0);
+  const [, , w, h] = plan.viewBox.split(' ').map(Number);
+  assert.equal(w, 52, 'the lot plus 6 m each side');
+  assert.equal(h, 40, 'the lot plus 6 m each side and 8 m for the scale bar');
+  assert.equal(plan.scale.label, '10m');
+  const turned = planDrawing({ plan: { parcels: [], frame: { x: 0, y: 0, angle: Math.PI / 2 } } }, mass);
+  const xs = turned.blocks[0].d.match(/-?\d+\.\d+/g).map(Number).filter((_, i) => i % 2 === 0);
+  assert.equal(Math.max(...xs) - Math.min(...xs), 4, 'u runs north here, so the 10 m side stands upright');
+  assert.equal(planDrawing({ plan: null }, { kind: 'note' }), null, 'nothing to draw');
+  assert.equal(planDrawing(null, null), null);
+  assert.ok(planDrawing(null, mass), 'a scheme without site facts still draws, u east and v north');
 });

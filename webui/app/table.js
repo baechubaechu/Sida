@@ -14,6 +14,7 @@ import {
   siteBounds, traceHome, isOverlaid, blockCorners, placeUnplaced, freeSpot, fitView,
   folded, foldedInPlan, pinnedPapers, peekSpot,
   paperName, resultPreview, KIND_LABELS, originLabel, figureLines, readScheme, schemeRows, toggleSelected, fmt,
+  massIds, createHistory, recordStep, undoStep, redoStep, changedFields, planDrawing,
 } from './board-model.js';
 
 const SNAP = 7; // metres: a tracing sheet this close to its place on the site clicks into register
@@ -23,12 +24,14 @@ const TOOLS = [
   { id: 'note', label: '메모', key: 'n', icon: '▤' },
   { id: 'pen', label: '펜', key: 'p', icon: '✎' },
 ];
+const DETAIL_KINDS = { site: '대지 자료', mass: '매스안', expert: '전문가 검토', tracing: '트레이싱', note: '설계 메모' };
 const cm = (metres) => Math.round(metres * 100) / 100; // pen points are kept to the centimetre
 const strokePath = (pts) => pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(2)} ${(-y).toFixed(2)}`).join(' ');
 
 export class DraftingTable {
   // hooks: { add(paper), update(id, changes), remove(id), place(id, placement), discard(id),
-  //          select(ids), openExpert(agent), experts() } — the first five return promises.
+  //          select(ids), ask(id), openExpert(agent), experts() } — the first five return promises.
+  // ask(id): the designer wants to ask about this paper (app.js picks it and opens the composer).
   constructor(hooks) {
     this.hooks = hooks;
     this.papers = [];
@@ -45,6 +48,8 @@ export class DraftingTable {
     this.preview = '';
     this.editing = '';
     this.peekId = ''; // the paper whose card is open from its pin in 3D
+    this.detailId = ''; // the paper open in the detail panel (a click on it, or 상세 보기)
+    this.history = createHistory(); // the designer's edits, for undo and redo (this session only)
     this.trayOpen = false;
     this.form = null;
     this.gesture = null;
@@ -63,15 +68,17 @@ export class DraftingTable {
     this.root.setAttribute('aria-label', '제도판');
     this.root.innerHTML = `<div class="table-stage"></div>
       <div class="table-pins" role="group" aria-label="종이 이름표"></div>
+      <div class="table-ui ui-history" role="group" aria-label="편집 기록"></div>
       <div class="table-ui ui-tools" role="toolbar" aria-label="제도판 도구"></div>
       <div class="table-ui ui-scheme"></div>
       <div class="table-ui ui-tilt" aria-label="기울기"></div>
       <div class="table-ui ui-zoom"></div>
-      <p class="table-ui ui-help">끌기: 책상 이동 · Ctrl+휠: 확대 · 우클릭(Alt)+끌기: 돌리고 기울이기 · 1 평면 2 액소 3 투시 · Shift+클릭: 여러 장 골라 대화에 보내기</p>
+      <p class="table-ui ui-help">끌기: 책상 이동 · Ctrl+휠: 확대 · 우클릭(Alt)+끌기: 돌리고 기울이기 · 1 평면 2 액소 3 투시 · Shift+클릭: 여러 장 골라 대화에 보내기 · Ctrl+Z: 되돌리기</p>
       <p class="table-ui ui-hint" role="status" hidden></p>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
       <section class="table-ui peek" aria-label="종이 내용" hidden></section>
-      <section class="table-ui scheme-form" aria-label="매스안 입력" hidden></section>`;
+      <section class="table-ui scheme-form" aria-label="매스안 입력" hidden></section>
+      <dialog class="card-detail" aria-labelledby="detail-title"></dialog>`;
     this.stage = this.root.querySelector('.table-stage');
     this.pinLayer = this.root.querySelector('.table-pins');
     this.ui = {
@@ -83,6 +90,8 @@ export class DraftingTable {
       tray: this.root.querySelector('.tray'),
       form: this.root.querySelector('.scheme-form'),
       peek: this.root.querySelector('.peek'),
+      history: this.root.querySelector('.ui-history'),
+      detail: this.root.querySelector('.card-detail'),
     };
     this.setupScene();
     this.listen();
@@ -92,6 +101,7 @@ export class DraftingTable {
   // ------------------------------------------------------------------ mounting
 
   destroy() {
+    window.removeEventListener('keydown', this.onWindowKey);
     cancelAnimationFrame(this.frame);
     this.observer?.disconnect();
     this.gl?.renderer.dispose();
@@ -121,6 +131,11 @@ export class DraftingTable {
     if (this.preview && !this.tray.some((p) => p.id === this.preview)) this.preview = '';
     this.selected = this.selected.filter((id) => this.find(id));
     if (this.peekId && !this.papers.some((p) => p.id === this.peekId)) this.peekId = '';
+    if (this.detailId) {
+      const writing = this.ui.detail.contains(document.activeElement) && typing(document.activeElement);
+      if (!this.find(this.detailId)) this.closeDetail();
+      else if (!writing) this.drawDetail();
+    }
     if (moved || !this.lotDrawn) this.drawSite();
     if (moved && this.boardSeen) this.fit(); // a newly saved site: bring it into view
     this.boardSeen = true;
@@ -440,7 +455,8 @@ export class DraftingTable {
     }
     const { title, body } = this.paperContent(p, state.active, state.f);
     el.innerHTML = `<article class="${cls}" data-paper="${escape(p.id)}" style="${size}">${foldButton}
-      <header class="paper-head"><span class="paper-kind">${escape(KIND_LABELS[p.kind] || p.kind)}</span>${madeTag}<h3>${escape(title)}</h3></header>
+      <header class="paper-head"><span class="paper-kind">${escape(KIND_LABELS[p.kind] || p.kind)}</span>${madeTag}<h3>${escape(title)}</h3>
+        <button type="button" class="paper-open" data-inspect="${escape(p.id)}" aria-label="${escape(title)} 상세 보기">상세 보기 ↗</button></header>
       <div class="paper-body">${body}</div></article>`;
   }
 
@@ -462,7 +478,7 @@ export class DraftingTable {
         title: paperName(p),
         body: `<p class="blocks">${escape(blocks)}</p>
           ${figureLines(f).map((l) => `<p class="figure">${escape(l)}</p>`).join('')}
-          ${card ? '' : `<p class="source">${active ? '3D로 보는 안' : '누르면 3D로 봅니다'} · 두 번 누르면 고칩니다</p>`}`,
+          ${card ? '' : `<p class="source">${active ? '3D로 보는 안' : '누르면 3D로 세웁니다'} · 상세 보기에서 고칩니다</p>`}`,
       };
     }
     if (p.kind === 'expert') {
@@ -527,6 +543,7 @@ export class DraftingTable {
       `<button type="button" data-peek="pick" data-id="${id}" aria-pressed="${picked}">${picked ? '대화에 보냄' : '대화에 보내기'}</button>`,
       p.folded ? `<button type="button" data-peek="unfold" data-id="${id}">펴기</button>` : '',
       `<button type="button" data-peek="plan" data-id="${id}">평면에서 보기</button>`,
+      `<button type="button" data-peek="inspect" data-id="${id}">상세 보기</button>`,
     ].join('');
     card.className = `table-ui peek kind-${p.kind}`;
     card.innerHTML = `<header><p class="tray-meta">${escape(KIND_LABELS[p.kind] || p.kind)}${made ? ` · ${escape(made)}` : ''}</p>
@@ -607,6 +624,173 @@ export class DraftingTable {
     this.animateTo({ x: spot.x, y: spot.y, span: Math.max(this.view.span, 120), tilt: 0, turn: 0 });
   }
 
+  // ------------------------------------------------------------------ the detail panel
+  // A click on a paper (or its 상세 보기) opens it at reading size beside the table, whatever the
+  // zoom: the site plan with the scheme drawn on it, the figures, a note to write in.
+
+  inspect(id) {
+    if (!this.find(id)) return;
+    if (this.detailId && this.detailId !== id) this.saveDetailNote();
+    this.detailId = id;
+    if (this.peekId) { this.peekId = ''; this.drawPins(); this.drawPeek(); }
+    this.drawDetail();
+    const dialog = this.ui.detail;
+    if (!dialog.open) {
+      if (typeof dialog.showModal === 'function') dialog.showModal();
+      else dialog.setAttribute('open', '');
+    }
+  }
+
+  closeDetail() {
+    this.saveDetailNote();
+    this.detailId = '';
+    const dialog = this.ui.detail;
+    if (dialog.open) dialog.close();
+  }
+
+  planSvg(plan) {
+    if (!plan) return '';
+    const [x0, top, width] = plan.viewBox.split(' ').map(Number);
+    const font = Math.max(1.4, plan.size / 42);
+    return `<svg class="plan" viewBox="${plan.viewBox}" role="img" aria-label="배치도" style="font-size:${font.toFixed(2)}px">
+      ${plan.lots.map((d) => `<path class="lot" d="${d}"/>`).join('')}
+      ${plan.blocks.map((b) => `<path class="footprint" d="${b.d}"/><text class="floors" x="${b.x}" y="${b.y}">${escape(String(b.floors))}F</text>`).join('')}
+      <g class="north" transform="translate(${(x0 + width - font * 1.6).toFixed(2)} ${(top + font * 2).toFixed(2)})"><path d="M0 ${-font} L${font * 0.6} ${font * 0.6} L0 ${font * 0.2} L${-font * 0.6} ${font * 0.6} Z"/><text y="${font * 1.9}">N</text></g>
+      <g class="scalebar"><path d="M${plan.scale.x} ${plan.scale.y} h${plan.scale.length}"/><text x="${plan.scale.x + plan.scale.length / 2}" y="${plan.scale.y - font * 0.6}">${escape(plan.scale.label)}</text></g>
+    </svg>`;
+  }
+
+  drawDetail() {
+    const dialog = this.ui.detail;
+    const p = this.find(this.detailId);
+    if (!p) { dialog.innerHTML = ''; return; }
+    const id = escape(p.id);
+    const onTable = this.papers.some((x) => x.id === p.id);
+    const made = originLabel(p, this.hooks.experts());
+    const where = [DETAIL_KINDS[p.kind] || p.kind, made, onTable ? '' : 'AI 섹션'].filter(Boolean).join(' · ');
+    let body = '';
+    if (p.kind === 'site') {
+      body = `${this.planSvg(planDrawing(this.site))}${this.paperContent(p, false, null, true).body}`;
+    } else if (p.kind === 'mass') {
+      body = `${this.planSvg(planDrawing(this.site, p))}${this.paperContent(p, this.active === p.id, this.figures[p.id], true).body}
+        <p class="detail-caption">층고 ${escape(fmt(p.floor_height ?? 4.2, 1))}m · 수치는 서버가 대지 사실로 계산한 값입니다</p>`;
+    } else if (p.kind === 'expert') {
+      body = `<pre class="preview">${escape(resultPreview(p.text))}</pre>
+        <button type="button" class="paper-link" data-open-expert="${escape(p.agent || '')}">결과 문서 보기 ↗</button>`;
+    } else if (p.kind === 'note') {
+      body = onTable
+        ? `<label class="detail-note">메모 내용<textarea data-detail-note="${id}" maxlength="4000">${escape(p.text || '')}</textarea></label>`
+        : `<p class="note-text">${escape(p.text || '메모')}</p>`;
+    } else if (p.kind === 'tracing') {
+      body = `<div class="detail-tracing">${this.traceSvg(p)}</div><p class="detail-caption">그린 선 ${(p.strokes || []).length}개${isOverlaid(p, this.home) ? ' · 대지 위에 덮여 있음' : ''}</p>`;
+    }
+    const why = [p.based_on ? `${paperName(this.find(p.based_on)) || p.based_on}의 수정안` : '', p.reason || ''].filter(Boolean)
+      .map((t) => `<p class="detail-caption">${escape(t)}</p>`).join('');
+    const actions = [
+      p.kind === 'mass' && onTable && this.active !== p.id ? `<button type="button" data-detail="show">3D로 세우기</button>` : '',
+      p.kind === 'mass' && onTable ? `<button type="button" data-detail="edit">고치기</button>` : '',
+      p.folded ? `<button type="button" data-detail="unfold">펴기</button>` : '',
+      onTable ? `<button type="button" data-detail="focus">제도판에서 크게 보기</button>` : `<button type="button" data-detail="place">제도판에 놓기</button>`,
+    ].join('');
+    dialog.innerHTML = `<header class="detail-head"><div><span class="eyebrow">${escape(where)}</span><h2 id="detail-title">${escape(p.kind === 'site' ? '대지 사실' : paperName(p))}</h2></div>
+        <button type="button" class="detail-close" data-detail="close" aria-label="상세 보기 닫기">×</button></header>
+      <div class="detail-body kind-${escape(p.kind)}">${why}${body}</div>
+      <footer class="detail-actions"><div class="detail-more">${actions}</div>
+        <button type="button" class="detail-primary" data-detail="ask">이 종이로 질문하기 →</button></footer>`;
+  }
+
+  detailAction(action) {
+    const id = this.detailId;
+    const p = this.find(id);
+    if (action === 'close' || !p) { this.closeDetail(); return; }
+    switch (action) {
+      case 'show': this.showScheme(id); this.drawDetail(); if (this.view.tilt < 20) this.animateTo({ tilt: TILT.axo, turn: this.view.turn || -30 }); break;
+      case 'edit': this.closeDetail(); this.openForm(p); break;
+      case 'unfold': this.setFolded(id, false); this.drawDetail(); break;
+      case 'focus': this.closeDetail(); this.planAt(p); this.select([id]); break;
+      case 'place': this.closeDetail(); this.placeFromTray(id); break;
+      case 'ask': this.closeDetail(); if (!this.selected.includes(id)) this.select(toggleSelected(this.selected, id, true)); this.hooks.ask?.(id); break;
+      default: break;
+    }
+  }
+
+  // A note written in the detail panel is saved when it loses focus or the panel closes.
+  saveDetailNote() {
+    const area = this.ui.detail.querySelector('[data-detail-note]');
+    if (area) this.saveNoteText(area.dataset.detailNote, area.value);
+  }
+
+  saveNoteText(id, text) {
+    const p = this.papers.find((x) => x.id === id);
+    if (!p || (p.text || '') === text) return;
+    this.record([{ op: 'update', id, before: { text: p.text || '' }, after: { text } }]);
+    p.text = text;
+    this.drawPaper(p);
+    this.drawPins();
+    this.save(id, { text });
+  }
+
+  // ------------------------------------------------------------------ undo and redo
+  // Every edit is saved through the API as it happens, so undo sends the inverse edit.
+
+  record(edits) {
+    this.history = recordStep(this.history, edits);
+    this.drawHistory();
+  }
+
+  drawHistory() {
+    this.ui.history.innerHTML = `<button type="button" data-ui="undo" aria-label="실행 취소" title="실행 취소 (Ctrl/⌘+Z)" ${this.history.past.length ? '' : 'disabled'}>↶</button>
+      <button type="button" data-ui="redo" aria-label="다시 실행" title="다시 실행 (Ctrl/⌘+Shift+Z, Ctrl+Y)" ${this.history.future.length ? '' : 'disabled'}>↷</button>`;
+  }
+
+  async travel(direction) {
+    if (this.travelling) return;
+    const out = direction === 'undo' ? undoStep(this.history) : redoStep(this.history);
+    if (!out.step) return;
+    this.history = out.history;
+    this.drawHistory();
+    this.gesture = null;
+    this.editing = '';
+    this.travelling = true;
+    try {
+      for (const edit of out.step) await this.applyEdit(edit);
+    } finally {
+      this.travelling = false;
+    }
+    this.syncPapers();
+    this.drawMasses();
+    this.drawControls();
+    if (this.detailId) this.drawDetail();
+    this.say(direction === 'undo' ? '되돌렸습니다.' : '다시 했습니다.');
+  }
+
+  async applyEdit(edit) {
+    if (edit.op === 'update') {
+      const p = this.papers.find((x) => x.id === edit.id);
+      if (p) {
+        Object.assign(p, edit.after);
+        if (edit.after.folded === false) delete p.folded;
+        this.syncPapers();
+        this.drawMasses();
+      }
+      await this.hooks.update(edit.id, edit.after);
+    } else if (edit.op === 'remove') {
+      this.papers = this.papers.filter((p) => p.id !== edit.paper.id);
+      if (this.selected.includes(edit.paper.id)) this.select(this.selected.filter((x) => x !== edit.paper.id));
+      if (this.detailId === edit.paper.id) this.closeDetail();
+      this.syncPapers();
+      this.drawMasses();
+      await this.hooks.remove(edit.paper.id);
+    } else if (edit.op === 'add') {
+      await this.hooks.add(edit.paper);
+    }
+  }
+
+  selectMasses() {
+    this.select(massIds({ papers: this.papers }));
+    this.setTool('select');
+  }
+
   // ------------------------------------------------------------------ the scheme form
 
   openForm(paper = null) {
@@ -640,13 +824,16 @@ export class DraftingTable {
     if (scheme.error) { f.error = scheme.error; this.drawForm(); return; }
     let done;
     if (f.id) {
+      const before = this.papers.find((p) => p.id === f.id) || {};
+      const change = changedFields({ title: before.title || '', floor_height: before.floor_height ?? 4.2, blocks: before.blocks }, scheme);
       done = await this.hooks.update(f.id, scheme);
+      if (done) this.record([{ op: 'update', id: f.id, ...change }]);
     } else {
       const [w, h] = PAPER_SIZE.mass;
       const spot = freeSpot(this.papers, this.bounds, w, h);
       const paper = { kind: 'mass', ...scheme, w, h, ...spot };
       done = await this.hooks.add(paper);
-      if (done?.paper) this.showScheme(done.paper.id);
+      if (done?.paper) { this.record([{ op: 'add', paper: done.paper }]); this.showScheme(done.paper.id); }
     }
     if (!done) { f.error = '저장하지 못했습니다. 위 알림을 확인해 주세요.'; this.drawForm(); return; }
     this.form = null;
@@ -657,6 +844,7 @@ export class DraftingTable {
   // ------------------------------------------------------------------ controls
 
   drawControls() {
+    this.drawHistory();
     const v = this.view;
     const masses = this.papers.filter((p) => p.kind === 'mass');
     this.ui.tools.innerHTML = `${TOOLS.map((t) => `<button type="button" data-tool="${t.id}" aria-pressed="${this.tool === t.id}" title="${t.label} (${t.key.toUpperCase()})"><span aria-hidden="true">${t.icon}</span> ${t.label}</button>`).join('')}
@@ -751,6 +939,7 @@ export class DraftingTable {
   setFolded(id, on) {
     const p = this.papers.find((x) => x.id === id);
     if (!p || Boolean(p.folded) === on) return;
+    this.record([{ op: 'update', id, before: { folded: !on }, after: { folded: on } }]);
     if (on) p.folded = true;
     else delete p.folded;
     if (!on && this.peekId === id && !folded(this.view.tilt)) this.peekId = '';
@@ -783,6 +972,7 @@ export class DraftingTable {
     const sheet = { kind: 'tracing', title: `트레이싱 ${n}`, strokes: [], overlaid: true, x: this.home.x, y: this.home.y, w: this.home.w, h: this.home.h };
     this.hooks.add(sheet).then((done) => {
       if (!done?.paper) return;
+      this.record([{ op: 'add', paper: done.paper }]);
       this.select([done.paper.id]);
       this.setTool('pen');
       this.animateTo({ tilt: 0 });
@@ -793,6 +983,8 @@ export class DraftingTable {
   removeSelected() {
     const ids = this.selected.filter((id) => this.papers.some((p) => p.id === id && p.kind !== 'site'));
     if (!ids.length) return;
+    this.record(this.papers.filter((p) => ids.includes(p.id)).map((p) => ({ op: 'remove', paper: structuredClone(p) })));
+    if (ids.includes(this.detailId)) this.closeDetail();
     this.papers = this.papers.filter((p) => !ids.includes(p.id));
     this.select(this.selected.filter((id) => !ids.includes(id)));
     this.syncPapers();
@@ -831,8 +1023,17 @@ export class DraftingTable {
     root.addEventListener('pointerup', () => this.onUp());
     root.addEventListener('pointercancel', () => this.onUp());
     root.addEventListener('dblclick', (e) => this.onDouble(e));
-    root.addEventListener('contextmenu', (e) => { if (!typing(e.target)) e.preventDefault(); });
+    root.addEventListener('contextmenu', (e) => { if (!typing(e.target) && !e.target.closest('dialog')) e.preventDefault(); });
     root.addEventListener('keydown', (e) => this.onKey(e));
+    // Ctrl+Z also works while the focus is elsewhere on the page (a button beside the table, or
+    // nothing), but never in a text field or another dialog, which keep their own undo.
+    this.onWindowKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || !this.root.isConnected || this.root.parentElement?.hidden) return;
+      const at = document.activeElement;
+      if (this.root.contains(at) || typing(at) || at?.closest?.('dialog')) return;
+      this.onKey(e);
+    };
+    window.addEventListener('keydown', this.onWindowKey);
     root.addEventListener('click', (e) => this.onClick(e));
     root.addEventListener('input', (e) => this.onInput(e));
     root.addEventListener('change', (e) => {
@@ -841,18 +1042,29 @@ export class DraftingTable {
     root.addEventListener('submit', (e) => { e.preventDefault(); if (e.target.dataset.form === 'scheme') this.saveForm(); });
     root.addEventListener('focusout', (e) => {
       // A note being written is saved when it loses focus.
+      if (e.target.dataset?.detailNote) { this.saveNoteText(e.target.dataset.detailNote, e.target.value); return; }
       if (e.target.tagName !== 'TEXTAREA' || !this.editing) return;
       const id = this.editing;
       const p = this.papers.find((x) => x.id === id);
       this.editing = '';
-      if (p) { p.text = e.target.value; this.drawPaper(p); this.save(id, { text: p.text }); }
+      if (p) { this.saveNoteText(id, e.target.value); this.drawPaper(p); }
+    });
+    const detail = this.ui.detail;
+    detail.addEventListener('close', () => { this.saveDetailNote(); this.detailId = ''; });
+    detail.addEventListener('click', (e) => {
+      // A click on the backdrop (outside the panel) closes it.
+      if (e.target !== detail) return;
+      const r = detail.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) this.closeDetail();
     });
   }
 
   onClick(e) {
     const t = e.target.closest('button, [data-open-expert]');
     if (!t) return;
-    if (t.dataset.openExpert) { this.hooks.openExpert(t.dataset.openExpert); return; }
+    if (t.dataset.openExpert) { this.closeDetail(); this.hooks.openExpert(t.dataset.openExpert); return; }
+    if (t.dataset.inspect) { this.select([t.dataset.inspect]); this.inspect(t.dataset.inspect); return; }
+    if (t.dataset.detail) { this.detailAction(t.dataset.detail); return; }
     if (t.dataset.tool) { this.setTool(t.dataset.tool); return; }
     if (t.dataset.active) { this.showScheme(t.dataset.active); return; }
     if (t.dataset.fold) { this.setFolded(t.dataset.fold, true); return; }
@@ -878,6 +1090,8 @@ export class DraftingTable {
     }
     switch (t.dataset.ui) {
       case 'scheme-new': this.openForm(); break;
+      case 'undo': this.travel('undo'); break;
+      case 'redo': this.travel('redo'); break;
       case 'trace': this.layTracing(); break;
       case 'delete': this.removeSelected(); break;
       case 'tray': this.trayOpen = !this.trayOpen; this.drawTray(); this.drawControls(); break;
@@ -901,6 +1115,7 @@ export class DraftingTable {
       case 'pick': this.select(toggleSelected(this.selected, id, true)); break;
       case 'plan': this.planAt(p); break;
       case 'unfold': this.setFolded(id, false); break;
+      case 'inspect': this.inspect(id); break;
       case 'write': this.setFolded(id, false); this.planAt(p, () => { this.editing = id; this.select([id]); }); break;
       default: break;
     }
@@ -919,7 +1134,7 @@ export class DraftingTable {
   }
 
   onWheel(e) {
-    if (e.target.closest('.tray, .scheme-form') || typing(e.target)) return;
+    if (e.target.closest('.tray, .scheme-form, dialog') || typing(e.target)) return;
     e.preventDefault();
     const v = this.view;
     this.tween += 1;
@@ -936,7 +1151,7 @@ export class DraftingTable {
   }
 
   onDown(e) {
-    if (e.target.closest('.table-ui') || typing(e.target) || e.target.closest('button, a')) return;
+    if (e.target.closest('.table-ui, dialog') || typing(e.target) || e.target.closest('button, a')) return;
     e.preventDefault(); // no text selection while dragging across the panes
     this.root.focus({ preventScroll: true });
     this.root.setPointerCapture(e.pointerId);
@@ -958,6 +1173,7 @@ export class DraftingTable {
       this.setTool('select');
       this.hooks.add({ kind: 'note', text: '', x: g0.x, y: g0.y, w, h }).then((done) => {
         if (!done?.paper) return;
+        this.record([{ op: 'add', paper: done.paper }]);
         this.editing = done.paper.id;
         this.select([done.paper.id]);
       });
@@ -969,7 +1185,7 @@ export class DraftingTable {
       if (next !== this.selected) this.select(next);
       const p = this.papers.find((x) => x.id === paperId);
       if (p?.kind === 'mass' && !e.shiftKey && this.active !== paperId) this.showScheme(paperId);
-      this.gesture = { kind: 'move', g0, ids: new Set(next), from: new Map(this.papers.map((q) => [q.id, { x: q.x, y: q.y }])), moved: false, x: e.clientX, y: e.clientY };
+      this.gesture = { kind: 'move', g0, ids: new Set(next), id: paperId, shift: e.shiftKey, from: new Map(this.papers.map((q) => [q.id, { x: q.x, y: q.y, overlaid: q.overlaid }])), moved: false, x: e.clientX, y: e.clientY };
       return;
     }
     this.gesture = { kind: 'pan', g0, v, x: e.clientX, y: e.clientY, moved: false };
@@ -1019,6 +1235,7 @@ export class DraftingTable {
     if (g?.kind === 'draw' && g.points.length > 1) {
       const p = this.papers.find((q) => q.id === g.id);
       if (p) {
+        this.record([{ op: 'update', id: p.id, before: { strokes: p.strokes || [] }, after: { strokes: [...(p.strokes || []), g.points] } }]);
         p.strokes = [...(p.strokes || []), g.points];
         this.syncPapers();
         this.save(p.id, { strokes: p.strokes });
@@ -1026,17 +1243,28 @@ export class DraftingTable {
     } else if (g?.kind === 'pan' && !g.moved) {
       if (this.selected.length) this.select([]);
     } else if (g?.kind === 'move' && g.moved) {
+      const edits = [];
       for (const q of this.papers) {
         if (!g.ids.has(q.id)) continue;
+        const was = g.from.get(q.id);
         const changes = { x: q.x, y: q.y };
-        if (q.kind === 'tracing') { q.overlaid = isOverlaid(q, this.home); changes.overlaid = q.overlaid; }
+        const before = { x: was.x, y: was.y };
+        if (q.kind === 'tracing') { q.overlaid = isOverlaid(q, this.home); changes.overlaid = q.overlaid; before.overlaid = Boolean(was.overlaid); }
+        edits.push({ op: 'update', id: q.id, before, after: changes });
         this.save(q.id, changes);
       }
+      this.record(edits);
       this.syncPapers();
       if (g.ids.size === 1) {
         const p = this.papers.find((q) => g.ids.has(q.id));
         if (p?.kind === 'tracing') this.say(isOverlaid(p, this.home) ? `${paperName(p)}을(를) 대지 위에 다시 덮었습니다.` : `${paperName(p)}을(를) 떼어냈습니다. 옆에 두고 보거나, 다시 대지 위로 끌어 덮으세요.`);
       }
+    }
+    if (g?.kind === 'move' && !g.moved && !g.shift) {
+      // A click on a paper: it alone is picked, and opens at reading size (a note is written in place).
+      const p = this.papers.find((q) => q.id === g.id);
+      if (p && this.selected.length > 1) this.select([p.id]);
+      if (p && p.kind !== 'note') this.inspect(p.id);
     }
     if (g?.kind === 'draw') {
       const draft = this.slot(g.id).querySelector('.draft');
@@ -1049,12 +1277,17 @@ export class DraftingTable {
     const id = e.target.closest('[data-paper]')?.dataset.paper;
     const p = this.papers.find((x) => x.id === id);
     if (p?.kind === 'note') { this.editing = id; this.drawPaper(p); }
-    if (p?.kind === 'mass') this.openForm(p);
   }
 
   onKey(e) {
-    if (typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (typing(e.target) || e.target.closest?.('dialog')) return;
     const k = e.key.toLowerCase();
+    if ((e.metaKey || e.ctrlKey) && (k === 'z' || k === 'y')) {
+      e.preventDefault();
+      this.travel(k === 'y' || e.shiftKey ? 'redo' : 'undo');
+      return;
+    }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
     const handled = () => e.preventDefault();
     if (k === '1') { handled(); this.animateTo({ tilt: TILT.plan, turn: 0 }); }
     else if (k === '2') { handled(); this.animateTo({ tilt: TILT.axo, turn: this.view.turn || -30 }); }
