@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  PX, TILT, MAX_TILT, cameraFor, riseFor, zoomAround, drawingScale, lerpView, siteBounds, traceHome,
+  PX, TILT, MAX_TILT, cameraFor, riseFor, groundFor, zoomAround, drawingScale, lerpView, siteBounds, traceHome,
   isOverlaid, blockCorners, unplaced, placeUnplaced, freeSpot, fitView, paperName, originLabel,
   figureLines, readScheme, schemeRows, keepSelected, toggleSelected, pickedNames, MAX_CONTEXT,
   folded, foldedInPlan, pinnedPapers, peekSpot, resultPreview,
@@ -228,12 +228,11 @@ test('a card draws the lots and the scheme\'s blocks in the site frame, with a s
   assert.ok(planDrawing(null, mass), 'a scheme without site facts still draws, u east and v north');
 });
 
-test('the mouse works like Rhino: right drag pans a plan and orbits a leaning table', () => {
-  assert.equal(dragMode({ button: 2, tilt: TILT.plan }), 'pan');
-  assert.equal(dragMode({ button: 2, tilt: TILT.persp }), 'orbit');
-  assert.equal(dragMode({ button: 2, tilt: MAX_TILT, shift: true }), 'pan');
-  assert.equal(dragMode({ button: 2, tilt: TILT.persp, ctrl: true }), 'zoom');
-  assert.equal(dragMode({ button: 2, tilt: TILT.plan, ctrl: true, shift: true }), 'orbit');
+test('the mouse works like Rhino: right drag orbits, a plan straight into 3D', () => {
+  assert.equal(dragMode({ button: 2 }), 'orbit');
+  assert.equal(orbitBy({ x: 0, y: 0, span: 100, tilt: TILT.plan, turn: 0 }, 0, -100).tilt, 25); // up from a plan
+  assert.equal(dragMode({ button: 2, shift: true }), 'pan');
+  assert.equal(dragMode({ button: 2, ctrl: true }), 'zoom');
   assert.equal(dragMode({ button: 1, tilt: TILT.persp }), 'pan');
   assert.equal(dragMode({ button: 0, alt: true }), 'orbit');
   assert.equal(dragMode({ button: 0, tilt: TILT.persp }), null); // the left button selects, moves and draws
@@ -281,15 +280,23 @@ test('two views as in Rhino: the plan and one 3D view whose angle the mouse sets
 test('the table lies down to 90° for elevations, and an elevation pans with the mouse', () => {
   assert.equal(MAX_TILT, 90);
   assert.equal(orbitBy({ x: 0, y: 0, span: 100, tilt: 80, turn: 0 }, 0, -1e6).tilt, 90);
-  // At 90° the eye is level with the point looked at, facing along the table.
-  // At 90° the eye looks level along the table, raised a little so the ground sits low on screen.
+  // At 90° the eye looks level along the table at the target, the table seen edge-on.
   const side = cameraFor({ x: 0, y: 0, span: 100, tilt: 90, turn: 0 });
-  close(side.position[2], side.target[2]);
-  assert.ok(side.target[2] > 0 && side.target[2] < 50);
+  close(side.position[2], 0);
   close(side.up[2], 1);
   assert.ok(side.position[1] < 0);
-  close(cameraFor({ x: 0, y: 0, span: 100, tilt: 90, turn: 0, z: 12 }).target[2], side.target[2] + 12);
-  assert.equal(cameraFor({ x: 0, y: 0, span: 100, tilt: 60, turn: 0 }).target[2], 0); // up to 70° nothing changes
+  close(cameraFor({ x: 0, y: 0, span: 100, tilt: 90, turn: 0, z: 12 }).position[2], 12);
+  // The camera turns about one fixed point at every angle: the target never moves with the tilt
+  // and the eye stays at the same distance from it.
+  for (const tilt of [0, 30, 60, 70, 75, 80, 85, 90]) {
+    const c = cameraFor({ x: 3, y: 4, span: 100, tilt, turn: 20, z: 5 });
+    assert.deepEqual(c.target, [3, 4, 5]);
+    close(Math.hypot(...c.position.map((p, i) => p - c.target[i])), c.dist, 1e-6);
+  }
+  // The ground (grid, shadows, site outline) shows in 3D and fades away for an elevation.
+  assert.equal(groundFor(TILT.persp), 1);
+  assert.equal(groundFor(80), 1);
+  assert.equal(groundFor(MAX_TILT), 0);
   // Pan on the screen: drag right and the picture goes right (the eye goes left, west at turn 0);
   // drag up and the picture goes up (the eye goes down the building), never under the table.
   const v = { x: 0, y: 0, span: 100, tilt: 90, turn: 0, z: 20 };

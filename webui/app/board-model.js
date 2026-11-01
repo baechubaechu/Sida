@@ -35,12 +35,12 @@ export function riseFor(tilt) {
   return Math.max(0.004, smooth(3, 28, tilt));
 }
 
-// Camera position, up vector and lens for a view {x, y, span, tilt, turn, z}. z (metres, 0 when
-// left out) lifts the point looked at off the table, so an elevation can be panned up a tower.
-// Lying near flat the eye also rises a little, so the ground sits low on the screen and the
-// buildings fill it, instead of the horizon cutting the picture in half.
+// Camera position, up vector and lens for a view {x, y, span, tilt, turn, z}. The camera turns
+// about one fixed point, the target (x, y, z), as in Rhino: no angle moves it (2026-11-02 지훈:
+// the pivot seemed to change part way through an orbit). z (metres, 0 when left out) lifts the
+// target off the table, so an elevation can be panned up a tower.
 export function cameraFor(v) {
-  const z = (v.z || 0) + v.span * 0.3 * smooth(70, 90, v.tilt);
+  const z = v.z || 0;
   const fov = lensFor(v.tilt);
   const dist = v.span / 2 / Math.tan(rad(fov) / 2);
   const t = rad(v.tilt);
@@ -52,6 +52,12 @@ export function cameraFor(v) {
     up: [fx * Math.cos(t), fy * Math.cos(t), Math.sin(t)],
     target: [v.x, v.y, z],
   };
+}
+
+// How much of the ground (grid, shadows, site outline, tracings) shows, 0 to 1: lying flat for an
+// elevation it fades away, so only the buildings stand (2026-11-02 지훈: no ground in an elevation).
+export function groundFor(tilt) {
+  return 1 - smooth(80, 88, tilt);
 }
 
 // Pan by (dx, dy) screen pixels so the picture follows the mouse, measured at the point looked at:
@@ -72,19 +78,18 @@ export function zoomAround(v, gx, gy, factor) {
   return { ...v, span, x: gx + (v.x - gx) * k, y: gy + (v.y - gy) * k };
 }
 
-// Mouse like Rhino (2026-11-01 지훈): which view move a drag makes. In plan the right button
-// pans (the table follows the mouse); once the table leans it orbits and Shift+right pans.
-// Ctrl+right zooms, Ctrl+Shift+right orbits even in plan, the middle button always pans, and
-// Alt+left orbits for a trackpad. null: the left button's own work (select, move, draw).
+// Mouse like Rhino (2026-11-01 지훈): which view move a drag makes. The right button orbits, in
+// plan too, so a plan tips straight into 3D (2026-11-02 지훈); Shift+right pans and Ctrl+right
+// zooms. The middle button always pans, and Alt+left orbits for a trackpad.
+// null: the left button's own work (select, move, draw; on empty table it pans).
 export const PLAN_TILT = 4; // below this lean the view counts as a plan
 export const EDGE_TILT = 70; // past this lean the table is seen near edge-on: pan and zoom on the screen, not the table
-export function dragMode({ button = 0, shift = false, ctrl = false, alt = false, tilt = 0 } = {}) {
+export function dragMode({ button = 0, shift = false, ctrl = false, alt = false } = {}) {
   if (button === 1) return 'pan';
   if (button === 2) {
-    if (ctrl && shift) return 'orbit';
     if (ctrl) return 'zoom';
     if (shift) return 'pan';
-    return tilt < PLAN_TILT ? 'pan' : 'orbit';
+    return 'orbit';
   }
   if (button === 0 && alt) return 'orbit';
   return null;
