@@ -1,5 +1,5 @@
 // The drafting table (제도판): the site at real scale in the middle of a table, sheets of paper
-// around it, and tilting the table turns the plan into an axonometric and then a perspective.
+// around it, and tilting the table turns the plan into a 3D view.
 // Masses rise as the table leans, and the papers fold into pins so the model can be read
 // (a pin opens its paper as a card). A tracing sheet laid on the site snaps into register; dragged
 // aside it becomes a sheet of its own. What the AI made waits in the AI section beside the table.
@@ -10,7 +10,7 @@
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
 import {
-  PX, TILT, MAX_TILT, PAPER_SIZE, cameraFor, riseFor, zoomAround, drawingScale, lerpView,
+  PX, TILT, MAX_TILT, PAPER_SIZE, cameraFor, riseFor, zoomAround, drawingScale, lerpView, dragMode, wheelZoom, orbitBy, viewName, viewFor, panBy, EDGE_TILT,
   siteBounds, traceHome, isOverlaid, blockCorners, placeUnplaced, freeSpot, fitView,
   folded, foldedInPlan, pinnedPapers, peekSpot,
   paperName, resultPreview, KIND_LABELS, originLabel, figureLines, readScheme, schemeRows, toggleSelected, fmt,
@@ -68,12 +68,12 @@ export class DraftingTable {
     this.root.setAttribute('aria-label', '제도판');
     this.root.innerHTML = `<div class="table-stage"></div>
       <div class="table-pins" role="group" aria-label="종이 이름표"></div>
-      <div class="table-ui ui-history" role="group" aria-label="편집 기록"></div>
-      <div class="table-ui ui-tools" role="toolbar" aria-label="제도판 도구"></div>
+      <div class="table-ui ui-left"><div class="ui-history" role="group" aria-label="편집 기록"></div>
+        <div class="ui-tools" role="toolbar" aria-orientation="vertical" aria-label="제도판 도구"></div></div>
       <div class="table-ui ui-scheme"></div>
       <div class="table-ui ui-tilt" aria-label="기울기"></div>
       <div class="table-ui ui-zoom"></div>
-      <p class="table-ui ui-help">끌기: 책상 이동 · Ctrl+휠: 확대 · 우클릭(Alt)+끌기: 돌리고 기울이기 · 1 평면 2 액소 3 투시 · Shift+클릭: 여러 장 골라 대화에 보내기 · Ctrl+Z: 되돌리기</p>
+      <p class="table-ui ui-help">휠: 커서 기준 확대 · 우클릭 끌기: 평면에선 이동, 3D에선 돌리기 · Shift+우클릭 끌기: 이동 · Ctrl+우클릭 끌기: 확대 · 1 평면 2 3D · Shift+클릭: 여러 장 골라 대화에 보내기 · Ctrl+Z: 되돌리기</p>
       <p class="table-ui ui-hint" role="status" hidden></p>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
       <section class="table-ui peek" aria-label="종이 내용" hidden></section>
@@ -163,11 +163,9 @@ export class DraftingTable {
   // A command typed on the command line (command-model.js COMMANDS). Returns '' when it ran,
   // or a line saying why it could not.
   command(name) {
-    const turn = this.view.turn || -30;
     switch (name) {
-      case 'plan': this.animateTo({ tilt: TILT.plan, turn: 0 }); return '';
-      case 'axo': this.animateTo({ tilt: TILT.axo, turn }); return '';
-      case 'persp': this.animateTo({ tilt: TILT.eye, turn }); return '';
+      case 'plan': this.showView('plan'); return '';
+      case 'persp': this.showView('3d'); return '';
       case 'zoom': this.fit(); return '';
       case 'north': this.animateTo({ turn: 0 }); return '';
       case 'select': case 'note': case 'pen': this.setTool(name); return '';
@@ -730,7 +728,7 @@ export class DraftingTable {
     const p = this.find(id);
     if (action === 'close' || !p) { this.closeDetail(); return; }
     switch (action) {
-      case 'show': this.showScheme(id); this.drawDetail(); if (this.view.tilt < 20) this.animateTo({ tilt: TILT.axo, turn: this.view.turn || -30 }); break;
+      case 'show': this.showScheme(id); this.drawDetail(); this.showView('3d'); break;
       case 'edit': this.closeDetail(); this.openForm(p); break;
       case 'unfold': this.setFolded(id, false); this.drawDetail(); break;
       case 'focus': this.closeDetail(); this.planAt(p); this.select([id]); break;
@@ -864,7 +862,7 @@ export class DraftingTable {
     if (!done) { f.error = '저장하지 못했습니다. 위 알림을 확인해 주세요.'; this.drawForm(); return; }
     this.form = null;
     this.drawForm();
-    this.animateTo({ tilt: TILT.axo, turn: this.view.turn || -30 });
+    this.showView('3d');
   }
 
   // ------------------------------------------------------------------ controls
@@ -885,7 +883,7 @@ export class DraftingTable {
         ${masses.map((p) => `<button type="button" data-active="${escape(p.id)}" aria-pressed="${this.active === p.id}">${escape(paperName(p))}</button>`).join('')}</div>
       ${masses.length > 1 ? `<label class="check"><input type="checkbox" data-ui="ghost" ${this.ghost ? 'checked' : ''}> 다른 안 겹쳐 보기</label>` : ''}` : '';
     this.ui.tilt.innerHTML = `<div class="seg vertical" role="group" aria-label="보는 각도">
-        ${[['plan', '평면', '1'], ['axo', '액소', '2'], ['eye', '투시', '3']].map(([id, label, k]) => `<button type="button" data-tilt="${id}" title="${label} (${k})" aria-pressed="${Math.abs(v.tilt - TILT[id]) < 4}">${label}</button>`).join('')}</div>
+        ${[['plan', '평면', '1'], ['3d', '3D', '2']].map(([id, label, k]) => `<button type="button" data-tilt="${id}" title="${label} (${k})" aria-pressed="${viewName(v.tilt) === id}">${label}</button>`).join('')}</div>
       <input type="range" min="0" max="${MAX_TILT}" value="${Math.round(v.tilt)}" aria-label="기울기 각도" data-ui="tilt-range">
       <span class="num tilt-read">${Math.round(v.tilt)}°</span>
       <button type="button" class="compass" data-ui="north" title="북쪽을 위로"><span style="transform: rotate(${-v.turn}deg)" aria-hidden="true">▲</span><small>N</small></button>`;
@@ -904,7 +902,7 @@ export class DraftingTable {
     if (range && document.activeElement !== range) range.value = String(Math.round(v.tilt));
     const needle = this.ui.tilt.querySelector('.compass span');
     if (needle) needle.style.transform = `rotate(${-v.turn}deg)`;
-    for (const b of this.ui.tilt.querySelectorAll('[data-tilt]')) b.setAttribute('aria-pressed', String(Math.abs(v.tilt - TILT[b.dataset.tilt]) < 4));
+    for (const b of this.ui.tilt.querySelectorAll('[data-tilt]')) b.setAttribute('aria-pressed', String(viewName(v.tilt) === b.dataset.tilt));
     const scale = this.ui.zoom.querySelector('.scale');
     if (scale) scale.textContent = drawingScale(v.span, this.root.clientHeight || 600);
   }
@@ -921,6 +919,12 @@ export class DraftingTable {
     hint.hidden = !text;
     clearTimeout(this.hintTimer);
     this.hintTimer = setTimeout(() => { hint.hidden = true; }, 4000);
+  }
+
+  // The plan or the 3D view (board-model.js viewFor): the buttons, keys 1·2 and plan/persp.
+  showView(name) {
+    const target = viewFor(name, this.view);
+    if (target) this.animateTo(target);
   }
 
   animateTo(target, ms = 450) {
@@ -1105,12 +1109,12 @@ export class DraftingTable {
       if (!this.root.contains(document.activeElement)) this.root.focus({ preventScroll: true });
       return;
     }
-    if (t.dataset.tilt) { const id = t.dataset.tilt; this.animateTo({ tilt: TILT[id], turn: id === 'plan' ? 0 : (this.view.turn || -30) }); return; }
+    if (t.dataset.tilt) { this.showView(t.dataset.tilt); return; }
     const id = t.dataset.id;
     switch (t.dataset.trayAction) {
       case 'place': this.placeFromTray(id); return;
       case 'discard': if (this.preview === id) { this.preview = ''; this.drawMasses(); } this.hooks.discard(id); return;
-      case 'preview': this.preview = this.preview === id ? '' : id; this.drawMasses(); this.drawTray(); if (this.preview && this.view.tilt < 20) this.animateTo({ tilt: TILT.axo, turn: this.view.turn || -30 }); return;
+      case 'preview': this.preview = this.preview === id ? '' : id; this.drawMasses(); this.drawTray(); if (this.preview) this.showView('3d'); return;
       case 'pick': this.select(toggleSelected(this.selected, id, true)); return;
       default: break;
     }
@@ -1165,15 +1169,20 @@ export class DraftingTable {
     this.hooks.viewMoved?.();
     const v = this.view;
     this.tween += 1;
-    if (e.ctrlKey || e.metaKey) {
-      const g0 = this.ground(e.clientX, e.clientY);
-      if (g0) this.setView(zoomAround(v, g0.x, g0.y, Math.exp(e.deltaY * 0.01)));
-    } else if (e.shiftKey && !e.deltaX) {
+    const pinch = e.ctrlKey || e.metaKey;
+    if (!pinch && e.shiftKey && !e.deltaX) {
       this.setView({ ...v, turn: v.turn + e.deltaY * 0.15 });
-    } else {
-      const a = this.ground(e.clientX, e.clientY);
-      const b = this.ground(e.clientX + e.deltaX, e.clientY + e.deltaY);
+    } else if (!pinch && e.deltaX) {
+      // A trackpad's two-finger slide: the table goes along with the fingers.
+      const a = v.tilt < EDGE_TILT && this.ground(e.clientX, e.clientY);
+      const b = a && this.ground(e.clientX + e.deltaX, e.clientY + e.deltaY);
       if (a && b) this.setView({ ...v, x: v.x + (b.x - a.x), y: v.y + (b.y - a.y) });
+      else this.setView(panBy(v, -e.deltaX, -e.deltaY, this.root.clientHeight));
+    } else {
+      // The wheel zooms around the point under the cursor, as in Rhino.
+      // Seen near edge-on (an elevation) the table under the cursor is far off or missing: zoom on the middle.
+      const g0 = (v.tilt < EDGE_TILT && this.ground(e.clientX, e.clientY)) || v;
+      this.setView(zoomAround(v, g0.x, g0.y, wheelZoom(e.deltaY, e.deltaMode, pinch)));
     }
   }
 
@@ -1184,9 +1193,15 @@ export class DraftingTable {
     this.root.setPointerCapture(e.pointerId);
     this.tween += 1;
     const v = this.view;
-    if (e.button === 2 || e.altKey) { this.gesture = { kind: 'orbit', x: e.clientX, y: e.clientY, v }; return; }
+    const mode = dragMode({ button: e.button, shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, alt: e.altKey, tilt: v.tilt });
+    if (mode === 'orbit') { this.gesture = { kind: 'orbit', x: e.clientX, y: e.clientY, v }; return; }
     const g0 = this.ground(e.clientX, e.clientY);
-    if (!g0) return;
+    if (mode) { this.gesture = { kind: mode, g0: (v.tilt < EDGE_TILT && g0) || { x: v.x, y: v.y }, edge: v.tilt >= EDGE_TILT || !g0, v, x: e.clientX, y: e.clientY, moved: false, button: e.button }; return; }
+    if (e.button !== 0) return;
+    if (!g0) { // the sky above the table, in a view near edge-on: dragging it still pans
+      if (this.tool === 'select') this.gesture = { kind: 'pan', g0: { x: v.x, y: v.y }, edge: true, v, x: e.clientX, y: e.clientY, moved: false, button: 0 };
+      return;
+    }
     if (this.tool === 'pen') {
       const sheet = [...this.papers].reverse().find((p) => p.kind === 'tracing'
         && Math.abs(g0.x - p.x) <= (p.w * PX) / 2 && Math.abs(g0.y - p.y) <= (p.h * PX) / 2);
@@ -1215,23 +1230,29 @@ export class DraftingTable {
       this.gesture = { kind: 'move', g0, ids: new Set(next), id: paperId, shift: e.shiftKey, from: new Map(this.papers.map((q) => [q.id, { x: q.x, y: q.y, overlaid: q.overlaid }])), moved: false, x: e.clientX, y: e.clientY };
       return;
     }
-    this.gesture = { kind: 'pan', g0, v, x: e.clientX, y: e.clientY, moved: false };
+    this.gesture = { kind: 'pan', g0, edge: v.tilt >= EDGE_TILT, v, x: e.clientX, y: e.clientY, moved: false, button: 0 };
   }
 
   onMove(e) {
     const g = this.gesture;
     if (!g) return;
     // The designer moves the view by hand: the talk popups fold away to keep the view clear.
-    if ((g.kind === 'orbit' || g.kind === 'pan') && !g.told && Math.hypot(e.clientX - g.x, e.clientY - g.y) > 6) {
+    if ((g.kind === 'orbit' || g.kind === 'pan' || g.kind === 'zoom') && !g.told && Math.hypot(e.clientX - g.x, e.clientY - g.y) > 6) {
       g.told = true;
       this.hooks.viewMoved?.();
     }
     if (g.kind === 'orbit') {
-      this.setView({ ...g.v, turn: g.v.turn - (e.clientX - g.x) * 0.3, tilt: Math.min(MAX_TILT, Math.max(0, g.v.tilt + (e.clientY - g.y) * 0.25)) });
+      // As in Rhino the model turns with the hand: drag right and its near side comes right,
+      // drag down and its top comes toward you (the view rises toward a plan).
+      this.setView({ ...g.v, ...orbitBy(g.v, e.clientX - g.x, e.clientY - g.y) });
     } else if (g.kind === 'pan') {
-      const p = this.ground(e.clientX, e.clientY, g.v);
+      const p = !g.edge && this.ground(e.clientX, e.clientY, g.v);
       if (p) this.setView({ ...g.v, x: g.v.x - (p.x - g.g0.x), y: g.v.y - (p.y - g.g0.y) });
+      else if (g.edge) this.setView(panBy(g.v, e.clientX - g.x, e.clientY - g.y, this.root.clientHeight));
       if (Math.hypot(e.clientX - g.x, e.clientY - g.y) > 3) g.moved = true;
+    } else if (g.kind === 'zoom') {
+      // Drag up to zoom in, down to zoom out, around the point first pressed.
+      this.setView(zoomAround(g.v, g.g0.x, g.g0.y, Math.exp((e.clientY - g.y) * 0.005)));
     } else if (g.kind === 'move') {
       const p = this.ground(e.clientX, e.clientY);
       if (!p) return;
@@ -1272,7 +1293,7 @@ export class DraftingTable {
         this.syncPapers();
         this.save(p.id, { strokes: p.strokes });
       }
-    } else if (g?.kind === 'pan' && !g.moved) {
+    } else if (g?.kind === 'pan' && !g.moved && g.button === 0) {
       if (this.selected.length) this.select([]);
     } else if (g?.kind === 'move' && g.moved) {
       const edits = [];
@@ -1321,9 +1342,8 @@ export class DraftingTable {
     }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const handled = () => e.preventDefault();
-    if (k === '1') { handled(); this.animateTo({ tilt: TILT.plan, turn: 0 }); }
-    else if (k === '2') { handled(); this.animateTo({ tilt: TILT.axo, turn: this.view.turn || -30 }); }
-    else if (k === '3') { handled(); this.animateTo({ tilt: TILT.eye, turn: this.view.turn || -30 }); }
+    if (k === '1') { handled(); this.showView('plan'); }
+    else if (k === '2') { handled(); this.showView('3d'); }
     else if (k === '0') { handled(); this.fit(); }
     else if (k === 't') { handled(); this.layTracing(); }
     else if (k === 'delete' || k === 'backspace') { handled(); this.removeSelected(); }

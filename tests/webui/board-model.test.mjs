@@ -2,12 +2,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  PX, TILT, cameraFor, riseFor, zoomAround, drawingScale, lerpView, siteBounds, traceHome,
+  PX, TILT, MAX_TILT, cameraFor, riseFor, zoomAround, drawingScale, lerpView, siteBounds, traceHome,
   isOverlaid, blockCorners, unplaced, placeUnplaced, freeSpot, fitView, paperName, originLabel,
   figureLines, readScheme, schemeRows, keepSelected, toggleSelected, pickedNames, MAX_CONTEXT,
   folded, foldedInPlan, pinnedPapers, peekSpot, resultPreview,
   massIds, canCompare, COMPARE_QUESTION, addQuestion, createHistory, changedFields, recordStep, undoStep, redoStep,
-  invertStep, HISTORY_LIMIT, planDrawing,
+  invertStep, HISTORY_LIMIT, planDrawing, dragMode, wheelZoom, orbitBy, viewName, viewFor, panBy,
 } from '../../webui/app/board-model.js';
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -18,8 +18,8 @@ test('a plan looks straight down and masses lie flat; leaning raises them', () =
   close(plan.position[0], 10);
   close(plan.position[1], 20);
   assert.deepEqual(plan.target, [10, 20, 0]);
-  assert.ok(riseFor(0) < 0.01 && riseFor(TILT.axo) === 1);
-  const axo = cameraFor({ x: 0, y: 0, span: 100, tilt: TILT.axo, turn: 0 });
+  assert.ok(riseFor(0) < 0.01 && riseFor(TILT.persp) === 1);
+  const axo = cameraFor({ x: 0, y: 0, span: 100, tilt: TILT.persp, turn: 0 });
   assert.ok(axo.position[1] < 0, 'the viewer stands south of the target when facing north');
 });
 
@@ -116,7 +116,7 @@ test('the picked papers stay in order, at most eight, and drop when gone', () =>
 
 test('papers lie flat in plan and fold into pins once the table leans', () => {
   assert.ok(!folded(TILT.plan) && !folded(9));
-  assert.ok(folded(TILT.axo) && folded(TILT.eye));
+  assert.ok(folded(TILT.persp) && folded(MAX_TILT));
   const home = traceHome(siteBounds(SITE));
   const papers = [
     { id: 'site', kind: 'site', x: -50, y: 0 },
@@ -226,4 +226,83 @@ test('a card draws the lots and the scheme\'s blocks in the site frame, with a s
   assert.equal(planDrawing({ plan: null }, { kind: 'note' }), null, 'nothing to draw');
   assert.equal(planDrawing(null, null), null);
   assert.ok(planDrawing(null, mass), 'a scheme without site facts still draws, u east and v north');
+});
+
+test('the mouse works like Rhino: right drag pans a plan and orbits a leaning table', () => {
+  assert.equal(dragMode({ button: 2, tilt: TILT.plan }), 'pan');
+  assert.equal(dragMode({ button: 2, tilt: TILT.persp }), 'orbit');
+  assert.equal(dragMode({ button: 2, tilt: MAX_TILT, shift: true }), 'pan');
+  assert.equal(dragMode({ button: 2, tilt: TILT.persp, ctrl: true }), 'zoom');
+  assert.equal(dragMode({ button: 2, tilt: TILT.plan, ctrl: true, shift: true }), 'orbit');
+  assert.equal(dragMode({ button: 1, tilt: TILT.persp }), 'pan');
+  assert.equal(dragMode({ button: 0, alt: true }), 'orbit');
+  assert.equal(dragMode({ button: 0, tilt: TILT.persp }), null); // the left button selects, moves and draws
+  // Rolling the wheel forward zooms in, back zooms out, by the same step either way.
+  const inStep = wheelZoom(-100);
+  assert.ok(inStep < 1 && inStep > 0.8);
+  close(inStep * wheelZoom(100), 1);
+  close(wheelZoom(-3, 1), inStep * wheelZoom(52)); // a line-mode wheel counts 16 px a line
+  assert.ok(wheelZoom(10, 0, true) > wheelZoom(10)); // a trackpad pinch steps further per pixel
+});
+
+test('an orbit drag turns the model with the hand, as in Rhino', () => {
+  const v = { x: 0, y: 0, span: 100, tilt: TILT.persp, turn: 0 };
+  // Dragging right: the near side of the table moves right on screen.
+  const right = orbitBy(v, 100, 0);
+  assert.ok(right.turn > v.turn);
+  // Which way a table point between the viewer and the target moves on screen, from the camera itself.
+  const screenX = (view, p) => {
+    const c = cameraFor(view);
+    const f = c.target.map((t, i) => t - c.position[i]);
+    const r = [f[1] * c.up[2] - f[2] * c.up[1], f[2] * c.up[0] - f[0] * c.up[2], f[0] * c.up[1] - f[1] * c.up[0]];
+    return p.reduce((s, q, i) => s + (q - c.position[i]) * r[i], 0);
+  };
+  const nearPoint = [0, -20, 0]; // south of the target, the viewer's side at turn 0
+  assert.ok(screenX({ ...v, ...right }, nearPoint) > screenX(v, nearPoint));
+  // Dragging down shows more of the top; up lowers the eye. Both stop at the limits.
+  assert.ok(orbitBy(v, 0, 40).tilt < v.tilt);
+  assert.ok(orbitBy(v, 0, -40).tilt > v.tilt);
+  assert.equal(orbitBy(v, 0, 1e6).tilt, 0);
+  assert.equal(orbitBy(v, 0, -1e6).tilt, MAX_TILT);
+});
+
+test('two views as in Rhino: the plan and one 3D view whose angle the mouse sets', () => {
+  assert.equal(viewName(0), 'plan');
+  assert.equal(viewName(20), '3d');
+  assert.equal(viewName(70), '3d');
+  // From a plan the 3D button stands the table up, turned a little; in 3D it leaves the angle alone.
+  assert.deepEqual(viewFor('3d', { tilt: 0, turn: 0 }), { tilt: TILT.persp, turn: -30 });
+  assert.deepEqual(viewFor('3d', { tilt: 0, turn: 40 }), { tilt: TILT.persp, turn: 40 });
+  assert.equal(viewFor('3d', { tilt: 60, turn: 15 }), null);
+  assert.deepEqual(viewFor('plan', { tilt: 60, turn: 15, z: 8 }), { tilt: 0, turn: 0, z: 0 });
+  assert.deepEqual(Object.keys(TILT), ['plan', 'persp']);
+});
+
+test('the table lies down to 90° for elevations, and an elevation pans with the mouse', () => {
+  assert.equal(MAX_TILT, 90);
+  assert.equal(orbitBy({ x: 0, y: 0, span: 100, tilt: 80, turn: 0 }, 0, -1e6).tilt, 90);
+  // At 90° the eye is level with the point looked at, facing along the table.
+  // At 90° the eye looks level along the table, raised a little so the ground sits low on screen.
+  const side = cameraFor({ x: 0, y: 0, span: 100, tilt: 90, turn: 0 });
+  close(side.position[2], side.target[2]);
+  assert.ok(side.target[2] > 0 && side.target[2] < 50);
+  close(side.up[2], 1);
+  assert.ok(side.position[1] < 0);
+  close(cameraFor({ x: 0, y: 0, span: 100, tilt: 90, turn: 0, z: 12 }).target[2], side.target[2] + 12);
+  assert.equal(cameraFor({ x: 0, y: 0, span: 100, tilt: 60, turn: 0 }).target[2], 0); // up to 70° nothing changes
+  // Pan on the screen: drag right and the picture goes right (the eye goes left, west at turn 0);
+  // drag up and the picture goes up (the eye goes down the building), never under the table.
+  const v = { x: 0, y: 0, span: 100, tilt: 90, turn: 0, z: 20 };
+  const right = panBy(v, 50, 0, 500);
+  close(right.x, -10);
+  close(right.z, 20);
+  const up = panBy(v, 0, -50, 500);
+  close(up.z, 10);
+  close(up.x, 0);
+  assert.equal(panBy(v, 0, -5000, 500).z, 0);
+  // In plan the same pan slides the table under the mouse without lifting it.
+  const plan = panBy({ x: 0, y: 0, span: 100, tilt: 0, turn: 0 }, 0, 50, 500);
+  close(plan.y, 10);
+  close(plan.z, 0);
+  close(lerpView(v, { ...v, z: 0 }, 0.5).z, 10);
 });
