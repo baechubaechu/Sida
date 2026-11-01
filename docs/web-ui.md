@@ -13,6 +13,7 @@
 | `webui/app/model.js` | DOM과 `fetch`를 쓰지 않는 도우미 함수(검색·정렬, 대화 항목, 이벤트 알림 문구, Markdown, 저장할 정부 데이터 키, 화면 주소, 전문가별 결과 배치 `EXPERT_LAYOUTS`). `tests/webui/model.test.mjs`가 확인합니다 |
 | `webui/app/table.js` | 제도판(`DraftingTable`): Three.js 장면, 종이, AI 섹션, 매스안 입력, 종이 상세 창, 되돌리기·다시 하기. 프로젝트를 열 때만 불러옵니다 |
 | `webui/app/board-model.js` | 제도판의 DOM 없는 도우미(카메라·확대, 대지 범위, 동 꼭짓점, 새 종이 자리, 3D 이름표와 내용 카드 자리, 종이 이름, 매스안 입력 검사, 고른 종이, 두 안 비교 질문, 되돌리기 기록, 상세 창 배치도). `tests/webui/board-model.test.mjs`가 확인합니다 |
+| `webui/app/command-model.js` | 아래 명령창의 DOM 없는 도우미(명령 목록 `COMMANDS`, 명령인지 질문인지 가르기, 자동완성, 한글 자판으로 친 명령 되돌리기, 명령이 묻는 보기 고르기). `tests/webui/command-model.test.mjs`가 확인합니다 |
 | `webui/app/vendor/three.js` | three.js 0.186.1에서 제도판이 쓰는 부분만 묶은 파일(ESM). 고치지 말고 `scripts/three-vendor/README.md`대로 다시 만드세요 |
 | `webui/app/site-map.js` | 대지 페이지 "찾기" 탭의 지도(`SiteMap`): 브이월드 배경·지적도, 찾은·고른·저장한 필지 경계, 클릭. 대지 페이지를 처음 열 때 불러옵니다 |
 | `webui/app/vendor/leaflet.js`, `leaflet.css` | Leaflet 1.9.4(ESM으로 묶은 것, BSD-2 `LICENSE-leaflet.txt`). 고치지 말고 `scripts/leaflet-vendor/README.md`대로 다시 만드세요 |
@@ -26,7 +27,7 @@
 |---|---|
 | 프로젝트 목록 (`#/`) | `GET /api/projects`, 예시 프로젝트 `POST /api/projects/sample`, 삭제 `DELETE /api/projects/{name}`(카드·왼쪽 목록의 "삭제" → 확인 창, 실행 중인 작업이 있으면 409) |
 | 새 프로젝트 (`#/new`) | `POST /api/projects` (`name`, `fields.type`·`site`·`intention`) |
-| Conductor 대화 (`#/project/<이름>`) | `GET .../session`, 첫 인사 `POST .../session/opening`, 메시지 `POST .../session/messages`, 진행 `GET .../session/jobs/{id}` |
+| Conductor 대화 (`#/project/<이름>`, 아래 명령창과 대화 팝업) | `GET .../session`(대화 목록 `talks`), 첫 인사 `POST .../session/opening`, 새 대화 `POST .../talks`, 대화 `GET .../talks/{id}`, 메시지 `POST .../talks/{id}/messages`, 진행 `GET .../session/jobs/{id}` |
 | 전문가 페이지 (`#/project/<이름>/expert/<id>` 결과, `.../chat/<채팅 id>` 분석 채팅, `.../versions/<버전 id>` 이전 버전) | 결과 문서 `GET .../modules/{agent}`, 이전 버전 `GET .../modules/{agent}/versions`, `.../versions/{id}`, 실행·수정 요청 `POST .../session/experts/{agent}/run`, 분석 채팅 목록과 새 채팅 `GET`/`POST .../experts/{agent}/chats`, 채팅 `GET .../experts/{agent}/chats/{chat_id}`, 메시지 `POST .../chats/{chat_id}/messages`, 평가 `POST .../experts/{agent}/feedback` |
 | 대지 페이지 (`#/project/<이름>/site` 대지 사실, `.../site/ordinance` 조례, `.../site/uses` 계획 용도, `.../site/find` 찾기) | 대지 사실 `GET .../site`, 조례 `GET .../site/ordinance`와 조문 선택 `PUT .../site/ordinance/options/{id}`, 용도 이름 찾기 `GET /api/site/uses`, 계획 용도 조회·지우기 `POST`/`DELETE .../site/uses...`, 지역 목록 `GET /api/site/regions`, 지번으로 찾기 `GET /api/site/lots`, 주소로 찾기 `POST .../site/parcels`, 조회해 저장 `PUT .../site`, 지도 `GET /api/site/map`·`GET /api/site/parcel-at`·`GET /api/site/shapes`, 브리프의 대지 주소 `GET /api/projects/{name}` |
 | 설계 상태 반영 승인 | `POST .../state-proposals/{id}/apply`, `.../skip` |
@@ -38,7 +39,9 @@ API의 자세한 내용은 [session-api.md](session-api.md), [site-ordinance.md]
 
 ## 동작
 
-- Conductor 대화는 프로젝트마다 하나입니다. 대화가 비어 있으면 화면을 열 때 Conductor가 먼저 인사합니다.
+- 화면 맨 아래에 명령창이 있습니다(2026-11-01 지훈 결정, 실험 기능). 띄어쓰기 없는 영어 한 단어가 명령 목록(`webui/app/command-model.js`의 `COMMANDS`)에 있으면 그 명령을 실행하고, 그 밖의 글은 모두 Conductor에게 갑니다. Enter는 실행, Shift+Enter는 줄 바꿈입니다. 한 단어를 치는 동안 맞는 명령이 떠서 ↑↓로 고르고 Tab으로 채우며, 입력칸 앞 표시가 Enter를 누르면 할 일(명령 이름, "AI에게", 명령이 묻는 "답")을 미리 보여 줍니다. 한글 자판이 켜진 채 친 명령(ㅔㅣ무 → plan)도 영어 글자로 되돌려 읽습니다(한 글자는 제외). 빈 칸에서 Enter는 직전 명령 반복, Esc는 취소, 입력칸 밖에서 Space는 명령창으로 커서를 옮깁니다. `help`는 명령 목록을 보여 주고, `run`처럼 고를 것이 있는 명령은 명령창 위에 보기를 띄워 번호나 이름으로 답받습니다. 명령 결과는 명령창 위 기록 세 줄에 남습니다.
+- Conductor에게 가는 질문은 질문마다 새 대화(talk)가 되고 명령창 위 팝업으로 열립니다. 이어지는 질문은 그 팝업의 입력칸에 씁니다. 대화마다 기록만 따로이고 브리프·설계 상태·전문가 결과·제도판은 같이 봅니다. 제도판에서 고른 종이는 질문과 함께 그 대화로 가고, 팝업 입력칸에서 칩의 ×로 빼거나 "＋ 고른 종이 넣기"로 더합니다. 팝업은 세 개까지 열려 있고, 손으로 제도판을 옮기거나 돌리거나 확대하면 모두 접혀서 명령창 위 이름표가 됩니다. 이름표를 누르면 쓰던 입력과 함께 다시 펼쳐집니다. ×로 닫은 대화는 왼쪽 "Conductor" 칸의 대화 목록에서 다시 엽니다(왼쪽 칸에는 입력칸이 없습니다).
+- 첫 대화(`01`, 예전의 Conductor 대화)가 비어 있으면 화면을 열 때 Conductor가 먼저 인사하고 그 팝업이 열립니다.
 - 메시지를 보내면 작업이 끝날 때까지 1초마다 진행을 받아 그립니다. 그동안 보내기 버튼은 꺼집니다(한 프로젝트에 작업 하나).
 - Conductor나 설계자가 전문가를 실행하면 화면 오른쪽 아래 알림이 시작, 결과, 검토 필요를 알리고, 대화에 분석 카드가 남습니다. 카드나 전문가 패널을 누르면 그 전문가 화면이 열립니다.
 - 프로젝트 화면은 팀원의 제도판 시험판 UI(PR #63, `prototypes/drafting-table/`)를 따릅니다. 왼쪽 Conductor, 가운데 제도판, 오른쪽 전문가가 회색 바탕 위에 카드 세 장으로 놓입니다. 왼쪽 목록 막대는 없고, Conductor 머리의 "← 프로젝트"로 목록에, ⚙로 설정에 갑니다(프로젝트 삭제는 목록 화면에서). Conductor는 ⟨로, 전문가는 ›로 접고, 제도판 머리의 "대화 펼치기"·"전문가"로 다시 펼칩니다.
@@ -61,7 +64,7 @@ API의 자세한 내용은 [session-api.md](session-api.md), [site-ordinance.md]
 - 체크리스트의 체크는 지금은 화면에만 남고 프로젝트에 저장되지 않습니다(새로고침하면 사라짐). 저장은 다음 작업입니다.
 - 평가(도움 됨/아쉬움, 한 줄 의견)는 설정의 "사용 기록 보내기"가 켜져 있을 때만 전달됩니다(`docs/telemetry.md`).
 - 프로젝트를 열면 Conductor 대화 오른쪽에 제도판이 나옵니다. 제도판 머리의 "제도판 숨기기"로 숨기고 Conductor 머리의 "제도판 보기"로 다시 열며, Conductor 오른쪽 틈을 끌어 대화 너비를 바꿉니다. 창이 좁으면(900px 이하) 한 번에 한 패널만 보이고 아래 탭(대화·제도판·전문가)으로 바꿉니다.
-- 제도판 머리 아래 선택 막대에 고른 종이가 나옵니다. 이름을 누르면 상세 보기, "이 자료로 질문 →"은 Conductor 입력칸으로 커서를 옮기고, 매스안을 둘 이상 골랐으면 "두 안 비교 질문 →"이 비교 질문을 입력칸에 채웁니다(보내기는 직접). 아무것도 안 골랐으면 "매스안 선택"으로 제도판의 매스안을 모두 고릅니다.
+- 제도판 머리 아래 선택 막대에 고른 종이가 나옵니다. 이름을 누르면 상세 보기, "이 자료로 질문 →"은 명령창으로 커서를 옮기고, 매스안을 둘 이상 골랐으면 "두 안 비교 질문 →"이 비교 질문을 명령창에 채웁니다(보내기는 직접). 아무것도 안 골랐으면 "매스안 선택"으로 제도판의 매스안을 모두 고릅니다.
 - 제도판은 3D 책상입니다. 대지 도면(필지 경계)이 가운데 있고, 대지 종이·매스안·메모·트레이싱지가 그 옆에 놓입니다. 끌어서 책상을 옮기고, Ctrl+휠로 확대하고, 우클릭(또는 Alt)+끌기로 돌리고 기울입니다. 1 평면, 2 액소, 3 투시, 0 전체 보기, V 선택, N 메모, P 펜, T 트레이싱지, Delete 지우기.
 - 종이를 누르면(끌지 않고) 그 종이만 골라지고 오른쪽에 상세 창이 열립니다. 확대와 상관없이 읽는 크기로 보여 주고, 대지·매스안은 배치도(필지 경계와 동, 층수, 축척, 북쪽)를 함께 그립니다. 매스안은 "3D로 세우기"·"고치기", 메모는 그 자리에서 고쳐 쓰기, 모든 종이는 "제도판에서 크게 보기"와 "이 종이로 질문하기 →"가 있습니다. 종이 머리의 "상세 보기 ↗", 선택 막대와 입력칸 칩의 이름, 3D 이름표 카드의 "상세 보기"로도 열립니다. 메모는 누르면 상세 창 대신 그 자리에서 두 번 눌러 씁니다.
 - ↶·↷ 버튼과 Ctrl/⌘+Z, Ctrl/⌘+Shift+Z(또는 Ctrl+Y)로 되돌리고 다시 합니다. 옮기기, 펜 획, 메모 글, 매스안 추가·고치기, 트레이싱지, 접기, 지우기가 대상이고 100단계까지, 새로고침하면 비워집니다. 저장은 그때그때 API로 되어 있어서 되돌리기도 반대 요청(PATCH·POST·DELETE)을 보냅니다. 지운 매스안·메모·트레이싱지는 같은 id로 다시 놓이고, 전문가 결과 종이는 지우면 되돌릴 수 없습니다. AI 섹션에서 놓은 것은 되돌리기 대상이 아닙니다.
@@ -76,7 +79,7 @@ API의 자세한 내용은 [session-api.md](session-api.md), [site-ordinance.md]
 ## 목업에서 뺀 것
 
 - 프로젝트 삭제, 파일 첨부: 서버 API가 없어서 뺐습니다.
-- 메인 채팅 여러 개: Conductor 대화는 프로젝트당 하나로 정했습니다(2026-10-19).
+- 메인 채팅 여러 개: 2026-10-19에는 Conductor 대화를 프로젝트당 하나로 정했으나, 2026-11-01 명령창 팝업 방식으로 바뀌어 질문마다 대화가 생깁니다(위 "동작").
 - Vercel 배포 설정: Sida는 각자 PC에서 돌리므로 쓰지 않습니다(2026-10-19 결정).
 
 ## 고칠 때

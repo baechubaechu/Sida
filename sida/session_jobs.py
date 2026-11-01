@@ -18,10 +18,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sida import board, engine, errors, expert_chat, runtime, telemetry, workspace
+from sida import board, engine, errors, expert_chat, runtime, talks, telemetry, workspace
 from sida import config as sida_config
 from sida.editing import EditingService
 from sida.i18n import agent_name
+from sida.project import MAIN_TALK
 from sida.project_documents import DocumentConflict
 from sida.providers import LLMError
 
@@ -45,6 +46,7 @@ class Job:
     kind: str  # "opening" | "message" | "expert" | "expert_chat"
     agent: str | None = None
     chat: str | None = None  # the expert chat an "expert_chat" job writes to
+    talk: str | None = None  # the Conductor talk an "opening" or "message" job writes to
     status: str = "running"  # "running" | "done" | "failed"
     running_agent: str | None = None  # the expert being run right now, if any
     error: str | None = None
@@ -75,6 +77,7 @@ class Job:
                 "kind": self.kind,
                 "agent": self.agent,
                 "chat": self.chat,
+                "talk": self.talk,
                 "status": self.status,
                 "running_agent": self.running_agent,
                 "error": self.error,
@@ -106,6 +109,7 @@ class SessionJobs:
         agents = {a["id"]: a for a in sida_config.get_agents(config)}
         return {
             "messages": workspace.chat_messages(config, path),
+            "talks": talks.talk_summaries(path),
             "job": job.view() if job is not None else None,
             "experts": [
                 {
@@ -156,6 +160,29 @@ class SessionJobs:
             chat_id = expert_chat.new_chat(path, agent)
         return next(c for c in expert_chat.chat_summaries(path, agent) if c["id"] == chat_id)
 
+    def talks(self, config: dict, name: str) -> dict:
+        """The project's Conductor talks, oldest first."""
+        path = workspace.find_project(config, name).resolve()
+        return {"talks": talks.talk_summaries(path)}
+
+    def talk(self, config: dict, name: str, talk_id: str) -> dict:
+        """One Conductor talk, plus the project's running job (shared by all talks)."""
+        path = workspace.find_project(config, name).resolve()
+        talks.require_talk(path, talk_id)
+        job = self._active.get(path)
+        return {
+            "talk": talk_id,
+            "messages": workspace.chat_messages(config, path, talk_id),
+            "job": job.view() if job is not None else None,
+        }
+
+    def new_talk(self, config: dict, name: str) -> dict:
+        """Start an empty Conductor talk; returns its list entry."""
+        path = workspace.find_project(config, name).resolve()
+        with self._guard:
+            talk_id = talks.new_talk(path)
+        return next(t for t in talks.talk_summaries(path) if t["id"] == talk_id)
+
     def job(self, config: dict, name: str, job_id: str, after: int = 0) -> dict:
         path = workspace.find_project(config, name).resolve()
         job = self._jobs.get(job_id)
@@ -166,17 +193,24 @@ class SessionJobs:
     # ------------------------------------------------------------------ starting
 
     def start_opening(self, config: dict, name: str) -> Job:
-        return self._start(config, name, "opening")
+        return self._start(config, name, "opening", talk=MAIN_TALK)
 
     def start_message(
-        self, config: dict, name: str, text: str, context: list[str] | None = None
+        self,
+        config: dict,
+        name: str,
+        text: str,
+        context: list[str] | None = None,
+        talk: str = MAIN_TALK,
     ) -> Job:
-        """`context`: ids of drawing-table papers the designer sent with the message."""
+        """`context`: ids of drawing-table papers the designer sent with the message.
+        `talk`: the Conductor talk the message belongs to (sida/talks.py)."""
+        talks.require_talk(workspace.find_project(config, name).resolve(), talk)
         text = (text or "").strip()
         if not text:
             raise ValueError("empty message")
         table = _selection(config, name, context)
-        return self._start(config, name, "message", text=text, table=table)
+        return self._start(config, name, "message", text=text, table=table, talk=talk)
 
     def start_expert(
         self,
@@ -223,12 +257,16 @@ class SessionJobs:
         agent: dict | None = None,
         chat: str | None = None,
         table: board.Selection | None = None,
+        talk: str | None = None,
     ) -> Job:
         path = workspace.find_project(config, name).resolve()
         with self._guard:
             if path in self._active:
                 raise DocumentConflict("이 프로젝트에서 이미 실행 중인 작업이 있습니다. 끝난 뒤 다시 보내세요.")
-            job = Job(uuid.uuid4().hex, path, kind, agent=agent["id"] if agent else None, chat=chat)
+            job = Job(
+                uuid.uuid4().hex, path, kind,
+                agent=agent["id"] if agent else None, chat=chat, talk=talk,
+            )
             self._active[path] = job
             self._jobs[job.id] = job
             self._prune()
@@ -307,7 +345,9 @@ class SessionJobs:
         api_key = runtime.load_env(config=config)
         # A fresh session per job reads brief, modules and history from disk, so edits made
         # through the document API in between are never overwritten by stale memory.
-        session = engine.build_session(config, api_key, job.project, before_providers=boot)
+        session = engine.build_session(
+            config, api_key, job.project, before_providers=boot, talk=job.talk or MAIN_TALK
+        )
         session.capture_notices = True
         session.emit = self._emitter(job, session, observer)
         return session

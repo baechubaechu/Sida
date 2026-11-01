@@ -197,7 +197,7 @@ def test_main_screen_calls_only_existing_api_paths(client):
 
     routes = list(client.app.openapi()["paths"])
     assert {
-        "/api/projects", "/api/settings", "/api/projects/{}/session/messages",
+        "/api/projects", "/api/settings", "/api/projects/{}/talks", "/api/projects/{}/talks/{}/messages",
         "/api/site/regions", "/api/site/lots", "/api/projects/{}/site", "/api/projects/{}/site/parcels",
     } <= {shape(path) for path in called}
     for path in called:
@@ -1187,3 +1187,46 @@ def test_expert_run_and_chat_get_the_selected_papers(session_api, project, monke
     assert "DRAWING TABLE" in worker.calls[-1]["messages"][1]["content"]
     chat = client.get(f"{base}/experts/design_critic/chats/01").json()["messages"]
     assert chat[0] == {"role": "user", "text": "이거 봐", "context": [{"id": "n1", "name": "메모: 북측 일조"}]}
+
+
+def test_talks_keep_their_own_history_and_share_the_project(session_api, project):
+    client, base, conductor = session_api
+    conductor.replies.append('첫 대화 답\n```action\n{"type":"none"}\n```')
+    finished_job(client, base, client.post(f"{base}/session/messages", json={"text": "첫 질문"}))
+    assert [t["id"] for t in client.get(f"{base}/talks").json()["talks"]] == ["01"]
+
+    made = client.post(f"{base}/talks")
+    assert made.status_code == 201
+    talk = made.json()["talk"]
+    assert talk == {"id": "02", "title": "", "messages": 0, "updated_at": talk["updated_at"]}
+
+    conductor.replies.append('새 대화 답\n```action\n{"type":"none"}\n```')
+    job = finished_job(
+        client, base, client.post(f"{base}/talks/02/messages", json={"text": "남향이 나을까?"})
+    )
+    assert job["status"] == "done" and job["talk"] == "02" and job["kind"] == "message"
+    # The new talk starts without the first talk's messages, but with the same project.
+    sent = conductor.calls[-1]["messages"]
+    assert not any("첫 질문" in str(m.get("content")) for m in sent)
+    assert sent[0]["role"] == "system"
+
+    assert client.get(f"{base}/talks/02").json()["messages"] == [
+        {"role": "user", "text": "남향이 나을까?"},
+        {"role": "conductor", "text": "새 대화 답"},
+    ]
+    # The first talk (the session's messages) is untouched.
+    assert [m["text"] for m in client.get(f"{base}/session").json()["messages"]] == ["첫 질문", "첫 대화 답"]
+    listed = client.get(f"{base}/session").json()["talks"]
+    assert [(t["id"], t["title"], t["messages"]) for t in listed] == [
+        ("01", "첫 질문", 2), ("02", "남향이 나을까?", 2),
+    ]
+    assert (project.path / "talks" / "02.json").exists()
+
+
+def test_talks_reject_unknown_ids_and_empty_messages(session_api):
+    client, base, _conductor = session_api
+    assert client.get(f"{base}/talks/02").status_code == 404
+    assert client.get(f"{base}/talks/x1").status_code == 404
+    assert client.post(f"{base}/talks/09/messages", json={"text": "안녕"}).status_code == 404
+    assert client.post(f"{base}/talks/01/messages", json={"text": "  "}).status_code == 400
+    assert client.get("/api/projects/nope/talks").status_code == 404

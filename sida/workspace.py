@@ -18,6 +18,7 @@ from sida.config import ROOT, agent_by_id, agent_inputs, agent_tier, get_agents
 from sida.engine import history_messages
 from sida.i18n import agent_name
 from sida.project import (
+    MAIN_TALK,
     SESSION_FILE,
     Project,
     create_blank_project,
@@ -125,11 +126,13 @@ def _modified_at(path: Path) -> str:
     return datetime.fromtimestamp(stamp, timezone.utc).isoformat(timespec="seconds")
 
 
-def chat_messages(config: dict, path: Path) -> list[dict]:
-    """The stored Conductor conversation as chat entries; system entries name their expert."""
+def chat_messages(config: dict, path: Path, talk: str = MAIN_TALK) -> list[dict]:
+    """A stored Conductor talk as chat entries; system entries name their expert."""
     agents = get_agents(config)
     by_output = {str(a["output"]): a for a in agents}
-    stub = Project(path=path, name=path.name, session_id="", created_at="", source_brief=None)
+    stub = Project(
+        path=path, name=path.name, session_id="", created_at="", source_brief=None, talk=talk
+    )
     messages = history_messages(stub.load_history())
     for message in messages:
         if message["role"] != "system" or "agent" not in message:

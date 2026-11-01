@@ -48,6 +48,25 @@ def create_router(jobs: SessionJobs, load_config, core) -> APIRouter:
     def message(name: str, body: Message) -> JSONResponse:
         return started(call(jobs.start_message, load_config(), name, body.text, body.context))
 
+    # Conductor talks: "01" is the conversation above; the command line opens the others.
+    @router.get("/talks")
+    def list_talks(name: str) -> dict:
+        return call(jobs.talks, load_config(), name)
+
+    @router.post("/talks")
+    def new_talk(name: str) -> JSONResponse:
+        return JSONResponse({"talk": call(jobs.new_talk, load_config(), name)}, status_code=201)
+
+    @router.get("/talks/{talk_id}")
+    def get_talk(name: str, talk_id: str) -> dict:
+        return call(jobs.talk, load_config(), name, talk_id)
+
+    @router.post("/talks/{talk_id}/messages")
+    def talk_message(name: str, talk_id: str, body: Message) -> JSONResponse:
+        return started(
+            call(jobs.start_message, load_config(), name, body.text, body.context, talk_id)
+        )
+
     @router.post("/session/experts/{agent}/run")
     def run_expert(name: str, agent: str, body: Run | None = None) -> JSONResponse:
         body = body or Run()

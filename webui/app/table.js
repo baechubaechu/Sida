@@ -160,6 +160,32 @@ export class DraftingTable {
     this.drawControls();
   }
 
+  // A command typed on the command line (command-model.js COMMANDS). Returns '' when it ran,
+  // or a line saying why it could not.
+  command(name) {
+    const turn = this.view.turn || -30;
+    switch (name) {
+      case 'plan': this.animateTo({ tilt: TILT.plan, turn: 0 }); return '';
+      case 'axo': this.animateTo({ tilt: TILT.axo, turn }); return '';
+      case 'persp': this.animateTo({ tilt: TILT.eye, turn }); return '';
+      case 'zoom': this.fit(); return '';
+      case 'north': this.animateTo({ turn: 0 }); return '';
+      case 'select': case 'note': case 'pen': this.setTool(name); return '';
+      case 'trace': this.layTracing(); return '';
+      case 'mass': this.openForm(); return '';
+      case 'delete':
+        if (!this.selected.some((id) => this.papers.some((p) => p.id === id && p.kind !== 'site'))) return '먼저 지울 종이를 고르세요.';
+        this.removeSelected();
+        return '';
+      case 'undo': case 'redo':
+        if (!(name === 'undo' ? this.history.past : this.history.future).length) return name === 'undo' ? '되돌릴 것이 없습니다.' : '다시 할 것이 없습니다.';
+        this.travel(name);
+        return '';
+      case 'tray': this.trayOpen = !this.trayOpen; this.drawTray(); this.drawControls(); return '';
+      default: return '제도판에서 쓰는 명령이 아닙니다.';
+    }
+  }
+
   find(id) {
     return this.papers.find((p) => p.id === id) || this.tray.find((p) => p.id === id) || null;
   }
@@ -1136,6 +1162,7 @@ export class DraftingTable {
   onWheel(e) {
     if (e.target.closest('.tray, .scheme-form, dialog') || typing(e.target)) return;
     e.preventDefault();
+    this.hooks.viewMoved?.();
     const v = this.view;
     this.tween += 1;
     if (e.ctrlKey || e.metaKey) {
@@ -1194,6 +1221,11 @@ export class DraftingTable {
   onMove(e) {
     const g = this.gesture;
     if (!g) return;
+    // The designer moves the view by hand: the talk popups fold away to keep the view clear.
+    if ((g.kind === 'orbit' || g.kind === 'pan') && !g.told && Math.hypot(e.clientX - g.x, e.clientY - g.y) > 6) {
+      g.told = true;
+      this.hooks.viewMoved?.();
+    }
     if (g.kind === 'orbit') {
       this.setView({ ...g.v, turn: g.v.turn - (e.clientX - g.x) * 0.3, tilt: Math.min(MAX_TILT, Math.max(0, g.v.tilt + (e.clientY - g.y) * 0.25)) });
     } else if (g.kind === 'pan') {
