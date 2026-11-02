@@ -1123,6 +1123,22 @@ def test_board_api_lays_moves_and_removes_papers(client, project):
     assert client.get("/api/projects/nope/board").status_code == 404
 
 
+def test_board_api_exports_the_table_as_cad_and_rhino_files(client, project):
+    base = f"/api/projects/{project.name}/board"
+    client.post(f"{base}/papers", json={"kind": "mass", "id": "mass-a", "title": "안 A", "blocks": [{"w": 30, "d": 20, "floors": 4}]})
+
+    r = client.get(f"{base}/export", params={"format": "dxf", "active": "mass-a"})
+    assert r.status_code == 200 and r.headers["content-type"].startswith("application/dxf")
+    assert "attachment" in r.headers["content-disposition"] and "filename*=UTF-8''" in r.headers["content-disposition"]
+    assert b"SECTION" in r.content[:200] and "매스 - 안 A".encode() in r.content
+    r = client.get(f"{base}/export", params={"format": "3dm"})
+    assert r.status_code == 200 and r.content[:24] == b"3D Geometry File Format "
+
+    assert client.get(f"{base}/export", params={"format": "pdf"}).status_code == 400
+    assert client.get(f"{base}/export", params={"format": "dxf", "active": "nope"}).status_code == 400
+    assert client.get("/api/projects/nope/board/export").status_code == 404
+
+
 def test_board_api_places_and_discards_ai_papers(client, project):
     from sida import board
 

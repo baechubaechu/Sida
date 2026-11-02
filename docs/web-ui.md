@@ -34,7 +34,7 @@
 | 설계 상태 반영 승인 | `POST .../state-proposals/{id}/apply`, `.../skip` |
 | 설정 창 | `GET`/`PUT /api/settings`, 키 `PUT /api/settings/keys/{openrouter·vworld·vworld_domain·data_go_kr·law}`, ChatGPT 로그인 `/api/settings/chatgpt...` |
 
-| 제도판 | `GET .../board`(종이·AI 섹션·대지 도면·매스안 수치), 종이 `POST`/`PATCH`/`DELETE .../board/papers...`, AI 섹션 `POST .../board/tray/{id}/place`, `DELETE .../board/tray/{id}`. 자세한 것은 [board-api.md](board-api.md) |
+| 제도판 | `GET .../board`(종이·AI 섹션·대지 도면·매스안 수치), 종이 `POST`/`PATCH`/`DELETE .../board/papers...`, AI 섹션 `POST .../board/tray/{id}/place`, `DELETE .../board/tray/{id}`. 캐드·라이노 내보내기 `GET .../board/export?format=dxf|3dm&active=<매스안 id>`(제도판 머리의 "내보내기" 버튼과 명령 `export`). 자세한 것은 [board-api.md](board-api.md) |
 
 API의 자세한 내용은 [session-api.md](session-api.md), [site-ordinance.md](site-ordinance.md), [state-editing.md](state-editing.md), [settings-api.md](settings-api.md), [chatgpt-login.md](chatgpt-login.md)에 있습니다.
 

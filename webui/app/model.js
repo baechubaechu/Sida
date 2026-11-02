@@ -260,6 +260,23 @@ export function expertPath(name, agent, tab = 'doc', id = '') {
   return `${projectPath(name)}/expert/${encodeURIComponent(agent)}${rest}`;
 }
 
+// The drawing table as a CAD or Rhino file (GET .../board/export). `active` is the scheme the
+// table shows: its layer is on in the file, the other schemes' layers are off.
+export const EXPORT_FORMATS = [
+  { key: 'dxf', label: 'CAD (DXF)' },
+  { key: '3dm', label: '라이노 (3dm)' },
+];
+
+export function boardExport(name, format, active = '', label = name) {
+  const query = new URLSearchParams({ format });
+  if (active) query.set('active', active);
+  const base = String(label || name).replace(/[\\/:*?"<>|]+/g, '_').trim() || 'sida';
+  return {
+    url: `/api/projects/${encodeURIComponent(name)}/board/export?${query}`,
+    filename: `${base}_제도판.${format}`,
+  };
+}
+
 // The site page: tab 'facts' (what was looked up), 'ordinance' (the 조례 on 건폐율·용적률),
 // 'uses' (whether a planned use may be built) or 'find' (choose the parcels).
 export function sitePath(name, tab = 'facts') {

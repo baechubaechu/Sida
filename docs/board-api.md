@@ -28,6 +28,7 @@
 | `DELETE /papers/{id}` | | `{rev}`. 대지 종이는 `400` |
 | `POST /tray/{id}/place` | 없음, 또는 놓을 자리 `{x, y, w, h}` | `{paper, rev}`. AI 섹션의 종이를 제도판으로 옮김. AI 섹션에 없는 id는 `404` |
 | `DELETE /tray/{id}` | | `{rev}`. AI 섹션의 종이를 버림 |
+| `GET /export?format=dxf&active=mass-a` | `format`은 `dxf`(캐드) 또는 `3dm`(라이노), `active`는 선택(화면에 보이는 매스안 id) | 파일 내려받기(`Content-Disposition: attachment`, 파일 이름 `<프로젝트>_제도판.<format>`). 아래 "캐드·라이노로 내보내기". 다른 `format`이나 제도판에 없는 매스안 id는 `400` |
 | `GET /context?ids=a,b` | 고른 종이 id(쉼표로) | `{mode, papers, conductor, expert}`. 모델에게 실제로 가는 글. 화면에서 "AI에게 보이는 내용"을 보여 줄 때 |
 
 종이는 하나씩 저장합니다. 설계자와 AI가 같은 제도판에 쓰기 때문에 통째로 덮어쓰면 다른 쪽이 놓은 종이가 사라집니다. 끌어서 옮길 때는 끌기가 끝날 때 `PATCH`를 한 번 부르세요.
@@ -36,12 +37,29 @@
 
 `GET`은 저장된 제도판에 두 가지를 더해 줍니다.
 
-- `site`: 대지 사실이 있으면 `{area_m2, lines, plan}`, 없으면 `null`. `lines`는 대지 종이에 쓸 글 줄(Conductor가 받는 것과 같음)입니다. `plan`은 필지 경계가 있을 때 `{parcels: [{pnu, address, area_m2, rings}], bounds: {min_x, min_y, max_x, max_y}, frame: {x, y, angle}}`이고, 없으면 `null`입니다. `rings`는 필지 바깥 경계 점 목록(m)이며 모든 필지 경계를 둘러싼 상자의 가운데가 0, 0입니다. 위경도를 그 가운데에서 평면으로 펼친 값이라 대지 크기에서는 cm 단위까지 맞습니다.
+- `site`: 대지 사실이 있으면 `{area_m2, lines, plan}`, 없으면 `null`. `lines`는 대지 종이에 쓸 글 줄(Conductor가 받는 것과 같음)입니다. `plan`은 필지 경계가 있을 때 `{parcels: [{pnu, address, area_m2, rings}], bounds: {min_x, min_y, max_x, max_y}, frame: {x, y, angle}, origin: {lon, lat}}`이고, 없으면 `null`입니다. `rings`는 필지 바깥 경계 점 목록(m)이며 모든 필지 경계를 둘러싼 상자의 가운데가 0, 0입니다. 위경도를 그 가운데에서 평면으로 펼친 값이라 대지 크기에서는 cm 단위까지 맞습니다. `origin`은 그 가운데(0, 0)의 경도·위도입니다.
 - `figures`: 매스안 종이 id(제도판과 AI 섹션 모두)별 `{footprint_m2, floor_area_m2, height_m, coverage_pct, far_pct}`. Conductor와 전문가가 받는 수치와 같은 계산입니다. 화면은 이 값만 보여 주고 스스로 계산하지 않습니다.
 
 ### 대지 좌표
 
 매스안 동의 `u`, `v`는 `frame` 기준입니다. `frame`의 `x`, `y`는 가장 큰 필지의 중심, `angle`은 그 필지의 가장 긴 변 방향(라디안, 동쪽에서 반시계, -90°~90°)입니다. `u`는 그 변을 따라, `v`는 그 변에 수직으로 m 단위입니다. 그래서 대지가 비스듬해도 `u: 0, v: 0`에 놓은 동은 대지 가운데에 대지와 나란히 섭니다. 대지 사실이 없으면 `frame`이 없고 화면은 `u`를 동쪽, `v`를 북쪽으로 씁니다. Conductor가 받는 매스안 글에도 `at u …, v …`로 위치가 들어갑니다.
+
+## 캐드·라이노로 내보내기
+
+`GET /export`는 제도판을 캐드(DXF)나 라이노(3dm) 파일로 줍니다. 로직은 `sida/board_export.py`입니다. 좌표는 화면과 같은 제도판 좌표(m, 0, 0이 대지 가운데, +Y가 북쪽, Z가 위)이고, 파일 단위도 m입니다. 제도판 위의 종이만 나가고 AI 섹션의 종이는 나가지 않습니다.
+
+| 레이어 | 들어가는 것 |
+|---|---|
+| `대지 경계` | 필지 바깥 경계(닫힌 폴리라인, DXF는 점선)와 필지 주소 글자 |
+| `매스` 아래 매스안마다 한 레이어 | 동마다 닫힌 상자(높이 = 층수 × 층고)와 층수 글자(`5F`). `active`를 주면 그 안만 켜고 나머지 안은 꺼 둠 |
+| `트레이싱` 아래 트레이싱지마다 한 레이어 | 펜 획(열린 폴리라인, Z 0) |
+| `기준점` | 0, 0에 원점의 위경도 글자 |
+
+- DXF는 AutoCAD 2013 형식(UTF-8)입니다. 동은 MESH(AutoCAD에서 `CONVTOSOLID`로 솔리드가 됨), 선은 LWPOLYLINE입니다. 매스안 레이어는 DXF에서 `매스 - <이름>`처럼 한 단계로 씁니다. 한글 글자는 `malgun.ttf` 글꼴 스타일을 씁니다.
+- 3dm은 Rhino 7 형식(Rhino 7·8에서 열림)입니다. 동은 닫힌 Extrusion(솔리드), 선은 Polyline 커브, 글자는 TextDot입니다. 매스안·트레이싱지는 `매스`·`트레이싱` 아래 하위 레이어입니다.
+- 대지 사실이 없으면 대지 경계와 기준점 없이 매스안과 트레이싱만 나갑니다(동은 0, 0 기준 동쪽이 `u`).
+- 다른 영역이 레이어를 더할 수 있습니다(예: 주변 건물). 영역의 `hooks.py`에 `board_export_layers(project_dir)`를 두고 `[{name, color, curves, solids, labels}]`를 돌려주면 됩니다(형식은 `board_export.layer`).
+- 쓰는 패키지: `ezdxf`(DXF), `rhino3dm`(3dm). 둘 다 `pyproject.toml` 의존성입니다.
 
 ## AI 섹션
 
