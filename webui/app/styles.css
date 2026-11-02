@@ -90,16 +90,17 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 .form-actions { display: flex; justify-content: flex-end; gap: 14px; margin-top: 30px; }
 .form-actions .secondary { min-width: 132px; }
 .form-actions .primary { min-width: 189px; }
-/* Workspace (drafting table prototype, PR #63): the drafting table and, on its right, the
-   experts (they fold away), the site page or an expert's page, each a card on the grey desk. The
-   Conductor has no panel: it is the command line along the bottom (2026-11-01). Phones switch
-   panes with tabs. */
+/* Conductor on the left, drafting table in the middle, experts on the right.
+   Each side can fold independently; phones switch panes with tabs. */
 .studio { --experts-width: 260px; height: 100dvh; overflow: hidden; display: grid; grid-template-rows: minmax(0, 1fr) auto; padding: 16px max(12px, env(safe-area-inset-right, 0px)) 16px max(12px, env(safe-area-inset-left, 0px)); background: var(--surface-subtle); }
-.studio.with-table { grid-template-columns: minmax(0, 1fr) var(--experts-width); }
-.studio.with-table.site-open { grid-template-columns: minmax(0, 1fr) minmax(360px, 34%); }
-.studio.with-table.expert-open { grid-template-columns: minmax(0, 1fr) minmax(420px, 46%); }
+.studio.with-table { --conductor-width: 0px; --side-width: var(--experts-width); grid-template-columns: var(--conductor-width) minmax(0, 1fr) var(--side-width); }
+.studio.with-table.conductor-open { --conductor-width: 340px; }
+.studio.with-table.site-open { --side-width: minmax(340px, 34%); }
+.studio.with-table.expert-open { --side-width: minmax(360px, 40%); }
 /* A folded panel leaves the grid (display: none), so the columns drop with it. */
-.studio.with-table.experts-collapsed { grid-template-columns: minmax(0, 1fr); }
+.studio.with-table.experts-collapsed { --side-width: 0px; }
+.studio > .board { grid-row: 1; grid-column: 2; }
+.studio > .experts, .studio > .expert-page { grid-row: 1; grid-column: 3; }
 .studio.experts-collapsed > .experts { display: none; }
 .studio.with-table > .experts, .studio.with-table > .expert-page { margin-left: 12px; }
 .panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
@@ -416,6 +417,9 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .paper-tag { position: absolute; left: 10px; top: 8px; padding: 3px 10px; border-radius: 999px; background: var(--pen); color: var(--paper); font-size: 13px; font-weight: 600; cursor: move; }
 .floor-tag { font: 700 28px var(--font); color: var(--text); pointer-events: none; transition: opacity .2s; }
 .table-ui { position: absolute; z-index: 2; }
+.tape-snap { position: absolute; left: 0; top: 0; z-index: 3; pointer-events: none; width: 10px; height: 10px; margin: -5px; border: 2px solid #126b89; background: #fff; box-shadow: 0 0 0 2px rgb(255 255 255 / .8); }
+.tape-snap[hidden] { display: none; }
+.tape-snap span { position: absolute; top: 12px; left: 8px; white-space: nowrap; color: #fff; background: #126b89; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
 /* In 3D the papers fold into pins standing where they lie; a pin opens its paper as a card. */
 .table-pins { position: absolute; inset: 0; z-index: 1; pointer-events: none; display: none; }
 .table.is-3d .table-pins, .table.has-folded .table-pins { display: block; }
@@ -512,6 +516,20 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .tray-actions .tray-discard { color: var(--muted); margin-left: auto; }
 .scheme-form { left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow-y: auto; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgb(0 0 0 / .18); z-index: 4; cursor: auto; user-select: text; }
 .scheme-form[hidden] { display: none; }
+.tool-number { width: min(380px, calc(100vw - 32px)); border: 1px solid var(--line); border-radius: 14px; padding: 22px; background: var(--surface); color: var(--text); box-shadow: 0 16px 60px rgb(20 30 40 / .2); font: 14px/1.6 var(--font); user-select: text; cursor: auto; touch-action: auto; }
+.tool-number::backdrop { background: rgb(32 38 45 / .24); }
+.tool-number form { display: grid; gap: 12px; }
+.tool-number header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tool-number h2 { font-size: 18px; margin: 0; }
+.tool-number header button { font-size: 24px; color: var(--muted); }
+.tool-number p { margin: 0; }
+.tool-number label { font-weight: 600; margin-top: 6px; }
+.tool-number input { width: 100%; padding: 10px 12px; font-size: 20px; }
+.tool-number #tool-number-help { color: var(--muted); font-size: 12px; }
+.tool-number .form-error { color: #b42318; font-size: 12px; }
+.tool-number .form-error:empty { display: none; }
+.tool-number footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
+.tool-number footer button { padding: 7px 14px; border-radius: 7px; }
 .scheme-form form { display: grid; gap: 10px; }
 .scheme-form label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
 .scheme-form input { padding: 6px 8px; width: 100%; }
@@ -640,8 +658,9 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
   :root { --sidebar-width: 210px; --expert-width: 290px; --home-gutter: 32px; }
   .project-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .studio { --experts-width: 230px; }
-  .studio.with-table.site-open { grid-template-columns: minmax(0, 1fr) minmax(320px, 38%); }
-  .studio.with-table.expert-open { grid-template-columns: minmax(0, 1fr) minmax(360px, 50%); }
+  .studio.with-table.conductor-open { --conductor-width: 310px; }
+  .studio.with-table.site-open { --side-width: minmax(320px, 34%); }
+  .studio.with-table.expert-open { --side-width: minmax(340px, 38%); }
 }
 @media (max-width: 900px) {
   :root { --sidebar-width: 185px; }
@@ -741,11 +760,11 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .site-map .leaflet-control-attribution { font-size: 10px; }
 @media (max-width: 760px) { .site-map-slot { height: 260px; } }
 
-/* ------------------------------------------------------------------ command line and talk popups */
+/* ------------------------------------------------------------------ command line and Conductor panel */
 /* The command line runs along the bottom of the workspace (2026-11-01). One English word is a
-   command; anything else opens a Conductor talk in a popup above the line. */
+   command; anything else opens a Conductor talk in the left panel. */
 .studio > .panel { grid-row: 1; }
-.command-bar { grid-row: 2; grid-column: 1 / -1; position: relative; z-index: 20; margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.command-bar { grid-row: 2; grid-column: 2 / -1; position: relative; z-index: 20; margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
 .command-top { display: flex; align-items: end; gap: 12px; min-height: 0; }
 .command-history { flex: 1; min-width: 0; list-style: none; margin: 0; padding: 0 6px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); }
 .command-history li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -776,8 +795,26 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .command-help dl { margin: 0; display: grid; grid-template-columns: 11em 1fr; gap: 3px 10px; font-size: 12px; }
 .command-help dt { font: 600 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .command-help dd { margin: 0; color: var(--muted); }
-.talk-layer { position: absolute; right: 0; bottom: calc(100% + 8px); height: 0; z-index: 5; }
-.talk-popup { position: absolute; bottom: 0; right: calc(var(--slot) * 392px); width: 380px; max-height: min(62vh, 640px); display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 12px 34px rgb(20 30 40 / .18); overflow: hidden; }
+.studio > .conductor-panel { grid-row: 1 / 3; grid-column: 1; margin-right: 12px; }
+.studio-splitter { grid-row: 1; justify-self: start; align-self: stretch; position: relative; width: 12px; min-height: 0; z-index: 12; cursor: col-resize; touch-action: none; display: grid; place-items: center; outline: none; }
+.studio-splitter::before { content: ''; width: 3px; height: 40px; border-radius: 3px; background: #bdc8cf; }
+.studio-splitter:hover::before, .studio-splitter:focus-visible::before { background: var(--brand); height: 64px; }
+.splitter-left { grid-column: 2; grid-row: 1 / 3; transform: translateX(-12px); }
+.splitter-right { grid-column: 3; }
+.resizing-panels, .resizing-panels * { cursor: col-resize !important; user-select: none !important; }
+.conductor-panel[hidden] { display: none; }
+.conductor-panel .pane-head { padding: 20px 18px 16px; }
+.conductor-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid var(--line); }
+.conductor-toolbar button { padding: 6px 10px; font-size: 12px; color: var(--brand); border-radius: 7px; background: var(--surface-subtle); }
+.conductor-toolbar button:first-child { background: var(--brand); color: white; }
+.conductor-error { padding: 12px 16px; }
+.conductor-history { display: flex; flex: 1; min-height: 0; padding: 0 12px 12px; }
+.conductor-history .talk-list-scroll { flex: 1; }
+.talk-conversation { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.conductor-welcome { flex: 1; min-height: 0; overflow: auto; padding: 40px 24px; }
+.conductor-mark { display: inline-grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; background: var(--selected); color: var(--brand); font-size: 23px; font-weight: 700; }
+.conductor-welcome h3 { margin: 18px 0 10px; font-size: 17px; }
+.conductor-welcome p { color: var(--muted); font-size: 13px; line-height: 1.8; }
 .talk-head { display: flex; align-items: center; gap: 4px; padding: 10px 8px 10px 16px; border-bottom: 1px solid var(--line); }
 .talk-head strong { flex: 1; min-width: 0; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .talk-scroll { flex: 1; min-height: 80px; overflow-y: auto; overscroll-behavior: contain; padding: 14px 16px; }
@@ -788,14 +825,8 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .talk-composer textarea { min-height: 34px; font-size: 14px; }
 .talk-context { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-bottom: 4px; }
 .talk-add-picked { font-size: 12px; color: var(--brand); border: 1px dashed var(--brand); border-radius: 6px; padding: 2px 8px; }
-.talk-tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; padding: 0 4px 2px; max-width: 60%; }
-.talk-tag { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 4px 10px; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; font-size: 12px; color: var(--brand); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 8px rgb(20 30 40 / .08); }
-.talk-tag-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .command-talks { flex-shrink: 0; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); font-size: 12px; font-weight: 600; color: var(--brand); }
 .command-talks.open { background: var(--selected); border-color: var(--brand); }
-.command-talks-card { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 7; width: min(420px, 100%); max-height: 60vh; display: flex; flex-direction: column; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 10px 30px rgb(20 30 40 / .16); }
-.command-talks-card header { display: flex; justify-content: space-between; align-items: center; }
-.command-talks-card > p { font-size: 12px; margin: 6px 0 0; }
 .talk-list-scroll { min-height: 0; overflow-y: auto; }
 .talk-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
 .talk-row { width: 100%; text-align: left; display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
@@ -803,8 +834,14 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .talk-row-title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .talk-row-meta { font-size: 12px; color: var(--muted); }
 @media (max-width: 900px) {
-  .command-bar { margin: 6px 0 0; }
-  .talk-popup { right: 0 !important; width: calc(100vw - 16px); max-height: 55vh; }
-  .talk-layer .talk-popup:not(:last-child) { display: none; }
+  .command-bar { grid-column: 1 / -1; margin: 6px 0 0; }
   .command-suggest { min-width: 0; right: 6px; }
+}
+
+@media (max-width: 900px) {
+  .studio.with-table.conductor-open { grid-template-columns: minmax(0, 1fr); }
+  .studio-splitter { display: none; }
+  .studio > .conductor-panel { display: none; grid-row: 1; grid-column: 1; margin: 0; }
+  .studio.pane-conductor > .conductor-panel:not([hidden]) { display: flex; }
+  .studio > .board, .studio > .experts, .studio > .expert-page { grid-column: 1; }
 }

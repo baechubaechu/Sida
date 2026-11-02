@@ -20,11 +20,11 @@ export const COMMANDS = [
   { name: 'mass', aliases: [], label: '숫자로 매스안 만들기', group: 'draw' },
   // SketchUp's basic tools on blocks (2026-11-02 지훈), with the AutoCAD short names.
   { name: 'rect', aliases: ['rec', 'rectangle'], label: '사각형: 끌어서 새 동 그리기', group: 'draw' },
-  { name: 'pushpull', aliases: ['pp', 'push'], label: '밀고끌기: 윗면은 층수, 옆면은 길이', group: 'draw' },
+  { name: 'pushpull', aliases: ['pp', 'push'], label: '밀고끌기: 끌어서 조절 · 클릭하면 층수·길이 입력', group: 'draw' },
   { name: 'move', aliases: ['m'], label: '이동: 동 옮기기, Ctrl은 복사', group: 'edit' },
   { name: 'copy', aliases: ['co', 'cp'], label: '복사: 동을 끌어 복사', group: 'edit' },
   { name: 'rotate', aliases: ['ro'], label: '회전: 동 돌리기', group: 'edit' },
-  { name: 'scale', aliases: ['sc'], label: '크기: 동 키우고 줄이기', group: 'edit' },
+  { name: 'scale', aliases: ['sc'], label: '크기: 끌어서 조절 · 클릭하면 배율 입력', group: 'edit' },
   { name: 'eraser', aliases: [], label: '지우개: 누르거나 끌고 지나간 동 지우기', group: 'edit' },
   { name: 'dist', aliases: ['di', 'measure', 'tape'], label: '줄자: 두 점 사이 거리', group: 'edit' },
   { name: 'delete', aliases: ['erase', 'e'], label: '고른 것 지우기', group: 'edit' },

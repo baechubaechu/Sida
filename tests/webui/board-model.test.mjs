@@ -7,6 +7,8 @@ import {
   figureLines, readScheme, schemeRows, keepSelected, toggleSelected, boxPick, boxMode, pickedNames, MAX_CONTEXT,
   frameDelta, editBlocks, axisDrag, blocksCenter, blockKey, parseBlockKey, pickedBlocks,
   toFrame, rectBlock, pushBlock, copyBlocks, turnBlocks, scaleBlocks, snapAngle,
+  numericToolClick, numericPushBlock, numericScaleBlocks,
+  snapTape,
   folded, foldedInPlan, pinnedPapers, peekSpot, resultPreview,
   massIds, canCompare, COMPARE_QUESTION, addQuestion, createHistory, changedFields, recordStep, undoStep, redoStep,
   invertStep, HISTORY_LIMIT, planDrawing, dragMode, wheelZoom, orbitBy, viewName, viewFor, panBy,
@@ -14,6 +16,61 @@ import {
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
 const SITE = { plan: { bounds: { min_x: -30, min_y: -50, max_x: 30, max_y: 50 }, frame: { x: 5, y: -10, angle: Math.PI / 2 } } };
+
+test('tape snaps to endpoints before edges, and leaves distant geometry alone', () => {
+  const a = { x: 0, y: 0, z: 0 }, b = { x: 100, y: 0, z: 20 };
+  const project = p => ({ x: p.x, y: p.y, w: 1 });
+  assert.deepEqual(snapTape({ x: 4, y: 3 }, [[a, b]], project).point, a);
+  assert.deepEqual(snapTape({ x: 50, y: 5 }, [[a, b]], project).point, { x: 50, y: 0, z: 10 });
+  assert.equal(snapTape({ x: 50, y: 11 }, [[a, b]], project), null);
+  assert.equal(snapTape({ x: 0, y: 0 }, [[a, b]], () => null), null);
+});
+
+test('tape perspective snapping interpolates real height and is independent of world scale', () => {
+  const a = { x: 0, y: 0, z: 0 }, b = { x: 30, y: 0, z: 60 };
+  const hit = snapTape({ x: 50, y: 2 }, [[a, b]], p => p === a ? { x: 0, y: 0, w: 1 } : { x: 100, y: 0, w: 2 });
+  close(hit.point.x, 10); close(hit.point.z, 20);
+  const zoomed = snapTape({ x: 200, y: 9 }, [[a, b]], p => ({ x: p.x * 10, y: 0, w: 1 }));
+  close(zoomed.point.x, 20);
+});
+
+test('push/pull and scale open numeric input only for a click on geometry, never after a drag or cancel', () => {
+  assert.equal(numericToolClick({ kind: 'push', moved: false }), true);
+  assert.equal(numericToolClick({ kind: 'gumball', grip: 'scale', numeric: true, moved: false }), true);
+  assert.equal(numericToolClick({ kind: 'push', moved: true }), false);
+  assert.equal(numericToolClick({ kind: 'gumball', grip: 'scale', numeric: true, moved: false, dragged: true }), false);
+  assert.equal(numericToolClick({ kind: 'push', moved: false }, true), false);
+  assert.equal(numericToolClick({ kind: 'gumball', grip: 'scale', moved: false }), false);
+  assert.equal(numericToolClick({ kind: 'gumball', grip: 'free', numeric: true, moved: false }), false);
+  assert.equal(numericToolClick(null), false);
+});
+
+test('numeric push/pull sets floors or an exact side length while keeping the opposite face fixed', () => {
+  const b = { u: 0, v: 0, w: 10, d: 6, floors: 3, a: 90 };
+  assert.deepEqual(numericPushBlock(b, 'top', '7').block, { ...b, floors: 7 });
+  const wider = numericPushBlock(b, 'w+', '14.25').block;
+  assert.equal(wider.w, 14.25);
+  close(wider.u, 0);
+  close(wider.v - wider.w / 2, -5, .006);
+  const shorter = numericPushBlock({ ...b, a: 0 }, 'd-', '4').block;
+  assert.equal(shorter.d, 4);
+  assert.equal(shorter.v + shorter.d / 2, 3);
+  assert.deepEqual(b, { u: 0, v: 0, w: 10, d: 6, floors: 3, a: 90 });
+  for (const value of ['', 'Infinity', '-1', '0', '1001']) assert.ok(numericPushBlock(b, 'w+', value).error);
+  for (const value of ['2.5', '201', '0']) assert.ok(numericPushBlock(b, 'top', value).error);
+});
+
+test('numeric scaling uses the drag transform for selected blocks and rejects impossible sizes', () => {
+  const blocks = [{ u: -10, v: 0, w: 10, d: 6, floors: 3 }, { u: 10, v: 0, w: 8, d: 4, floors: 5 }];
+  const center = { u: 0, v: 0 };
+  const result = numericScaleBlocks(blocks, [0, 1], center, '1.25');
+  assert.deepEqual(result.blocks, scaleBlocks(blocks, [0, 1], center, 1.25));
+  assert.equal(result.blocks[1].floors, 5);
+  assert.equal(numericScaleBlocks(blocks, [0], center, '.5').blocks[1], blocks[1]);
+  for (const value of ['', '-1', '0', 'NaN', 'Infinity', '.01', '1000']) {
+    assert.ok(numericScaleBlocks(blocks, [0, 1], center, value).error);
+  }
+});
 
 test('a plan looks straight down and masses lie flat; leaning raises them', () => {
   const plan = cameraFor({ x: 10, y: 20, span: 100, tilt: TILT.plan, turn: 0 });

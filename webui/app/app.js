@@ -14,6 +14,7 @@ import { keepSelected, pickedNames, massIds, canCompare, COMPARE_QUESTION, addQu
 import {
   COMMANDS, GROUP_LABELS, readLine, suggest, pickOption, addHistory, remember, HISTORY_LINES,
 } from './command-model.js';
+import { talkPanel, initialTalk, panelShown, panelWidths, resizePanel } from './talk-panel-model.js';
 
 const app = document.querySelector('#app');
 const announcer = document.querySelector('#announcer');
@@ -40,22 +41,22 @@ const ui = {
   job: null, live: [], pending: null,
   revisionOpen: false, creating: false,
   // The workspace: the drafting table, and beside it the experts, the site page or an expert's
-  // page. The Conductor has no panel: it is the command line at the bottom and its popups.
-  // Whether the experts are folded away, whether the talk list is open, and on a phone which
-  // pane is shown ('board' or 'side').
-  expertsCollapsed: false, talksOpen: false, pane: 'board', focusComposer: false,
+  // page. Conductor conversations open in a collapsible left panel.
+  expertsCollapsed: false, conductor: { open: true, active: null, list: false },
+  pane: 'board', focusComposer: false, creatingTalk: false,
+  panelRatios: { left: .27, right: .21, detail: .38 },
   settings: null, settingsDraft: null, settingsError: '', chatgptModels: null, chatgptNote: '',
   board: null, selected: [], 
   site: null, siteError: '', showSiteLines: false, find: null, siteFirst: false,
   ordinance: null, ordinanceError: '', ordinanceBusy: '', useFind: null, mapLayers: null, mapError: '', mapErrorStatus: 0,
-  // Conductor talks (sida/talks.py): the loaded ones by id, and the popups open on screen
-  // ({id, folded, context: paper ids sent with the next question}).
-  talks: new Map(), popups: [],
+  // Loaded conversations and their next-question contexts; closing the panel keeps both.
+  talks: new Map(), talkViews: [],
   // The command line: history lines, typed lines for ↑↓, a command's open question, the last
   // command (an empty Enter repeats it), the highlighted suggestion and the help card.
   cmd: { lines: [], typed: [], back: -1, prompt: null, last: '', pick: 0, help: false },
 };
 const drafts = new Map();
+const conductorScrolls = new Map();
 const openingTried = new Set();
 let currentRoute = { page: 'home' };
 let trackToken = 0; // only the newest polling loop keeps going
@@ -64,6 +65,8 @@ let table = null; // the drafting table of the open project (table.js, loaded on
 let tableFor = '';
 let siteMap = null; // the map on the site page's "찾기" tab (site-map.js, loaded on first use)
 let siteMapLoading = false;
+let panelResize = null;
+let resizeRenderPending = false;
 
 // ------------------------------------------------------------------ helpers
 
@@ -139,8 +142,18 @@ async function loadProjects() {
 
 async function loadSession(name) {
   try {
-    ui.session = await api(`${projectApi(name)}/session`);
+    const session = await api(`${projectApi(name)}/session`);
+    if (ui.project !== name) return;
+    ui.session = session;
     ui.sessionError = '';
+    if (ui.conductor.active === null) {
+      const id = initialTalk(session.talks || [], null);
+      ui.conductor = { ...ui.conductor, active: id };
+      if (id) {
+        ui.talkViews.push({ id, context: [] });
+        await loadTalk(name, id);
+      }
+    }
   } catch (error) {
     ui.session = null;
     ui.sessionError = error.status === 404 ? '프로젝트를 찾을 수 없습니다.' : error.message;
@@ -221,7 +234,7 @@ async function loadExpert(name, agent) {
 async function refreshProject() {
   const { name, agent } = currentRoute;
   if (currentRoute.page !== 'project') return;
-  await Promise.all([loadSession(name), loadBoard(name), ...ui.popups.map((p) => loadTalk(name, p.id))]);
+  await Promise.all([loadSession(name), loadBoard(name), ...ui.talkViews.map((p) => loadTalk(name, p.id))]);
   if (agent && ui.session) await loadExpert(name, agent);
 }
 
@@ -263,7 +276,6 @@ function tableHooks(name) {
     place: (id, placement) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}/place`, { method: 'POST', body: placement }), true),
     discard: (id) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}`, { method: 'DELETE' }), true),
     select: (ids) => { ui.selected = ids; render(false); },
-    viewMoved: () => foldPopups(),
     ask: () => askAbout(),
     openExpert: (agent) => { location.hash = expertUrl(name, agent); },
     experts: () => ui.session?.experts || [],
@@ -351,7 +363,10 @@ async function navigate() {
       ui.board = null;
       ui.selected = [];
       ui.talks = new Map();
-      ui.popups = [];
+      ui.talkViews = [];
+      ui.conductor = { ...ui.conductor, active: null, list: false };
+      conductorScrolls.clear();
+      for (const key of drafts.keys()) if (key.startsWith('talk:') || key === 'conductor-new') drafts.delete(key);
       ui.cmd = { lines: [], typed: [], back: -1, prompt: null, last: '', pick: 0, help: false };
       drafts.delete('command');
       render();
@@ -371,12 +386,12 @@ async function navigate() {
     render();
     if (!ui.session) return;
     if (ui.session.job) {
-      if (ui.session.job.talk) openPopup(name, ui.session.job.talk);
+      if (ui.session.job.talk) openTalk(name, ui.session.job.talk);
       track(name, ui.session.job);
     }
     else if (!ui.session.messages.length && !openingTried.has(name)) {
       openingTried.add(name);
-      openPopup(name, '01');
+      openTalk(name, '01');
       start(name, `${projectApi(name)}/session/opening`, {});
     }
     return;
@@ -602,11 +617,7 @@ function workingLine(forMain) {
 }
 
 // ------------------------------------------------------------------ talks and the command line
-// The Conductor answers in popups: each question typed on the command line opens a talk
-// (sida/talks.py) in its own popup, and the follow-up questions go in that popup. The left panel
-// lists every talk, so a closed popup can be opened again.
-
-const MAX_OPEN_POPUPS = 3;
+// The same saved talks back the left panel and questions entered on the command line.
 
 function talkTitle(talk) {
   if (talk?.title) return talk.title;
@@ -617,23 +628,33 @@ function talkSummary(id) {
   return ui.session?.talks?.find((t) => t.id === id) || { id, title: '', messages: 0, updated_at: '' };
 }
 
-// The talk list, a card above the command line (the talks button or the talks command):
-// every talk, newest first. Pressing one opens its popup, so a closed talk can be found again.
+// Saved conversations, newest first, inside the Conductor panel.
 function talksCard() {
   const session = ui.session;
   const talks = [...(session?.talks || [])].reverse();
-  const open = new Set(ui.popups.map((p) => p.id));
   const body = !session
     ? `<p class="${ui.sessionError ? 'error-text' : 'muted'}">${escape(ui.sessionError || '대화를 불러오는 중입니다.')}</p>`
     : `<ul class="talk-list" aria-label="Conductor 대화 목록">${talks.map((t) => `<li>
-        <button type="button" class="talk-row" data-action="talk-open" data-talk="${escape(t.id)}" aria-pressed="${open.has(t.id)}">
+        <button type="button" class="talk-row" data-action="talk-open" data-talk="${escape(t.id)}" aria-pressed="${ui.conductor.active === t.id}">
           <span class="talk-row-title">${escape(talkTitle(t))}</span>
           <span class="talk-row-meta">${t.messages ? `메시지 ${t.messages}개` : '아직 비어 있음'}${t.updated_at ? ` · ${escape(relativeDate(t.updated_at))}` : ''}${jobRunning() && ui.job.talk === t.id ? ' · 답하는 중' : ''}</span>
         </button></li>`).join('')}</ul>`;
-  return `<section class="command-talks-card" aria-label="대화 목록"><header><strong>Conductor 대화</strong>
-      <button type="button" class="ghost" data-action="talks-toggle" aria-label="대화 목록 닫기">×</button></header>
-      <p class="muted">명령창에 질문을 쓰면 새 대화가 팝업으로 열립니다. 닫은 대화는 여기서 다시 엽니다.</p>
+  return `<section class="conductor-history" aria-label="대화 목록">
       <div class="talk-list-scroll" data-scroll="talks" data-scroll-from="top">${body}</div></section>`;
+}
+
+function conductorPanel() {
+  const id = ui.conductor.active;
+  const view = talkViewById(id);
+  return `<aside class="conductor-panel panel" id="conductor-panel" aria-label="Conductor 대화" ${ui.conductor.open ? '' : 'hidden'}>
+      <header class="pane-head"><div><span class="eyebrow">설계 대화</span><h2>Conductor</h2></div>
+        <button type="button" class="ghost" data-action="conductor-close" aria-label="Conductor 대화 닫기" title="대화 패널 접기">‹</button></header>
+      <div class="conductor-toolbar"><button type="button" data-action="talk-new">＋ 새 대화</button>
+        <button type="button" data-action="talks-toggle" aria-expanded="${ui.conductor.list}">${ui.conductor.list ? '대화로 돌아가기' : '이전 대화'}</button></div>
+      ${ui.sessionError ? `<p class="error-text conductor-error">${escape(ui.sessionError)}</p>` : ''}
+      ${ui.conductor.list ? talksCard() : view ? talkConversation(view) : `<div class="conductor-welcome"><span class="conductor-mark" aria-hidden="true">S</span><h3>설계 이야기를 시작해 보세요</h3><p>아이디어를 나누거나 제도판에서 고른 자료를 함께 검토할 수 있습니다.</p></div>
+        ${composer('conductor-new', 'Conductor에게 질문하세요…', 'Conductor', jobRunning() || ui.creatingTalk || !ui.session)}`}
+    </aside>`;
 }
 
 function talkWorking(id) {
@@ -643,20 +664,20 @@ function talkWorking(id) {
   return `<p class="working" role="status"><span class="spinner" aria-hidden="true"></span>${escape(text)}</p>`;
 }
 
-// The papers a popup's next question carries: × takes one out, and what is picked on the table
+// The papers a view's next question carries: × takes one out, and what is picked on the table
 // now can be added.
-function popupContext(popup) {
-  const names = pickedNames(popup.context, ui.board);
-  const more = ui.selected.filter((id) => !popup.context.includes(id));
+function talkContext(view) {
+  const names = pickedNames(view.context, ui.board);
+  const more = ui.selected.filter((id) => !view.context.includes(id));
   if (!names.length && !more.length) return '';
   return `<div class="talk-context" aria-label="이번 질문에 함께 보낼 자료">
-      ${names.map((p) => `<span class="attachment"><button type="button" class="attachment-title" data-action="inspect-paper" data-id="${escape(p.id)}" title="상세 보기">${escape(p.name)}</button><button type="button" class="attachment-remove" data-action="talk-unpick" data-talk="${escape(popup.id)}" data-id="${escape(p.id)}" aria-label="${escape(p.name)} 빼기">×</button></span>`).join('')}
-      ${more.length ? `<button type="button" class="talk-add-picked" data-action="talk-add-picked" data-talk="${escape(popup.id)}">＋ 고른 종이 ${more.length}개 넣기</button>` : ''}
+      ${names.map((p) => `<span class="attachment"><button type="button" class="attachment-title" data-action="inspect-paper" data-id="${escape(p.id)}" title="상세 보기">${escape(p.name)}</button><button type="button" class="attachment-remove" data-action="talk-unpick" data-talk="${escape(view.id)}" data-id="${escape(p.id)}" aria-label="${escape(p.name)} 빼기">×</button></span>`).join('')}
+      ${more.length ? `<button type="button" class="talk-add-picked" data-action="talk-add-picked" data-talk="${escape(view.id)}">＋ 고른 종이 ${more.length}개 넣기</button>` : ''}
     </div>`;
 }
 
-function talkPopup(popup, index) {
-  const { id } = popup;
+function talkConversation(view) {
+  const { id } = view;
   const loaded = ui.talks.get(id);
   const items = chatItems(loaded?.messages || []);
   const key = `talk:${id}`;
@@ -664,10 +685,8 @@ function talkPopup(popup, index) {
   const live = ui.job?.talk === id ? ui.live : [];
   const busy = jobRunning();
   const empty = !items.length && !pending.length && !live.length && !talkWorking(id);
-  return `<section class="talk-popup" data-talk="${escape(id)}" style="--slot: ${index}" aria-label="대화: ${escape(talkTitle(talkSummary(id)))}">
-      <header class="talk-head"><strong>${escape(talkTitle(talkSummary(id)))}</strong>
-        <button type="button" class="ghost" data-action="talk-fold" data-talk="${escape(id)}" aria-label="대화 접기" title="접기">–</button>
-        <button type="button" class="ghost" data-action="talk-close" data-talk="${escape(id)}" aria-label="대화 닫기" title="닫기 (기록은 대화 목록에 남습니다)">×</button></header>
+  return `<section class="talk-conversation" data-talk="${escape(id)}" aria-label="대화: ${escape(talkTitle(talkSummary(id)))}">
+      <header class="talk-head"><strong>${escape(talkTitle(talkSummary(id)))}</strong></header>
       <div class="talk-scroll" data-scroll="${escape(key)}">
         ${loaded?.error ? `<p class="error-text">${escape(loaded.error)}</p>` : ''}
         ${empty && !loaded?.error ? `<p class="muted">${loaded ? '아직 대화가 없습니다.' : '대화를 불러오는 중입니다.'}</p>` : ''}
@@ -677,7 +696,7 @@ function talkPopup(popup, index) {
         </div>
       </div>
       <form class="composer talk-composer" data-composer="${escape(key)}" aria-label="이 대화에 이어서 묻기">
-        ${popupContext(popup)}
+        ${talkContext(view)}
         <textarea data-focus="${escape(key)}" aria-label="이 대화에 이어서 묻기" placeholder="이어서 묻기" maxlength="6000" rows="1">${escape(draftFor(key))}</textarea>
         <div class="composer-footer"><span class="composer-hint">${busy ? '작업이 끝나면 보낼 수 있습니다.' : 'Enter로 보내기 · Shift+Enter로 줄 바꿈'}</span>
           <button class="send-button" type="submit" aria-label="이 대화에 보내기" ${busy ? 'disabled' : ''}>↑</button></div>
@@ -722,19 +741,16 @@ function commandBar() {
   const text = draftFor('command');
   const mode = commandMode(text);
   const items = suggestionItems(text);
-  const open = ui.popups.filter((p) => !p.folded).slice(-MAX_OPEN_POPUPS);
-  const folded = ui.popups.filter((p) => !open.includes(p));
   const picked = pickedNames(ui.selected, ui.board);
+  const shown = panelShown(ui.conductor, ui.pane, matchMedia('(max-width: 900px)').matches);
   return `<section class="command-bar" aria-label="명령창">
-      <div class="talk-layer">${open.map((p, i) => talkPopup(p, open.length - 1 - i)).join('')}</div>
-      ${c.help ? helpCard() : ui.talksOpen ? talksCard() : ''}
+      ${c.help ? helpCard() : ''}
       <div class="command-top"><ol class="command-history" aria-label="명령 기록">${c.lines.slice(-HISTORY_LINES).map((l) => `<li class="${escape(l.tone)}">${escape(l.text)}</li>`).join('')}
         ${ui.sessionError ? `<li class="error">${escape(ui.sessionError)} <a href="#/">← 프로젝트로 돌아가기</a></li>` : ''}
         ${c.prompt ? `<li class="command-question">${escape(c.prompt.text)} ${c.prompt.options.map((o, i) => `<button type="button" data-action="cmd-option" data-index="${i}">${i + 1} ${escape(o.label)}</button>`).join('')}</li>` : ''}</ol>
-      ${folded.length ? `<div class="talk-tags" aria-label="접힌 대화">${folded.map((p) => `<button type="button" class="talk-tag" data-action="talk-unfold" data-talk="${escape(p.id)}" title="대화 펼치기">
-        ${jobRunning() && ui.job.talk === p.id ? '<span class="spinner" aria-hidden="true"></span>' : '<span aria-hidden="true">💬</span>'}<span class="talk-tag-title">${escape(talkTitle(talkSummary(p.id)))}</span></button>`).join('')}</div>` : ''}</div>
+      </div>
       <form class="command-form" id="command-form">
-        <button type="button" class="command-talks ${ui.talksOpen ? 'open' : ''}" data-action="talks-toggle" aria-expanded="${ui.talksOpen}" title="Conductor 대화 목록 (talks)">대화 ${ui.session?.talks?.length || ''}</button>
+        <button type="button" class="command-talks ${shown ? 'open' : ''}" data-action="conductor-toggle" aria-controls="conductor-panel" aria-expanded="${shown}" aria-label="Conductor 대화 ${shown ? '접기' : '열기'}">대화</button>
         <span class="command-mode ${mode.tone}" id="command-mode">${escape(mode.label)}</span>
         ${picked.length ? `<span class="command-picked" title="${escape(picked.map((p) => p.name).join(', '))}">자료 ${picked.length}개</span>` : ''}
         <textarea id="command-input" data-focus="command" rows="1" maxlength="6000" spellcheck="false" autocomplete="off"
@@ -1359,6 +1375,7 @@ function siteReaderBar(name, tab) {
 
 // The board panel's head: where we are, the panel toggles, and what is picked on the table.
 function boardHead(name, site, agent) {
+  const shown = panelShown(ui.conductor, ui.pane, matchMedia('(max-width: 900px)').matches);
   const picked = pickedNames(ui.selected, ui.board);
   const compare = canCompare(ui.selected, ui.board);
   const masses = massIds(ui.board);
@@ -1373,6 +1390,7 @@ function boardHead(name, site, agent) {
   return `<header class="board-head">
       <div class="board-heading"><span class="eyebrow"><a href="#/">프로젝트</a><span aria-hidden="true">/</span>${escape(name)}<span aria-hidden="true">/</span>${site ? '대지' : '디자인'}</span><h1>제도판</h1></div>
       <div class="panel-toggles">
+        <button type="button" class="panel-toggle" data-action="conductor-toggle" aria-controls="conductor-panel" aria-expanded="${shown}" aria-label="Conductor 대화 ${shown ? '접기' : '열기'}">대화</button>
         ${site || agent || !ui.expertsCollapsed ? '' : '<button type="button" class="panel-toggle" data-action="toggle-experts-panel" aria-controls="experts-panel" aria-expanded="false"><span aria-hidden="true">‹</span> 전문가</button>'}
         <button type="button" class="ghost settings-button" data-action="settings" aria-label="설정" title="설정">⚙${settingsWarned() ? '<span class="warn-dot" aria-label="확인할 설정 있음">●</span>' : ''}</button>
       </div>
@@ -1385,38 +1403,88 @@ function settingsWarned() {
   return Boolean(ui.settings && Object.values(ui.settings.warnings || {}).some(Boolean));
 }
 
+function panelSplitter(side) {
+  const label = side === 'left' ? '대화 패널 너비 조절' : '오른쪽 패널 너비 조절';
+  return `<div class="studio-splitter splitter-${side}" role="separator" aria-label="${label}" aria-orientation="vertical"
+    aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0" data-resize-side="${side}" data-focus="panel-${side}"
+    title="드래그 또는 방향키로 너비 조절 · 두 번 누르면 기본 너비"></div>`;
+}
+
+function workspaceWidth(studio) {
+  const css = getComputedStyle(studio);
+  return studio.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight);
+}
+
+function applyPanelWidths(studio, widths, total) {
+  studio.style.setProperty('--conductor-width', `${widths.left}px`);
+  studio.style.setProperty('--side-width', `${widths.right}px`);
+  for (const handle of studio.querySelectorAll('[data-resize-side]')) {
+    const side = handle.dataset.resizeSide;
+    const minimum = side === 'left' ? 280 : currentRoute.agent || currentRoute.site ? 320 : 240;
+    const maximum = widths[side] + widths.board - 320;
+    handle.setAttribute('aria-valuenow', Math.round(widths[side] / total * 100));
+    handle.setAttribute('aria-valuemin', Math.round(Math.min(minimum, maximum) / total * 100));
+    handle.setAttribute('aria-valuemax', Math.round(maximum / total * 100));
+    handle.setAttribute('aria-valuetext', `${Math.round(widths[side])}픽셀`);
+  }
+}
+
+function syncPanelWidths() {
+  const studio = app.querySelector('.studio');
+  if (!studio) return;
+  if (matchMedia('(max-width: 900px)').matches) {
+    studio.style.removeProperty('--conductor-width');
+    studio.style.removeProperty('--side-width');
+    return;
+  }
+  const total = workspaceWidth(studio);
+  const detail = Boolean(currentRoute.agent || currentRoute.site);
+  const widths = panelWidths(total, { left: ui.panelRatios.left, right: ui.panelRatios[detail ? 'detail' : 'right'] },
+    { left: ui.conductor.open, right: detail || !ui.expertsCollapsed, detail });
+  applyPanelWidths(studio, widths, total);
+}
+
 function workspaceView() {
   const { name, agent, site } = currentRoute;
   const expert = agent ? expertById(agent) : null;
   // The drafting table fills the screen; the experts sit on the right (and fold away), and the
-  // site page or an expert's page takes their place. The Conductor is the command line below.
+  // site page or an expert's page takes their place. Conductor sits on the left when open.
   const side = site ? 'site-open' : agent ? 'expert-open' : '';
   const expertsFolded = !agent && !site && ui.expertsCollapsed;
   const sideLabel = site ? '대지' : expert ? expert.name : '전문가';
-  const tabs = [['board', '제도판'], ['side', sideLabel]];
-  return `<main class="studio with-table ${side} pane-${ui.pane} ${expertsFolded ? 'experts-collapsed' : ''}" id="main" tabindex="-1">
+  const tabs = [['conductor', '대화'], ['board', '제도판'], ['side', sideLabel]];
+  return `<main class="studio with-table ${side} pane-${ui.pane} ${ui.conductor.open ? 'conductor-open' : ''} ${expertsFolded ? 'experts-collapsed' : ''}" id="main" tabindex="-1">
+      ${conductorPanel()}
+      ${ui.conductor.open ? panelSplitter('left') : ''}
       <section class="board panel" aria-label="제도판">${boardHead(name, site, agent)}<div class="board-canvas"><div id="table-slot"></div></div></section>
       ${site ? sitePage(name) : agent ? expertPage(name, agent) : expertsPanel()}
+      ${!expertsFolded ? panelSplitter('right') : ''}
       ${commandBar()}
       <nav class="pane-tabs" aria-label="화면 바꾸기">${tabs.map(([id, label]) => `<button type="button" data-action="pane" data-pane="${id}" aria-pressed="${ui.pane === id}">${escape(label)}</button>`).join('')}</nav>
     </main>`;
 }
 
 function render(fresh = true) {
+  if (panelResize) { resizeRenderPending = true; return; } // Keep the captured handle until release.
   // Keep typing and reading positions across redraws.
   const focused = document.activeElement?.dataset?.focus;
   const selection = focused ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
   const scrolls = new Map();
   for (const el of app.querySelectorAll('[data-scroll]')) {
-    scrolls.set(el.dataset.scroll, { top: el.scrollTop, bottom: el.scrollHeight - el.scrollTop - el.clientHeight < 40 });
+    if (!el.getClientRects().length) continue;
+    const position = { top: el.scrollTop, bottom: el.scrollHeight - el.scrollTop - el.clientHeight < 40 };
+    scrolls.set(el.dataset.scroll, position);
+    if (el.closest('.conductor-panel')) conductorScrolls.set(el.dataset.scroll, position);
   }
   const page = currentRoute.page;
   app.innerHTML = page === 'home' ? homeView() : page === 'new' ? newView() : workspaceView();
+  syncPanelWidths();
   document.title = `Sida · ${page === 'project' ? currentRoute.name : page === 'new' ? '새 프로젝트' : '프로젝트'}`;
   for (const el of app.querySelectorAll('[data-scroll]')) {
+    if (!el.getClientRects().length) continue;
     // Chats follow their newest message; pages (data-scroll-from="top") open at the top.
     const fromTop = el.dataset.scrollFrom === 'top';
-    const saved = fresh ? null : scrolls.get(el.dataset.scroll);
+    const saved = fresh && !el.closest('.conductor-panel') ? null : scrolls.get(el.dataset.scroll) || conductorScrolls.get(el.dataset.scroll);
     if (!saved) el.scrollTop = fromTop ? 0 : el.scrollHeight;
     else el.scrollTop = saved.bottom && !fromTop ? el.scrollHeight : saved.top;
   }
@@ -1515,7 +1583,7 @@ function send(key) {
   start(name, `${projectApi(name)}/experts/${encodeURIComponent(agent)}/chats/${encodeURIComponent(chat)}/messages`, { text, context: ids }, { target: `${agent}/${chat}`, text, context });
 }
 
-// ------------------------------------------------------------------ talk popups
+// ------------------------------------------------------------------ Conductor conversations
 
 async function loadTalk(name, id) {
   try {
@@ -1526,54 +1594,60 @@ async function loadTalk(name, id) {
   }
 }
 
-// Open (or bring back) a talk's popup. The newest popups stay open; older ones fold into tags.
-function openPopup(name, id, context = []) {
-  const known = ui.popups.find((p) => p.id === id);
-  ui.popups = [...ui.popups.filter((p) => p.id !== id), { id, folded: false, context: known?.context || context }];
-  const open = ui.popups.filter((p) => !p.folded);
-  for (const p of open.slice(0, Math.max(0, open.length - MAX_OPEN_POPUPS))) p.folded = true;
+// Selecting a conversation preserves each conversation's draft and paper context.
+function openTalk(name, id, context = []) {
+  const known = ui.talkViews.find((p) => p.id === id);
+  ui.talkViews = [...ui.talkViews.filter((p) => p.id !== id), { id, context: known?.context || context }];
+  ui.conductor = talkPanel(ui.conductor, 'select', id);
+  ui.pane = 'conductor';
   if (!ui.talks.has(id)) loadTalk(name, id).then(() => render(false));
   render(false);
 }
 
-function popupById(id) {
-  return ui.popups.find((p) => p.id === id);
+function talkViewById(id) {
+  return ui.talkViews.find((p) => p.id === id);
 }
 
-// The view moved by hand: open popups fold into tags above the command line.
-function foldPopups() {
-  if (!ui.popups.some((p) => !p.folded)) return;
-  for (const p of ui.popups) p.folded = true;
+function changeConductor(action) {
+  if (action === 'toggle' && matchMedia('(max-width: 900px)').matches && ui.pane !== 'conductor') action = 'show';
+  ui.conductor = talkPanel(ui.conductor, action);
+  if (ui.conductor.open) ui.pane = 'conductor';
+  else if (ui.pane === 'conductor') ui.pane = 'board';
+  ui.cmd.help = false;
   render(false);
+  if (!ui.conductor.open) app.querySelector('[data-action="conductor-toggle"]')?.focus({ preventScroll: true });
 }
 
 function sendTalk(id) {
   const name = currentRoute.name;
   const key = `talk:${id}`;
   const text = draftFor(key).trim();
-  const popup = popupById(id);
-  if (!text || !popup) return;
+  const view = talkViewById(id);
+  if (!text || !view) return;
   if (jobRunning()) { toast('이전 작업이 아직 실행 중입니다. 끝나면 다시 보내 주세요.', 'warn'); return; }
   drafts.delete(key);
-  start(name, `${projectApi(name)}/talks/${encodeURIComponent(id)}/messages`, { text, context: popup.context },
-    { target: key, text, context: pickedNames(popup.context, ui.board) });
+  start(name, `${projectApi(name)}/talks/${encodeURIComponent(id)}/messages`, { text, context: view.context },
+    { target: key, text, context: pickedNames(view.context, ui.board) });
 }
 
 // A question typed on the command line starts a new talk with the papers picked on the table.
 async function askFromLine(name, text) {
-  if (jobRunning()) { toast('이전 작업이 아직 실행 중입니다. 끝나면 다시 보내 주세요.', 'warn'); return false; }
+  if (jobRunning() || ui.creatingTalk) { toast('이전 작업이 아직 실행 중입니다. 끝나면 다시 보내 주세요.', 'warn'); return false; }
+  ui.creatingTalk = true;
   const context = [...ui.selected];
   try {
     const { talk } = await api(`${projectApi(name)}/talks`, { method: 'POST' });
     ui.talks.set(talk.id, { messages: [] });
     if (ui.session) ui.session.talks = [...(ui.session.talks || []), { ...talk, title: text.split(/\s+/).join(' ').slice(0, 60) }];
-    openPopup(name, talk.id, context);
+    openTalk(name, talk.id, context);
     await start(name, `${projectApi(name)}/talks/${encodeURIComponent(talk.id)}/messages`, { text, context },
       { target: `talk:${talk.id}`, text, context: pickedNames(context, ui.board) });
     return true;
   } catch (error) {
     toast(error.message, 'error');
     return false;
+  } finally {
+    ui.creatingTalk = false;
   }
 }
 
@@ -1637,7 +1711,7 @@ function cancelCommand() {
   if (c.prompt) say('취소했습니다.');
   c.prompt = null;
   c.help = false;
-  ui.talksOpen = false;
+  ui.conductor = { ...ui.conductor, list: false };
   c.pick = 0;
   c.back = -1;
   drafts.delete('command');
@@ -1679,8 +1753,9 @@ function runCommand(name, command) {
       say('site — 대지 페이지를 엽니다.');
       break;
     case 'talks':
-      ui.talksOpen = !ui.talksOpen;
-      say(ui.talksOpen ? 'talks — 대화 목록을 열었습니다.' : 'talks — 대화 목록을 닫았습니다.');
+      ui.conductor = talkPanel(ui.conductor, 'list');
+      ui.pane = 'conductor';
+      say(ui.conductor.list ? 'talks — 대화 목록을 열었습니다.' : 'talks — 대화로 돌아갑니다.');
       break;
     case 'settings':
       openSettings();
@@ -2045,6 +2120,84 @@ async function saveSite(name) {
   render(false);
 }
 
+// Resize without redrawing the conversation or the WebGL table while the pointer is held.
+function panelWidthKey(side) {
+  return side === 'right' && (currentRoute.agent || currentRoute.site) ? 'detail' : side;
+}
+
+function currentPanelWidths(studio) {
+  const css = getComputedStyle(studio);
+  const total = workspaceWidth(studio);
+  const left = parseFloat(css.getPropertyValue('--conductor-width')) || 0;
+  const right = parseFloat(css.getPropertyValue('--side-width')) || 0;
+  return { total, widths: { left, right, board: total - left - right } };
+}
+
+app.addEventListener('pointerdown', (event) => {
+  const handle = event.target.closest('[data-resize-side]');
+  if (!handle || event.button !== 0 || matchMedia('(max-width: 900px)').matches) return;
+  event.preventDefault();
+  const studio = handle.closest('.studio');
+  const side = handle.dataset.resizeSide;
+  panelResize = { ...currentPanelWidths(studio), side, studio, handle, pointer: event.pointerId, x: event.clientX,
+    before: { ...ui.panelRatios }, minimum: side === 'left' ? 280 : currentRoute.agent || currentRoute.site ? 320 : 240 };
+  handle.focus({ preventScroll: true });
+  handle.setPointerCapture(event.pointerId);
+  document.body.classList.add('resizing-panels');
+});
+
+window.addEventListener('pointermove', (event) => {
+  const drag = panelResize;
+  if (!drag || event.pointerId !== drag.pointer) return;
+  const delta = (event.clientX - drag.x) * (drag.side === 'left' ? 1 : -1);
+  const widths = resizePanel(drag.widths, drag.side, delta, drag.minimum);
+  ui.panelRatios[panelWidthKey(drag.side)] = widths[drag.side] / drag.total;
+  applyPanelWidths(drag.studio, widths, drag.total);
+  placeTable();
+});
+
+function finishPanelResize(event, cancel = false) {
+  if (!panelResize || event.pointerId !== panelResize.pointer) return;
+  const drag = panelResize;
+  panelResize = null;
+  if (cancel) ui.panelRatios = drag.before;
+  if (drag.handle.hasPointerCapture(drag.pointer)) drag.handle.releasePointerCapture(drag.pointer);
+  document.body.classList.remove('resizing-panels');
+  if (resizeRenderPending) {
+    resizeRenderPending = false;
+    render(false);
+  } else {
+    // Keep the same handle for a following click (including double-click to reset).
+    syncPanelWidths();
+    placeTable();
+  }
+}
+window.addEventListener('pointerup', (event) => finishPanelResize(event));
+window.addEventListener('pointercancel', (event) => finishPanelResize(event, true));
+app.addEventListener('lostpointercapture', (event) => finishPanelResize(event, true));
+
+app.addEventListener('keydown', (event) => {
+  const handle = event.target.closest('[data-resize-side]');
+  if (!handle || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const studio = handle.closest('.studio');
+  const { total, widths } = currentPanelWidths(studio);
+  const side = handle.dataset.resizeSide;
+  const delta = event.key === 'Home' ? -total : event.key === 'End' ? total
+    : (event.key === 'ArrowRight' ? 1 : -1) * (side === 'left' ? 1 : -1) * (event.shiftKey ? 40 : 16);
+  const minimum = side === 'left' ? 280 : currentRoute.agent || currentRoute.site ? 320 : 240;
+  ui.panelRatios[panelWidthKey(side)] = resizePanel(widths, side, delta, minimum)[side] / total;
+  render(false);
+});
+
+app.addEventListener('dblclick', (event) => {
+  const handle = event.target.closest('[data-resize-side]');
+  if (!handle) return;
+  const key = panelWidthKey(handle.dataset.resizeSide);
+  ui.panelRatios[key] = { left: .27, right: .21, detail: .38 }[key];
+  render(false);
+});
+
 app.addEventListener('click', (event) => {
   const button = event.target.closest('[data-action]');
   if (!button) return;
@@ -2053,8 +2206,11 @@ app.addEventListener('click', (event) => {
   if (action === 'settings') openSettings();
   if (action === 'sample') createSample();
   if (action === 'delete-project') askDelete(button.dataset.project);
-  if (action === 'pane') { ui.pane = button.dataset.pane; render(false); }
-  if (action === 'talks-toggle') { ui.talksOpen = !ui.talksOpen; ui.cmd.help = false; render(false); }
+  if (action === 'pane') { ui.pane = button.dataset.pane; if (ui.pane === 'conductor') ui.conductor = { ...ui.conductor, open: true }; render(false); }
+  if (action === 'conductor-toggle') changeConductor('toggle');
+  if (action === 'conductor-close') changeConductor('close');
+  if (action === 'talks-toggle') changeConductor('list');
+  if (action === 'talk-new') { changeConductor('new'); app.querySelector('[data-focus="conductor-new"]')?.focus({ preventScroll: true }); }
   if (action === 'collapse-experts') { ui.expertsCollapsed = true; if (ui.pane === 'side') ui.pane = 'board'; render(false); }
   if (action === 'toggle-experts-panel') { ui.expertsCollapsed = !ui.expertsCollapsed; render(false); }
   if (action === 'inspect-paper') table?.inspect(button.dataset.id);
@@ -2067,16 +2223,13 @@ app.addEventListener('click', (event) => {
   if (action === 'run-expert') runExpert(name, button.dataset.agent, button.dataset.withoutSite === 'true');
   if (action === 'unpick') unpick(button.dataset.id);
   const talkId = button.dataset.talk;
-  if (action === 'talk-open' || action === 'talk-unfold') {
-    ui.talksOpen = false;
-    openPopup(name, talkId);
+  if (action === 'talk-open') {
+    openTalk(name, talkId);
     loadTalk(name, talkId).then(() => render(false));
     app.querySelector(`[data-focus="talk:${CSS.escape(talkId)}"]`)?.focus({ preventScroll: true });
   }
-  if (action === 'talk-fold') { const p = popupById(talkId); if (p) p.folded = true; render(false); }
-  if (action === 'talk-close') { ui.popups = ui.popups.filter((p) => p.id !== talkId); render(false); }
-  if (action === 'talk-unpick') { const p = popupById(talkId); if (p) p.context = p.context.filter((id) => id !== button.dataset.id); render(false); }
-  if (action === 'talk-add-picked') { const p = popupById(talkId); if (p) p.context = [...new Set([...p.context, ...ui.selected])]; render(false); }
+  if (action === 'talk-unpick') { const p = talkViewById(talkId); if (p) p.context = p.context.filter((id) => id !== button.dataset.id); render(false); }
+  if (action === 'talk-add-picked') { const p = talkViewById(talkId); if (p) p.context = [...new Set([...p.context, ...ui.selected])]; render(false); }
   if (action === 'cmd-help') { ui.cmd.help = false; render(false); focusCommandLine(); }
   if (action === 'cmd-option' && ui.cmd.prompt) {
     drafts.set('command', String(Number(button.dataset.index) + 1));
@@ -2183,6 +2336,12 @@ app.addEventListener('submit', async (event) => {
     searchUses();
   } else if (form.id === 'command-form') {
     runCommandLine();
+  } else if (form.dataset.composer === 'conductor-new') {
+    const key = 'conductor-new';
+    const text = draftFor(key).trim();
+    if (!text || ui.creatingTalk || jobRunning()) return;
+    if (await askFromLine(currentRoute.name, text)) drafts.delete(key);
+    render(false);
   } else if (form.matches('.talk-composer')) {
     sendTalk(form.dataset.composer.slice('talk:'.length));
   } else if (form.matches('.composer')) {
@@ -2481,7 +2640,10 @@ window.addEventListener('focus', async () => {
 // ------------------------------------------------------------------ start
 
 window.addEventListener('hashchange', navigate);
-window.addEventListener('resize', placeTable);
+window.addEventListener('resize', () => { syncPanelWidths(); placeTable(); });
+matchMedia('(max-width: 900px)').addEventListener('change', () => {
+  if (currentRoute.page === 'project') render(false);
+});
 document.querySelector('.skip-link').addEventListener('click', (event) => {
   event.preventDefault();
   document.querySelector('#main')?.focus();
