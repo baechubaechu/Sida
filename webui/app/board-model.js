@@ -247,6 +247,34 @@ export function axisDrag([sx, sy], dx, dy) {
 // The basic tools of SketchUp (2026-11-02 지훈), on blocks: rectangle, push/pull, move (and copy),
 // rotate, scale, eraser and the tape measure. What a drag does to the blocks is worked out here.
 const cm2 = (n) => Math.round(n * 100) / 100;
+
+// Screen-space tolerance stays usable at every zoom. Return real 3D coordinates, not
+// the flattened display coordinates. Perspective interpolation uses the clip-space w.
+export function snapTape(pointer, segments, project, radius = 10) {
+  const shown = segments.map(([a, b]) => ({ a, b, pa: project(a), pb: project(b) }))
+    .filter(({ pa, pb }) => pa && pb);
+  let best = null;
+  for (const { a, b, pa, pb } of shown) {
+    for (const [point, screen] of [[a, pa], [b, pb]]) {
+      const distance = Math.hypot(pointer.x - screen.x, pointer.y - screen.y);
+      if (distance <= radius && (!best || distance < best.distance)) best = { point, screen, distance, type: '꼭짓점' };
+    }
+  }
+  if (best) return best;
+  for (const { a, b, pa, pb } of shown) {
+    const dx = pb.x - pa.x, dy = pb.y - pa.y;
+    const length = dx * dx + dy * dy;
+    if (!length) continue;
+    const t = Math.max(0, Math.min(1, ((pointer.x - pa.x) * dx + (pointer.y - pa.y) * dy) / length));
+    const screen = { x: pa.x + t * dx, y: pa.y + t * dy };
+    const distance = Math.hypot(pointer.x - screen.x, pointer.y - screen.y);
+    if (distance > radius || (best && distance >= best.distance)) continue;
+    const u = t * (pa.w || 1) / ((1 - t) * (pb.w || 1) + t * (pa.w || 1));
+    const point = { x: a.x + u * (b.x - a.x), y: a.y + u * (b.y - a.y), z: (a.z || 0) + u * ((b.z || 0) - (a.z || 0)) };
+    best = { point, screen, distance, type: '모서리·선' };
+  }
+  return best;
+}
 const step10 = (n) => Math.round(n * 10) / 10;
 
 // A new block from a rectangle dragged on the table between p0 and p1 (table points), lying
@@ -266,9 +294,12 @@ export function rectBlock(frame, p0, p1, floors = 1) {
 // out or in while the opposite side stays put.
 export function pushBlock(b, face, m, floorHeight = 4.2) {
   if (face === 'top') return editBlocks([b], [0], { df: m / floorHeight })[0];
+  return pushFaceToSize(b, face, Math.max(1, cm2(b[face[0] === 'w' ? 'w' : 'd'] + step10(m))));
+}
+
+function pushFaceToSize(b, face, size) {
   const along = face[0] === 'w' ? 'w' : 'd';
   const sign = face[1] === '+' ? 1 : -1;
-  const size = Math.max(1, cm2(b[along] + step10(m)));
   const shift = (sign * (size - b[along])) / 2; // the middle follows the moved side by half
   const t = rad(b.a || 0);
   const [lu, lv] = along === 'w' ? [shift, 0] : [0, shift];
@@ -310,6 +341,37 @@ export function scaleBlocks(blocks, indices, center, k) {
     w: Math.max(1, step10(b.w * k)),
     d: Math.max(1, step10(b.d * k)),
   } : b));
+}
+
+// A click opens a number input; crossing the drag threshold keeps the existing drag workflow.
+export function numericToolClick(gesture, cancelled = false) {
+  return Boolean(!cancelled && gesture && !gesture.moved && !gesture.dragged && (gesture.kind === 'push'
+    || (gesture.kind === 'gumball' && gesture.grip === 'scale' && gesture.numeric)));
+}
+
+const toolNumber = (value) => String(value ?? '').trim() === '' ? NaN : Number(value);
+
+export function numericPushBlock(block, face, value) {
+  const number = toolNumber(value);
+  if (face === 'top') {
+    if (!Number.isInteger(number) || number < 1 || number > 200) return { error: '층수는 1~200 사이 정수로 입력해 주세요.' };
+    return { block: { ...block, floors: number } };
+  }
+  if (!['w+', 'w-', 'd+', 'd-'].includes(face)) return { error: '조절할 면을 다시 선택해 주세요.' };
+  if (!Number.isFinite(number) || number < 1 || number > 1000) return { error: '길이는 1~1000m 사이 숫자로 입력해 주세요.' };
+  return { block: pushFaceToSize(block, face, number) };
+}
+
+export function numericScaleBlocks(blocks, indices, center, value) {
+  const k = toolNumber(value);
+  if (!Number.isFinite(k) || k <= 0) return { error: '배율은 0보다 큰 숫자로 입력해 주세요. 예: 1.2' };
+  if (!indices.length || indices.some((i) => !blocks[i])) return { error: '크기를 조절할 동을 다시 선택해 주세요.' };
+  if (indices.some((i) => [blocks[i].w * k, blocks[i].d * k].some((size) => !Number.isFinite(size) || size < 1 || size > 1000))) {
+    return { error: '조절 후 모든 동의 가로·세로가 1~1000m 안에 들어오게 배율을 입력해 주세요.' };
+  }
+  const result = scaleBlocks(blocks, indices, center, k);
+  if (indices.some((i) => !Number.isFinite(result[i].u) || !Number.isFinite(result[i].v))) return { error: '조절 후 위치가 너무 큽니다. 배율을 줄여 주세요.' };
+  return { blocks: result };
 }
 
 // An angle kept to steps (5° by default), as SketchUp's protractor snaps.

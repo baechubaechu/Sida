@@ -16,6 +16,8 @@ import {
   paperName, resultPreview, KIND_LABELS, originLabel, figureLines, readScheme, schemeRows, toggleSelected, boxPick, boxMode, parseBlockKey, fmt,
   GUMBALL_PX, GUMBALL_SCALE_PX, frameDelta, editBlocks, axisDrag, blocksCenter, blockKey, pickedBlocks,
   toFrame, rectBlock, pushBlock, copyBlocks, turnBlocks, scaleBlocks, snapAngle, MAX_BLOCKS,
+  numericToolClick, numericPushBlock, numericScaleBlocks,
+  snapTape,
   massIds, createHistory, recordStep, undoStep, redoStep, changedFields, planDrawing,
 } from './board-model.js';
 
@@ -26,12 +28,12 @@ const typing = (el) => el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT
 const TOOLS = [
   { id: 'select', label: '선택', cmd: 'select', icon: '↖' },
   { id: 'rect', label: '사각형', cmd: 'rect', icon: '▭', group: 'model', hint: '땅 위에서 끌어 새 동을 그립니다. 그다음 밀고끌기(pushpull)로 올리세요.' },
-  { id: 'push', label: '밀고끌기', cmd: 'pushpull', icon: '⇕', group: 'model', hint: '동의 윗면을 끌면 층수가, 옆면을 끌면 그쪽 길이가 바뀝니다.' },
+  { id: 'push', label: '밀고끌기', cmd: 'pushpull', icon: '⇕', group: 'model', hint: '면을 끌어서 조절하거나, 클릭해 목표 층수·길이를 숫자로 입력합니다.' },
   { id: 'move', label: '이동', cmd: 'move', icon: '✥', group: 'model', hint: '고른 동(또는 누른 동)을 끌어 옮깁니다. Ctrl을 누르고 시작하면 복사합니다.' },
   { id: 'rotate', label: '회전', cmd: 'rotate', icon: '⟲', group: 'model', hint: '고른 동(또는 누른 동)의 가운데를 기준으로 끌어 돌립니다. 5° 단위, Shift는 1° 단위.' },
-  { id: 'scale', label: '크기', cmd: 'scale', icon: '⤡', group: 'model', hint: '고른 동(또는 누른 동)의 가운데에서 멀어지게 끌면 커지고 가까이 끌면 작아집니다.' },
+  { id: 'scale', label: '크기', cmd: 'scale', icon: '⤡', group: 'model', hint: '동을 끌어서 크기를 조절하거나, 클릭해 배율을 입력합니다. 층수는 유지됩니다.' },
   { id: 'erase', label: '지우개', cmd: 'eraser', icon: '⌫', group: 'model', hint: '누르거나 끌고 지나간 동을 지웁니다.' },
-  { id: 'tape', label: '줄자', cmd: 'dist', icon: '↔', group: 'model', hint: '땅 위 두 점 사이를 끌어 거리를 잽니다.' },
+  { id: 'tape', label: '줄자', cmd: 'dist', icon: '↔', group: 'model', hint: '매스 꼭짓점·모서리와 대지·트레이싱 선에 스냅합니다. Alt를 누르면 스냅을 끕니다.' },
   { id: 'note', label: '메모', cmd: 'note', icon: '▤' },
   { id: 'pen', label: '펜', cmd: 'pen', icon: '✎' },
 ];
@@ -65,6 +67,7 @@ export class DraftingTable {
     this.history = createHistory(); // the designer's edits, for undo and redo (this session only)
     this.trayOpen = false;
     this.form = null;
+    this.numberEdit = null;
     this.gesture = null;
     this.pending = null;
     this.fitted = false;
@@ -82,6 +85,7 @@ export class DraftingTable {
     this.root.innerHTML = `<div class="table-stage"></div>
       <div class="table-pins" role="group" aria-label="종이 이름표"></div>
       <div class="table-box" hidden></div>
+      <div class="tape-snap" hidden aria-hidden="true"><span></span></div>
       <div class="table-gumball" hidden aria-hidden="true"><svg>
         ${['u', 'v', 'z'].map((a) => `<g data-gumball="${a}" class="gb-${a}"><line class="gb-hit"/><line class="gb-shaft"/><polygon class="gb-head"/></g>`).join('')}
         ${['w', 'd'].map((a) => `<rect data-gumball="${a}" class="gb-size gb-${a === 'w' ? 'u' : 'v'}" width="10" height="10"><title>${a === 'w' ? '가로' : '세로'} 크기</title></rect>`).join('')}
@@ -97,10 +101,12 @@ export class DraftingTable {
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
       <section class="table-ui peek" aria-label="종이 내용" hidden></section>
       <section class="table-ui scheme-form" aria-label="매스안 입력" hidden></section>
-      <dialog class="card-detail" aria-labelledby="detail-title"></dialog>`;
+      <dialog class="card-detail" aria-labelledby="detail-title"></dialog>
+      <dialog class="tool-number" aria-labelledby="tool-number-title" aria-describedby="tool-number-help"></dialog>`;
     this.stage = this.root.querySelector('.table-stage');
     this.pinLayer = this.root.querySelector('.table-pins');
     this.boxEl = this.root.querySelector('.table-box');
+    this.snapEl = this.root.querySelector('.tape-snap');
     this.gumEl = this.root.querySelector('.table-gumball');
     this.ui = {
       tools: this.root.querySelector('.ui-tools'),
@@ -113,6 +119,7 @@ export class DraftingTable {
       peek: this.root.querySelector('.peek'),
       history: this.root.querySelector('.ui-history'),
       detail: this.root.querySelector('.card-detail'),
+      number: this.root.querySelector('.tool-number'),
     };
     this.setupScene();
     this.listen();
@@ -122,6 +129,7 @@ export class DraftingTable {
   // ------------------------------------------------------------------ mounting
 
   destroy() {
+    this.ui.number.close();
     window.removeEventListener('keydown', this.onWindowKey);
     cancelAnimationFrame(this.frame);
     this.observer?.disconnect();
@@ -407,7 +415,11 @@ export class DraftingTable {
     const hit = this.blockHit(e.clientX, e.clientY);
     const base = { x: e.clientX, y: e.clientY, g0, moved: false };
     switch (this.tool) {
-      case 'rect': case 'tape': return g0 ? { ...base, kind: this.tool } : null;
+      case 'rect': return g0 ? { ...base, kind: this.tool } : null;
+      case 'tape': {
+        const point = this.tapePoint(e);
+        return point ? { ...base, g0: point, kind: 'tape' } : null;
+      }
       case 'erase': {
         const keys = new Set(hit ? [hit.key] : []);
         this.pickBlocks([...keys]); // what will go shows picked until the button is let go
@@ -427,7 +439,7 @@ export class DraftingTable {
         if (this.tool === 'move') return { ...g, copy: this.copyMode || e.ctrlKey || e.metaKey };
         const frame = this.site?.plan?.frame;
         const c = blocksCenter(frame, this.pickedGroups().flatMap((p) => p.indices.map((i) => p.paper.blocks[i])));
-        return { ...g, center: c, centerUV: toFrame(frame, c.x, c.y) };
+        return { ...g, numeric: this.tool === 'scale' && Boolean(hit), center: c, centerUV: toFrame(frame, c.x, c.y) };
       }
     }
   }
@@ -451,11 +463,108 @@ export class DraftingTable {
     return [bx - ax, by - ay];
   }
 
-  // A rectangle or the tape measure being drawn on the table (table points).
+  openToolNumber(gesture) {
+    const push = gesture.kind === 'push';
+    const paper = push && this.papers.find((p) => p.id === gesture.id);
+    if (push && !paper?.blocks[gesture.index]) return;
+    const groups = push
+      ? [{ id: gesture.id, blocks: structuredClone(gesture.before), indices: [gesture.index] }]
+      : [...gesture.from].map(([id, from]) => ({ id, blocks: structuredClone(from.blocks), indices: [...from.indices] }));
+    if (!groups.length) return;
+    this.numberEdit = { push, groups, face: gesture.face, center: gesture.centerUV };
+    const block = push && gesture.before[gesture.index];
+    const top = push && gesture.face === 'top';
+    const label = !push ? '크기 배율' : top ? '목표 층수' : `목표 ${gesture.face[0] === 'w' ? '가로' : '세로'} 길이 (m)`;
+    const value = !push ? 1 : top ? block.floors : block[gesture.face[0] === 'w' ? 'w' : 'd'];
+    const help = !push ? '1.2는 120%, 0.5는 50%입니다. 선택한 동들의 가로·세로와 배치 간격을 함께 조절하며 층수는 유지합니다.'
+      : top ? `현재 ${block.floors}층 · 층고 ${fmt(paper.floor_height || 4.2, 2)}m. 1~200층 안에서 입력하세요.`
+        : '선택한 면을 움직여 이 길이로 맞춥니다. 반대쪽 면은 유지합니다. 1~1000m 안에서 입력하세요.';
+    this.ui.number.innerHTML = `<form data-form="tool-number" novalidate>
+      <header><h2 id="tool-number-title">${push ? '밀고끌기' : '크기'} 수치 입력</h2><button type="button" data-ui="number-cancel" aria-label="수치 입력 닫기">×</button></header>
+      <p class="source">${push ? `${escape(paperName(paper))} · ${gesture.index + 1}동` : `선택한 동 ${groups.reduce((n, g) => n + g.indices.length, 0)}개`}</p>
+      <label for="tool-number-value">${label}</label><input id="tool-number-value" name="value" type="number" inputmode="decimal" step="${top ? '1' : 'any'}" value="${value}" autocomplete="off" autofocus>
+      <p id="tool-number-help">${help}</p><p class="form-error" role="alert"></p>
+      <footer><button type="button" data-ui="number-cancel">취소</button><button type="submit" class="primary-small">적용</button></footer>
+    </form>`;
+    this.ui.number.showModal();
+    this.ui.number.querySelector('input').select();
+  }
+
+  applyToolNumber() {
+    const edit = this.numberEdit;
+    if (!edit) return;
+    const value = this.ui.number.querySelector('input').value;
+    const changes = [];
+    let error = '';
+    for (const group of edit.groups) {
+      const paper = this.papers.find((p) => p.id === group.id);
+      if (!paper || JSON.stringify(paper.blocks) !== JSON.stringify(group.blocks)) { error = '입력 중 동이 바뀌었습니다. 닫고 조절할 동을 다시 눌러 주세요.'; break; }
+      const result = edit.push ? numericPushBlock(paper.blocks[group.indices[0]], edit.face, value)
+        : numericScaleBlocks(paper.blocks, group.indices, edit.center, value);
+      if (result.error) { error = result.error; break; }
+      const blocks = edit.push ? paper.blocks.map((b, i) => i === group.indices[0] ? result.block : b) : result.blocks;
+      if (JSON.stringify(blocks) !== JSON.stringify(paper.blocks)) changes.push({ paper, blocks });
+    }
+    if (error) { this.ui.number.querySelector('.form-error').textContent = error; return; }
+    const before = new Map(changes.map(({ paper }) => [paper.id, paper.blocks]));
+    for (const { paper, blocks } of changes) paper.blocks = blocks;
+    this.saveBlocks(before);
+    this.drawMasses();
+    this.ui.number.close();
+    this.say(changes.length ? '입력한 수치를 적용했습니다. Ctrl+Z로 되돌릴 수 있습니다.' : '수치가 같아 변경하지 않았습니다.');
+  }
+
+  tapePoint(event) {
+    this.snapEl.hidden = true;
+    const fallback = () => this.ground(event.clientX, event.clientY);
+    if (!this.gl || event.altKey) return fallback();
+    const segments = [];
+    const edge = (a, b) => segments.push([a, b]);
+    const ring = (points) => points.forEach((p, i) => edge(p, points[(i + 1) % points.length]));
+    const frame = this.site?.plan?.frame;
+    const papers = this.papers.filter(p => p.kind === 'mass' && (p.id === this.active || this.ghost));
+    const preview = this.tray.find(p => p.id === this.preview && p.kind === 'mass');
+    if (preview) papers.push(preview);
+    for (const paper of papers) for (const b of paper.blocks) {
+      const base = blockCorners(frame, b).map(([x, y]) => ({ x, y, z: 0 }));
+      ring(base);
+      if (riseFor(this.view.tilt) > .01) {
+        const top = base.map(p => ({ ...p, z: b.floors * (paper.floor_height || 4.2) }));
+        ring(top); base.forEach((p, i) => edge(p, top[i]));
+      }
+    }
+    if (groundFor(this.view.tilt) > .5) {
+      for (const parcel of this.site?.plan?.parcels || []) for (const points of parcel.rings) ring(points.map(([x, y]) => ({ x, y, z: 0 })));
+      for (const paper of this.papers) {
+        if (!isOverlaid(paper, this.home)) continue;
+        for (const stroke of paper.strokes || []) for (let i = 1; i < stroke.length; i++) {
+          const [x, y] = stroke[i - 1], [bx, by] = stroke[i];
+          edge({ x, y, z: 0 }, { x: bx, y: by, z: 0 });
+        }
+      }
+    }
+    const rect = this.root.getBoundingClientRect();
+    const camera = this.gl.camera;
+    this.aimCamera(camera, this.view);
+    const project = p => {
+      const v = new THREE.Vector3(p.x, p.y, (p.z || 0) * riseFor(this.view.tilt));
+      const depth = -v.clone().applyMatrix4(camera.matrixWorldInverse).z;
+      v.project(camera);
+      return depth > 0 && v.z >= -1 && v.z <= 1 ? { x: (v.x + 1) * rect.width / 2, y: (1 - v.y) * rect.height / 2, w: depth } : null;
+    };
+    const hit = snapTape({ x: event.clientX - rect.left, y: event.clientY - rect.top }, segments, project);
+    if (!hit) return fallback();
+    this.snapEl.hidden = false;
+    this.snapEl.style.transform = `translate(${hit.screen.x}px, ${hit.screen.y}px)`;
+    this.snapEl.querySelector('span').textContent = hit.type;
+    return hit.point;
+  }
+
+  // A rectangle or the tape measure being drawn on the table (real 3D points).
   drawDraft(points, closed) {
     const d = this.gl.draft;
     d.clear();
-    const geom = new THREE.BufferGeometry().setFromPoints(points.map(([x, y]) => new THREE.Vector3(x, y, 0.3)));
+    const geom = new THREE.BufferGeometry().setFromPoints(points.map(([x, y, z = 0]) => new THREE.Vector3(x, y, z * riseFor(this.view.tilt) + 0.3)));
     d.add(new (closed ? THREE.LineLoop : THREE.Line)(geom, new THREE.LineBasicMaterial({ color: this.colors.pick, depthTest: false })));
     this.invalidate();
   }
@@ -1349,6 +1458,7 @@ export class DraftingTable {
   }
 
   setTool(tool, { copy = false } = {}) {
+    this.snapEl.hidden = true;
     this.tool = tool;
     this.copyMode = copy; // the copy command: the move tool copies without Ctrl
     if (tool === 'pen' && folded(this.view.tilt)) {
@@ -1375,7 +1485,7 @@ export class DraftingTable {
     root.addEventListener('pointerdown', (e) => this.onDown(e));
     root.addEventListener('pointermove', (e) => this.onMove(e));
     root.addEventListener('pointerup', () => this.onUp());
-    root.addEventListener('pointercancel', () => this.onUp());
+    root.addEventListener('pointercancel', () => this.onUp(true));
     root.addEventListener('dblclick', (e) => this.onDouble(e));
     root.addEventListener('contextmenu', (e) => { if (!typing(e.target) && !e.target.closest('dialog')) e.preventDefault(); });
     root.addEventListener('keydown', (e) => this.onKey(e));
@@ -1393,7 +1503,8 @@ export class DraftingTable {
     root.addEventListener('change', (e) => {
       if (e.target.dataset.ui === 'ghost') { this.ghost = e.target.checked; this.drawMasses(); }
     });
-    root.addEventListener('submit', (e) => { e.preventDefault(); if (e.target.dataset.form === 'scheme') this.saveForm(); });
+    root.addEventListener('submit', (e) => { e.preventDefault(); if (e.target.dataset.form === 'scheme') this.saveForm(); if (e.target.dataset.form === 'tool-number') this.applyToolNumber(); });
+    this.ui.number.addEventListener('close', () => { this.numberEdit = null; this.root.focus({ preventScroll: true }); });
     root.addEventListener('focusout', (e) => {
       // A note being written is saved when it loses focus.
       if (e.target.dataset?.detailNote) { this.saveNoteText(e.target.dataset.detailNote, e.target.value); return; }
@@ -1416,6 +1527,7 @@ export class DraftingTable {
   onClick(e) {
     const t = e.target.closest('button, [data-open-expert]');
     if (!t) return;
+    if (t.dataset.ui === 'number-cancel') { this.ui.number.close(); return; }
     if (t.dataset.openExpert) { this.closeDetail(); this.hooks.openExpert(t.dataset.openExpert); return; }
     if (t.dataset.inspect) { this.select([t.dataset.inspect]); this.inspect(t.dataset.inspect); return; }
     if (t.dataset.detail) { this.detailAction(t.dataset.detail); return; }
@@ -1591,7 +1703,8 @@ export class DraftingTable {
 
   onMove(e) {
     const g = this.gesture;
-    if (!g) return;
+    if (!g) { if (this.tool === 'tape' && !e.target.closest('.table-ui, dialog')) this.tapePoint(e); else this.snapEl.hidden = true; return; }
+    if ((g.kind === 'push' || (g.kind === 'gumball' && g.grip === 'scale')) && Math.hypot(e.clientX - g.x, e.clientY - g.y) >= 3) g.dragged = true;
     // The designer moves the view by hand: the talk popups fold away to keep the view clear.
     if ((g.kind === 'orbit' || g.kind === 'pan' || g.kind === 'zoom') && !g.told && Math.hypot(e.clientX - g.x, e.clientY - g.y) > 6) {
       g.told = true;
@@ -1655,13 +1768,13 @@ export class DraftingTable {
       this.say(g.face === 'top' ? `${b.floors}층` : `${fmt(g.face[0] === 'w' ? b.w : b.d, 1)} m`);
       this.drawMasses();
     } else if (g.kind === 'rect' || g.kind === 'tape') {
-      const p = this.ground(e.clientX, e.clientY);
+      const p = g.kind === 'tape' ? this.tapePoint(e) : this.ground(e.clientX, e.clientY);
       if (!p) return;
       g.moved = true;
       const frame = this.site?.plan?.frame;
       if (g.kind === 'tape') {
-        this.drawDraft([[g.g0.x, g.g0.y], [p.x, p.y]], false);
-        this.say(`거리 ${fmt(Math.hypot(p.x - g.g0.x, p.y - g.g0.y), 2)} m`);
+        this.drawDraft([[g.g0.x, g.g0.y, g.g0.z || 0], [p.x, p.y, p.z || 0]], false);
+        this.say(`거리 ${fmt(Math.hypot(p.x - g.g0.x, p.y - g.g0.y, (p.z || 0) - (g.g0.z || 0)), 2)} m${this.snapEl.hidden ? '' : ' · 스냅'}`);
         return;
       }
       g.block = rectBlock(frame, g.g0, p);
@@ -1716,9 +1829,16 @@ export class DraftingTable {
     }
   }
 
-  onUp() {
+  onUp(cancelled = false) {
     const g = this.gesture;
     this.gesture = null;
+    if (cancelled && (g?.kind === 'push' || g?.kind === 'gumball')) {
+      const before = g.kind === 'push' ? new Map([[g.id, g.before]]) : new Map([...g.from].map(([id, from]) => [id, from.blocks]));
+      for (const paper of this.papers) if (before.has(paper.id)) paper.blocks = before.get(paper.id);
+      this.drawMasses();
+      if (this.pending) { const view = this.pending; this.pending = null; this.setBoard(view); }
+      return;
+    }
     if (g?.kind === 'draw' && g.points.length > 1) {
       const p = this.papers.find((q) => q.id === g.id);
       if (p) {
@@ -1733,6 +1853,8 @@ export class DraftingTable {
       if (g.copies?.size) this.pickBlocks([...g.copies].flatMap(([id, indices]) => indices.map((i) => blockKey(id, i))));
     } else if (g?.kind === 'push' && g.moved) {
       this.saveBlocks(new Map([[g.id, g.before]]));
+    } else if (numericToolClick(g, cancelled)) {
+      this.openToolNumber(g);
     } else if (g?.kind === 'rect') {
       this.gl.draft.clear();
       this.invalidate();
