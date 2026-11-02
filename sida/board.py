@@ -327,13 +327,20 @@ def _block(raw, index: int) -> dict:
         floors = int(floors)
     if isinstance(floors, bool) or not isinstance(floors, int) or not 1 <= floors <= 200:
         raise ValueError(f"blocks[{index}].floors must be a whole number from 1 to 200")
-    return {
+    block = {
         "u": _number(raw.get("u", 0), f"blocks[{index}].u"),
         "v": _number(raw.get("v", 0), f"blocks[{index}].v"),
         "w": _number(raw.get("w"), f"blocks[{index}].w", low=0, high=1000),
         "d": _number(raw.get("d"), f"blocks[{index}].d", low=0, high=1000),
         "floors": floors,
     }
+    # The block's turn in degrees, counter-clockwise from the site's long side (the drawing
+    # table's rotate tool); kept only when the block is turned, between -180 and 180.
+    turn = _number(raw.get("a", 0), f"blocks[{index}].a", low=-360.0001, high=360) % 360
+    turn = round(turn - 360 if turn > 180 else turn, 2)
+    if turn:
+        block["a"] = turn
+    return block
 
 
 def _stroke(raw, index: int) -> list[list[float]]:
@@ -510,6 +517,7 @@ def paper_text(paper: dict, site: dict | None) -> str:
         f = mass_figures(paper, area)
         parts = [
             f"{_m(b['w'])} m × {_m(b['d'])} m × {b['floors']} floors at u {_m(b['u'])}, v {_m(b['v'])}"
+            + (f", turned {b['a']:g}°" if b.get("a") else "")
             for b in paper["blocks"]
         ]
         text = (

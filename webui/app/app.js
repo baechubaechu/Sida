@@ -1645,7 +1645,8 @@ function cancelCommand() {
   focusCommandLine();
 }
 
-const TABLE_COMMANDS = new Set(['plan', 'persp', 'zoom', 'north', 'select', 'note', 'pen', 'trace', 'mass', 'delete', 'undo', 'redo', 'tray']);
+const TABLE_COMMANDS = new Set(['plan', 'persp', 'zoom', 'north', 'select', 'note', 'pen', 'trace', 'mass', 'delete', 'undo', 'redo', 'tray',
+  'rect', 'pushpull', 'move', 'copy', 'rotate', 'scale', 'eraser', 'dist']);
 
 function runCommand(name, command) {
   if (!command) return;
@@ -2242,13 +2243,19 @@ app.addEventListener('keydown', (event) => {
   }
 });
 
-// Space anywhere outside a text field puts the cursor on the command line (the table's
-// one-letter keys stay as they are).
+// Space anywhere outside a text field puts the cursor on the command line. There are no
+// one-letter shortcuts (2026-11-02 지훈): a letter or number typed outside a text field goes
+// to the command line as the start of a command word, as in CAD.
 window.addEventListener('keydown', (event) => {
-  if (event.key !== ' ' || event.ctrlKey || event.metaKey || event.altKey || currentRoute.page !== 'project') return;
+  if (event.ctrlKey || event.metaKey || event.altKey || currentRoute.page !== 'project') return;
   const el = event.target;
-  if (el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'BUTTON' || el.isContentEditable || el.closest?.('dialog'))) return;
-  if (focusCommandLine()) event.preventDefault();
+  if (el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.isContentEditable || el.closest?.('dialog'))) return;
+  if (event.key === ' ') {
+    if (el?.tagName !== 'BUTTON' && focusCommandLine()) event.preventDefault();
+    return;
+  }
+  // The key itself then lands on the command line (focus moves before it is typed).
+  if ((event.key.length === 1 && /\S/.test(event.key)) || event.key === 'Process') focusCommandLine();
 });
 
 // ------------------------------------------------------------------ settings

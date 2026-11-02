@@ -13,17 +13,29 @@ import {
   PX, TILT, MAX_TILT, PAPER_SIZE, cameraFor, riseFor, groundFor, zoomAround, drawingScale, lerpView, dragMode, wheelZoom, orbitBy, viewName, viewFor, panBy, EDGE_TILT,
   siteBounds, traceHome, isOverlaid, blockCorners, placeUnplaced, freeSpot, fitView,
   folded, foldedInPlan, pinnedPapers, peekSpot,
-  paperName, resultPreview, KIND_LABELS, originLabel, figureLines, readScheme, schemeRows, toggleSelected, fmt,
+  paperName, resultPreview, KIND_LABELS, originLabel, figureLines, readScheme, schemeRows, toggleSelected, boxPick, boxMode, parseBlockKey, fmt,
+  GUMBALL_PX, GUMBALL_SCALE_PX, frameDelta, editBlocks, axisDrag, blocksCenter, blockKey, pickedBlocks,
+  toFrame, rectBlock, pushBlock, copyBlocks, turnBlocks, scaleBlocks, snapAngle, MAX_BLOCKS,
   massIds, createHistory, recordStep, undoStep, redoStep, changedFields, planDrawing,
 } from './board-model.js';
 
 const SNAP = 7; // metres: a tracing sheet this close to its place on the site clicks into register
 const typing = (el) => el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.isContentEditable);
+// The tools, with SketchUp's basic modeling tools on blocks (2026-11-02 지훈). No single-key
+// shortcuts: a tool starts from its button or its command word on the command line (`cmd`).
 const TOOLS = [
-  { id: 'select', label: '선택', key: 'v', icon: '↖' },
-  { id: 'note', label: '메모', key: 'n', icon: '▤' },
-  { id: 'pen', label: '펜', key: 'p', icon: '✎' },
+  { id: 'select', label: '선택', cmd: 'select', icon: '↖' },
+  { id: 'rect', label: '사각형', cmd: 'rect', icon: '▭', group: 'model', hint: '땅 위에서 끌어 새 동을 그립니다. 그다음 밀고끌기(pushpull)로 올리세요.' },
+  { id: 'push', label: '밀고끌기', cmd: 'pushpull', icon: '⇕', group: 'model', hint: '동의 윗면을 끌면 층수가, 옆면을 끌면 그쪽 길이가 바뀝니다.' },
+  { id: 'move', label: '이동', cmd: 'move', icon: '✥', group: 'model', hint: '고른 동(또는 누른 동)을 끌어 옮깁니다. Ctrl을 누르고 시작하면 복사합니다.' },
+  { id: 'rotate', label: '회전', cmd: 'rotate', icon: '⟲', group: 'model', hint: '고른 동(또는 누른 동)의 가운데를 기준으로 끌어 돌립니다. 5° 단위, Shift는 1° 단위.' },
+  { id: 'scale', label: '크기', cmd: 'scale', icon: '⤡', group: 'model', hint: '고른 동(또는 누른 동)의 가운데에서 멀어지게 끌면 커지고 가까이 끌면 작아집니다.' },
+  { id: 'erase', label: '지우개', cmd: 'eraser', icon: '⌫', group: 'model', hint: '누르거나 끌고 지나간 동을 지웁니다.' },
+  { id: 'tape', label: '줄자', cmd: 'dist', icon: '↔', group: 'model', hint: '땅 위 두 점 사이를 끌어 거리를 잽니다.' },
+  { id: 'note', label: '메모', cmd: 'note', icon: '▤' },
+  { id: 'pen', label: '펜', cmd: 'pen', icon: '✎' },
 ];
+const MODEL_TOOLS = new Set(TOOLS.filter((t) => t.group === 'model').map((t) => t.id));
 const DETAIL_KINDS = { site: '대지 자료', mass: '매스안', expert: '전문가 검토', tracing: '트레이싱', note: '설계 메모' };
 const cm = (metres) => Math.round(metres * 100) / 100; // pen points are kept to the centimetre
 const strokePath = (pts) => pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(2)} ${(-y).toFixed(2)}`).join(' ');
@@ -43,6 +55,7 @@ export class DraftingTable {
     this.view = { x: 0, y: 0, span: 160, tilt: 0, turn: 0 };
     this.tool = 'select';
     this.selected = [];
+    this.picked = []; // blocks (buildings) picked on their own: `paperId#index`
     this.active = '';
     this.ghost = false;
     this.preview = '';
@@ -68,12 +81,18 @@ export class DraftingTable {
     this.root.setAttribute('aria-label', '제도판');
     this.root.innerHTML = `<div class="table-stage"></div>
       <div class="table-pins" role="group" aria-label="종이 이름표"></div>
+      <div class="table-box" hidden></div>
+      <div class="table-gumball" hidden aria-hidden="true"><svg>
+        ${['u', 'v', 'z'].map((a) => `<g data-gumball="${a}" class="gb-${a}"><line class="gb-hit"/><line class="gb-shaft"/><polygon class="gb-head"/></g>`).join('')}
+        ${['w', 'd'].map((a) => `<rect data-gumball="${a}" class="gb-size gb-${a === 'w' ? 'u' : 'v'}" width="10" height="10"><title>${a === 'w' ? '가로' : '세로'} 크기</title></rect>`).join('')}
+        <rect data-gumball="free" class="gb-free" width="14" height="14"/>
+      </svg></div>
       <div class="table-ui ui-left"><div class="ui-history" role="group" aria-label="편집 기록"></div>
         <div class="ui-tools" role="toolbar" aria-orientation="vertical" aria-label="제도판 도구"></div></div>
       <div class="table-ui ui-scheme"></div>
       <div class="table-ui ui-tilt" aria-label="기울기"></div>
       <div class="table-ui ui-zoom"></div>
-      <p class="table-ui ui-help">휠: 커서 기준 확대 · 우클릭 끌기: 돌리기(평면에서 바로 3D로) · Shift+우클릭 끌기: 이동 · Ctrl+우클릭 끌기: 확대 · 1 평면 2 3D · Shift+클릭: 여러 장 골라 대화에 보내기 · Ctrl+Z: 되돌리기</p>
+      <p class="table-ui ui-help">왼쪽 끌기: 선택 상자(→ 안에 든 것, ← 걸친 것, Shift 더하기, Ctrl 빼기) · 건물 클릭: 그 동만 고르기(끌면 옮김, 검볼, Delete 지우기) · 스케치업 도구는 명령으로: rect pushpull move copy rotate scale eraser dist (제도판에서 글자를 치면 명령창으로) · Ctrl+C/V 복사·붙여넣기, Ctrl+A 모든 동 · 고른 이름표 끌기: 종이 옮기기 · 휠: 커서 기준 확대 · 우클릭 끌기: 돌리기 · Shift+우클릭·가운데 버튼 끌기: 이동 · Ctrl+Z: 되돌리기</p>
       <p class="table-ui ui-hint" role="status" hidden></p>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
       <section class="table-ui peek" aria-label="종이 내용" hidden></section>
@@ -81,6 +100,8 @@ export class DraftingTable {
       <dialog class="card-detail" aria-labelledby="detail-title"></dialog>`;
     this.stage = this.root.querySelector('.table-stage');
     this.pinLayer = this.root.querySelector('.table-pins');
+    this.boxEl = this.root.querySelector('.table-box');
+    this.gumEl = this.root.querySelector('.table-gumball');
     this.ui = {
       tools: this.root.querySelector('.ui-tools'),
       scheme: this.root.querySelector('.ui-scheme'),
@@ -130,6 +151,7 @@ export class DraftingTable {
     if (!masses.some((p) => p.id === this.active)) this.active = masses[0]?.id || '';
     if (this.preview && !this.tray.some((p) => p.id === this.preview)) this.preview = '';
     this.selected = this.selected.filter((id) => this.find(id));
+    this.picked = pickedBlocks(this.papers, this.picked).flatMap((g) => g.indices.map((i) => blockKey(g.paper.id, i)));
     if (this.peekId && !this.papers.some((p) => p.id === this.peekId)) this.peekId = '';
     if (this.detailId) {
       const writing = this.ui.detail.contains(document.activeElement) && typing(document.activeElement);
@@ -169,10 +191,16 @@ export class DraftingTable {
       case 'zoom': this.fit(); return '';
       case 'north': this.animateTo({ turn: 0 }); return '';
       case 'select': case 'note': case 'pen': this.setTool(name); return '';
+      case 'rect': case 'move': case 'rotate': case 'scale': this.setTool(name); return '';
+      case 'pushpull': this.setTool('push'); return '';
+      case 'eraser': this.setTool('erase'); return '';
+      case 'dist': this.setTool('tape'); return '';
+      case 'copy': this.setTool('move', { copy: true }); return '';
       case 'trace': this.layTracing(); return '';
       case 'mass': this.openForm(); return '';
       case 'delete':
-        if (!this.selected.some((id) => this.papers.some((p) => p.id === id && p.kind !== 'site'))) return '먼저 지울 종이를 고르세요.';
+        if (this.picked.length) { this.removePicked(); return ''; }
+        if (!this.selected.some((id) => this.papers.some((p) => p.id === id && p.kind !== 'site'))) return '먼저 지울 종이나 동을 고르세요.';
         this.removeSelected();
         return '';
       case 'undo': case 'redo':
@@ -196,7 +224,7 @@ export class DraftingTable {
     this.colors = {
       table: color('--table', '#e9ecee'), line: color('--table-grid', '#d9dfe4'), lot: color('--lot', '#cf3f2e'),
       mass: color('--mass', '#e8ebee'), ink: color('--text', '#20262d'), pen: color('--pen', '#2b5d8a'),
-      ghost: color('--brand', '#36536b'),
+      ghost: color('--brand', '#36536b'), pick: color('--pick', '#e3a008'), // a picked block, yellow as in Rhino
     };
     let renderer;
     try {
@@ -246,8 +274,9 @@ export class DraftingTable {
     const lot = new THREE.Group();
     const masses = new THREE.Group();
     const traces = new THREE.Group();
-    scene.add(lot, masses, traces);
-    this.gl = { renderer, cssRenderer, scene, cssScene, camera, grid, catcher, horizon, lot, masses, traces, labels: [], objects: new Map(), raycaster: new THREE.Raycaster() };
+    const draft = new THREE.Group(); // what a tool is drawing: a rectangle, the tape measure
+    scene.add(lot, masses, traces, draft);
+    this.gl = { renderer, cssRenderer, scene, cssScene, camera, grid, catcher, horizon, lot, masses, traces, draft, labels: [], objects: new Map(), raycaster: new THREE.Raycaster() };
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(this.root);
   }
@@ -312,6 +341,214 @@ export class DraftingTable {
     renderer.render(scene, camera);
     cssRenderer.render(cssScene, camera);
     if (fold || shut.size) this.placePins(fold ? null : shut);
+    this.placeGumball();
+  }
+
+  // The picked blocks, grouped by scheme, of the schemes that stand on the site.
+  pickedGroups() {
+    return pickedBlocks(this.papers, this.picked).filter((g) => g.paper.id === this.active || this.ghost);
+  }
+
+  pickBlocks(keys) {
+    this.picked = keys;
+    this.drawMasses();
+  }
+
+  // The gumball (or a building) taking hold: what the drag edits, the picked blocks as they were.
+  gumballGesture(grip, e) {
+    const from = new Map(this.pickedGroups().map((g) => [g.paper.id, { blocks: g.paper.blocks, indices: g.indices }]));
+    return { kind: 'gumball', grip, axes: this.gumAxes, g0: this.ground(e.clientX, e.clientY), x: e.clientX, y: e.clientY, moved: false, from };
+  }
+
+  // Delete takes the picked blocks out of their schemes; a scheme keeps at least one.
+  removePicked() {
+    this.removeBlocks(this.picked);
+  }
+
+  removeBlocks(keys) {
+    const edits = [];
+    for (const { paper, indices } of pickedBlocks(this.papers, keys)) {
+      const blocks = paper.blocks.filter((_, i) => !indices.includes(i));
+      if (!blocks.length) { this.say(`${paperName(paper)}에는 동이 하나는 있어야 합니다. 매스안을 지우려면 종이를 골라 지우세요.`); continue; }
+      edits.push({ op: 'update', id: paper.id, before: { blocks: paper.blocks }, after: { blocks } });
+      paper.blocks = blocks;
+      this.save(paper.id, { blocks });
+    }
+    this.record(edits);
+    this.pickBlocks([]);
+  }
+
+  // Blocks changed by a drag (or a key), saved and kept for undo: `from` maps a scheme to its
+  // blocks before.
+  saveBlocks(from) {
+    const edits = [];
+    for (const [id, before] of from) {
+      const p = this.papers.find((q) => q.id === id);
+      if (!p || p.blocks === before) continue;
+      edits.push({ op: 'update', id, before: { blocks: before }, after: { blocks: p.blocks } });
+      this.save(id, { blocks: p.blocks });
+    }
+    this.record(edits);
+  }
+
+  // A block taken by a tool or a click: it alone is picked, and its scheme stands in 3D.
+  takeBlock(key) {
+    if (this.selected.length) this.select([]);
+    const { id } = parseBlockKey(key);
+    if (this.active !== id) this.showScheme(id);
+    this.pickBlocks([key]);
+  }
+
+  // ------------------------------------------------------------------ SketchUp's tools
+  // A drag with one of SketchUp's basic tools (2026-11-02 지훈). Move, rotate and scale work on
+  // the picked blocks, or on the block pressed (which is then picked).
+  modelGesture(e, g0) {
+    this.gl?.draft.clear();
+    const hit = this.blockHit(e.clientX, e.clientY);
+    const base = { x: e.clientX, y: e.clientY, g0, moved: false };
+    switch (this.tool) {
+      case 'rect': case 'tape': return g0 ? { ...base, kind: this.tool } : null;
+      case 'erase': {
+        const keys = new Set(hit ? [hit.key] : []);
+        this.pickBlocks([...keys]); // what will go shows picked until the button is let go
+        return { ...base, kind: 'erase', keys };
+      }
+      case 'push': {
+        if (!hit) return null;
+        this.takeBlock(hit.key);
+        const { id, index } = parseBlockKey(hit.key);
+        const paper = this.papers.find((p) => p.id === id);
+        return { ...base, kind: 'push', id, index, face: hit.face, before: paper.blocks, axis: this.faceAxis(paper.blocks[index], hit.face) };
+      }
+      default: {
+        if (hit && !this.picked.includes(hit.key)) this.takeBlock(hit.key);
+        if (!this.pickedGroups().length || !g0) return null;
+        const g = this.gumballGesture(this.tool === 'move' ? 'free' : this.tool, e);
+        if (this.tool === 'move') return { ...g, copy: this.copyMode || e.ctrlKey || e.metaKey };
+        const frame = this.site?.plan?.frame;
+        const c = blocksCenter(frame, this.pickedGroups().flatMap((p) => p.indices.map((i) => p.paper.blocks[i])));
+        return { ...g, center: c, centerUV: toFrame(frame, c.x, c.y) };
+      }
+    }
+  }
+
+  // Where one metre out of a block's face goes on the screen: up for the top, else square to
+  // the side, turned with the block and the site.
+  faceAxis(b, face) {
+    const frame = this.site?.plan?.frame || { x: 0, y: 0, angle: 0 };
+    const [mx, my] = blockCorners(frame, { ...b, w: 0, d: 0 })[0];
+    let dir = [0, 0, riseFor(this.view.tilt)];
+    if (face !== 'top') {
+      const t = frame.angle + ((b.a || 0) * Math.PI) / 180 + (face[0] === 'd' ? Math.PI / 2 : 0);
+      const sign = face[1] === '+' ? 1 : -1;
+      dir = [sign * Math.cos(t), sign * Math.sin(t), 0];
+    }
+    const { camera } = this.gl;
+    const r = this.root.getBoundingClientRect();
+    const at = (x, y, z) => { const p = new THREE.Vector3(x, y, z).project(camera); return [((p.x + 1) / 2) * r.width, ((1 - p.y) / 2) * r.height]; };
+    const [ax, ay] = at(mx, my, 0);
+    const [bx, by] = at(mx + dir[0], my + dir[1], dir[2]);
+    return [bx - ax, by - ay];
+  }
+
+  // A rectangle or the tape measure being drawn on the table (table points).
+  drawDraft(points, closed) {
+    const d = this.gl.draft;
+    d.clear();
+    const geom = new THREE.BufferGeometry().setFromPoints(points.map(([x, y]) => new THREE.Vector3(x, y, 0.3)));
+    d.add(new (closed ? THREE.LineLoop : THREE.Line)(geom, new THREE.LineBasicMaterial({ color: this.colors.pick, depthTest: false })));
+    this.invalidate();
+  }
+
+  // A new block (from the rectangle tool, or pasted) goes into the scheme standing in 3D; with
+  // none, it starts a new scheme. It is picked.
+  async addBlocks(blocks) {
+    const paper = this.papers.find((p) => p.id === this.active && p.kind === 'mass');
+    if (paper) {
+      if (paper.blocks.length + blocks.length > MAX_BLOCKS) { this.say(`한 매스안에는 동이 ${MAX_BLOCKS}개까지입니다.`); return; }
+      const before = paper.blocks;
+      paper.blocks = [...before, ...blocks];
+      this.saveBlocks(new Map([[paper.id, before]]));
+      this.pickBlocks(blocks.map((_, k) => blockKey(paper.id, before.length + k)));
+      return;
+    }
+    const [w, h] = PAPER_SIZE.mass;
+    const spot = freeSpot(this.papers, this.bounds, w, h);
+    const done = await this.hooks.add({ kind: 'mass', title: '새 매스안', floor_height: 4.2, blocks: blocks.slice(0, MAX_BLOCKS), w, h, ...spot });
+    if (!done?.paper) return;
+    this.record([{ op: 'add', paper: done.paper }]);
+    this.showScheme(done.paper.id);
+    this.pickBlocks(blocks.map((_, k) => blockKey(done.paper.id, k)));
+  }
+
+  // Ctrl+C and Ctrl+V: the picked blocks, pasted 5 m along u and v from where they were.
+  copyPicked() {
+    this.clip = this.pickedGroups().flatMap((g) => g.indices.map((i) => g.paper.blocks[i]));
+    if (this.clip.length) this.say(`동 ${this.clip.length}개를 복사했습니다. Ctrl+V로 붙여 넣습니다.`);
+  }
+
+  pasteClip() {
+    if (!this.clip?.length) return;
+    this.clip = editBlocks(this.clip, this.clip.map((_, i) => i), { du: 5, dv: 5 });
+    this.addBlocks(this.clip);
+  }
+
+  // Ctrl+A: every block of the scheme standing in 3D.
+  pickAll() {
+    const paper = this.papers.find((p) => p.id === this.active && p.kind === 'mass');
+    if (paper) this.pickBlocks(paper.blocks.map((_, i) => blockKey(paper.id, i)));
+  }
+
+  // The gumball on the picked blocks, drawn over the scene: u, v and z arrows, size squares on
+  // u and v, and a square in the middle.
+  placeGumball() {
+    const el = this.gumEl;
+    const groups = this.tool === 'select' ? this.pickedGroups() : [];
+    const frame = this.site?.plan?.frame;
+    const c = blocksCenter(frame, groups.flatMap((g) => g.indices.map((i) => g.paper.blocks[i])));
+    this.gumAxes = null;
+    if (!c || !this.gl) { el.hidden = true; return; }
+    const { camera } = this.gl;
+    const w = this.size?.w || this.root.clientWidth;
+    const h = this.size?.h || this.root.clientHeight;
+    const screen = (x, y, z = 0) => {
+      const at = new THREE.Vector3(x, y, z).project(camera);
+      return [((at.x + 1) / 2) * w, ((1 - at.y) / 2) * h, at.z];
+    };
+    const [cx, cy, cz] = screen(c.x, c.y);
+    if (cz > 1 || cx < -40 || cx > w + 40 || cy < -40 || cy > h + 40) { el.hidden = true; return; }
+    const a = frame?.angle || 0;
+    const rise = riseFor(this.view.tilt); // the buildings stand this much of their height
+    const axes = {};
+    const place = (sel, along, at, size) => {
+      const r = el.querySelector(sel);
+      r.style.display = along ? '' : 'none';
+      if (!along) return;
+      r.setAttribute('x', cx + along[0] * at - size / 2);
+      r.setAttribute('y', cy + along[1] * at - size / 2);
+    };
+    for (const [name, [ux, uy, uz]] of [['u', [Math.cos(a), Math.sin(a), 0]], ['v', [-Math.sin(a), Math.cos(a), 0]], ['z', [0, 0, rise]]]) {
+      const [tx, ty] = screen(c.x + ux, c.y + uy, uz);
+      axes[name] = [tx - cx, ty - cy];
+      const len = Math.hypot(...axes[name]);
+      const g = el.querySelector(`[data-gumball="${name}"]`);
+      const shown = len >= 0.5; // not seen end-on, as z in plan or u or v in an elevation
+      g.style.display = shown ? '' : 'none';
+      const dir = shown && [axes[name][0] / len, axes[name][1] / len];
+      if (name !== 'z') place(`[data-gumball="${name === 'u' ? 'w' : 'd'}"]`, dir, GUMBALL_SCALE_PX, 10);
+      if (!shown) continue;
+      const [dx, dy] = dir;
+      const [ex, ey] = [cx + dx * GUMBALL_PX, cy + dy * GUMBALL_PX];
+      for (const line of g.querySelectorAll('line')) {
+        line.setAttribute('x1', cx + dx * 12); line.setAttribute('y1', cy + dy * 12);
+        line.setAttribute('x2', ex); line.setAttribute('y2', ey);
+      }
+      const [bx, by] = [ex - dx * 12, ey - dy * 12];
+      g.querySelector('polygon').setAttribute('points', `${ex + dx * 4},${ey + dy * 4} ${bx - dy * 6},${by + dx * 6} ${bx + dy * 6},${by - dx * 6}`);
+    }
+    place('.gb-free', [0, 0], 0, 14);
+    this.gumAxes = axes;
+    el.hidden = false;
   }
 
   foldChanged(fold) {
@@ -382,19 +619,27 @@ export class DraftingTable {
     g.masses.position.set(frame.x, frame.y, 0);
     g.masses.rotation.z = frame.angle;
     const ink = new THREE.Color(this.colors.ink);
+    const pick = new THREE.Color(this.colors.pick);
     const build = (paper, faint, tint) => {
-      for (const b of paper.blocks || []) {
+      for (const [index, b] of (paper.blocks || []).entries()) {
         const h = b.floors * (paper.floor_height || 4.2);
         const geom = new THREE.BoxGeometry(b.w, b.d, h);
+        // A click or a selection box on a building picks that block (not an AI scheme in preview).
+        const own = tint ? {} : { paper: paper.id, index };
+        const picked = !tint && this.picked.includes(blockKey(paper.id, index));
         if (!faint) {
-          const box = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ color: this.colors.mass }));
+          const box = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ color: picked ? pick.clone().lerp(new THREE.Color(this.colors.mass), 0.55) : this.colors.mass }));
           box.position.set(b.u, b.v, h / 2);
+          box.rotation.z = ((b.a || 0) * Math.PI) / 180;
           box.castShadow = true;
+          box.userData = own;
           g.masses.add(box);
         }
         const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geom),
-          new THREE.LineBasicMaterial({ color: tint || ink, transparent: faint, opacity: faint ? (tint ? 0.9 : 0.35) : 1 }));
+          new THREE.LineBasicMaterial({ color: picked ? pick : tint || ink, transparent: faint && !picked, opacity: faint && !picked ? (tint ? 0.9 : 0.35) : 1 }));
         edges.position.set(b.u, b.v, h / 2 + 0.05);
+        edges.rotation.z = ((b.a || 0) * Math.PI) / 180;
+        edges.userData = own;
         g.masses.add(edges);
         if (!faint) {
           const tag = document.createElement('div');
@@ -418,6 +663,62 @@ export class DraftingTable {
   }
 
   // ------------------------------------------------------------------ papers
+
+  // Where things show on the screen, for a selection box. papers: each paper itself, or its pin
+  // when folded (in 3D, or folded in plan); a tracing laid on the site in 3D has no pin.
+  // blocks: each building on the site, by its block key.
+  screenBoxes() {
+    const fold = folded(this.view.tilt);
+    const shut = new Set(foldedInPlan(this.papers, this.home));
+    const out = { papers: [], blocks: [] };
+    for (const p of this.papers) {
+      const el = fold || shut.has(p.id) ? this.pins.get(p.id) : this.slots.get(p.id);
+      if (!el || el.hidden) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width && r.height) out.papers.push({ id: p.id, left: r.left, top: r.top, right: r.right, bottom: r.bottom });
+    }
+    if (!this.gl) return out;
+    const { camera, masses } = this.gl;
+    const root = this.root.getBoundingClientRect();
+    masses.updateMatrixWorld(true);
+    const at = new THREE.Vector3();
+    for (const obj of masses.children) {
+      if (!obj.userData.paper) continue;
+      if (!obj.geometry.boundingBox) obj.geometry.computeBoundingBox();
+      const { min, max } = obj.geometry.boundingBox;
+      const xs = [];
+      const ys = [];
+      for (const x of [min.x, max.x]) for (const y of [min.y, max.y]) for (const z of [min.z, max.z]) {
+        at.set(x, y, z).applyMatrix4(obj.matrixWorld).project(camera);
+        xs.push(root.left + ((at.x + 1) / 2) * root.width);
+        ys.push(root.top + ((1 - at.y) / 2) * root.height);
+      }
+      out.blocks.push({ id: blockKey(obj.userData.paper, obj.userData.index), left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) });
+    }
+    return out;
+  }
+
+  // The block (`paperId#index`) of the building under the pointer ('' when none).
+  blockAt(clientX, clientY) {
+    return this.blockHit(clientX, clientY)?.key || '';
+  }
+
+  // The building under the pointer and which face of it: 'top', or a side 'w+', 'w-', 'd+',
+  // 'd-' (its +u, −u, +v, −v face, turned with it). null when none. A solid face wins over an
+  // outline (a scheme seen only as outlines gives 'top').
+  blockHit(clientX, clientY) {
+    if (!this.gl) return null;
+    const { camera, masses, raycaster } = this.gl;
+    const r = this.root.getBoundingClientRect();
+    masses.updateMatrixWorld(true);
+    raycaster.setFromCamera(new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1), camera);
+    const hits = raycaster.intersectObjects(masses.children.filter((o) => o.userData.paper), false);
+    const hit = hits.find((h) => h.object.isMesh) || hits[0];
+    if (!hit) return null;
+    const n = hit.face?.normal;
+    const face = !n || n.z > 0.5 || n.z < -0.5 ? 'top' : Math.abs(n.x) > 0.5 ? (n.x > 0 ? 'w+' : 'w-') : (n.y > 0 ? 'd+' : 'd-');
+    return { key: blockKey(hit.object.userData.paper, hit.object.userData.index), face, point: hit.point };
+  }
 
   slot(id) {
     if (!this.slots.has(id)) {
@@ -846,8 +1147,8 @@ export class DraftingTable {
       <header><h3>${f.id ? '매스안 고치기' : '새 매스안'}</h3><button type="button" class="tray-close" data-ui="form-close" aria-label="닫기">×</button></header>
       <label>이름 <input data-key="title" maxlength="120" placeholder="예: 안 A · 판상형" value="${escape(f.title)}"></label>
       <label>층고(m) <input data-key="floorHeight" inputmode="decimal" value="${escape(f.floorHeight)}"></label>
-      <table><thead><tr><th>동</th><th>가로 m</th><th>세로 m</th><th>층수</th><th>u m</th><th>v m</th><th></th></tr></thead>
-      <tbody>${f.rows.map((_, i) => `<tr><th>${i + 1}</th>${cell(i, 'w', '가로')}${cell(i, 'd', '세로')}${cell(i, 'floors', '층수')}${cell(i, 'u', 'u')}${cell(i, 'v', 'v')}
+      <table><thead><tr><th>동</th><th>가로 m</th><th>세로 m</th><th>층수</th><th>u m</th><th>v m</th><th>회전°</th><th></th></tr></thead>
+      <tbody>${f.rows.map((_, i) => `<tr><th>${i + 1}</th>${cell(i, 'w', '가로')}${cell(i, 'd', '세로')}${cell(i, 'floors', '층수')}${cell(i, 'u', 'u')}${cell(i, 'v', 'v')}${cell(i, 'a', '회전')}
         <td><button type="button" data-ui="row-remove" data-row="${i}" aria-label="${i + 1}동 빼기" ${f.rows.length < 2 ? 'disabled' : ''}>−</button></td></tr>`).join('')}</tbody></table>
       <button type="button" class="row-add" data-ui="row-add">＋ 동 추가</button>
       <p class="form-hint">u는 대지의 긴 변을 따라, v는 그와 직각으로, 큰 필지 가운데에서 잰 동 중심 위치입니다. 건폐율·용적률은 저장하면 서버가 계산합니다.</p>
@@ -885,10 +1186,13 @@ export class DraftingTable {
     this.drawHistory();
     const v = this.view;
     const masses = this.papers.filter((p) => p.kind === 'mass');
-    this.ui.tools.innerHTML = `${TOOLS.map((t) => `<button type="button" data-tool="${t.id}" aria-pressed="${this.tool === t.id}" title="${t.label} (${t.key.toUpperCase()})"><span aria-hidden="true">${t.icon}</span> ${t.label}</button>`).join('')}
+    const toolButton = (t) => `<button type="button" data-tool="${t.id}" aria-pressed="${this.tool === t.id}" title="${t.label} (명령: ${t.cmd})${t.hint ? ` — ${t.hint}` : ''}"><span aria-hidden="true">${t.icon}</span> ${t.label}</button>`;
+    this.ui.tools.innerHTML = `${TOOLS.filter((t) => !t.group).slice(0, 1).map(toolButton).join('')}
+      <span class="sep"></span>${TOOLS.filter((t) => t.group === 'model').map(toolButton).join('')}
+      <span class="sep"></span>${TOOLS.filter((t) => !t.group).slice(1).map(toolButton).join('')}
       <span class="sep"></span>
       <button type="button" data-ui="scheme-new" title="숫자로 매스안 만들기">＋ 매스안</button>
-      <button type="button" data-ui="trace" title="트레이싱지 덮기 (T)">트레이싱지 덮기</button>
+      <button type="button" data-ui="trace" title="트레이싱지 덮기 (명령: trace)">트레이싱지 덮기</button>
       <button type="button" data-ui="delete" ${this.selected.some((id) => this.papers.some((p) => p.id === id && p.kind !== 'site')) ? '' : 'disabled'} title="삭제 (Delete)">삭제</button>
       <span class="sep"></span>
       <button type="button" data-ui="tray" aria-pressed="${this.trayOpen}">AI 섹션${this.tray.length ? ` <b>${this.tray.length}</b>` : ''}</button>`;
@@ -897,14 +1201,14 @@ export class DraftingTable {
         ${masses.map((p) => `<button type="button" data-active="${escape(p.id)}" aria-pressed="${this.active === p.id}">${escape(paperName(p))}</button>`).join('')}</div>
       ${masses.length > 1 ? `<label class="check"><input type="checkbox" data-ui="ghost" ${this.ghost ? 'checked' : ''}> 다른 안 겹쳐 보기</label>` : ''}` : '';
     this.ui.tilt.innerHTML = `<div class="seg vertical" role="group" aria-label="보는 각도">
-        ${[['plan', '평면', '1'], ['3d', '3D', '2']].map(([id, label, k]) => `<button type="button" data-tilt="${id}" title="${label} (${k})" aria-pressed="${viewName(v.tilt) === id}">${label}</button>`).join('')}</div>
+        ${[['plan', '평면', 'plan'], ['3d', '3D', 'persp']].map(([id, label, k]) => `<button type="button" data-tilt="${id}" title="${label} (명령: ${k})" aria-pressed="${viewName(v.tilt) === id}">${label}</button>`).join('')}</div>
       <input type="range" min="0" max="${MAX_TILT}" value="${Math.round(v.tilt)}" aria-label="기울기 각도" data-ui="tilt-range">
       <span class="num tilt-read">${Math.round(v.tilt)}°</span>
       <button type="button" class="compass" data-ui="north" title="북쪽을 위로"><span style="transform: rotate(${-v.turn}deg)" aria-hidden="true">▲</span><small>N</small></button>`;
     this.ui.zoom.innerHTML = `<span class="num scale">${drawingScale(v.span, this.root.clientHeight || 600)}</span>
       <button type="button" data-ui="zoom-in" aria-label="확대">+</button>
       <button type="button" data-ui="zoom-out" aria-label="축소">−</button>
-      <button type="button" data-ui="fit" title="전체 보기 (0)">맞춤</button>`;
+      <button type="button" data-ui="fit" title="전체 보기 (명령: zoom)">맞춤</button>`;
   }
 
   // Cheap updates while the view moves (the full control redraw would steal the slider).
@@ -1044,15 +1348,21 @@ export class DraftingTable {
     this.syncPapers();
   }
 
-  setTool(tool) {
+  setTool(tool, { copy = false } = {}) {
     this.tool = tool;
+    this.copyMode = copy; // the copy command: the move tool copies without Ctrl
     if (tool === 'pen' && folded(this.view.tilt)) {
       this.animateTo({ tilt: 0, turn: 0 });
       this.say('펜은 평면에서 씁니다. 평면으로 돌아왔습니다.');
     }
+    const hint = copy ? '고른 동(또는 누른 동)을 끌어 복사합니다.' : TOOLS.find((t) => t.id === tool)?.hint;
+    if (hint) this.say(hint);
     this.root.classList.toggle('tool-pen', tool === 'pen');
     this.root.classList.toggle('tool-note', tool === 'note');
+    this.root.classList.toggle('tool-model', MODEL_TOOLS.has(tool));
+    this.gl?.draft.clear();
     this.drawControls();
+    this.invalidate();
   }
 
   // ------------------------------------------------------------------ input
@@ -1113,13 +1423,15 @@ export class DraftingTable {
     if (t.dataset.active) { this.showScheme(t.dataset.active); return; }
     if (t.dataset.fold) { this.setFolded(t.dataset.fold, true); return; }
     if (t.dataset.pin) {
+      if (performance.now() < (this.skipClickUntil || 0)) return;
+      // A click picks the pin's paper (Shift adds or takes away) and opens its card; a picked pin drags.
       if (e.shiftKey) this.select(toggleSelected(this.selected, t.dataset.pin, true));
-      else this.openPeek(t.dataset.pin);
+      else { if (!this.selected.includes(t.dataset.pin)) this.select([t.dataset.pin]); this.openPeek(t.dataset.pin); }
       return;
     }
     if (t.dataset.peek) {
       this.peekAction(t.dataset.peek, t.dataset.id);
-      // The card was redrawn under the pointer: keep the keys (Esc, 1–3) on the table.
+      // The card was redrawn under the pointer: keep the keys (Esc, Delete) on the table.
       if (!this.root.contains(document.activeElement)) this.root.focus({ preventScroll: true });
       return;
     }
@@ -1144,7 +1456,7 @@ export class DraftingTable {
       case 'zoom-out': this.animateTo({ span: this.view.span * 1.4 }, 200); break;
       case 'fit': this.fit(); break;
       case 'form-close': this.form = null; this.drawForm(); break;
-      case 'row-add': if (this.form.rows.length < 20) { this.form.rows.push({ u: '0', v: '0', w: '20', d: '15', floors: '3' }); this.drawForm(); } break;
+      case 'row-add': if (this.form.rows.length < 20) { this.form.rows.push({ u: '0', v: '0', w: '20', d: '15', floors: '3', a: '0' }); this.drawForm(); } break;
       case 'row-remove': this.form.rows.splice(Number(t.dataset.row), 1); this.drawForm(); break;
       default: break;
     }
@@ -1201,19 +1513,34 @@ export class DraftingTable {
   }
 
   onDown(e) {
+    // Dragging a pin moves its paper straight away, picked or not (2026-11-02 지훈); a picked
+    // pin takes the other picked papers along. The pointer is not captured, so a press without
+    // a drag stays a click on the pin.
+    const pinId = e.button === 0 && !e.shiftKey && e.target.closest('[data-pin]')?.dataset.pin;
+    if (pinId) {
+      const g0 = this.ground(e.clientX, e.clientY);
+      const ids = new Set(this.selected.includes(pinId) ? this.selected.filter((id) => this.papers.some((p) => p.id === id)) : [pinId]);
+      if (g0) this.gesture = { kind: 'move', pin: true, g0, ids, id: pinId, shift: false, from: new Map(this.papers.map((q) => [q.id, { x: q.x, y: q.y, overlaid: q.overlaid }])), moved: false, x: e.clientX, y: e.clientY };
+      return;
+    }
     if (e.target.closest('.table-ui, dialog') || typing(e.target) || e.target.closest('button, a')) return;
     e.preventDefault(); // no text selection while dragging across the panes
     this.root.focus({ preventScroll: true });
     this.root.setPointerCapture(e.pointerId);
     this.tween += 1;
     const v = this.view;
+    const grip = e.button === 0 && this.gumAxes && e.target.closest('[data-gumball]')?.dataset.gumball;
+    if (grip) { this.gesture = this.gumballGesture(grip, e); return; }
     const mode = dragMode({ button: e.button, shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, alt: e.altKey });
     if (mode === 'orbit') { this.gesture = { kind: 'orbit', x: e.clientX, y: e.clientY, v }; return; }
     const g0 = this.ground(e.clientX, e.clientY);
     if (mode) { this.gesture = { kind: mode, g0: (v.tilt < EDGE_TILT && g0) || { x: v.x, y: v.y }, edge: v.tilt >= EDGE_TILT || !g0, v, x: e.clientX, y: e.clientY, moved: false, button: e.button }; return; }
     if (e.button !== 0) return;
-    if (!g0) { // the sky above the table, in a view near edge-on: dragging it still pans
-      if (this.tool === 'select') this.gesture = { kind: 'pan', g0: { x: v.x, y: v.y }, edge: true, v, x: e.clientX, y: e.clientY, moved: false, button: 0 };
+    if (MODEL_TOOLS.has(this.tool)) { this.gesture = this.modelGesture(e, g0); return; }
+    // Empty table (or the sky above it, in a view near edge-on): a selection box, as in Rhino.
+    const box = { kind: 'box', x: e.clientX, y: e.clientY, add: e.shiftKey, remove: e.ctrlKey || e.metaKey, moved: false };
+    if (!g0) {
+      if (this.tool === 'select') this.gesture = box;
       return;
     }
     if (this.tool === 'pen') {
@@ -1236,7 +1563,22 @@ export class DraftingTable {
       return;
     }
     const paperId = e.target.closest('[data-paper]')?.dataset.paper;
+    const block = !paperId && this.tool === 'select' && this.blockAt(e.clientX, e.clientY);
+    if (block) {
+      // A click on a building picks that block alone (Shift adds or takes away); dragging it
+      // moves the picked blocks on the ground, as an object in Rhino.
+      if (e.shiftKey) { this.pickBlocks(this.picked.includes(block) ? this.picked.filter((k) => k !== block) : [...this.picked, block]); return; }
+      if (!this.picked.includes(block)) {
+        if (this.selected.length) this.select([]);
+        const { id } = parseBlockKey(block);
+        if (this.active !== id) this.showScheme(id);
+        this.pickBlocks([block]);
+      }
+      this.gesture = this.gumballGesture('free', e);
+      return;
+    }
     if (paperId) {
+      if (!e.shiftKey && this.picked.length) this.pickBlocks([]);
       const next = e.shiftKey || this.selected.includes(paperId) ? (e.shiftKey ? toggleSelected(this.selected, paperId, true) : this.selected) : [paperId];
       if (next !== this.selected) this.select(next);
       const p = this.papers.find((x) => x.id === paperId);
@@ -1244,7 +1586,7 @@ export class DraftingTable {
       this.gesture = { kind: 'move', g0, ids: new Set(next), id: paperId, shift: e.shiftKey, from: new Map(this.papers.map((q) => [q.id, { x: q.x, y: q.y, overlaid: q.overlaid }])), moved: false, x: e.clientX, y: e.clientY };
       return;
     }
-    this.gesture = { kind: 'pan', g0, edge: v.tilt >= EDGE_TILT, v, x: e.clientX, y: e.clientY, moved: false, button: 0 };
+    this.gesture = box;
   }
 
   onMove(e) {
@@ -1264,6 +1606,84 @@ export class DraftingTable {
       if (p) this.setView({ ...g.v, x: g.v.x - (p.x - g.g0.x), y: g.v.y - (p.y - g.g0.y) });
       else if (g.edge) this.setView(panBy(g.v, e.clientX - g.x, e.clientY - g.y, this.root.clientHeight));
       if (Math.hypot(e.clientX - g.x, e.clientY - g.y) > 3) g.moved = true;
+    } else if (g.kind === 'gumball') {
+      if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 3) return;
+      let delta = {};
+      let up = 0; // metres up, for the z arrow
+      const ground = ['free', 'rotate', 'scale'].includes(g.grip);
+      const p = ground && g.g0 && this.ground(e.clientX, e.clientY);
+      if (ground && !p) return;
+      if (g.grip === 'free') {
+        delta = frameDelta(this.site?.plan?.frame, p.x - g.g0.x, p.y - g.g0.y);
+      } else if (!ground) {
+        const m = axisDrag(g.axes[{ w: 'u', d: 'v' }[g.grip] || g.grip], e.clientX - g.x, e.clientY - g.y);
+        // A size square widens on both sides, about each block's middle.
+        delta = { u: { du: m }, v: { dv: m }, w: { dw: 2 * m }, d: { dd: 2 * m } }[g.grip] || {};
+        if (g.grip === 'z') up = m;
+      }
+      const c = g.center;
+      // Rotate: the angle swept about the middle, in 5° steps (Shift: 1°). Scale: how much further
+      // from the middle the pointer is than where it started.
+      const sweep = g.grip === 'rotate' && snapAngle((Math.atan2(p.y - c.y, p.x - c.x) - Math.atan2(g.g0.y - c.y, g.g0.x - c.x)) * 180 / Math.PI, e.shiftKey ? 1 : 5);
+      const r0 = g.grip === 'scale' && Math.hypot(g.g0.x - c.x, g.g0.y - c.y);
+      if (g.grip === 'scale' && r0 < 0.5) return;
+      const k = g.grip === 'scale' && Math.max(0.05, Math.round((Math.hypot(p.x - c.x, p.y - c.y) / r0) * 100) / 100);
+      g.moved = true;
+      g.copies = new Map();
+      for (const q of this.papers) {
+        const from = g.from.get(q.id);
+        if (!from) continue;
+        if (g.copy) {
+          const done = copyBlocks(from.blocks, from.indices, delta.du, delta.dv);
+          if (done.blocks.length > MAX_BLOCKS) continue; // too many to copy here: left as it was
+          q.blocks = done.blocks;
+          g.copies.set(q.id, done.indices);
+        } else if (g.grip === 'rotate') q.blocks = turnBlocks(from.blocks, from.indices, g.centerUV, sweep);
+        else if (g.grip === 'scale') q.blocks = scaleBlocks(from.blocks, from.indices, g.centerUV, k);
+        else q.blocks = editBlocks(from.blocks, from.indices, { ...delta, df: up / (q.floor_height || 4.2) });
+      }
+      if (g.grip === 'rotate') this.say(`회전 ${sweep}°`);
+      if (g.grip === 'scale') this.say(`크기 ${k}배`);
+      this.drawMasses();
+    } else if (g.kind === 'push') {
+      if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 3) return;
+      g.moved = true;
+      const p = this.papers.find((q) => q.id === g.id);
+      const m = axisDrag(g.axis, e.clientX - g.x, e.clientY - g.y);
+      p.blocks = g.before.map((b, i) => (i === g.index ? pushBlock(b, g.face, m, p.floor_height || 4.2) : b));
+      const b = p.blocks[g.index];
+      this.say(g.face === 'top' ? `${b.floors}층` : `${fmt(g.face[0] === 'w' ? b.w : b.d, 1)} m`);
+      this.drawMasses();
+    } else if (g.kind === 'rect' || g.kind === 'tape') {
+      const p = this.ground(e.clientX, e.clientY);
+      if (!p) return;
+      g.moved = true;
+      const frame = this.site?.plan?.frame;
+      if (g.kind === 'tape') {
+        this.drawDraft([[g.g0.x, g.g0.y], [p.x, p.y]], false);
+        this.say(`거리 ${fmt(Math.hypot(p.x - g.g0.x, p.y - g.g0.y), 2)} m`);
+        return;
+      }
+      g.block = rectBlock(frame, g.g0, p);
+      const a = toFrame(frame, g.g0.x, g.g0.y);
+      const b = toFrame(frame, p.x, p.y);
+      this.drawDraft(blockCorners(frame, { u: (a.u + b.u) / 2, v: (a.v + b.v) / 2, w: Math.abs(b.u - a.u), d: Math.abs(b.v - a.v) }), true);
+      this.say(`${fmt(Math.abs(b.u - a.u), 1)} × ${fmt(Math.abs(b.v - a.v), 1)} m`);
+    } else if (g.kind === 'erase') {
+      const key = this.blockAt(e.clientX, e.clientY);
+      if (key && !g.keys.has(key)) { g.keys.add(key); this.pickBlocks([...g.keys]); }
+    } else if (g.kind === 'box') {
+      if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 4) return;
+      g.moved = true;
+      g.to = { x: e.clientX, y: e.clientY };
+      const r = this.root.getBoundingClientRect();
+      const el = this.boxEl;
+      el.hidden = false;
+      el.classList.toggle('is-crossing', boxMode(g, g.to) === 'crossing');
+      Object.assign(el.style, {
+        left: `${Math.min(g.x, g.to.x) - r.left}px`, top: `${Math.min(g.y, g.to.y) - r.top}px`,
+        width: `${Math.abs(g.to.x - g.x)}px`, height: `${Math.abs(g.to.y - g.y)}px`,
+      });
     } else if (g.kind === 'zoom') {
       // Drag up to zoom in, down to zoom out, around the point first pressed.
       this.setView(zoomAround(g.v, g.g0.x, g.g0.y, Math.exp((e.clientY - g.y) * 0.005)));
@@ -1307,8 +1727,31 @@ export class DraftingTable {
         this.syncPapers();
         this.save(p.id, { strokes: p.strokes });
       }
-    } else if (g?.kind === 'pan' && !g.moved && g.button === 0) {
-      if (this.selected.length) this.select([]);
+    } else if (g?.kind === 'gumball' && g.moved) {
+      this.saveBlocks(new Map([...g.from].map(([id, f]) => [id, f.blocks])));
+      // A copy leaves the copies picked, as in SketchUp.
+      if (g.copies?.size) this.pickBlocks([...g.copies].flatMap(([id, indices]) => indices.map((i) => blockKey(id, i))));
+    } else if (g?.kind === 'push' && g.moved) {
+      this.saveBlocks(new Map([[g.id, g.before]]));
+    } else if (g?.kind === 'rect') {
+      this.gl.draft.clear();
+      this.invalidate();
+      if (g.block) this.addBlocks([g.block]);
+      else if (g.moved) this.say('가로·세로가 1m 이상이 되게 그려 주세요.');
+    } else if (g?.kind === 'erase') {
+      if (g.keys.size) this.removeBlocks([...g.keys]);
+    } else if (g?.kind === 'box') {
+      this.boxEl.hidden = true;
+      // A box picks the papers and the buildings it holds (or touches); a plain click on empty
+      // table picks nothing.
+      if (g.moved) {
+        const boxes = this.screenBoxes();
+        this.pickBlocks(boxPick(this.picked, g, g.to, boxes.blocks, { ...g, limit: Infinity }));
+        this.select(boxPick(this.selected, g, g.to, boxes.papers, g));
+      } else if (!g.add && !g.remove) {
+        if (this.selected.length) this.select([]);
+        if (this.picked.length) this.pickBlocks([]);
+      }
     } else if (g?.kind === 'move' && g.moved) {
       const edits = [];
       for (const q of this.papers) {
@@ -1327,7 +1770,9 @@ export class DraftingTable {
         if (p?.kind === 'tracing') this.say(isOverlaid(p, this.home) ? `${paperName(p)}을(를) 대지 위에 다시 덮었습니다.` : `${paperName(p)}을(를) 떼어냈습니다. 옆에 두고 보거나, 다시 대지 위로 끌어 덮으세요.`);
       }
     }
-    if (g?.kind === 'move' && !g.moved && !g.shift) {
+    // A pin dragged: the click that ends the drag must not open its card.
+    if (g?.kind === 'move' && g.pin && g.moved) this.skipClickUntil = performance.now() + 400;
+    if (g?.kind === 'move' && !g.moved && !g.shift && !g.pin) {
       // A click on a paper: it alone is picked, and opens at reading size (a note is written in place).
       const p = this.papers.find((q) => q.id === g.id);
       if (p && this.selected.length > 1) this.select([p.id]);
@@ -1354,21 +1799,22 @@ export class DraftingTable {
       this.travel(k === 'y' || e.shiftKey ? 'redo' : 'undo');
       return;
     }
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && ['c', 'v', 'a'].includes(k)) {
+      // Copy, paste and pick-all work on the blocks, as in SketchUp.
+      if (k === 'c' && this.picked.length) { e.preventDefault(); this.copyPicked(); }
+      if (k === 'v' && this.clip?.length) { e.preventDefault(); this.pasteClip(); }
+      if (k === 'a') { e.preventDefault(); this.pickAll(); }
+      return;
+    }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const handled = () => e.preventDefault();
-    if (k === '1') { handled(); this.showView('plan'); }
-    else if (k === '2') { handled(); this.showView('3d'); }
-    else if (k === '0') { handled(); this.fit(); }
-    else if (k === 't') { handled(); this.layTracing(); }
-    else if (k === 'delete' || k === 'backspace') { handled(); this.removeSelected(); }
+    // No letter or number shortcuts (2026-11-02 지훈): a word typed on the table goes to the
+    // command line (app.js). Only Delete and Esc act here.
+    if (k === 'delete' || k === 'backspace') { e.preventDefault(); if (this.picked.length) this.removePicked(); else this.removeSelected(); }
     else if (k === 'escape') {
       if (this.peekId) { this.peekId = ''; this.drawPins(); this.drawPeek(); return; }
       this.select([]);
+      if (this.picked.length) this.pickBlocks([]);
       this.setTool('select');
-    }
-    else {
-      const tool = TOOLS.find((x) => x.key === k);
-      if (tool) { handled(); this.setTool(tool.id); }
     }
   }
 }

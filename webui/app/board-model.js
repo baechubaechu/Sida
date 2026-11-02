@@ -81,7 +81,7 @@ export function zoomAround(v, gx, gy, factor) {
 // Mouse like Rhino (2026-11-01 지훈): which view move a drag makes. The right button orbits, in
 // plan too, so a plan tips straight into 3D (2026-11-02 지훈); Shift+right pans and Ctrl+right
 // zooms. The middle button always pans, and Alt+left orbits for a trackpad.
-// null: the left button's own work (select, move, draw; on empty table it pans).
+// null: the left button's own work (select, move, draw; on empty table a selection box).
 export const PLAN_TILT = 4; // below this lean the view counts as a plan
 export const EDGE_TILT = 70; // past this lean the table is seen near edge-on: pan and zoom on the screen, not the table
 export function dragMode({ button = 0, shift = false, ctrl = false, alt = false } = {}) {
@@ -161,16 +161,169 @@ export function isOverlaid(paper, home) {
   return paper.kind === 'tracing' && Math.hypot(paper.x - home.x, paper.y - home.y) < 0.01;
 }
 
-// A block's footprint on the table: blocks stand in the site's frame (u along its long side).
+// A block's footprint on the table: blocks stand in the site's frame (u along its long side),
+// each turned by its own `a` (degrees, counter-clockwise; the rotate tool) about its middle.
 export function blockCorners(frame, b) {
   const f = frame || { x: 0, y: 0, angle: 0 };
   const c = Math.cos(f.angle);
   const s = Math.sin(f.angle);
+  const ca = Math.cos(rad(b.a || 0));
+  const sa = Math.sin(rad(b.a || 0));
   return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([su, sv]) => {
-    const u = b.u + (su * b.w) / 2;
-    const v = b.v + (sv * b.d) / 2;
+    const lu = (su * b.w) / 2;
+    const lv = (sv * b.d) / 2;
+    const u = b.u + lu * ca - lv * sa;
+    const v = b.v + lu * sa + lv * ca;
     return [f.x + u * c - v * s, f.y + u * s + v * c];
   });
+}
+
+// A table point (x, y) in the site's frame (u, v).
+export function toFrame(frame, x, y) {
+  const f = frame || { x: 0, y: 0, angle: 0 };
+  const { du, dv } = frameDelta(f, x - f.x, y - f.y);
+  return { u: du, v: dv };
+}
+
+// ------------------------------------------------------------------ blocks and the gumball
+// Each building (block, 동) of a scheme is picked and edited on its own, as geometry in Rhino
+// (2026-11-02 지훈). A picked block is named `paperId#index`.
+export const blockKey = (id, index) => `${id}#${index}`;
+export function parseBlockKey(key) {
+  const at = key.lastIndexOf('#');
+  return { id: key.slice(0, at), index: Number(key.slice(at + 1)) };
+}
+
+// The picked blocks still on the table, grouped by scheme: [{ paper, indices }].
+export function pickedBlocks(papers, keys) {
+  const out = [];
+  for (const key of keys) {
+    const { id, index } = parseBlockKey(key);
+    const paper = papers.find((p) => p.id === id && p.kind === 'mass');
+    if (!paper?.blocks?.[index]) continue;
+    let group = out.find((g) => g.paper === paper);
+    if (!group) out.push((group = { paper, indices: [] }));
+    group.indices.push(index);
+  }
+  return out;
+}
+
+// The gumball on the picked blocks, as in Rhino: arrows along the site's u (red) and v (green)
+// and a square in the middle move them on the ground; the blue arrow raises or lowers them a
+// floor at a time; the small squares on the u and v arrows widen or narrow them about their
+// middles. Blocks stand in the site's frame, so a move on the table becomes a move in u and v.
+export const GUMBALL_PX = 72; // arrow length on the screen
+export const GUMBALL_SCALE_PX = 44; // where the size squares sit on the arrows
+
+// A move (dx, dy) on the table as a move along the site's u and v.
+export function frameDelta(frame, dx, dy) {
+  const a = frame?.angle || 0;
+  return { du: dx * Math.cos(a) + dy * Math.sin(a), dv: -dx * Math.sin(a) + dy * Math.cos(a) };
+}
+
+// The blocks at `indices` moved by (du, dv), widened by dw and dd (metres, in steps of 10 cm,
+// never under 1 m) and raised by df floors (whole floors, 1 to 200); the others as they were.
+export function editBlocks(blocks, indices, { du = 0, dv = 0, dw = 0, dd = 0, df = 0 } = {}) {
+  const step = (n) => Math.round(n * 10) / 10;
+  const cm = (n) => Math.round(n * 100) / 100;
+  return blocks.map((b, i) => (indices.includes(i) ? {
+    ...b,
+    u: cm(b.u + step(du)),
+    v: cm(b.v + step(dv)),
+    w: Math.max(1, cm(b.w + step(dw))),
+    d: Math.max(1, cm(b.d + step(dd))),
+    floors: Math.min(200, Math.max(1, b.floors + Math.round(df))),
+  } : b));
+}
+
+// Metres along an arrow for a pointer move (dx, dy) in pixels, given where one metre along it
+// goes on the screen (sx, sy). An arrow seen end-on (shorter than half a pixel) does not move.
+export function axisDrag([sx, sy], dx, dy) {
+  const len2 = sx * sx + sy * sy;
+  return len2 < 0.25 ? 0 : (dx * sx + dy * sy) / len2;
+}
+
+// ------------------------------------------------------------------ SketchUp's tools on blocks
+// The basic tools of SketchUp (2026-11-02 지훈), on blocks: rectangle, push/pull, move (and copy),
+// rotate, scale, eraser and the tape measure. What a drag does to the blocks is worked out here.
+const cm2 = (n) => Math.round(n * 100) / 100;
+const step10 = (n) => Math.round(n * 10) / 10;
+
+// A new block from a rectangle dragged on the table between p0 and p1 (table points), lying
+// square to the site (u, v), one floor high as a face in SketchUp before it is pulled up.
+// null when either side is under 1 m.
+export function rectBlock(frame, p0, p1, floors = 1) {
+  const a = toFrame(frame, p0.x, p0.y);
+  const b = toFrame(frame, p1.x, p1.y);
+  const w = step10(Math.abs(b.u - a.u));
+  const d = step10(Math.abs(b.v - a.v));
+  if (w < 1 || d < 1) return null;
+  return { u: cm2((a.u + b.u) / 2), v: cm2((a.v + b.v) / 2), w, d, floors };
+}
+
+// Push/pull a face of a block by m metres: 'top' adds floors (m over the floor height), a side
+// ('w+', 'w-', 'd+', 'd-': the face at the block's +u, −u, +v or −v, turned with it) moves
+// out or in while the opposite side stays put.
+export function pushBlock(b, face, m, floorHeight = 4.2) {
+  if (face === 'top') return editBlocks([b], [0], { df: m / floorHeight })[0];
+  const along = face[0] === 'w' ? 'w' : 'd';
+  const sign = face[1] === '+' ? 1 : -1;
+  const size = Math.max(1, cm2(b[along] + step10(m)));
+  const shift = (sign * (size - b[along])) / 2; // the middle follows the moved side by half
+  const t = rad(b.a || 0);
+  const [lu, lv] = along === 'w' ? [shift, 0] : [0, shift];
+  return { ...b, [along]: size, u: cm2(b.u + lu * Math.cos(t) - lv * Math.sin(t)), v: cm2(b.v + lu * Math.sin(t) + lv * Math.cos(t)) };
+}
+
+// Copies of the blocks at `indices`, moved by (du, dv), added after the others; `indices` of the result are the copies.
+export function copyBlocks(blocks, indices, du, dv) {
+  const copies = editBlocks(indices.map((i) => blocks[i]), indices.map((_, k) => k), { du, dv });
+  return { blocks: [...blocks, ...copies], indices: copies.map((_, k) => blocks.length + k) };
+}
+
+// The blocks at `indices` turned by `deg` (counter-clockwise) about the point (cu, cv) in the
+// site's frame: their middles go round it and each block turns with them.
+export function turnBlocks(blocks, indices, center, deg) {
+  const t = rad(deg);
+  const c = Math.cos(t);
+  const s = Math.sin(t);
+  const norm = (n) => { const r = ((n % 360) + 540) % 360 - 180; return cm2(r === -180 ? 180 : r); };
+  return blocks.map((b, i) => {
+    if (!indices.includes(i)) return b;
+    const du = b.u - center.u;
+    const dv = b.v - center.v;
+    const out = { ...b, u: cm2(center.u + du * c - dv * s), v: cm2(center.v + du * s + dv * c) };
+    const a = norm((b.a || 0) + deg);
+    if (a) out.a = a;
+    else delete out.a;
+    return out;
+  });
+}
+
+// The blocks at `indices` scaled by k about the point (cu, cv) in the site's frame: their
+// middles spread or gather and their sizes follow (10 cm steps, never under 1 m); floors stay.
+export function scaleBlocks(blocks, indices, center, k) {
+  return blocks.map((b, i) => (indices.includes(i) ? {
+    ...b,
+    u: cm2(center.u + (b.u - center.u) * k),
+    v: cm2(center.v + (b.v - center.v) * k),
+    w: Math.max(1, step10(b.w * k)),
+    d: Math.max(1, step10(b.d * k)),
+  } : b));
+}
+
+// An angle kept to steps (5° by default), as SketchUp's protractor snaps.
+export function snapAngle(deg, step = 5) {
+  return Math.round(deg / step) * step;
+}
+
+// Where the gumball stands: the middle of the picked blocks on the table, or null.
+export function blocksCenter(frame, blocks) {
+  const pts = blocks.flatMap((b) => blockCorners(frame, b));
+  if (!pts.length) return null;
+  const xs = pts.map(([x]) => x);
+  const ys = pts.map(([, y]) => y);
+  return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
 }
 
 // A paper's extent on the table, in metres.
@@ -319,10 +472,12 @@ export function readScheme({ title = '', floorHeight = '4.2', rows = [] }) {
     const floors = number(row.floors);
     const u = String(row.u ?? '').trim() === '' ? 0 : number(row.u);
     const v = String(row.v ?? '').trim() === '' ? 0 : number(row.v);
+    const a = String(row.a ?? '').trim() === '' ? 0 : number(row.a);
     if (!(w > 0 && w <= 1000) || !(d > 0 && d <= 1000)) return { error: `${at}: 가로·세로는 0보다 크고 1000m 이하로 적어 주세요.` };
     if (!Number.isInteger(floors) || floors < 1 || floors > 200) return { error: `${at}: 층수는 1~200 사이 정수로 적어 주세요.` };
     if (!Number.isFinite(u) || !Number.isFinite(v)) return { error: `${at}: 위치는 숫자로 적어 주세요.` };
-    blocks.push({ u, v, w, d, floors });
+    if (!Number.isFinite(a) || Math.abs(a) > 360) return { error: `${at}: 회전은 -360~360도 사이 숫자로 적어 주세요.` };
+    blocks.push(a ? { u, v, w, d, floors, a } : { u, v, w, d, floors });
   }
   if (!blocks.length) return { error: '동을 하나 이상 넣어 주세요.' };
   if (blocks.length > MAX_BLOCKS) return { error: `동은 ${MAX_BLOCKS}개까지입니다.` };
@@ -334,7 +489,7 @@ export function readScheme({ title = '', floorHeight = '4.2', rows = [] }) {
 // A mass paper → rows for the form.
 export function schemeRows(paper) {
   return (paper?.blocks || [{ u: 0, v: 0, w: 30, d: 20, floors: 4 }]).map((b) => ({
-    u: String(b.u), v: String(b.v), w: String(b.w), d: String(b.d), floors: String(b.floors),
+    u: String(b.u), v: String(b.v), w: String(b.w), d: String(b.d), floors: String(b.floors), a: String(b.a || 0),
   }));
 }
 
@@ -350,6 +505,27 @@ export function keepSelected(selected, board) {
 export function toggleSelected(selected, id, add) {
   if (!add) return [id];
   return selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id].slice(-MAX_CONTEXT);
+}
+
+// Box selection, as in Rhino (2026-11-02 지훈): a left drag on empty table draws a box from
+// `from` to `to` (screen points). Dragged left to right it picks what lies wholly inside (window),
+// right to left what it touches (crossing). Shift (`add`) adds to the selection, Ctrl (`remove`)
+// takes away, and otherwise the box replaces it. `items`: screen rectangles {id, left, top, right, bottom};
+// one id may have several, and any of them counts. Papers are picked at most MAX_CONTEXT at a
+// time (one message carries them); blocks pass `limit: Infinity`.
+export function boxMode(from, to) {
+  return to.x < from.x ? 'crossing' : 'window';
+}
+export function boxPick(selected, from, to, items, { add = false, remove = false, limit = MAX_CONTEXT } = {}) {
+  const b = { left: Math.min(from.x, to.x), right: Math.max(from.x, to.x), top: Math.min(from.y, to.y), bottom: Math.max(from.y, to.y) };
+  const crossing = boxMode(from, to) === 'crossing';
+  const hit = items.filter((r) => (crossing
+    ? r.left <= b.right && r.right >= b.left && r.top <= b.bottom && r.bottom >= b.top
+    : r.left >= b.left && r.right <= b.right && r.top >= b.top && r.bottom <= b.bottom)).map((r) => r.id)
+    .filter((id, i, all) => all.indexOf(id) === i);
+  if (remove) return selected.filter((id) => !hit.includes(id));
+  const kept = add ? selected.filter((id) => !hit.includes(id)) : [];
+  return [...kept, ...hit].slice(-limit);
 }
 
 // For the chips above a composer: the names of the picked papers.
