@@ -26,9 +26,11 @@ from sida.project import (
     ensure_projects_root,
     is_project_dir,
     list_projects,
+    replace_section,
     section_body,
     slugify,
 )
+from sida.project_documents import read_document, save_document
 from sida.worker import MODULE_HISTORY_DIRNAME
 
 SAMPLE_BRIEF = ROOT / "data" / "briefs" / "sample_brief.md"
@@ -54,13 +56,17 @@ def project_summary(path: Path, agents: list[dict]) -> dict:
         brief = ""
     kind = section_body(brief, "Project Type")
     done = [str(a["id"]) for a in agents if (path / "modules" / str(a["output"])).exists()]
+    visible = [a for a in agents if agent_tier(a) != "held"]
     return {
         "name": path.name,
+        "display_name": section_body(brief, "Project Name") or path.name,
         "path": str(path),
         "updated_at": _updated_at(path),
         "project_type": "" if kind == "-" else kind,
         "completed": done,
         "expert_count": len(agents),
+        "visible_expert_count": len(visible),
+        "visible_completed": [str(a["id"]) for a in visible if str(a["id"]) in done],
     }
 
 
@@ -111,6 +117,40 @@ def create_sample_project(config: dict) -> tuple[Project, bool]:
     existed = is_project_dir(root / slugify(SAMPLE_BRIEF.stem))
     project = create_project_from_brief(SAMPLE_BRIEF, config=config)
     return project, not existed
+
+
+PROJECT_INFO_FIELDS = {
+    "display_name": "Project Name", "type": "Project Type", "description": "Design Intention",
+}
+
+
+def project_info(config: dict, name: str) -> dict:
+    """Editable labels in the brief; folder ids and saved project data stay stable."""
+    doc = read_document(find_project(config, name), "brief")
+    values = {key: section_body(doc.content, heading) for key, heading in PROJECT_INFO_FIELDS.items()}
+    values = {key: "" if value == "-" else value for key, value in values.items()}
+    return {**values, "display_name": values["display_name"] or name, "revision": doc.revision}
+
+
+def update_project_info(config: dict, name: str, fields: dict[str, str], revision: str) -> dict:
+    """Patch only the requested brief sections, preserving other Markdown and stale-edit checks."""
+    if set(fields) - PROJECT_INFO_FIELDS.keys():
+        raise ValueError("수정할 수 없는 프로젝트 정보입니다.")
+    path = find_project(config, name)
+    doc = read_document(path, "brief")
+    content = doc.content
+    for key, raw in fields.items():
+        value = raw.strip()
+        limit = 6000 if key == "description" else 80
+        if len(value) > limit or (key == "display_name" and not value):
+            raise ValueError(f"{'프로젝트 이름' if key == 'display_name' else '내용'}은 {'1~' if key == 'display_name' else ''}{limit}자 안에서 입력하세요.")
+        if key != "description" and ("\n" in value or "\r" in value):
+            raise ValueError("이름과 유형은 한 줄로 입력하세요.")
+        if re.search(r"^#{1,2}\s", value, re.MULTILINE):
+            raise ValueError("설명에는 문서 구분 제목(#, ##) 대신 일반 문장을 입력하세요.")
+        content = replace_section(content, PROJECT_INFO_FIELDS[key], value or "-")
+    save_document(path, "brief", content.rstrip() + "\n", expected_revision=revision)
+    return project_info(config, name)
 
 
 # ---------------------------------------------------------------------------

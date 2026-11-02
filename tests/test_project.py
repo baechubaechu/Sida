@@ -4,21 +4,21 @@ import json
 import os
 
 from sida import project as prj
-from sida.project import _replace_section, section_body
+from sida.project import replace_section, section_body
 from tests.conftest import ROOT
 
 BRIEF = (ROOT / "data" / "briefs" / "geumjeong_station_brief.md").read_text(encoding="utf-8")
 
 
 def test_replace_section_preserves_others():
-    new = _replace_section(BRIEF, "Core Problem", "NEW")
+    new = replace_section(BRIEF, "Core Problem", "NEW")
     assert section_body(new, "Core Problem") == "NEW"
     assert "## Main Layers" in new and "## Representation Focus" in new
     assert section_body(new, "Site") == section_body(BRIEF, "Site")
 
 
 def test_replace_section_appends_when_missing():
-    new = _replace_section(BRIEF, "Brand New", "hello")
+    new = replace_section(BRIEF, "Brand New", "hello")
     assert section_body(new, "Brand New") == "hello"
 
 

@@ -123,11 +123,31 @@ export function wheelZoom(deltaY, deltaMode = 0, pinch = false) {
   return Math.exp(px * (pinch ? 0.01 : 0.0015));
 }
 
-// Drawing scale for the corner, for a 96 dpi screen: "1:500".
+// CSS screen scale at the camera target plane. CSS px are 1/96 inch; a physical
+// monitor's pixel density is not available to a web page. Never snap the reading to a preset.
+const CSS_METRE = 0.0254 / 96;
 export function drawingScale(span, viewportPx) {
-  const n = span / Math.max(1, viewportPx) / 0.0002646;
-  const nice = [50, 100, 200, 250, 500, 1000, 1200, 2000, 2500, 5000, 10000, 25000];
-  return `1:${nice.reduce((a, b) => (Math.abs(b - n) < Math.abs(a - n) ? b : a))}`;
+  return `1:${Math.round(span / Math.max(1, viewportPx) / CSS_METRE)}`;
+}
+
+export function scaleSpan(value, viewportPx) {
+  const match = String(value).trim().match(/^(?:1\s*:\s*)?(\d+(?:\.\d+)?)$/);
+  const denominator = match ? Number(match[1]) : NaN;
+  const span = denominator * CSS_METRE * viewportPx;
+  if (!Number.isFinite(span) || viewportPx <= 0 || span < VIEW_LIMITS.min || span > VIEW_LIMITS.max) {
+    return { error: '현재 화면에서 사용할 수 있는 축척을 입력하세요.',
+      min: Math.ceil(VIEW_LIMITS.min / (CSS_METRE * viewportPx)),
+      max: Math.floor(VIEW_LIMITS.max / (CSS_METRE * viewportPx)) };
+  }
+  return { span };
+}
+
+// A bar in screen pixels is also valid when browser zoom changes the CSS pixel size.
+export function scaleBar(span, viewportPx) {
+  const target = span / Math.max(1, viewportPx) * 80;
+  const power = 10 ** Math.floor(Math.log10(target));
+  const metres = [1, 2, 5, 10].map(n => n * power).reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
+  return { metres, pixels: metres / span * viewportPx };
 }
 
 export function lerpView(a, b, k) {

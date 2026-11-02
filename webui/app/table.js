@@ -10,7 +10,7 @@
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
 import {
-  PX, TILT, MAX_TILT, PAPER_SIZE, cameraFor, riseFor, groundFor, zoomAround, drawingScale, lerpView, dragMode, wheelZoom, orbitBy, viewName, viewFor, panBy, EDGE_TILT,
+  PX, TILT, MAX_TILT, PAPER_SIZE, cameraFor, riseFor, groundFor, zoomAround, drawingScale, scaleSpan, scaleBar, lerpView, dragMode, wheelZoom, orbitBy, viewName, viewFor, panBy, EDGE_TILT,
   siteBounds, traceHome, isOverlaid, blockCorners, placeUnplaced, freeSpot, fitView,
   folded, foldedInPlan, pinnedPapers, peekSpot,
   paperName, resultPreview, KIND_LABELS, originLabel, figureLines, readScheme, schemeRows, toggleSelected, boxPick, boxMode, parseBlockKey, fmt,
@@ -494,6 +494,17 @@ export class DraftingTable {
     const edit = this.numberEdit;
     if (!edit) return;
     const value = this.ui.number.querySelector('input').value;
+    if (edit.viewScale) {
+      const result = scaleSpan(value, this.root.clientHeight);
+      if (result.error) {
+        this.ui.number.querySelector('.form-error').textContent = `${result.error} 범위: 1:${result.min}~1:${result.max}`;
+        return;
+      }
+      this.tween += 1;
+      this.setView({ ...this.view, span: result.span });
+      this.ui.number.close();
+      return;
+    }
     const changes = [];
     let error = '';
     for (const group of edit.groups) {
@@ -512,6 +523,27 @@ export class DraftingTable {
     this.drawMasses();
     this.ui.number.close();
     this.say(changes.length ? '입력한 수치를 적용했습니다. Ctrl+Z로 되돌릴 수 있습니다.' : '수치가 같아 변경하지 않았습니다.');
+  }
+
+  openViewScale() {
+    this.numberEdit = { viewScale: true };
+    this.ui.number.innerHTML = `<form data-form="tool-number" novalidate>
+      <header><h2 id="tool-number-title">화면 축척 설정</h2><button type="button" data-ui="number-cancel" aria-label="축척 입력 닫기">×</button></header>
+      <label for="view-scale-value">축척 (1:n)</label><input id="view-scale-value" type="text" inputmode="decimal" value="${drawingScale(this.view.span, this.root.clientHeight)}" autocomplete="off">
+      <p id="tool-number-help">500 또는 1:500으로 입력하세요. 평면은 대지 평면, 3D는 시선 중심의 거리 기준입니다. 화면 축척은 CSS 픽셀(96dpi) 기준이며, 거리 막대가 모델의 실제 길이를 나타냅니다.</p>
+      <p class="form-error" role="alert"></p><footer><button type="button" data-ui="number-cancel">취소</button><button type="submit" class="primary-small">적용</button></footer>
+    </form>`;
+    this.ui.number.showModal();
+    this.ui.number.querySelector('input').select();
+  }
+
+  scaleReadout() {
+    const h = this.root.clientHeight || 600;
+    const bar = scaleBar(this.view.span, h);
+    const ratio = drawingScale(this.view.span, h);
+    const reference = this.view.tilt > 0 ? '3D 중심' : '평면';
+    return `<button type="button" class="num scale" data-ui="view-scale" title="화면 축척 설정 · ${reference} 기준 (CSS 96dpi)" aria-label="화면 축척 ${ratio} 수정">${ratio}<small>${reference}</small></button>
+      <span class="view-scale-bar" title="${reference} 기준 실제 거리"><span>${fmt(bar.metres, bar.metres < 1 ? 2 : 0)} m</span><i style="width:${bar.pixels}px"></i></span>`;
   }
 
   tapePoint(event) {
@@ -1314,7 +1346,7 @@ export class DraftingTable {
       <input type="range" min="0" max="${MAX_TILT}" value="${Math.round(v.tilt)}" aria-label="기울기 각도" data-ui="tilt-range">
       <span class="num tilt-read">${Math.round(v.tilt)}°</span>
       <button type="button" class="compass" data-ui="north" title="북쪽을 위로"><span style="transform: rotate(${-v.turn}deg)" aria-hidden="true">▲</span><small>N</small></button>`;
-    this.ui.zoom.innerHTML = `<span class="num scale">${drawingScale(v.span, this.root.clientHeight || 600)}</span>
+    this.ui.zoom.innerHTML = `<span class="scale-readout">${this.scaleReadout()}</span>
       <button type="button" data-ui="zoom-in" aria-label="확대">+</button>
       <button type="button" data-ui="zoom-out" aria-label="축소">−</button>
       <button type="button" data-ui="fit" title="전체 보기 (명령: zoom)">맞춤</button>`;
@@ -1330,8 +1362,8 @@ export class DraftingTable {
     const needle = this.ui.tilt.querySelector('.compass span');
     if (needle) needle.style.transform = `rotate(${-v.turn}deg)`;
     for (const b of this.ui.tilt.querySelectorAll('[data-tilt]')) b.setAttribute('aria-pressed', String(viewName(v.tilt) === b.dataset.tilt));
-    const scale = this.ui.zoom.querySelector('.scale');
-    if (scale) scale.textContent = drawingScale(v.span, this.root.clientHeight || 600);
+    const scale = this.ui.zoom.querySelector('.scale-readout');
+    if (scale) scale.innerHTML = this.scaleReadout();
   }
 
   setView(v) {
@@ -1527,6 +1559,7 @@ export class DraftingTable {
   onClick(e) {
     const t = e.target.closest('button, [data-open-expert]');
     if (!t) return;
+    if (t.dataset.ui === 'view-scale') { this.openViewScale(); return; }
     if (t.dataset.ui === 'number-cancel') { this.ui.number.close(); return; }
     if (t.dataset.openExpert) { this.closeDetail(); this.hooks.openExpert(t.dataset.openExpert); return; }
     if (t.dataset.inspect) { this.select([t.dataset.inspect]); this.inspect(t.dataset.inspect); return; }

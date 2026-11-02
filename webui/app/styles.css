@@ -69,6 +69,16 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 .project-card h3 { font-size: 19px; line-height: 28px; overflow-wrap: anywhere; padding-right: 36px; }
 .card-delete { position: absolute; top: 14px; right: 14px; padding: 6px 9px; border-radius: 6px; color: var(--muted); font-size: 12px; opacity: 0; }
 .project-card:hover .card-delete, .project-card:focus-within .card-delete { opacity: 1; }
+.project-card-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 16px 12px; }
+.project-card-actions button { padding: 6px 9px; border-radius: 6px; color: var(--muted); font-size: 12px; }
+.project-card-actions button:hover { background: var(--surface-subtle); color: var(--brand); }
+.project-card-actions .card-delete { position: static; opacity: 1; }
+.project-name-edit { font: inherit; text-align: left; color: var(--brand); }
+.project-name-edit:hover { text-decoration: underline; }
+#project-info-body { display: grid; gap: 10px; }
+#project-info-body label { font-size: 13px; font-weight: 600; }
+#project-info-body input, #project-info-body textarea { width: 100%; padding: 9px 12px; }
+#project-info-body .form-actions { margin-top: 12px; }
 @media (hover: none) { .nav-delete, .card-delete { opacity: 1; } }
 .project-type { color: var(--muted); font-size: 14px; margin-top: 13px; }
 .project-summary { font-size: 13px; margin-top: 20px; }
@@ -490,6 +500,10 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .compass small { font-size: 10px; font-weight: 700; color: var(--muted); }
 .ui-zoom { right: 16px; bottom: 16px; }
 .ui-zoom .scale { padding: 0 6px; }
+.scale-readout { display: flex; align-items: center; gap: 8px; }
+.ui-zoom .scale small { display: block; font-size: 10px; }
+.view-scale-bar { display: grid; justify-items: center; gap: 3px; padding: 0 5px; font-size: 10px; color: var(--muted); white-space: nowrap; }
+.view-scale-bar i { display: block; height: 5px; border: solid currentColor; border-width: 0 1px 1px; }
 .ui-help { left: 16px; bottom: 16px; font-size: 10px; line-height: 1.8; color: var(--muted); pointer-events: none; max-width: 45%; }
 .ui-hint { pointer-events: none; left: 50%; bottom: 76px; transform: translateX(-50%); padding: 10px 14px; border-radius: 8px; background: var(--brand); color: white; font-size: 12px; max-width: min(520px, 90%); }
 .ui-hint[hidden] { display: none; }
@@ -829,6 +843,17 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .command-talks.open { background: var(--selected); border-color: var(--brand); }
 .talk-list-scroll { min-height: 0; overflow-y: auto; }
 .talk-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.talk-list > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px; }
+.talk-more { position: relative; flex-shrink: 0; }
+.talk-more > summary { display: grid; place-items: center; list-style: none; width: 30px; height: 30px; border-radius: 6px; color: var(--muted); cursor: pointer; font-size: 21px; line-height: 1; }
+.talk-more > summary::-webkit-details-marker { display: none; }
+.talk-more > summary:hover, .talk-more[open] > summary { background: var(--surface-subtle); color: var(--text); }
+.talk-more > summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.talk-more-options { position: absolute; top: calc(100% + 4px); right: 0; z-index: 25; min-width: 112px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 6px 20px #24344320; }
+.talk-more:not([open]) > .talk-more-options { display: none; }
+.talk-more-options button { width: 100%; text-align: left; white-space: nowrap; }
+.talk-delete { padding: 6px 8px; border-radius: 6px; font-size: 11px; color: #a83232; flex-shrink: 0; }
+.talk-delete:hover { background: #a832320f; }
 .talk-row { width: 100%; text-align: left; display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .talk-row[aria-pressed="true"] { border-color: var(--brand); background: var(--selected); }
 .talk-row-title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

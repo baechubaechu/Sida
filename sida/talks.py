@@ -16,20 +16,27 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from sida.engine import history_messages
+from sida.errors import SidaError
 from sida.project import MAIN_TALK, TALKS_DIRNAME, talk_history_path
 from sida.storage import atomic_write_text
 
 TALK_ID = re.compile(r"\d{2,4}")
 TITLE_CHARS = 60
+DELETED_DIR = ".deleted"
+
+
+def _deleted_ids(project_path: Path) -> set[str]:
+    return {p.stem for p in (project_path / TALKS_DIRNAME / DELETED_DIR).glob("*.json")
+            if TALK_ID.fullmatch(p.stem)}
 
 
 def talk_ids(project_path: Path) -> list[str]:
-    """The project's talks, oldest first. Talk "01" is always there, even before it is saved."""
+    """Active talks, oldest first. "01" exists by default unless explicitly deleted."""
     folder = project_path / TALKS_DIRNAME
     ids = {MAIN_TALK}
     if folder.is_dir():
         ids |= {p.stem for p in folder.glob("*.json") if TALK_ID.fullmatch(p.stem)}
-    return sorted(ids, key=int)
+    return sorted(ids - _deleted_ids(project_path), key=int)
 
 
 def require_talk(project_path: Path, talk_id: str) -> None:
@@ -40,11 +47,28 @@ def require_talk(project_path: Path, talk_id: str) -> None:
 
 def new_talk(project_path: Path) -> str:
     """Start an empty talk and return its id."""
-    talk_id = f"{int(talk_ids(project_path)[-1]) + 1:02d}"
+    used = {MAIN_TALK, *talk_ids(project_path), *_deleted_ids(project_path)}
+    next_id = max(map(int, used)) + 1
+    if next_id > 9999:
+        raise ValueError("새 대화를 만들 수 있는 개수를 초과했습니다.")
+    talk_id = f"{next_id:02d}"
     path = talk_history_path(project_path, talk_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(path, "[]\n")
     return talk_id
+
+
+def delete_talk(project_path: Path, talk_id: str) -> None:
+    """Delete only this transcript. Empty tombstones stop ids and the first talk reappearing."""
+    require_talk(project_path, talk_id)
+    marker = project_path / TALKS_DIRNAME / DELETED_DIR / f"{talk_id}.json"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(marker, "[]\n")  # Contains no conversation text.
+    try:
+        talk_history_path(project_path, talk_id).unlink(missing_ok=True)
+    except OSError as exc:
+        marker.unlink(missing_ok=True)  # Keep the original conversation visible on failure.
+        raise SidaError(f"대화를 삭제하지 못했습니다. 다시 시도하세요: {exc}") from exc
 
 
 def _history(path: Path) -> list[dict]:

@@ -183,6 +183,13 @@ class SessionJobs:
             talk_id = talks.new_talk(path)
         return next(t for t in talks.talk_summaries(path) if t["id"] == talk_id)
 
+    def delete_talk(self, config: dict, name: str, talk_id: str) -> None:
+        path = workspace.find_project(config, name).resolve()
+        with self._guard:
+            if path in self._active:
+                raise DocumentConflict("실행 중인 작업이 있습니다. 끝난 뒤 대화를 삭제하세요.")
+            talks.delete_talk(path, talk_id)
+
     def job(self, config: dict, name: str, job_id: str, after: int = 0) -> dict:
         path = workspace.find_project(config, name).resolve()
         job = self._jobs.get(job_id)
@@ -263,6 +270,8 @@ class SessionJobs:
         with self._guard:
             if path in self._active:
                 raise DocumentConflict("이 프로젝트에서 이미 실행 중인 작업이 있습니다. 끝난 뒤 다시 보내세요.")
+            if talk is not None:
+                talks.require_talk(path, talk)
             job = Job(
                 uuid.uuid4().hex, path, kind,
                 agent=agent["id"] if agent else None, chat=chat, talk=talk,
@@ -279,6 +288,14 @@ class SessionJobs:
             self._jobs.pop(old.id, None)
 
     # ------------------------------------------------------------------ deleting
+
+    def update_project_info(self, config: dict, name: str, fields: dict[str, str], revision: str) -> dict:
+        """A brief edit must not race an active Conductor/expert or another document edit."""
+        path = workspace.find_project(config, name).resolve()
+        with self._guard:
+            if path in self._active:
+                raise DocumentConflict("실행 중인 작업이 있습니다. 끝난 뒤 프로젝트 정보를 수정하세요.")
+            return self.editing.update_project_info(config, name, fields, revision)
 
     def delete_project(self, config: dict, name: str) -> None:
         """Delete a project's folder, unless a job is still writing to it."""

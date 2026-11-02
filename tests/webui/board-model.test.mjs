@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  PX, TILT, MAX_TILT, cameraFor, riseFor, groundFor, zoomAround, drawingScale, lerpView, siteBounds, traceHome,
+  PX, TILT, MAX_TILT, cameraFor, riseFor, groundFor, zoomAround, drawingScale, scaleSpan, scaleBar, lerpView, siteBounds, traceHome,
   isOverlaid, blockCorners, unplaced, placeUnplaced, freeSpot, fitView, paperName, originLabel,
   figureLines, readScheme, schemeRows, keepSelected, toggleSelected, boxPick, boxMode, pickedNames, MAX_CONTEXT,
   frameDelta, editBlocks, axisDrag, blocksCenter, blockKey, parseBlockKey, pickedBlocks,
@@ -87,8 +87,23 @@ test('zooming keeps the point under the cursor and stays within limits', () => {
   assert.equal(v.span, 50);
   close(v.x, 25);
   assert.equal(zoomAround(v, 0, 0, 1e-6).span, 12);
-  assert.equal(drawingScale(100, 400), '1:1000');
+  assert.equal(drawingScale(100, 400), '1:945');
   assert.equal(lerpView({ x: 0, y: 0, span: 10, tilt: 0, turn: 350 }, { x: 0, y: 0, span: 10, tilt: 0, turn: 10 }, 0.5).turn, 360);
+});
+
+test('screen scale matches the projection instead of rounding to a standard ratio', () => {
+  const height = 600, span = 100;
+  assert.equal(drawingScale(span, height), '1:630');
+  const exact = scaleSpan('1:500', height);
+  close(exact.span, 79.375);
+  assert.equal(drawingScale(exact.span, height), '1:500');
+  close(scaleSpan('250', height).span, exact.span / 2);
+  assert.equal(drawingScale(exact.span, height / 2), '1:1000');
+  for (const value of ['', '0', '-1', '1:0', '2:500', 'Infinity', '1', '1000000']) assert.ok(scaleSpan(value, height).error);
+  assert.ok(scaleSpan('500', 0).error);
+  const bar = scaleBar(span, height);
+  close(bar.pixels / height * span, bar.metres);
+  assert.ok(bar.pixels >= 40 && bar.pixels <= 100);
 });
 
 test('without site facts the table still has a site-sized area; tracing covers the site', () => {

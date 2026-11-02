@@ -58,6 +58,11 @@ class NewProject(BaseModel):
     fields: dict[str, str] = Field(default_factory=dict)
 
 
+class ProjectInfoEdit(BaseModel):
+    fields: dict[str, str]
+    expected_revision: str
+
+
 # ---------------------------------------------------------------------------
 # Core access
 # ---------------------------------------------------------------------------
@@ -219,6 +224,18 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
     def api_delete_project(name: str) -> dict:
         core(app.state.session_jobs.delete_project, load_config(), name)
         return {"deleted": name}
+
+    @app.get("/api/projects/{name}/info")
+    def api_project_info(name: str) -> dict:
+        return core(workspace.project_info, load_config(), name)
+
+    @app.patch("/api/projects/{name}/info")
+    def api_update_project_info(name: str, body: ProjectInfoEdit) -> dict:
+        try:
+            return core(app.state.session_jobs.update_project_info, load_config(), name,
+                        body.fields, body.expected_revision)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # --------------------------------------------------------------- HTML pages
 

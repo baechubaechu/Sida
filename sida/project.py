@@ -58,7 +58,7 @@ def module_status_rows(agents: list[dict] | None = None) -> str:
     return "\n".join(rows) if rows else "| (no experts configured) | | |"
 
 
-def _replace_section(text: str, heading: str, body: str) -> str:
+def replace_section(text: str, heading: str, body: str) -> str:
     """
     Replace the body under `## {heading}` (up to the next `## ` or `# ` line).
     If the section does not exist, append it at the end.
@@ -178,7 +178,7 @@ class Project:
             body = body.strip()
             if not body:
                 continue
-            text = _replace_section(text, heading, body)
+            text = replace_section(text, heading, body)
         atomic_write_text(self.brief_path, text.rstrip() + "\n")
         return text
 
