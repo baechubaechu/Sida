@@ -13,7 +13,7 @@ export const MAX_TILT = 90; // lying flat to the table shows elevations (2026-11
 export const FOLD_TILT = 10; // past this lean papers fold into pins, so the model reads (2026-10-26)
 export const VIEW_LIMITS = { min: 12, max: 2500 }; // metres of table shown top to bottom
 export const TRACE_MARGIN = 14; // metres of tracing paper around the site
-export const PAPER_SIZE = { site: [300, 250], mass: [300, 210], note: [200, 140], expert: [320, 270] };
+export const PAPER_SIZE = { site: [300, 250], mass: [300, 210], note: [200, 140], expert: [320, 270], photo: [300, 225] };
 export const MAX_BLOCKS = 20;
 export const MAX_CONTEXT = 8; // papers one message may carry (board.MAX_CONTEXT)
 
@@ -498,6 +498,7 @@ export function paperName(paper) {
   if (paper.kind === 'mass') return paper.title || '매스안';
   if (paper.kind === 'tracing') return paper.title || '트레이싱지';
   if (paper.kind === 'expert') return `${paper.title || paper.agent} 결과`;
+  if (paper.kind === 'photo') return paper.title || '사진';
   return paper.title || paper.kind;
 }
 
@@ -520,7 +521,7 @@ export function resultPreview(text, maxLines = Infinity) {
   return out.join('\n');
 }
 
-export const KIND_LABELS = { site: '대지', mass: '매스안', note: '메모', tracing: '트레이싱지', expert: '전문가 결과' };
+export const KIND_LABELS = { site: '대지', mass: '매스안', note: '메모', tracing: '트레이싱지', expert: '전문가 결과', photo: '사진' };
 
 // Who made an AI paper: "Conductor 제안", "법규 검토자 결과"; '' for the designer's own.
 export function originLabel(paper, experts = []) {
@@ -640,10 +641,11 @@ export function addQuestion(draft, text) {
 // the edits of one gesture (a drag of several papers is one step):
 //   {op: 'update', id, before, after}  fields before and after
 //   {op: 'add', paper} / {op: 'remove', paper}  the whole paper
-// Only the designer's kinds come back after a delete (POST /papers takes mass, note, tracing).
+// Only the designer's kinds come back after a delete (POST /papers takes mass, note, tracing,
+// and a photo whose file the server still keeps).
 
 export const HISTORY_LIMIT = 100;
-export const UNDOABLE_KINDS = ['mass', 'note', 'tracing'];
+export const UNDOABLE_KINDS = ['mass', 'note', 'tracing', 'photo'];
 
 export const createHistory = () => ({ past: [], future: [] });
 
@@ -725,4 +727,57 @@ export function planDrawing(site, paper = null) {
     scale: { x: Number((x0 + 3).toFixed(2)), y: Number((-y0 - 3).toFixed(2)), length: bar, label: `${bar}m` },
     size: Math.max(width, y1 - y0),
   };
+}
+
+// ------------------------------------------------------------------ photos
+// A photo (a site photo, a hand sketch, a reference) laid on the table as a paper. The server
+// takes PNG, JPEG, GIF and WebP up to 20 MB (board.MAX_PHOTO_BYTES); anything else the browser
+// can open (an iPhone HEIC in Safari) or a very large picture is redrawn as a smaller JPEG first.
+
+export const PHOTO_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+export const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
+export const PHOTO_KEEP_BYTES = 8 * 1024 * 1024; // larger pictures are redrawn smaller
+export const PHOTO_MAX_SIDE = 2560; // px of the longest side after redrawing
+export const PHOTO_SIZES = { small: 200, medium: 300, large: 500 }; // px of the paper's longest side
+export const MAX_PHOTOS_AT_ONCE = 10;
+
+// 'keep' (upload the file as it is) or 'shrink' (redraw it as a JPEG of at most PHOTO_MAX_SIDE).
+// A GIF is kept while the server takes it, so an animation stays.
+export function photoPlan(type, bytes, width, height) {
+  if (!PHOTO_TYPES.includes(type)) return 'shrink';
+  if (type === 'image/gif') return bytes <= MAX_PHOTO_BYTES ? 'keep' : 'shrink';
+  return bytes <= PHOTO_KEEP_BYTES && Math.max(width, height) <= PHOTO_MAX_SIDE * 1.6 ? 'keep' : 'shrink';
+}
+
+// The size of a redrawn picture: the longest side at most PHOTO_MAX_SIDE, never enlarged.
+export function shrunkSize(width, height, side = PHOTO_MAX_SIDE) {
+  const k = Math.min(1, side / Math.max(width, height, 1));
+  return { width: Math.max(1, Math.round(width * k)), height: Math.max(1, Math.round(height * k)) };
+}
+
+// The paper for a picture of width × height: its longest side `longest` px, the picture's shape
+// kept (a very long panorama still gets a paper at least 40 px across).
+export function photoPaperSize(width, height, longest = PHOTO_SIZES.medium) {
+  const ratio = width > 0 && height > 0 ? width / height : 4 / 3;
+  const w = ratio >= 1 ? longest : Math.max(40, Math.round(longest * ratio));
+  const h = ratio >= 1 ? Math.max(40, Math.round(longest / ratio)) : longest;
+  return { w, h };
+}
+
+// The paper's title from the file name: without its extension, at most 120 characters, and ''
+// for the names a pasted screenshot gets ("image.png").
+export function photoTitle(fileName) {
+  const base = String(fileName || '').replace(/\.[A-Za-z0-9]{1,5}$/, '').trim();
+  if (!base || /^(image|unknown|blob|clipboard)$/i.test(base)) return '';
+  return base.slice(0, 120);
+}
+
+// Which of the dropped or pasted files are pictures (by type, or by extension when the browser
+// gave no type), at most MAX_PHOTOS_AT_ONCE; `skipped` counts the rest.
+export function pickPhotoFiles(files) {
+  const all = [...(files || [])];
+  const pictures = all.filter((f) => String(f.type || '').startsWith('image/')
+    || (!f.type && /\.(png|jpe?g|gif|webp|heic|heif|avif|bmp)$/i.test(String(f.name || ''))));
+  const taken = pictures.slice(0, MAX_PHOTOS_AT_ONCE);
+  return { files: taken, skipped: all.length - taken.length };
 }

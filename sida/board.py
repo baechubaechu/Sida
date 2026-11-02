@@ -9,6 +9,10 @@ section, `tray`: massing schemes and notes the Conductor proposes (a change to t
 scheme comes as a copy, `based_on` the original) and expert results. The designer moves the
 ones they like onto the table (`place_paper`) and throws the rest away.
 
+A photo (kind "photo") is uploaded as a file with `add_photo` and kept in board_photos/; the
+paper names the file. Taking the paper off the table leaves the file for a day, so an undo can
+lay it back (`add_paper` with that file); `add_photo` clears files nobody has used since.
+
 Papers the designer selects travel with a message as `context` (paper ids). How much of
 them the Conductor is sent depends on what it runs on (conductor.board_context):
 
@@ -44,7 +48,7 @@ from sida.storage import atomic_write_text
 
 BOARD_FILE = "board.json"
 SITE_ID = "site"
-KINDS = ("site", "mass", "note", "tracing", "expert")
+KINDS = ("site", "mass", "note", "tracing", "expert", "photo")
 DESIGNER_KINDS = ("mass", "note", "tracing")  # what the screen may add
 AI_KINDS = ("mass", "note")  # what the Conductor may put in the AI section
 MAX_TRAY = 40  # the AI section keeps the newest papers
@@ -59,11 +63,21 @@ MAX_POINTS = 5000
 DEFAULT_FLOOR_HEIGHT = 4.2
 PLACEMENT = ("x", "y", "w", "h")
 ARRANGE = (*PLACEMENT, "folded")  # what a site or expert paper may change: where it lies, folded or not
-PAPER_SIZE = {"site": (300, 250), "mass": (300, 210), "note": (200, 140), "tracing": (300, 250), "expert": (320, 270)}
+PAPER_SIZE = {
+    "site": (300, 250), "mass": (300, 210), "note": (200, 140), "tracing": (300, 250), "expert": (320, 270),
+    "photo": (300, 225),
+}
 PAPER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 CONTEXT_MODES = ("auto", "full", "names")
 LOCAL_PROVIDERS = frozenset({"ollama", "local"})
 SELECTED_PREFIX = "[selected on the table] "
+# Photos the designer puts on the table (a site photo, a sketch, a reference image) are kept
+# as files next to board.json; the paper holds only the file name.
+PHOTO_DIR = "board_photos"
+MAX_PHOTO_BYTES = 20 * 1024 * 1024
+PHOTO_FILE = re.compile(r"photo-[0-9a-f]{8}\.(?:png|jpg|gif|webp)")
+PHOTO_MEDIA = {"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}
+ORPHAN_SECONDS = 24 * 3600  # a removed photo's file is kept this long, so the screen can undo
 
 _lock = threading.Lock()
 
@@ -129,10 +143,16 @@ def _taken(board: dict, paper_id: str) -> bool:
 def add_paper(project_path: Path, data: dict) -> dict:
     """Lay a new mass, note or tracing sheet on the table. Returns {paper, rev}."""
     kind = str(data.get("kind") or "")
-    if kind not in DESIGNER_KINDS:
+    if kind not in DESIGNER_KINDS and kind != "photo":
         raise ValueError(f"kind must be one of {', '.join(DESIGNER_KINDS)}")
     with _lock:
         board = load_board(project_path)
+        if kind == "photo":  # an undo laying a removed photo back; new photos come by add_photo
+            file = str(data.get("file") or "")
+            if not PHOTO_FILE.fullmatch(file) or not (photo_dir(project_path) / file).is_file():
+                raise ValueError("a photo is added by uploading it (POST .../board/photos)")
+            if any(p.get("file") == file for p in board["papers"]):
+                raise ValueError(f"this photo is already on the table: {file}")
         if len(board["papers"]) >= MAX_PAPERS:
             raise ValueError(f"the table holds at most {MAX_PAPERS} papers")
         paper_id = str(data.get("id") or f"{kind}-{uuid.uuid4().hex[:8]}")
@@ -147,8 +167,8 @@ def add_paper(project_path: Path, data: dict) -> dict:
 
 
 def update_paper(project_path: Path, paper_id: str, changes: dict) -> dict:
-    """Move or edit one paper (id and kind stay). The site paper only moves. Returns {paper, rev}."""
-    changes = {k: v for k, v in changes.items() if k not in {"id", "kind"}}
+    """Move or edit one paper (id, kind and a photo's file stay). The site paper only moves. Returns {paper, rev}."""
+    changes = {k: v for k, v in changes.items() if k not in {"id", "kind", "file"}}
     with _lock:
         board = load_board(project_path)
         current = _find(board, paper_id)
@@ -172,7 +192,95 @@ def delete_paper(project_path: Path, paper_id: str) -> dict:
         board["papers"].remove(paper)
         board["pins"] = [p for p in board["pins"] if p.get("paper") != paper_id]
         board = _save(project_path, board)
+        file = str(paper.get("file") or "")
+        if paper["kind"] == "photo" and PHOTO_FILE.fullmatch(file) and (photo_dir(project_path) / file).is_file():
+            (photo_dir(project_path) / file).touch()  # kept for an undo; add_photo clears it a day later
     return {"rev": board["rev"]}
+
+
+# ---------------------------------------------------------------------------
+# Photos
+# ---------------------------------------------------------------------------
+
+
+def photo_dir(project_path: Path) -> Path:
+    return Path(project_path) / PHOTO_DIR
+
+
+def photo_kind(data: bytes) -> str | None:
+    """The file extension for an image the browser can show, read from its first bytes."""
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if data[:6] in {b"GIF87a", b"GIF89a"}:
+        return "gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
+def add_photo(project_path: Path, data: bytes, fields: dict | None = None) -> dict:
+    """
+    Lay an uploaded photo on the table. `fields` may give title, x, y, w, h (the screen sizes
+    the paper to the picture). Only PNG, JPEG, GIF and WebP, at most MAX_PHOTO_BYTES.
+    Returns {paper, rev}. Raises ValueError.
+    """
+    if not data:
+        raise ValueError("the photo is empty")
+    if len(data) > MAX_PHOTO_BYTES:
+        raise ValueError(f"a photo may be at most {MAX_PHOTO_BYTES // (1024 * 1024)} MB")
+    ext = photo_kind(data)
+    if ext is None:
+        raise ValueError("a photo must be a PNG, JPEG, GIF or WebP image")
+    fields = {k: v for k, v in (fields or {}).items() if k in {"title", *PLACEMENT} and v is not None}
+    with _lock:
+        board = load_board(project_path)
+        if len(board["papers"]) >= MAX_PAPERS:
+            raise ValueError(f"the table holds at most {MAX_PAPERS} papers")
+        paper_id = f"photo-{uuid.uuid4().hex[:8]}"
+        while _taken(board, paper_id):
+            paper_id = f"photo-{uuid.uuid4().hex[:8]}"
+        file = f"{paper_id}.{ext}"
+        paper = clean_paper({**fields, "id": paper_id, "kind": "photo", "file": file})
+        folder = photo_dir(project_path)
+        _prune_photos(folder, board)
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / file).write_bytes(data)
+        board["papers"].append(paper)
+        try:
+            board = _save(project_path, board)
+        except OSError:
+            (folder / file).unlink(missing_ok=True)
+            raise
+    return {"paper": paper, "rev": board["rev"]}
+
+
+def _prune_photos(folder: Path, board: dict) -> None:
+    """Remove photo files no paper has used for ORPHAN_SECONDS."""
+    if not folder.is_dir():
+        return
+    import time
+
+    used = {p.get("file") for p in board["papers"]}
+    old = time.time() - ORPHAN_SECONDS
+    for path in folder.iterdir():
+        if PHOTO_FILE.fullmatch(path.name) and path.name not in used:
+            try:
+                if path.stat().st_mtime < old:
+                    path.unlink()
+            except OSError:
+                continue
+
+
+def photo_file(project_path: Path, paper_id: str) -> tuple[Path, str]:
+    """The file of a photo on the table and its media type. Raises PaperNotFound."""
+    paper = _find(load_board(project_path), paper_id)
+    file = str(paper.get("file") or "")
+    path = photo_dir(project_path) / file
+    if paper.get("kind") != "photo" or not PHOTO_FILE.fullmatch(file) or not path.is_file():
+        raise PaperNotFound(paper_id)
+    return path, PHOTO_MEDIA[file.rsplit(".", 1)[1]]
 
 
 # ---------------------------------------------------------------------------
@@ -388,6 +496,12 @@ def clean_paper(data: dict) -> dict:
         paper["title"] = title
         paper["strokes"] = [_stroke(s, i) for i, s in enumerate(strokes)]
         paper["overlaid"] = bool(data.get("overlaid", False))
+    elif kind == "photo":  # the file is named by the server (add_photo) and never changes
+        file = data.get("file")
+        if not isinstance(file, str) or not PHOTO_FILE.fullmatch(file):
+            raise ValueError("a photo paper needs its uploaded file")
+        paper["title"] = title
+        paper["file"] = file
     return paper
 
 
@@ -453,12 +567,14 @@ def paper_name(paper: dict) -> str:
         return paper.get("title") or "트레이싱지"
     if kind == "expert":
         return f"{paper.get('title') or paper.get('agent')} 결과"
+    if kind == "photo":
+        return paper.get("title") or "사진"
     return paper.get("title") or kind
 
 
 KIND_WORDS = {
     "site": "site", "mass": "massing scheme", "note": "note", "tracing": "tracing sheet",
-    "expert": "expert result",
+    "expert": "expert result", "photo": "photo",
 }
 
 
@@ -511,6 +627,11 @@ def paper_text(paper: dict, site: dict | None) -> str:
         return (
             f"{head}: {len(paper.get('strokes') or [])} pen strokes, {where}. "
             "The drawing itself cannot be read as text; ask the designer what it shows."
+        )
+    if kind == "photo":
+        return (
+            f"{head}: a photo the designer put on the table. The image itself is not sent; "
+            "ask the designer what it shows if it matters."
         )
     if kind == "mass":
         area = (site or {}).get("area_m2")

@@ -79,9 +79,11 @@ class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
-async function api(path, { method = 'GET', body } = {}) {
+async function api(path, { method = 'GET', body, form } = {}) {
   const options = { method, headers: {} };
-  if (body !== undefined) {
+  if (form !== undefined) {
+    options.body = form; // FormData: the browser sets the multipart Content-Type
+  } else if (body !== undefined) {
     options.headers['Content-Type'] = 'application/json';
     options.body = JSON.stringify(body);
   }
@@ -278,6 +280,14 @@ function tableHooks(name) {
     update: (id, changes) => boardCall(name, () => api(paperUrl(id), { method: 'PATCH', body: changes }),
       ['blocks', 'floor_height', 'title', 'text'].some((key) => key in changes)),
     remove: (id) => boardCall(name, () => api(paperUrl(id), { method: 'DELETE' })),
+    // A photo goes up as a file (multipart); fields: title, x, y, w, h.
+    addPhoto: (blob, fileName, fields) => boardCall(name, () => {
+      const form = new FormData();
+      form.append('file', blob, fileName);
+      for (const [key, value] of Object.entries(fields)) if (value !== undefined && value !== null && value !== '') form.append(key, String(value));
+      return api(`${projectApi(name)}/board/photos`, { method: 'POST', form });
+    }, true),
+    photoUrl: (id) => `${projectApi(name)}/board/photos/${encodeURIComponent(id)}`,
     place: (id, placement) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}/place`, { method: 'POST', body: placement }), true),
     discard: (id) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}`, { method: 'DELETE' }), true),
     select: (ids) => { ui.selected = ids; render(false); },
@@ -1835,7 +1845,7 @@ function cancelCommand() {
   focusCommandLine();
 }
 
-const TABLE_COMMANDS = new Set(['plan', 'persp', 'zoom', 'north', 'select', 'note', 'pen', 'trace', 'mass', 'delete', 'undo', 'redo', 'tray',
+const TABLE_COMMANDS = new Set(['plan', 'persp', 'zoom', 'north', 'select', 'note', 'pen', 'trace', 'mass', 'photo', 'delete', 'undo', 'redo', 'tray',
   'rect', 'pushpull', 'move', 'copy', 'rotate', 'scale', 'eraser', 'dist']);
 
 function runCommand(name, command) {

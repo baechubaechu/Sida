@@ -445,3 +445,86 @@ def test_the_view_adds_the_site_and_each_schemes_figures(tmp_path):
 
     bare = board.view(tmp_path, hooks=[("site", SimpleNamespace(board_site=lambda path: None))])
     assert bare["site"] is None and bare["figures"]["mass-a"]["coverage_pct"] is None
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 32
+
+
+def test_a_photo_is_saved_as_a_file_next_to_the_table_and_its_paper_names_it(tmp_path):
+    got = board.add_photo(tmp_path, JPEG, {"title": "대지 사진", "x": 30, "y": 5, "w": 300, "h": 200, "junk": 1})
+    paper = got["paper"]
+    assert got["rev"] == 1 and paper["kind"] == "photo" and paper["id"].startswith("photo-")
+    assert paper["file"] == f"{paper['id']}.jpg" and "junk" not in paper and paper["h"] == 200
+    path, media = board.photo_file(tmp_path, paper["id"])
+    assert path.read_bytes() == JPEG and media == "image/jpeg"
+    assert board.paper_name(paper) == "대지 사진"
+    assert "image itself is not sent" in board.paper_text(paper, None)
+
+    # It moves, folds and is renamed like other papers; its file never changes.
+    moved = board.update_paper(tmp_path, paper["id"], {"x": 50, "title": "북측 전경", "file": "photo-00000000.png"})["paper"]
+    assert moved["x"] == 50 and moved["title"] == "북측 전경" and moved["file"] == paper["file"]
+    untitled = board.add_photo(tmp_path, PNG)["paper"]
+    assert board.paper_name(untitled) == "사진" and untitled["file"].endswith(".png")
+
+
+@pytest.mark.parametrize(
+    "data, message",
+    [
+        (b"", "empty"),
+        (b"%PDF-1.7 not a picture", "PNG, JPEG, GIF or WebP"),
+        (b"\x00\x00\x00\x18ftypheic" + b"\x00" * 16, "PNG, JPEG, GIF or WebP"),  # an iPhone HEIC
+        (JPEG + b"\x00" * board.MAX_PHOTO_BYTES, "at most 20 MB"),
+    ],
+)
+def test_what_is_not_a_photo_the_browser_can_show_is_refused_and_nothing_is_saved(tmp_path, data, message):
+    with pytest.raises(ValueError, match=message):
+        board.add_photo(tmp_path, data)
+    assert not board.board_path(tmp_path).exists() and not board.photo_dir(tmp_path).exists()
+
+
+def test_a_photo_is_only_added_by_upload_but_an_undo_can_lay_a_removed_one_back(tmp_path):
+    with pytest.raises(ValueError, match="uploading"):
+        board.add_paper(tmp_path, {"kind": "photo", "file": "photo-00000000.jpg"})
+    paper = board.add_photo(tmp_path, JPEG)["paper"]
+    with pytest.raises(ValueError, match="already on the table"):
+        board.add_paper(tmp_path, {**paper, "id": "other"})
+
+    board.delete_paper(tmp_path, paper["id"])
+    with pytest.raises(board.PaperNotFound):
+        board.photo_file(tmp_path, paper["id"])
+    assert (board.photo_dir(tmp_path) / paper["file"]).exists()  # kept for an undo
+    back = board.add_paper(tmp_path, paper)["paper"]
+    assert back == paper and board.photo_file(tmp_path, paper["id"])[0].read_bytes() == JPEG
+
+
+def test_a_removed_photos_file_is_cleared_a_day_later(tmp_path):
+    import os
+    import time
+
+    old = board.add_photo(tmp_path, JPEG)["paper"]
+    fresh = board.add_photo(tmp_path, PNG)["paper"]
+    kept = board.add_photo(tmp_path, PNG)["paper"]
+    board.delete_paper(tmp_path, old["id"])
+    board.delete_paper(tmp_path, fresh["id"])
+    folder = board.photo_dir(tmp_path)
+    day_ago = time.time() - board.ORPHAN_SECONDS - 60
+    os.utime(folder / old["file"], (day_ago, day_ago))
+    os.utime(folder / kept["file"], (day_ago, day_ago))  # still on the table: stays however old
+
+    board.add_photo(tmp_path, PNG)
+    assert not (folder / old["file"]).exists()
+    assert (folder / fresh["file"]).exists() and (folder / kept["file"]).exists()
+
+
+def test_a_hand_edited_photo_file_name_cannot_reach_outside_the_photo_folder(tmp_path):
+    import json
+
+    paper = board.add_photo(tmp_path, JPEG)["paper"]
+    saved = json.loads(board.board_path(tmp_path).read_text(encoding="utf-8"))
+    saved["papers"][-1]["file"] = "../board.json"
+    board.board_path(tmp_path).write_text(json.dumps(saved), encoding="utf-8")
+    with pytest.raises(board.PaperNotFound):
+        board.photo_file(tmp_path, paper["id"])
+    with pytest.raises(board.PaperNotFound):
+        board.photo_file(tmp_path, "site")

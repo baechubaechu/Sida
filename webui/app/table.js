@@ -19,6 +19,7 @@ import {
   numericToolClick, numericPushBlock, numericScaleBlocks,
   snapTape,
   massIds, createHistory, recordStep, undoStep, redoStep, changedFields, planDrawing,
+  photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE,
 } from './board-model.js';
 
 const SNAP = 7; // metres: a tracing sheet this close to its place on the site clicks into register
@@ -38,13 +39,15 @@ const TOOLS = [
   { id: 'pen', label: '펜', cmd: 'pen', icon: '✎' },
 ];
 const MODEL_TOOLS = new Set(TOOLS.filter((t) => t.group === 'model').map((t) => t.id));
-const DETAIL_KINDS = { site: '대지 자료', mass: '매스안', expert: '전문가 검토', tracing: '트레이싱', note: '설계 메모' };
+const DETAIL_KINDS = { site: '대지 자료', mass: '매스안', expert: '전문가 검토', tracing: '트레이싱', note: '설계 메모', photo: '사진' };
+const PHOTO_GAP = 3; // metres between photos dropped together
 const cm = (metres) => Math.round(metres * 100) / 100; // pen points are kept to the centimetre
 const strokePath = (pts) => pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(2)} ${(-y).toFixed(2)}`).join(' ');
 
 export class DraftingTable {
   // hooks: { add(paper), update(id, changes), remove(id), place(id, placement), discard(id),
-  //          select(ids), ask(id), openExpert(agent), experts() } — the first five return promises.
+  //          addPhoto(blob, fileName, fields), select(ids), ask(id), openExpert(agent), experts(),
+  //          photoUrl(id) } — the first six return promises.
   // ask(id): the designer wants to ask about this paper (app.js picks it and opens the composer).
   constructor(hooks) {
     this.hooks = hooks;
@@ -96,18 +99,22 @@ export class DraftingTable {
       <div class="table-ui ui-scheme"></div>
       <div class="table-ui ui-tilt" aria-label="기울기"></div>
       <div class="table-ui ui-zoom"></div>
-      <p class="table-ui ui-help">왼쪽 끌기: 선택 상자(→ 안에 든 것, ← 걸친 것, Shift 더하기, Ctrl 빼기) · 건물 클릭: 그 동만 고르기(끌면 옮김, 검볼, Delete 지우기) · 스케치업 도구는 명령으로: rect pushpull move copy rotate scale eraser dist (제도판에서 글자를 치면 명령창으로) · Ctrl+C/V 복사·붙여넣기, Ctrl+A 모든 동 · 고른 이름표 끌기: 종이 옮기기 · 휠: 커서 기준 확대 · 우클릭 끌기: 돌리기 · Shift+우클릭·가운데 버튼 끌기: 이동 · Ctrl+Z: 되돌리기</p>
+      <p class="table-ui ui-help">왼쪽 끌기: 선택 상자(→ 안에 든 것, ← 걸친 것, Shift 더하기, Ctrl 빼기) · 건물 클릭: 그 동만 고르기(끌면 옮김, 검볼, Delete 지우기) · 스케치업 도구는 명령으로: rect pushpull move copy rotate scale eraser dist (제도판에서 글자를 치면 명령창으로) · Ctrl+C/V 복사·붙여넣기, Ctrl+A 모든 동 · 고른 이름표 끌기: 종이 옮기기 · 휠: 커서 기준 확대 · 우클릭 끌기: 돌리기 · Shift+우클릭·가운데 버튼 끌기: 이동 · Ctrl+Z: 되돌리기 · 사진: 파일을 끌어다 놓거나 붙여넣기(photo)</p>
       <p class="table-ui ui-hint" role="status" hidden></p>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
       <section class="table-ui peek" aria-label="종이 내용" hidden></section>
       <section class="table-ui scheme-form" aria-label="매스안 입력" hidden></section>
       <dialog class="card-detail" aria-labelledby="detail-title"></dialog>
-      <dialog class="tool-number" aria-labelledby="tool-number-title" aria-describedby="tool-number-help"></dialog>`;
+      <dialog class="tool-number" aria-labelledby="tool-number-title" aria-describedby="tool-number-help"></dialog>
+      <input type="file" class="photo-input" accept="image/*" multiple hidden aria-hidden="true" tabindex="-1">
+      <div class="photo-drop" hidden aria-hidden="true"><span>여기에 놓으면 사진이 제도판에 올라갑니다</span></div>`;
     this.stage = this.root.querySelector('.table-stage');
     this.pinLayer = this.root.querySelector('.table-pins');
     this.boxEl = this.root.querySelector('.table-box');
     this.snapEl = this.root.querySelector('.tape-snap');
     this.gumEl = this.root.querySelector('.table-gumball');
+    this.photoInput = this.root.querySelector('.photo-input');
+    this.dropEl = this.root.querySelector('.photo-drop');
     this.ui = {
       tools: this.root.querySelector('.ui-tools'),
       scheme: this.root.querySelector('.ui-scheme'),
@@ -131,6 +138,7 @@ export class DraftingTable {
   destroy() {
     this.ui.number.close();
     window.removeEventListener('keydown', this.onWindowKey);
+    window.removeEventListener('paste', this.onPaste);
     cancelAnimationFrame(this.frame);
     this.observer?.disconnect();
     this.gl?.renderer.dispose();
@@ -206,6 +214,7 @@ export class DraftingTable {
       case 'copy': this.setTool('move', { copy: true }); return '';
       case 'trace': this.layTracing(); return '';
       case 'mass': this.openForm(); return '';
+      case 'photo': this.pickPhotos(); return '';
       case 'delete':
         if (this.picked.length) { this.removePicked(); return ''; }
         if (!this.selected.some((id) => this.papers.some((p) => p.id === id && p.kind !== 'site'))) return '먼저 지울 종이나 동을 고르세요.';
@@ -928,6 +937,12 @@ export class DraftingTable {
       }
       return;
     }
+    if (p.kind === 'photo') {
+      el.innerHTML = `<article class="${cls}" data-paper="${escape(p.id)}" style="${size}">${madeTag}${foldButton}
+        <img src="${escape(this.hooks.photoUrl(p.id))}" alt="${escape(paperName(p))}" draggable="false" decoding="async">
+        ${p.title ? `<span class="paper-tag">${escape(p.title)}</span>` : ''}</article>`;
+      return;
+    }
     if (p.kind === 'tracing') {
       el.innerHTML = `<article class="${cls}" data-paper="${escape(p.id)}" style="width:${this.home.w}px;height:${this.home.h}px">
         ${this.traceSvg(p)}<span class="paper-tag">${escape(paperName(p))}${overlaid ? ' · 덮음' : ''}</span>${foldButton}</article>`;
@@ -1015,6 +1030,7 @@ export class DraftingTable {
     let body;
     if (p.kind === 'note') body = `<p class="note-text">${escape(p.text || '메모')}</p>`;
     else if (p.kind === 'tracing') body = `<div class="peek-trace">${this.traceSvg(p)}</div><p class="source">획 ${(p.strokes || []).length}개 · 대지에서 떼어 둔 종이</p>`;
+    else if (p.kind === 'photo') body = `<img class="peek-photo" src="${escape(this.hooks.photoUrl(p.id))}" alt="${escape(paperName(p))}" draggable="false">`;
     else body = this.paperContent(p, this.active === p.id, this.figures[p.id], true).body;
     const actions = [
       p.kind === 'mass' && this.active !== p.id ? `<button type="button" data-peek="show" data-id="${id}">3D로 세우기</button>` : '',
@@ -1163,6 +1179,13 @@ export class DraftingTable {
         : `<p class="note-text">${escape(p.text || '메모')}</p>`;
     } else if (p.kind === 'tracing') {
       body = `<div class="detail-tracing">${this.traceSvg(p)}</div><p class="detail-caption">그린 선 ${(p.strokes || []).length}개${isOverlaid(p, this.home) ? ' · 대지 위에 덮여 있음' : ''}</p>`;
+    } else if (p.kind === 'photo') {
+      const longest = Math.max(p.w, p.h);
+      const sizes = Object.entries({ small: '작게', medium: '보통', large: '크게' }).map(([key, label]) => `<button type="button" data-detail="size-${key}" aria-pressed="${Math.round(longest) === PHOTO_SIZES[key]}">${label}</button>`).join('');
+      body = `<a class="detail-photo" href="${escape(this.hooks.photoUrl(p.id))}" target="_blank" rel="noopener" title="원본을 새 탭에서 보기"><img src="${escape(this.hooks.photoUrl(p.id))}" alt="${escape(paperName(p))}"></a>
+        <label class="detail-title">사진 이름<input type="text" data-detail-title="${id}" maxlength="120" value="${escape(p.title || '')}" placeholder="예: 북측 도로에서 본 대지"></label>
+        <div class="detail-sizes" role="group" aria-label="제도판 위 크기"><span>제도판 위 크기</span>${sizes}</div>
+        <p class="detail-caption">AI에게는 사진 이름만 갑니다. 사진에 무엇이 있는지는 질문에 적어 주세요.</p>`;
     }
     const why = [p.based_on ? `${paperName(this.find(p.based_on)) || p.based_on}의 수정안` : '', p.reason || ''].filter(Boolean)
       .map((t) => `<p class="detail-caption">${escape(t)}</p>`).join('');
@@ -1188,6 +1211,7 @@ export class DraftingTable {
       case 'edit': this.closeDetail(); this.openForm(p); break;
       case 'unfold': this.setFolded(id, false); this.drawDetail(); break;
       case 'focus': this.closeDetail(); this.planAt(p); this.select([id]); break;
+      case 'size-small': case 'size-medium': case 'size-large': this.resizePhoto(id, PHOTO_SIZES[action.slice(5)]); break;
       case 'place': this.closeDetail(); this.placeFromTray(id); break;
       case 'ask': this.closeDetail(); if (!this.selected.includes(id)) this.select(toggleSelected(this.selected, id, true)); this.hooks.ask?.(id); break;
       default: break;
@@ -1198,6 +1222,93 @@ export class DraftingTable {
   saveDetailNote() {
     const area = this.ui.detail.querySelector('[data-detail-note]');
     if (area) this.saveNoteText(area.dataset.detailNote, area.value);
+    const title = this.ui.detail.querySelector('[data-detail-title]');
+    if (title) this.saveTitle(title.dataset.detailTitle, title.value);
+  }
+
+  saveTitle(id, value) {
+    const p = this.papers.find((x) => x.id === id);
+    const title = value.trim().slice(0, 120);
+    if (!p || (p.title || '') === title) return;
+    this.record([{ op: 'update', id, before: { title: p.title || '' }, after: { title } }]);
+    p.title = title;
+    this.drawPaper(p);
+    this.drawPins();
+    this.save(id, { title });
+  }
+
+  // ------------------------------------------------------------------ photos
+  // A photo comes from the 사진 올리기 button (or the photo command), a drop on the table, or a
+  // paste. It goes up as it is when the server takes it; otherwise it is redrawn smaller first.
+
+  pickPhotos() {
+    this.photoInput.value = '';
+    this.photoInput.click();
+  }
+
+  // files: a FileList or array; at: where on the table (metres) the first one goes, else beside the site.
+  async addPhotos(files, at = null) {
+    const { files: pictures, skipped } = pickPhotoFiles(files);
+    if (!pictures.length) { this.say('사진 파일이 아닙니다. JPEG, PNG, GIF, WebP 사진을 올려 주세요.'); return; }
+    if (skipped) this.say(`사진 파일만, 한 번에 ${MAX_PHOTOS_AT_ONCE}장까지 올립니다. ${skipped}개는 건너뜁니다.`);
+    let spot = at;
+    const added = [];
+    const failed = [];
+    for (const file of pictures) {
+      this.say(`사진을 올리는 중입니다… (${added.length + failed.length + 1}/${pictures.length})`);
+      const ready = await this.preparePhoto(file);
+      if (!ready) { failed.push(file.name || '사진'); continue; }
+      const { w, h } = photoPaperSize(ready.width, ready.height);
+      const place = spot || freeSpot(this.papers, this.bounds, w, h);
+      const done = await this.hooks.addPhoto(ready.blob, ready.name, { title: photoTitle(file.name), x: cm(place.x), y: cm(place.y), w, h });
+      if (!done?.paper) { failed.push(file.name || '사진'); continue; }
+      added.push(done.paper);
+      if (spot) spot = { x: spot.x + (w * PX) / 2 + PHOTO_GAP + (w * PX) / 2, y: spot.y };
+    }
+    if (added.length) {
+      this.record(added.map((paper) => ({ op: 'add', paper })));
+      this.select(added.map((p) => p.id));
+      if (!at) { const last = added[added.length - 1]; this.animateTo({ x: last.x, y: last.y, tilt: 0, turn: 0, span: Math.max(this.view.span, 120) }); }
+    }
+    const lines = [];
+    if (added.length) lines.push(`사진 ${added.length}장을 제도판에 올렸습니다. 누르면 크게 보고 이름을 붙일 수 있습니다.`);
+    if (failed.length) lines.push(`${failed.join(', ')}은(는) 올리지 못했습니다. 브라우저가 열 수 있는 사진(JPEG, PNG 등)인지 확인해 주세요.`);
+    this.say(lines.join(' '));
+  }
+
+  // {blob, name, width, height}, or null when the browser cannot open the picture.
+  async preparePhoto(file) {
+    let bitmap;
+    try { bitmap = await createImageBitmap(file); } catch { return null; }
+    const { width, height } = bitmap;
+    if (photoPlan(file.type, file.size, width, height) === 'keep') {
+      bitmap.close();
+      return { blob: file, name: file.name || 'photo', width, height };
+    }
+    const size = shrunkSize(width, height);
+    const canvas = document.createElement('canvas');
+    Object.assign(canvas, size);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; // a transparent picture lies on white paper
+    ctx.fillRect(0, 0, size.width, size.height);
+    ctx.drawImage(bitmap, 0, 0, size.width, size.height);
+    bitmap.close();
+    const blob = await new Promise((resolve) => { canvas.toBlob(resolve, 'image/jpeg', 0.88); });
+    if (!blob) return null;
+    const base = String(file.name || 'photo').replace(/\.[A-Za-z0-9]{1,5}$/, '');
+    return { blob, name: `${base}.jpg`, ...size };
+  }
+
+  resizePhoto(id, longest) {
+    const p = this.papers.find((x) => x.id === id && x.kind === 'photo');
+    if (!p) return;
+    const { w, h } = photoPaperSize(p.w, p.h, longest);
+    if (w === p.w && h === p.h) return;
+    this.record([{ op: 'update', id, before: { w: p.w, h: p.h }, after: { w, h } }]);
+    Object.assign(p, { w, h });
+    this.syncPapers();
+    this.drawDetail();
+    this.save(id, { w, h });
   }
 
   saveNoteText(id, text) {
@@ -1334,6 +1445,7 @@ export class DraftingTable {
       <span class="sep"></span>
       <button type="button" data-ui="scheme-new" title="숫자로 매스안 만들기">＋ 매스안</button>
       <button type="button" data-ui="trace" title="트레이싱지 덮기 (명령: trace)">트레이싱지 덮기</button>
+      <button type="button" data-ui="photo" title="사진 올리기 (명령: photo) — 사진 파일을 제도판에 끌어다 놓거나 붙여넣어도 됩니다">사진 올리기</button>
       <button type="button" data-ui="delete" ${this.selected.some((id) => this.papers.some((p) => p.id === id && p.kind !== 'site')) ? '' : 'disabled'} title="삭제 (Delete)">삭제</button>
       <span class="sep"></span>
       <button type="button" data-ui="tray" aria-pressed="${this.trayOpen}">AI 섹션${this.tray.length ? ` <b>${this.tray.length}</b>` : ''}</button>`;
@@ -1534,7 +1646,36 @@ export class DraftingTable {
     root.addEventListener('input', (e) => this.onInput(e));
     root.addEventListener('change', (e) => {
       if (e.target.dataset.ui === 'ghost') { this.ghost = e.target.checked; this.drawMasses(); }
+      if (e.target === this.photoInput && this.photoInput.files.length) this.addPhotos([...this.photoInput.files]);
+      if (e.target.dataset.detailTitle) this.saveTitle(e.target.dataset.detailTitle, e.target.value);
     });
+    // Photo files dragged in from the desktop land where they are dropped.
+    const carriesFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+    root.addEventListener('dragover', (e) => {
+      if (!carriesFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      this.dropEl.hidden = false;
+    });
+    root.addEventListener('dragleave', (e) => { if (!root.contains(e.relatedTarget)) this.dropEl.hidden = true; });
+    root.addEventListener('drop', (e) => {
+      if (!carriesFiles(e)) return;
+      e.preventDefault();
+      this.dropEl.hidden = true;
+      const at = this.view.tilt < EDGE_TILT ? this.ground(e.clientX, e.clientY) : null;
+      this.addPhotos([...e.dataTransfer.files], at || null);
+    });
+    // A picture pasted (Ctrl+V of a screenshot or a copied image) while the table is in view.
+    this.onPaste = (e) => {
+      if (!this.root.isConnected || this.root.parentElement?.hidden) return;
+      const at = document.activeElement;
+      if (typing(at) || at?.closest?.('dialog')) return;
+      const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
+      if (!files.length) return;
+      e.preventDefault();
+      this.addPhotos(files);
+    };
+    window.addEventListener('paste', this.onPaste);
     root.addEventListener('submit', (e) => { e.preventDefault(); if (e.target.dataset.form === 'scheme') this.saveForm(); if (e.target.dataset.form === 'tool-number') this.applyToolNumber(); });
     this.ui.number.addEventListener('close', () => { this.numberEdit = null; this.root.focus({ preventScroll: true }); });
     root.addEventListener('focusout', (e) => {
@@ -1594,6 +1735,7 @@ export class DraftingTable {
       case 'undo': this.travel('undo'); break;
       case 'redo': this.travel('redo'); break;
       case 'trace': this.layTracing(); break;
+      case 'photo': this.pickPhotos(); break;
       case 'delete': this.removeSelected(); break;
       case 'tray': this.trayOpen = !this.trayOpen; this.drawTray(); this.drawControls(); break;
       case 'north': this.animateTo({ turn: 0 }); break;

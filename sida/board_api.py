@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
+from typing import Annotated
+
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 
 from sida import board, workspace
 
@@ -37,6 +39,26 @@ def create_router(load_config, core) -> APIRouter:
     @router.delete("/papers/{paper_id}")
     def delete_paper(name: str, paper_id: str) -> dict:
         return call(board.delete_paper, call(project, name), paper_id)
+
+    @router.post("/photos")
+    def add_photo(
+        name: str,
+        file: Annotated[UploadFile, File()],
+        title: Annotated[str, Form()] = "",
+        x: Annotated[float | None, Form()] = None,
+        y: Annotated[float | None, Form()] = None,
+        w: Annotated[float | None, Form()] = None,
+        h: Annotated[float | None, Form()] = None,
+    ) -> JSONResponse:
+        data = file.file.read(board.MAX_PHOTO_BYTES + 1)
+        fields = {"title": title, "x": x, "y": y, "w": w, "h": h}
+        return JSONResponse(call(board.add_photo, call(project, name), data, fields), status_code=201)
+
+    @router.get("/photos/{paper_id}")
+    def photo(name: str, paper_id: str) -> FileResponse:
+        path, media = call(board.photo_file, call(project, name), paper_id)
+        # The file behind a photo paper never changes, so the browser may keep it.
+        return FileResponse(path, media_type=media, headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
     @router.post("/tray/{paper_id}/place")
     def place_paper(name: str, paper_id: str, body: dict | None = None) -> dict:
