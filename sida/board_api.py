@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
+from urllib.parse import quote
 
-from sida import board, workspace
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse, Response
+
+from sida import board, board_export, workspace
 
 
 def create_router(load_config, core) -> APIRouter:
@@ -45,6 +47,18 @@ def create_router(load_config, core) -> APIRouter:
     @router.delete("/tray/{paper_id}")
     def discard_paper(name: str, paper_id: str) -> dict:
         return call(board.discard_paper, call(project, name), paper_id)
+
+    @router.get("/export")
+    def export(name: str, format: str = "dxf", active: str = "") -> Response:
+        path = call(project, name)
+        data = call(board_export.export_board, path, format, active=active.strip() or None)
+        fmt = format.lower()
+        filename = f"{path.name}_제도판.{fmt}"
+        disposition = f"attachment; filename=\"sida-board.{fmt}\"; filename*=UTF-8''{quote(filename)}"
+        return Response(
+            data, media_type=board_export.MEDIA_TYPES[fmt],
+            headers={"Content-Disposition": disposition, "Cache-Control": "no-store"},
+        )
 
     @router.get("/context")
     def context(name: str, ids: str = "") -> dict:

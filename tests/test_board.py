@@ -417,6 +417,7 @@ def test_the_site_plan_is_in_metres_around_the_middle_and_blocks_follow_the_larg
     assert (b["min_x"] + b["max_x"]) / 2 == pytest.approx(0, abs=0.01)  # the site's middle is 0, 0
     frame = plan["frame"]
     assert frame["angle"] == pytest.approx(0, abs=1e-3)  # the long side runs east–west
+    assert plan["origin"] == {"lon": pytest.approx(127.00025), "lat": pytest.approx(37.0001)}  # where 0, 0 lies
     assert frame["x"] == pytest.approx((ring[0][0] + ring[1][0]) / 2, abs=0.05)
     assert board.site_plan([]) is None and board.site_plan([{"shape": {"type": "Polygon", "coordinates": [[[1, 2]]]}}]) is None
 
