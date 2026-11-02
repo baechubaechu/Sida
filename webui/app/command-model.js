@@ -36,6 +36,7 @@ export const COMMANDS = [
   { name: 'site', aliases: [], label: '대지 페이지 열기', group: 'panel' },
   { name: 'run', aliases: [], label: '전문가 실행', group: 'panel' },
   { name: 'talks', aliases: ['history'], label: 'Conductor 대화 목록 열고 닫기', group: 'panel' },
+  { name: 'export', aliases: ['exp'], label: '내보내기: CAD(DXF)·라이노(3dm) 파일로', group: 'panel' },
   { name: 'settings', aliases: ['options'], label: '설정 열기', group: 'panel' },
   { name: 'help', aliases: ['?'], label: '명령 목록 보기', group: 'panel' },
 ];

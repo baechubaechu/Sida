@@ -801,8 +801,9 @@ def _centroid(ring: list[list[float]]) -> list[float]:
 def site_plan(parcels: list[dict]) -> dict | None:
     """
     The parcels' boundaries in metres around the site's middle (x east, y north), the bounds,
-    and the frame blocks stand in: the middle of the largest parcel and the direction of its
-    longest edge (radians from east, within ±90°). None when no parcel has a boundary.
+    where that middle lies (`origin`, lon/lat) and the frame blocks stand in: the middle of
+    the largest parcel and the direction of its longest edge (radians from east, within ±90°).
+    None when no parcel has a boundary.
     """
     found = [(p, _outer_rings(p.get("shape"))) for p in parcels or []]
     points = [pt for _p, rings in found for ring in rings for pt in ring]
@@ -844,6 +845,7 @@ def site_plan(parcels: list[dict]) -> dict | None:
         "parcels": out,
         "bounds": {"min_x": min(xs), "min_y": min(ys), "max_x": max(xs), "max_y": max(ys)},
         "frame": {"x": round(middle[0], 2), "y": round(middle[1], 2), "angle": round(angle, 5)},
+        "origin": {"lon": round(lon0, 8), "lat": round(lat0, 8)},
     }
 
 

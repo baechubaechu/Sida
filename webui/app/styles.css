@@ -360,6 +360,13 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .board-heading .eyebrow span { margin: 0 6px; color: #acb4bd; }
 .board-head h1 { margin: 0; font-size: 20px; letter-spacing: -.6px; }
 .panel-toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+.export-menu { position: relative; }
+.export-menu > summary { list-style: none; cursor: pointer; }
+.export-menu > summary::-webkit-details-marker { display: none; }
+.export-options { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; display: grid; gap: 4px; width: 220px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 6px 20px rgb(0 0 0 / .12); }
+.export-options button { text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 6px 8px; font-size: 13px; }
+.export-options button:hover { background: var(--selected); }
+.export-options p { margin: 2px 0 0; font-size: 11px; line-height: 1.4; word-break: keep-all; }
 .board-hint { flex-basis: 100%; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .selection-bar { display: flex; align-items: center; flex-shrink: 0; gap: 8px; padding: 10px 16px; min-height: 52px; border-bottom: 1px solid var(--line); }
 .selection-bar.has-selection { background: #f7f9fc; }

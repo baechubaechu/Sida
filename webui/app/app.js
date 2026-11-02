@@ -8,7 +8,7 @@ import {
   questionAnswer, stateChangeView, sitePath, sitePageFor, needsSiteFirst, siteHeadline, areaText, zoneScope, missingText, SITE_PART_LABELS,
   UNKNOWN, restrictionGroups, buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
   ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
-  togglePicked, shapesToFetch, MAP_PICK_ZOOM,
+  togglePicked, shapesToFetch, MAP_PICK_ZOOM, EXPORT_FORMATS, boardExport,
 } from './model.js';
 import { keepSelected, pickedNames, massIds, canCompare, COMPARE_QUESTION, addQuestion } from './board-model.js';
 import {
@@ -1420,6 +1420,9 @@ function boardHead(name, site, agent) {
       <div class="panel-toggles">
         <button type="button" class="panel-toggle" data-action="conductor-toggle" aria-controls="conductor-panel" aria-expanded="${shown}" aria-label="Conductor 대화 ${shown ? '접기' : '열기'}">대화</button>
         ${site || agent || !ui.expertsCollapsed ? '' : '<button type="button" class="panel-toggle" data-action="toggle-experts-panel" aria-controls="experts-panel" aria-expanded="false"><span aria-hidden="true">‹</span> 전문가</button>'}
+        <details class="export-menu"><summary class="panel-toggle" title="CAD·라이노 파일로 내보내기 (export)">내보내기</summary>
+          <div class="export-options">${EXPORT_FORMATS.map((f) => `<button type="button" data-action="export-board" data-format="${f.key}">${f.label}</button>`).join('')}
+          <p class="muted">대지 경계·매스안·트레이싱 선이 레이어별로 들어갑니다. 단위 m, 원점은 대지 가운데.</p></div></details>
         <button type="button" class="ghost settings-button" data-action="settings" aria-label="설정" title="설정">⚙${settingsWarned() ? '<span class="warn-dot" aria-label="확인할 설정 있음">●</span>' : ''}</button>
       </div>
       <p class="board-hint">기울이면 배치도가 3D가 됩니다 · 트레이싱지는 대지 위에 덮고, 옆으로 끌어내면 떼어집니다</p>
@@ -1883,6 +1886,13 @@ function runCommand(name, command) {
       ui.pane = 'conductor';
       say(ui.conductor.list ? 'talks — 대화 목록을 열었습니다.' : 'talks — 대화로 돌아갑니다.');
       break;
+    case 'export':
+      c.prompt = {
+        text: '어떤 파일로 내보낼까요?',
+        options: EXPORT_FORMATS.map((f) => ({ key: f.key, label: f.label })),
+        answer: (option) => { downloadBoard(name, option.key); },
+      };
+      break;
     case 'settings':
       openSettings();
       break;
@@ -1902,6 +1912,32 @@ function runCommand(name, command) {
     default:
       say(`${command.name}: 아직 쓸 수 없는 명령입니다.`, 'warn');
   }
+}
+
+// The drawing table as a DXF or 3dm file, with the scheme the table shows switched on.
+async function downloadBoard(name, format) {
+  const { url, filename } = boardExport(name, format, table?.active || '', currentProjectLabel(name));
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      let detail = '';
+      try { detail = (await response.json()).detail; } catch { /* not JSON */ }
+      throw new Error(typeof detail === 'string' && detail ? detail : `요청이 실패했습니다 (${response.status})`);
+    }
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(await response.blob());
+    link.download = filename;
+    link.hidden = true;
+    document.body.append(link);
+    link.click();
+    setTimeout(() => { link.remove(); URL.revokeObjectURL(link.href); }, 10000);
+    say(`export — ${filename}을(를) 내려받았습니다.`);
+  } catch (error) {
+    const text = error instanceof TypeError ? 'Sida 서버에 연결할 수 없습니다.' : error.message;
+    say(`export: ${text}`, 'warn');
+    toast(`내보내지 못했습니다: ${text}`, 'error');
+  }
+  render(false);
 }
 
 async function sendFeedback(rating) {
@@ -2331,6 +2367,7 @@ app.addEventListener('click', (event) => {
   const { action } = button.dataset;
   const { name, agent } = currentRoute;
   if (action === 'settings') openSettings();
+  if (action === 'export-board') { button.closest('details')?.removeAttribute('open'); downloadBoard(name, button.dataset.format); }
   if (action === 'sample') createSample();
   if (action === 'delete-project') askDelete(button.dataset.project);
   if (action === 'project-info') openProjectInfo(button.dataset.project);

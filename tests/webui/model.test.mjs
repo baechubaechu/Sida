@@ -7,7 +7,7 @@ import {
   stateChangeView, phaseLabel, sitePath, sitePageFor, needsSiteFirst, areaText, zoneScope, siteHeadline, missingText, restrictionGroups,
   ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
   buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
-  togglePicked, shapesToFetch, shapesBounds, MAX_SHAPES,
+  togglePicked, shapesToFetch, shapesBounds, MAX_SHAPES, EXPORT_FORMATS, boardExport,
 } from '../../webui/app/model.js';
 import { readFileSync, readdirSync } from 'node:fs';
 
@@ -516,4 +516,14 @@ test('map bounds wrap every polygon as [[south, west], [north, east]]', () => {
   const multi = { type: 'MultiPolygon', coordinates: [[[[126.9, 37.55], [127.05, 37.7], [126.9, 37.55]]]] };
   assert.deepEqual(shapesBounds([square, null, multi]), [[37.5, 126.9], [37.7, 127.1]]);
   assert.equal(shapesBounds([null, {}]), null);
+});
+
+test('the table is exported with the shown scheme and a file name from the project label', () => {
+  assert.deepEqual(EXPORT_FORMATS.map((f) => f.key), ['dxf', '3dm']);
+  assert.deepEqual(boardExport('my museum', 'dxf', 'mass-a', '금정 미술관'), {
+    url: '/api/projects/my%20museum/board/export?format=dxf&active=mass-a',
+    filename: '금정 미술관_제도판.dxf',
+  });
+  assert.deepEqual(boardExport('p', '3dm'), { url: '/api/projects/p/board/export?format=3dm', filename: 'p_제도판.3dm' });
+  assert.equal(boardExport('p', 'dxf', '', 'a/b:c?').filename, 'a_b_c__제도판.dxf'); // no path or reserved characters
 });
