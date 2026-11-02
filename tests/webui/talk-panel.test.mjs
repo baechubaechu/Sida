@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { talkPanel, initialTalk, panelShown, panelWidths, resizePanel } from '../../webui/app/talk-panel-model.js';
+import { talkPanel, talkMenu, initialTalk, panelShown, panelWidths, resizePanel } from '../../webui/app/talk-panel-model.js';
 
 test('closing and reopening retains the active conversation and history view', () => {
   const before = { open: true, active: '02', list: true };
@@ -8,6 +8,24 @@ test('closing and reopening retains the active conversation and history view', (
   assert.deepEqual(closed, { open: false, active: '02', list: true });
   assert.deepEqual(talkPanel(closed, 'toggle'), before);
   assert.equal(before.open, true);
+});
+
+test('removing a conversation drops its active selection without reopening it', () => {
+  const state = { open: true, active: '02', list: false };
+  assert.deepEqual(talkPanel(state, 'remove', '02'), { open: true, active: '', list: true });
+  assert.deepEqual(talkPanel(state, 'remove', '03'), { open: true, active: '02', list: true });
+  assert.equal(initialTalk([], null), '');
+  assert.equal(state.active, '02');
+});
+
+test('conversation actions stay hidden until requested and only one conversation menu opens', () => {
+  let menu = talkMenu('', 'toggle', '01');
+  assert.equal(menu, '01');
+  menu = talkMenu(menu, 'toggle', '02');
+  assert.equal(menu, '02');
+  assert.equal(talkMenu(menu, 'toggle', '02'), '');
+  assert.equal(talkMenu(menu, 'dismiss'), '');
+  assert.equal(talkMenu('', 'dismiss'), '');
 });
 
 test('selecting a saved conversation opens it and leaves the list', () => {

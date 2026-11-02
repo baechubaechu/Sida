@@ -55,6 +55,8 @@ def test_summary_reports_type_and_completed_experts(mock_config, project, agents
     assert summary["project_type"].startswith("Transit architecture")
     assert summary["completed"] == ["site_reader"]
     assert summary["expert_count"] == len(agents)
+    assert summary["visible_expert_count"] == 7
+    assert summary["visible_completed"] == ["site_reader"]
     assert summary["updated_at"]
 
 
@@ -62,6 +64,42 @@ def test_summary_does_not_touch_the_project(mock_config, project):
     before = project.session_path.read_text(encoding="utf-8")
     workspace.list_project_summaries(mock_config)
     assert project.session_path.read_text(encoding="utf-8") == before  # no "resumed" stamp
+
+
+def test_project_info_edits_preserve_other_sections_and_project_identity(mock_config, project):
+    from sida.project_documents import DocumentConflict
+
+    original = project.brief_path.read_text(encoding="utf-8")
+    info = workspace.project_info(mock_config, project.name)
+    result = workspace.update_project_info(mock_config, project.name, {
+        "display_name": "새 뮤지엄", "type": "뮤지엄", "description": "열린 중정",
+    }, info["revision"])
+    assert result["display_name"] == "새 뮤지엄"
+    assert result["type"] == "뮤지엄" and result["description"] == "열린 중정"
+    assert workspace.project_summary(project.path, [])["display_name"] == "새 뮤지엄"
+    assert workspace.find_project(mock_config, project.name) == project.path
+    assert workspace.section_body(original, "Site") == workspace.section_body(
+        project.brief_path.read_text(encoding="utf-8"), "Site"
+    )
+    assert workspace.section_body(original, "Core Problem") == workspace.section_body(
+        project.brief_path.read_text(encoding="utf-8"), "Core Problem"
+    )
+    with pytest.raises(DocumentConflict):
+        workspace.update_project_info(mock_config, project.name, {"display_name": "덮어쓰기"}, info["revision"])
+    cleared = workspace.update_project_info(mock_config, project.name, {"description": ""}, result["revision"])
+    assert cleared["description"] == ""
+    assert cleared["display_name"] == "새 뮤지엄"
+
+
+def test_project_info_rejects_invalid_values_before_writing(mock_config, project):
+    info = workspace.project_info(mock_config, project.name)
+    before = project.brief_path.read_bytes()
+    for fields in ({"display_name": " "}, {"display_name": "a" * 81},
+                   {"display_name": "a\nb"}, {"type": "뮤지엄\n## Site\nwrong"},
+                   {"site": "바꿀 수 없음"}):
+        with pytest.raises(ValueError):
+            workspace.update_project_info(mock_config, project.name, fields, info["revision"])
+    assert project.brief_path.read_bytes() == before
 
 
 def test_find_project_only_inside_projects_folder(mock_config, project, tmp_path):

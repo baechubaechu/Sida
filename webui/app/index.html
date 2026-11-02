@@ -32,5 +32,17 @@
         <button type="button" class="primary danger" id="delete-confirm">삭제</button></div>
     </form>
   </dialog>
+  <dialog id="project-info-dialog" aria-labelledby="project-info-title">
+    <form id="project-info-form">
+      <div class="dialog-heading"><h2 id="project-info-title">프로젝트 정보</h2><button type="button" class="icon-button" id="project-info-close" aria-label="프로젝트 정보 닫기">×</button></div>
+      <div id="project-info-body"></div>
+    </form>
+  </dialog>
+  <dialog id="delete-talk-dialog" aria-labelledby="delete-talk-title" aria-describedby="delete-talk-text">
+    <h2 id="delete-talk-title">Conductor 대화 삭제</h2>
+    <p id="delete-talk-text"></p>
+    <p class="form-error error-text" role="alert"></p>
+    <div class="form-actions"><button type="button" class="secondary" id="delete-talk-cancel" autofocus>취소</button><button type="button" class="primary danger" id="delete-talk-confirm">삭제</button></div>
+  </dialog>
 </body>
 </html>

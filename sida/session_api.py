@@ -61,6 +61,11 @@ def create_router(jobs: SessionJobs, load_config, core) -> APIRouter:
     def get_talk(name: str, talk_id: str) -> dict:
         return call(jobs.talk, load_config(), name, talk_id)
 
+    @router.delete("/talks/{talk_id}")
+    def delete_talk(name: str, talk_id: str) -> dict:
+        call(jobs.delete_talk, load_config(), name, talk_id)
+        return {"deleted": talk_id}
+
     @router.post("/talks/{talk_id}/messages")
     def talk_message(name: str, talk_id: str, body: Message) -> JSONResponse:
         return started(

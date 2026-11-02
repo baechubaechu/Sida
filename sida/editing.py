@@ -45,6 +45,11 @@ class EditingService:
         with lock:
             return read_document(path, kind)
 
+    def update_project_info(self, config: dict, name: str, fields: dict[str, str], revision: str) -> dict:
+        _path, lock = self._path_and_lock(config, name)
+        with lock:
+            return workspace.update_project_info(config, name, fields, revision)
+
     def save_document(
         self, config: dict, name: str, kind: str, content: str, *, expected_revision: str
     ) -> Document:

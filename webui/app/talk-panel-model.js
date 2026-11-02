@@ -1,4 +1,8 @@
 // Presentation state only. Drafts and selected-paper contexts belong to each saved talk.
+export function talkMenu(current, action, id = '') {
+  return action === 'toggle' && current !== id ? id : '';
+}
+
 export function talkPanel(state, action, id = '') {
   switch (action) {
     case 'toggle': return { ...state, open: !state.open };
@@ -7,6 +11,7 @@ export function talkPanel(state, action, id = '') {
     case 'list': return { ...state, open: true, list: !state.list };
     case 'select': return { ...state, open: true, active: id, list: false };
     case 'new': return { ...state, open: true, active: '', list: false };
+    case 'remove': return { ...state, active: state.active === id ? '' : state.active, list: true };
     default: return state;
   }
 }

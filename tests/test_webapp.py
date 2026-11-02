@@ -47,6 +47,35 @@ def test_api_create_rejects_empty_name(client):
     assert client.get("/api/projects").json()["projects"] == []
 
 
+def test_project_info_api_saves_name_and_brief_without_changing_address(client, project):
+    url = f"/api/projects/{project.name}/info"
+    info = client.get(url).json()
+    response = client.patch(url, json={
+        "fields": {"display_name": "뮤지엄 테스트", "type": "뮤지엄", "description": "교육과 전시"},
+        "expected_revision": info["revision"],
+    })
+    assert response.status_code == 200
+    assert response.json()["display_name"] == "뮤지엄 테스트"
+    assert client.get(f"/api/projects/{project.name}").json()["display_name"] == "뮤지엄 테스트"
+    assert client.get("/api/projects").json()["projects"][0]["display_name"] == "뮤지엄 테스트"
+    assert client.patch(url, json={"fields": {"type": "주택"}, "expected_revision": info["revision"]}).status_code == 409
+    latest = client.get(url).json()
+    assert client.patch(url, json={"fields": {"display_name": ""}, "expected_revision": latest["revision"]}).status_code == 400
+    assert client.get("/api/projects/nope/info").status_code == 404
+
+
+def test_project_info_cannot_change_while_a_job_runs(client, project):
+    from sida.session_jobs import Job
+
+    path = project.path.resolve()
+    client.app.state.session_jobs._active[path] = Job("busy", path, "message")
+    info = client.get(f"/api/projects/{project.name}/info").json()
+    response = client.patch(f"/api/projects/{project.name}/info", json={
+        "fields": {"display_name": "새 이름"}, "expected_revision": info["revision"],
+    })
+    assert response.status_code == 409
+
+
 def test_api_sample_and_detail(client, agents):
     r = client.post("/api/projects/sample")
     assert r.status_code == 201 and r.json()["project"]["name"] == "sample_brief"
@@ -1241,3 +1270,27 @@ def test_talks_reject_unknown_ids_and_empty_messages(session_api):
     assert client.post(f"{base}/talks/09/messages", json={"text": "안녕"}).status_code == 404
     assert client.post(f"{base}/talks/01/messages", json={"text": "  "}).status_code == 400
     assert client.get("/api/projects/nope/talks").status_code == 404
+
+
+def test_delete_conductor_talk_including_first_conversation(client, project):
+    base = f"/api/projects/{project.name}"
+    client.post(f"{base}/talks")
+    assert client.delete(f"{base}/talks/02").json() == {"deleted": "02"}
+    assert client.get(f"{base}/talks/02").status_code == 404
+    assert client.post(f"{base}/talks").json()["talk"]["id"] == "03"
+    assert client.delete(f"{base}/talks/01").status_code == 200
+    assert [t["id"] for t in client.get(f"{base}/session").json()["talks"]] == ["03"]
+    assert client.post(f"{base}/session/opening").status_code == 404
+    assert client.post(f"{base}/talks/01/messages", json={"text": "안녕"}).status_code == 404
+    assert client.delete(f"{base}/talks/01").status_code == 404
+    assert client.delete(f"{base}/talks/../history").status_code == 404
+
+
+def test_delete_talk_is_blocked_during_running_project_job(client, project):
+    from sida.session_jobs import Job
+
+    path = project.path.resolve()
+    client.app.state.session_jobs._active[path] = Job("busy", path, "message", talk="01")
+    response = client.delete(f"/api/projects/{project.name}/talks/01")
+    assert response.status_code == 409
+    assert client.get(f"/api/projects/{project.name}/talks/01").status_code == 200

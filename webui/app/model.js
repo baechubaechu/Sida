@@ -6,6 +6,11 @@ export const PHASES = {
   analysis: '분석', concept: '개념', development: '발전', critique: '비평', communication: '전달',
 };
 
+// Held experts remain configured with their documents, but have no UI entry points.
+export function visibleExperts(experts = []) {
+  return experts.filter(expert => expert.tier !== 'held');
+}
+
 // Phase of an expert for the panel; held experts (tier "held", 10/10 meeting) say so.
 export function phaseLabel(expert) {
   const phase = PHASES[expert?.phase] || expert?.phase || '';
@@ -58,9 +63,9 @@ function stamp(value) {
 export function findProjects(projects, query = '', sort = 'recent') {
   const term = query.trim().toLocaleLowerCase('ko');
   return projects
-    .filter((p) => `${p.name} ${p.project_type || ''}`.toLocaleLowerCase('ko').includes(term))
+    .filter((p) => `${p.display_name || p.name} ${p.project_type || ''}`.toLocaleLowerCase('ko').includes(term))
     .sort((a, b) => (sort === 'name'
-      ? a.name.localeCompare(b.name, 'ko')
+      ? (a.display_name || a.name).localeCompare(b.display_name || b.name, 'ko')
       : stamp(b.updated_at) - stamp(a.updated_at)));
 }
 
@@ -76,9 +81,9 @@ export function relativeDate(value, now = new Date()) {
 }
 
 export function projectSummary(project) {
-  const done = (project.completed || []).length;
+  const done = (project.visible_completed ?? project.completed ?? []).length;
   if (!done) return '아직 실행한 전문가 없음';
-  return `전문가 ${done}/${project.expert_count} 완료`;
+  return `전문가 ${done}/${project.visible_expert_count ?? project.expert_count} 완료`;
 }
 
 // Stored chat entries (GET .../session or .../experts/{agent}/chat) → what the screen draws.

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  escapeHtml, findProjects, relativeDate, projectSummary, chatItems, eventNotice, expertStatus,
+  escapeHtml, findProjects, relativeDate, projectSummary, visibleExperts, chatItems, eventNotice, expertStatus,
   renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges, parseRoute, expertPath, dateTime,
   documentSections, listItems, itemTag, handoffs, questionAnswer, arrangeDocument, EXPERT_LAYOUTS, SECTION_LABELS,
   stateChangeView, phaseLabel, sitePath, sitePageFor, needsSiteFirst, areaText, zoneScope, siteHeadline, missingText, restrictionGroups,
@@ -21,6 +21,12 @@ test('search matches name and type, ignoring case and spaces', () => {
   assert.deepEqual(findProjects(projects, '  미술관 ').map((p) => p.name), ['museum']);
   assert.deepEqual(findProjects(projects, 'HOUS').map((p) => p.name), ['housing']);
   assert.deepEqual(findProjects(projects, '없는 이름'), []);
+});
+
+test('renamed projects are searched and sorted by their visible name while addresses stay stable', () => {
+  const renamed = [{ name: 'old-z', display_name: '가 뮤지엄' }, { name: 'old-a', display_name: '나 도서관' }];
+  assert.deepEqual(findProjects(renamed, '뮤지엄').map(p => p.name), ['old-z']);
+  assert.deepEqual(findProjects(renamed, '', 'name').map(p => p.name), ['old-z', 'old-a']);
 });
 
 test('recent sort puts the newest first and undated last, without changing the input', () => {
@@ -118,6 +124,21 @@ test('held experts say so next to their phase', () => {
   assert.equal(phaseLabel({ phase: 'analysis', tier: 'core' }), '분석');
   assert.equal(phaseLabel({ phase: 'other' }), 'other');
   assert.equal(phaseLabel({ tier: 'held' }), '보류');
+});
+
+test('held experts leave UI choices and counts without deleting their saved entries', () => {
+  const experts = [
+    { id: 'site_reader', tier: 'core' }, { id: 'concept_framer', tier: 'held' },
+    { id: 'spatial_reviewer', tier: 'held' }, { id: 'systems_advisor', tier: 'held' },
+    { id: 'design_critic' },
+  ];
+  assert.deepEqual(visibleExperts(experts).map(e => e.id), ['site_reader', 'design_critic']);
+  assert.equal(experts.length, 5);
+  assert.deepEqual(visibleExperts(), []);
+  assert.equal(projectSummary({ completed: ['concept_framer', 'site_reader'], expert_count: 10,
+    visible_completed: ['site_reader'], visible_expert_count: 7 }), '전문가 1/7 완료');
+  assert.equal(projectSummary({ completed: ['concept_framer'], expert_count: 10,
+    visible_completed: [], visible_expert_count: 7 }), '아직 실행한 전문가 없음');
 });
 
 test('a running job marks its expert as running', () => {

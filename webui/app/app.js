@@ -1,7 +1,7 @@
 // The Sida screen. Draws from the JSON API and keeps no project data in the browser:
 // projects, the Conductor conversation, expert chats and results all live on this PC's server.
 import {
-  phaseLabel, STATUS_LABELS, PROVIDER_LABELS, MODE_LABELS, STATE_UPDATE_LABELS,
+  phaseLabel, visibleExperts, STATUS_LABELS, PROVIDER_LABELS, MODE_LABELS, STATE_UPDATE_LABELS,
   escapeHtml as escape, findProjects, relativeDate, projectSummary, chatItems, eventNotice,
   expertStatus, renderMarkdown, chatTitle, latestChat, chatLabel, DATA_KEYS, keyChanges,
   parseRoute, projectPath as projectUrl, expertPath, dateTime, arrangeDocument, itemTag, renderInline,
@@ -14,7 +14,7 @@ import { keepSelected, pickedNames, massIds, canCompare, COMPARE_QUESTION, addQu
 import {
   COMMANDS, GROUP_LABELS, readLine, suggest, pickOption, addHistory, remember, HISTORY_LINES,
 } from './command-model.js';
-import { talkPanel, initialTalk, panelShown, panelWidths, resizePanel } from './talk-panel-model.js';
+import { talkPanel, talkMenu, initialTalk, panelShown, panelWidths, resizePanel } from './talk-panel-model.js';
 
 const app = document.querySelector('#app');
 const announcer = document.querySelector('#announcer');
@@ -26,6 +26,11 @@ const tableHost = document.querySelector('#table-host');
 const deleteDialog = document.querySelector('#delete-dialog');
 const deleteError = document.querySelector('#delete-error');
 const deleteConfirm = document.querySelector('#delete-confirm');
+const projectInfoDialog = document.querySelector('#project-info-dialog');
+const projectInfoBody = document.querySelector('#project-info-body');
+let projectInfoEdit = null;
+const deleteTalkDialog = document.querySelector('#delete-talk-dialog');
+const deleteTalkConfirm = document.querySelector('#delete-talk-confirm');
 
 const POLL_MS = 1000;
 const MAIN_JOBS = new Set(['opening', 'message', 'expert']);
@@ -43,7 +48,7 @@ const ui = {
   // The workspace: the drafting table, and beside it the experts, the site page or an expert's
   // page. Conductor conversations open in a collapsible left panel.
   expertsCollapsed: false, conductor: { open: true, active: null, list: false },
-  pane: 'board', focusComposer: false, creatingTalk: false,
+  pane: 'board', focusComposer: false, creatingTalk: false, talkMenu: '',
   panelRatios: { left: .27, right: .21, detail: .38 },
   settings: null, settingsDraft: null, settingsError: '', chatgptModels: null, chatgptNote: '',
   board: null, selected: [], 
@@ -364,6 +369,7 @@ async function navigate() {
       ui.selected = [];
       ui.talks = new Map();
       ui.talkViews = [];
+      ui.talkMenu = '';
       ui.conductor = { ...ui.conductor, active: null, list: false };
       conductorScrolls.clear();
       for (const key of drafts.keys()) if (key.startsWith('talk:') || key === 'conductor-new') drafts.delete(key);
@@ -389,7 +395,7 @@ async function navigate() {
       if (ui.session.job.talk) openTalk(name, ui.session.job.talk);
       track(name, ui.session.job);
     }
-    else if (!ui.session.messages.length && !openingTried.has(name)) {
+    else if (ui.session.talks?.some(t => t.id === '01') && !ui.session.messages.length && !openingTried.has(name)) {
       openingTried.add(name);
       openTalk(name, '01');
       start(name, `${projectApi(name)}/session/opening`, {});
@@ -488,10 +494,13 @@ async function track(name, job) {
 
 // ------------------------------------------------------------------ views
 
+const projectLabel = (p) => p.display_name || p.name;
+const currentProjectLabel = (name) => projectLabel(ui.projects?.find(p => p.name === name) || { name });
+
 // A project link in the sidebar, with its delete button beside it.
 function navProject(p) {
-  return `<div class="nav-row"><a class="nav-link" href="${projectUrl(p.name)}">${escape(p.name)}</a>
-    <button type="button" class="nav-delete" data-action="delete-project" data-project="${escape(p.name)}" aria-label="${escape(p.name)} 프로젝트 삭제" title="프로젝트 삭제">삭제</button></div>`;
+  return `<div class="nav-row"><a class="nav-link" href="${projectUrl(p.name)}">${escape(projectLabel(p))}</a>
+    <button type="button" class="nav-delete" data-action="delete-project" data-project="${escape(p.name)}" aria-label="${escape(projectLabel(p))} 프로젝트 삭제" title="프로젝트 삭제">삭제</button></div>`;
 }
 
 // The project list's sidebar. Inside a project the Conductor panel links back here instead.
@@ -523,12 +532,13 @@ function projectCards() {
   }
   const projects = findProjects(ui.projects, ui.query, ui.sort);
   if (!projects.length) return '<p class="empty" role="status">검색 결과가 없습니다. 다른 프로젝트 이름으로 검색해 보세요.</p>';
-  return projects.map((p) => `<article class="project-card"><a class="project-open" href="${projectUrl(p.name)}" aria-label="${escape(p.name)} 프로젝트 열기">
-    <h3>${escape(p.name)}</h3>
+  return projects.map((p) => `<article class="project-card"><a class="project-open" href="${projectUrl(p.name)}" aria-label="${escape(projectLabel(p))} 프로젝트 열기">
+    <h3>${escape(projectLabel(p))}</h3>
     <p class="project-type">${escape(p.project_type || '건축 설계')}</p>
     <p class="project-summary">${escape(projectSummary(p))}</p>
     <div class="project-footer"><span>${escape(relativeDate(p.updated_at))}</span><span aria-hidden="true">↗</span></div>
-  </a><button type="button" class="card-delete" data-action="delete-project" data-project="${escape(p.name)}" aria-label="${escape(p.name)} 프로젝트 삭제" title="프로젝트 삭제">삭제</button></article>`).join('');
+  </a><div class="project-card-actions"><button type="button" data-action="project-info" data-project="${escape(p.name)}" aria-label="${escape(projectLabel(p))} 프로젝트 정보 수정">정보 수정</button>
+    <button type="button" class="card-delete" data-action="delete-project" data-project="${escape(p.name)}" aria-label="${escape(projectLabel(p))} 프로젝트 삭제" title="프로젝트 삭제">삭제</button></div></article>`).join('');
 }
 
 function homeView() {
@@ -629,16 +639,24 @@ function talkSummary(id) {
 }
 
 // Saved conversations, newest first, inside the Conductor panel.
+function talkActions(id) {
+  return `<details class="talk-more" ${ui.talkMenu === id ? 'open' : ''}>
+    <summary data-action="talk-menu" data-talk="${escape(id)}" data-focus="talk-menu-${escape(id)}" aria-label="${escape(talkTitle(talkSummary(id)))} 대화 메뉴" title="대화 메뉴">⋯</summary>
+    <div class="talk-more-options"><button type="button" class="talk-delete" data-action="talk-delete" data-talk="${escape(id)}" ${jobRunning() ? 'disabled' : ''}>대화 삭제</button></div>
+  </details>`;
+}
+
 function talksCard() {
   const session = ui.session;
   const talks = [...(session?.talks || [])].reverse();
   const body = !session
     ? `<p class="${ui.sessionError ? 'error-text' : 'muted'}">${escape(ui.sessionError || '대화를 불러오는 중입니다.')}</p>`
+    : !talks.length ? '<p class="muted">저장된 대화가 없습니다. 새 대화를 시작해 보세요.</p>'
     : `<ul class="talk-list" aria-label="Conductor 대화 목록">${talks.map((t) => `<li>
         <button type="button" class="talk-row" data-action="talk-open" data-talk="${escape(t.id)}" aria-pressed="${ui.conductor.active === t.id}">
           <span class="talk-row-title">${escape(talkTitle(t))}</span>
           <span class="talk-row-meta">${t.messages ? `메시지 ${t.messages}개` : '아직 비어 있음'}${t.updated_at ? ` · ${escape(relativeDate(t.updated_at))}` : ''}${jobRunning() && ui.job.talk === t.id ? ' · 답하는 중' : ''}</span>
-        </button></li>`).join('')}</ul>`;
+        </button>${talkActions(t.id)}</li>`).join('')}</ul>`;
   return `<section class="conductor-history" aria-label="대화 목록">
       <div class="talk-list-scroll" data-scroll="talks" data-scroll-from="top">${body}</div></section>`;
 }
@@ -686,7 +704,7 @@ function talkConversation(view) {
   const busy = jobRunning();
   const empty = !items.length && !pending.length && !live.length && !talkWorking(id);
   return `<section class="talk-conversation" data-talk="${escape(id)}" aria-label="대화: ${escape(talkTitle(talkSummary(id)))}">
-      <header class="talk-head"><strong>${escape(talkTitle(talkSummary(id)))}</strong></header>
+      <header class="talk-head"><strong>${escape(talkTitle(talkSummary(id)))}</strong>${talkActions(id)}</header>
       <div class="talk-scroll" data-scroll="${escape(key)}">
         ${loaded?.error ? `<p class="error-text">${escape(loaded.error)}</p>` : ''}
         ${empty && !loaded?.error ? `<p class="muted">${loaded ? '아직 대화가 없습니다.' : '대화를 불러오는 중입니다.'}</p>` : ''}
@@ -803,7 +821,7 @@ function runsBlock() {
 }
 
 function expertsPanel() {
-  const experts = ui.session?.experts || [];
+  const experts = visibleExperts(ui.session?.experts);
   const busy = jobRunning();
   const picked = ui.selected.length;
   return `<aside id="experts-panel" class="experts panel" aria-label="전문가">
@@ -871,7 +889,7 @@ function stateChangeRow(row) {
 
 function expertLink(name, id) {
   const other = expertById(id);
-  return other ? `<a class="expert-chip" href="${expertUrl(name, id)}">${escape(other.name)}</a>` : '';
+  return other && other.tier !== 'held' ? `<a class="expert-chip" href="${expertUrl(name, id)}">${escape(other.name)}</a>` : '';
 }
 
 function itemsHtml(items, render = (item) => renderInline(item)) {
@@ -916,7 +934,7 @@ function sectionBlock(block, row, agent, index) {
 }
 
 function arrangedDoc(name, agent, content) {
-  const ids = (ui.session?.experts || []).map((e) => e.id);
+  const ids = visibleExperts(ui.session?.experts).map((e) => e.id);
   const arranged = arrangeDocument(agent, content, ids);
   const raw = `<div class="markdown doc">${renderMarkdown(content)}</div>`;
   if (!arranged) return raw;
@@ -1388,7 +1406,7 @@ function boardHead(name, site, agent) {
       ${masses.length ? '<button type="button" class="selection-ask" data-action="select-masses">매스안 선택</button>' : ''}`;
   // The experts panel folds with its own › (2026-11-01 지훈): the head only offers it back once folded.
   return `<header class="board-head">
-      <div class="board-heading"><span class="eyebrow"><a href="#/">프로젝트</a><span aria-hidden="true">/</span>${escape(name)}<span aria-hidden="true">/</span>${site ? '대지' : '디자인'}</span><h1>제도판</h1></div>
+      <div class="board-heading"><span class="eyebrow"><a href="#/">프로젝트</a><span aria-hidden="true">/</span><button type="button" class="project-name-edit" data-action="project-info" data-project="${escape(name)}" title="프로젝트 정보 수정">${escape(currentProjectLabel(name))} ✎</button><span aria-hidden="true">/</span>${site ? '대지' : '디자인'}</span><h1>제도판</h1></div>
       <div class="panel-toggles">
         <button type="button" class="panel-toggle" data-action="conductor-toggle" aria-controls="conductor-panel" aria-expanded="${shown}" aria-label="Conductor 대화 ${shown ? '접기' : '열기'}">대화</button>
         ${site || agent || !ui.expertsCollapsed ? '' : '<button type="button" class="panel-toggle" data-action="toggle-experts-panel" aria-controls="experts-panel" aria-expanded="false"><span aria-hidden="true">‹</span> 전문가</button>'}
@@ -1479,7 +1497,7 @@ function render(fresh = true) {
   const page = currentRoute.page;
   app.innerHTML = page === 'home' ? homeView() : page === 'new' ? newView() : workspaceView();
   syncPanelWidths();
-  document.title = `Sida · ${page === 'project' ? currentRoute.name : page === 'new' ? '새 프로젝트' : '프로젝트'}`;
+  document.title = `Sida · ${page === 'project' ? currentProjectLabel(currentRoute.name) : page === 'new' ? '새 프로젝트' : '프로젝트'}`;
   for (const el of app.querySelectorAll('[data-scroll]')) {
     if (!el.getClientRects().length) continue;
     // Chats follow their newest message; pages (data-scroll-from="top") open at the top.
@@ -1510,9 +1528,105 @@ function render(fresh = true) {
 
 // ------------------------------------------------------------------ actions
 
+function dismissTalkMenu(restoreFocus = false) {
+  const opened = app.querySelector('.talk-more[open]');
+  ui.talkMenu = talkMenu(ui.talkMenu, 'dismiss');
+  for (const menu of app.querySelectorAll('.talk-more[open]')) menu.open = false;
+  if (restoreFocus) opened?.querySelector('summary').focus({ preventScroll: true });
+}
+
+document.addEventListener('pointerdown', event => {
+  if (ui.talkMenu && !event.target.closest('.talk-more')) dismissTalkMenu();
+}, true);
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && ui.talkMenu) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    dismissTalkMenu(true);
+  }
+}, true);
+
+function askDeleteTalk(name, id) {
+  dismissTalkMenu();
+  if (jobRunning()) { toast('실행 중인 작업이 끝난 뒤 대화를 삭제해 주세요.', 'warn'); return; }
+  deleteTalkDialog.dataset.project = name;
+  deleteTalkDialog.dataset.talk = id;
+  deleteTalkDialog.querySelector('#delete-talk-text').textContent = `‘${talkTitle(talkSummary(id))}’ 대화와 메시지를 삭제할까요? 되돌릴 수 없습니다. 브리프·대지·제도판·전문가 결과는 유지됩니다.`;
+  deleteTalkDialog.querySelector('[role="alert"]').textContent = '';
+  deleteTalkConfirm.disabled = false;
+  deleteTalkDialog.showModal();
+}
+
+document.querySelector('#delete-talk-cancel').addEventListener('click', () => deleteTalkDialog.close());
+deleteTalkConfirm.addEventListener('click', async () => {
+  const { project: name, talk: id } = deleteTalkDialog.dataset;
+  deleteTalkConfirm.disabled = true;
+  try {
+    await api(`${projectApi(name)}/talks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (ui.project === name) {
+      ui.talks.delete(id);
+      ui.talkViews = ui.talkViews.filter(view => view.id !== id);
+      drafts.delete(`talk:${id}`);
+      conductorScrolls.delete(`talk:${id}`);
+      ui.conductor = talkPanel(ui.conductor, 'remove', id);
+      if (ui.session) ui.session.talks = ui.session.talks.filter(talk => talk.id !== id);
+      await loadSession(name);
+    }
+    deleteTalkDialog.close();
+    render(false);
+    toast('대화를 삭제했습니다.', 'success');
+  } catch (error) {
+    deleteTalkDialog.querySelector('[role="alert"]').textContent = error.message;
+    deleteTalkConfirm.disabled = false;
+  }
+});
+
+async function openProjectInfo(name) {
+  projectInfoEdit = null;
+  projectInfoBody.innerHTML = '<p role="status">프로젝트 정보를 불러오는 중입니다.</p>';
+  projectInfoDialog.showModal();
+  try {
+    const info = await api(`${projectApi(name)}/info`);
+    if (!projectInfoDialog.open) return;
+    projectInfoEdit = { name, ...info };
+    projectInfoBody.innerHTML = `<label for="edit-project-name">프로젝트 이름</label><input id="edit-project-name" name="display_name" value="${escape(info.display_name)}" maxlength="80" required>
+      <label for="edit-project-type">프로젝트 유형</label><input id="edit-project-type" name="type" value="${escape(info.type)}" maxlength="80">
+      <label for="edit-project-description">설명 · 설계 의도</label><textarea id="edit-project-description" name="description" rows="6" maxlength="6000">${escape(info.description)}</textarea>
+      <p class="muted small-text">대지 필지는 프로젝트의 대지 화면에서 수정할 수 있습니다.</p>
+      <p class="form-error error-text" role="alert"></p>
+      <div class="form-actions"><button type="button" class="secondary" id="project-info-cancel">취소</button><button type="submit" class="primary">저장</button></div>`;
+    projectInfoBody.querySelector('input').focus();
+  } catch (error) {
+    projectInfoBody.innerHTML = `<p class="error-text" role="alert">${escape(error.message)}</p>`;
+  }
+}
+
+document.querySelector('#project-info-close').addEventListener('click', () => projectInfoDialog.close());
+projectInfoBody.addEventListener('click', event => { if (event.target.id === 'project-info-cancel') projectInfoDialog.close(); });
+document.querySelector('#project-info-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!projectInfoEdit) return;
+  const form = event.target;
+  const saved = projectInfoEdit;
+  const button = form.querySelector('[type="submit"]');
+  if (button.disabled) return;
+  button.disabled = true;
+  const fields = Object.fromEntries(['display_name', 'type', 'description'].map(key => [key, form.elements[key].value]));
+  try {
+    await api(`${projectApi(saved.name)}/info`, { method: 'PATCH', body: { fields, expected_revision: saved.revision } });
+    projectInfoDialog.close();
+    await loadProjects();
+    render(false);
+    toast('프로젝트 정보를 저장했습니다.', 'success');
+  } catch (error) {
+    form.querySelector('[role="alert"]').textContent = error.message;
+    button.disabled = false;
+  }
+});
+
 function askDelete(name) {
   deleteDialog.dataset.project = name;
-  deleteDialog.querySelector('#delete-text').textContent = `‘${name}’ 프로젝트를 삭제할까요? 브리프, Conductor 대화, 전문가 결과와 채팅, 제도판, 대지 정보가 모두 지워지며 되돌릴 수 없습니다.`;
+  deleteDialog.querySelector('#delete-text').textContent = `‘${currentProjectLabel(name)}’ 프로젝트를 삭제할까요? 브리프, Conductor 대화, 전문가 결과와 채팅, 제도판, 대지 정보가 모두 지워지며 되돌릴 수 없습니다.`;
   deleteError.textContent = '';
   deleteConfirm.disabled = false;
   deleteDialog.showModal();
@@ -1596,6 +1710,7 @@ async function loadTalk(name, id) {
 
 // Selecting a conversation preserves each conversation's draft and paper context.
 function openTalk(name, id, context = []) {
+  dismissTalkMenu();
   const known = ui.talkViews.find((p) => p.id === id);
   ui.talkViews = [...ui.talkViews.filter((p) => p.id !== id), { id, context: known?.context || context }];
   ui.conductor = talkPanel(ui.conductor, 'select', id);
@@ -1609,6 +1724,7 @@ function talkViewById(id) {
 }
 
 function changeConductor(action) {
+  dismissTalkMenu();
   if (action === 'toggle' && matchMedia('(max-width: 900px)').matches && ui.pane !== 'conductor') action = 'show';
   ui.conductor = talkPanel(ui.conductor, action);
   if (ui.conductor.open) ui.pane = 'conductor';
@@ -1764,7 +1880,7 @@ function runCommand(name, command) {
       c.help = true;
       break;
     case 'run': {
-      const experts = ui.session?.experts || [];
+      const experts = visibleExperts(ui.session?.experts);
       if (!experts.length) { say('run: 전문가 목록을 아직 불러오지 못했습니다.', 'warn'); break; }
       c.prompt = {
         text: '어느 전문가를 실행할까요?',
@@ -2199,6 +2315,7 @@ app.addEventListener('dblclick', (event) => {
 });
 
 app.addEventListener('click', (event) => {
+  if (!event.target.closest('.talk-more')) dismissTalkMenu();
   const button = event.target.closest('[data-action]');
   if (!button) return;
   const { action } = button.dataset;
@@ -2206,6 +2323,7 @@ app.addEventListener('click', (event) => {
   if (action === 'settings') openSettings();
   if (action === 'sample') createSample();
   if (action === 'delete-project') askDelete(button.dataset.project);
+  if (action === 'project-info') openProjectInfo(button.dataset.project);
   if (action === 'pane') { ui.pane = button.dataset.pane; if (ui.pane === 'conductor') ui.conductor = { ...ui.conductor, open: true }; render(false); }
   if (action === 'conductor-toggle') changeConductor('toggle');
   if (action === 'conductor-close') changeConductor('close');
@@ -2223,11 +2341,13 @@ app.addEventListener('click', (event) => {
   if (action === 'run-expert') runExpert(name, button.dataset.agent, button.dataset.withoutSite === 'true');
   if (action === 'unpick') unpick(button.dataset.id);
   const talkId = button.dataset.talk;
+  if (action === 'talk-menu') { event.preventDefault(); ui.talkMenu = talkMenu(ui.talkMenu, 'toggle', talkId); render(false); }
   if (action === 'talk-open') {
     openTalk(name, talkId);
     loadTalk(name, talkId).then(() => render(false));
     app.querySelector(`[data-focus="talk:${CSS.escape(talkId)}"]`)?.focus({ preventScroll: true });
   }
+  if (action === 'talk-delete') askDeleteTalk(name, talkId);
   if (action === 'talk-unpick') { const p = talkViewById(talkId); if (p) p.context = p.context.filter((id) => id !== button.dataset.id); render(false); }
   if (action === 'talk-add-picked') { const p = talkViewById(talkId); if (p) p.context = [...new Set([...p.context, ...ui.selected])]; render(false); }
   if (action === 'cmd-help') { ui.cmd.help = false; render(false); focusCommandLine(); }
