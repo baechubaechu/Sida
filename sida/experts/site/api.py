@@ -7,8 +7,8 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from sida import telemetry, workspace
-from sida.experts.site import datago, landapi, site_facts
+from sida import board, telemetry, workspace
+from sida.experts.site import context3d, datago, landapi, site_facts
 from sida.i18n import t
 from sida.project import load_project
 
@@ -155,6 +155,20 @@ def _project_router(load_config, core) -> APIRouter:
         project = core(load_project, path)
         core(site_facts.note_lookup, project, query, project.load_history())
         return site_facts.site_view(facts)
+
+    @router.get("/context")
+    def get_context(name: str, radius: float = context3d.DEFAULT_RADIUS) -> dict:
+        path = core(workspace.find_project, load_config(), name)
+        facts = site_facts.load_facts(path)
+        if facts is None:
+            raise HTTPException(status_code=404, detail=t("web_site_none"))
+        if not 50 <= radius <= context3d.MAX_RADIUS:
+            raise HTTPException(status_code=400, detail=t("web_site_context_radius", max=int(context3d.MAX_RADIUS)))
+        plan = board.site_plan(site_facts.board_summary(facts)["parcels"])
+        if plan is None:
+            raise HTTPException(status_code=400, detail=t("web_site_context_no_plan"))
+        out = _land(context3d.build, plan, radius)
+        return {**out, "disclaimer": t("site_context_disclaimer")}
 
     @router.get("/ordinance")
     def get_ordinance(name: str) -> dict:

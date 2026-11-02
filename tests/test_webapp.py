@@ -583,6 +583,40 @@ def test_site_api_reports_bad_requests_and_government_api_failures(client, proje
     assert site_facts.load_facts(project.path) is None  # nothing was saved by any failed request
 
 
+def test_site_context_api_gives_the_surroundings_in_the_table_frame(client, project, fake_vworld, tmp_path):
+    from sida import board
+    from sida.experts.site import context3d, landapi, site_facts, terrain_pack
+    from sida.experts.site.landapi import LandApiError
+
+    url = f"/api/projects/{project.name}/site/context"
+    assert client.get(url).status_code == 404  # no site looked up yet
+    assert client.get("/api/projects/nope/site/context").status_code == 404
+
+    parcel = landapi.search_parcels("경기도 군포시 금정동 689")[:1]
+    site_facts.save_facts(project.path, site_facts.build_facts("금정동 689-14", parcel))
+    assert client.get(url, params={"radius": 10}).status_code == 400
+    assert client.get(url, params={"radius": 5000}).status_code == 400
+
+    # a pack with one contour line under the site: the ground is that height, z = 0 at the middle
+    origin = board.site_plan(site_facts.board_summary(site_facts.load_facts(project.path))["parcels"])["origin"]
+    conn = terrain_pack.create(terrain_pack.TERRAIN_DIR / f"t{terrain_pack.SUFFIX}", {"name": "t", "source": "s", "source_date": "2026-10-01"})
+    terrain_pack.add_contour(conn, 40.0, [[origin["lon"] - 0.01, origin["lat"]], [origin["lon"] + 0.01, origin["lat"]]])
+    conn.commit()
+    conn.close()
+
+    body = client.get(url, params={"radius": 100}).json()
+    assert body["radius"] == 100 and body["ground_elev"] == 40.0
+    assert body["terrain"]["n"] == 51 and set(body["terrain"]["z"]) == {0.0}
+    assert body["terrain_sources"] == [{"name": "s", "date": "2026-10-01", "pack": "t"}]
+    assert body["buildings"] == [] and body["counts"]["unknown"] == 0  # the recorded VWorld has none here
+    assert "측량" in body["disclaimer"]
+    assert any(str(p.get("geomFilter", "")).startswith("BOX(") for _u, p in fake_vworld.calls)
+
+    context3d._cache.clear()
+    fake_vworld.overrides["data"] = LandApiError("invalid_key", "등록되지 않은 인증키입니다.")
+    assert client.get(url, params={"radius": 100}).status_code == 503
+
+
 def test_address_selection_api_walks_to_a_lot_and_saves_it_by_pnu(client, project, fake_vworld):
     from sida.experts.site import site_facts
 

@@ -163,6 +163,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "web_site_none": "Look the site up first: no site facts are saved for this project.",
         "web_site_use_required": "Enter a planned use, such as 공장 or 단독주택.",
         "web_site_use_unknown": "That use has not been checked for this site: {name}",
+        "web_site_context_no_plan": "The site has no parcel boundary, so its surroundings cannot be placed.",
+        "web_site_context_radius": "The radius must be between 50 and {max} m.",
+        "site_context_disclaimer": "A reference model made from public data, not a survey: it can miss changes since the data's date, be off in height, and leave out buildings whose height is unknown. Do not use it for permits or sunlight rulings.",
         "web_site_use_not_found": "토지이음 has no use named exactly {name}. Close names: {names}",
         "web_site_use_no_match": "토지이음 has no use name containing {name}.",
         "site_err_no_key": (
@@ -334,6 +337,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "web_site_none": "먼저 대지를 조회하세요. 이 프로젝트에 저장된 대지 사실이 없습니다.",
         "web_site_use_required": "계획 용도를 입력하세요. 예: 공장, 단독주택",
         "web_site_use_unknown": "이 대지에서 조회한 적 없는 용도입니다: {name}",
+        "web_site_context_no_plan": "대지 경계가 없어 주변을 놓을 수 없습니다.",
+        "web_site_context_radius": "반경은 50~{max}m 사이여야 합니다.",
+        "site_context_disclaimer": "공공 자료로 만든 참고용 모형이며 측량 결과가 아닙니다. 자료 기준일 뒤의 변화가 빠져 있거나 높이가 틀릴 수 있고, 높이를 모르는 건물은 바닥선만 그립니다. 인허가나 일조 판단에는 쓰지 마세요.",
         "web_site_use_not_found": "토지이음에 정확히 '{name}'인 용도가 없습니다. 비슷한 이름: {names}",
         "web_site_use_no_match": "토지이음에 '{name}'이 들어간 용도 이름이 없습니다.",
         "site_err_no_key": (
