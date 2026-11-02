@@ -76,6 +76,23 @@ def test_mass_figures_come_from_the_blocks_and_ratios_need_a_known_site_area(tmp
     assert "%" not in board.expert_block(no_site)
 
 
+def test_a_block_keeps_its_turn_from_the_rotate_tool_only_when_turned(tmp_path):
+    blocks = [
+        {"u": 0, "v": 0, "w": 10, "d": 10, "floors": 2},
+        {"u": 20, "v": 0, "w": 10, "d": 10, "floors": 2, "a": 30},
+        {"u": 40, "v": 0, "w": 10, "d": 10, "floors": 2, "a": 270},  # read as -90
+        {"u": 60, "v": 0, "w": 10, "d": 10, "floors": 2, "a": 360},  # a full turn is no turn
+    ]
+    saved = board.add_paper(tmp_path, {**MASS, "id": "mass-a", "blocks": blocks})["paper"]["blocks"]
+    assert ["a" in b for b in saved] == [False, True, True, False]
+    assert saved[1]["a"] == 30 and saved[2]["a"] == -90
+    text = board.expert_block(board.select(tmp_path, ["mass-a"], hooks=SITE))
+    assert "at u 20.0, v 0.0, turned 30°" in text and "turned -90°" in text
+    assert "u 0.0, v 0.0;" in text  # an unturned block says nothing of it
+    with pytest.raises(ValueError, match="blocks\\[0\\].a must be"):
+        board.add_paper(tmp_path, {**MASS, "id": "mass-b", "blocks": [{"w": 10, "d": 10, "floors": 2, "a": "left"}]})
+
+
 def test_a_selection_is_checked_and_named(tmp_path):
     assert board.select(tmp_path, []) is None
     with pytest.raises(ValueError, match="unknown paper"):

@@ -22,6 +22,22 @@ test('one command word runs the command; anything else goes to the Conductor', (
   assert.deepEqual(readLine('   '), { kind: 'empty' });
 });
 
+test("SketchUp's basic tools are commands too, with the AutoCAD short names", () => {
+  const named = (word) => readLine(word).command?.name;
+  assert.equal(named('rect'), 'rect');
+  assert.equal(named('rec'), 'rect');
+  assert.equal(named('pp'), 'pushpull');
+  assert.equal(named('m'), 'move');
+  assert.equal(named('co'), 'copy');
+  assert.equal(named('ro'), 'rotate');
+  assert.equal(named('sc'), 'scale');
+  assert.equal(named('scale'), 'scale');
+  assert.equal(named('eraser'), 'eraser');
+  assert.equal(named('di'), 'dist');
+  assert.equal(named('갯ㅁㅅㄷ'), 'rotate'); // typed with the Korean keyboard on
+  assert.equal(named('ㄴㅊ믿'), 'scale');
+});
+
 test('the Korean keyboard is read back as the English keys', () => {
   assert.equal(englishKeys('ㅣㅑㅜㄷ'), 'line');
   assert.equal(englishKeys('채ㅔㅛ'), 'copy');
@@ -41,7 +57,7 @@ test('a single Korean letter or a Korean word is never a command', () => {
 });
 
 test('suggestions follow the word being typed and stop at a space', () => {
-  assert.deepEqual(suggest('p').map((c) => c.name), ['plan', 'persp', 'pen']);
+  assert.deepEqual(suggest('p').map((c) => c.name), ['plan', 'persp', 'pen', 'pushpull']);
   assert.deepEqual(suggest('z').map((c) => c.name), ['zoom']);
   assert.equal(findCommand('perspective').command.name, 'persp'); // one 3D view (2026-11-01)
   assert.equal(findCommand('axo'), null);

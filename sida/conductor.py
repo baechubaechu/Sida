@@ -128,6 +128,7 @@ def propose_paper_spec() -> dict:
             "w": {"type": "number", "description": "Length, m."},
             "d": {"type": "number", "description": "Depth, m."},
             "floors": {"type": "integer"},
+            "a": {"type": "number", "description": "Turn in degrees, counter-clockwise from the site's long side; leave out for 0."},
         },
         "required": ["w", "d", "floors"],
     }

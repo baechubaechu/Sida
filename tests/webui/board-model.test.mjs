@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import {
   PX, TILT, MAX_TILT, cameraFor, riseFor, groundFor, zoomAround, drawingScale, lerpView, siteBounds, traceHome,
   isOverlaid, blockCorners, unplaced, placeUnplaced, freeSpot, fitView, paperName, originLabel,
-  figureLines, readScheme, schemeRows, keepSelected, toggleSelected, pickedNames, MAX_CONTEXT,
+  figureLines, readScheme, schemeRows, keepSelected, toggleSelected, boxPick, boxMode, pickedNames, MAX_CONTEXT,
+  frameDelta, editBlocks, axisDrag, blocksCenter, blockKey, parseBlockKey, pickedBlocks,
+  toFrame, rectBlock, pushBlock, copyBlocks, turnBlocks, scaleBlocks, snapAngle,
   folded, foldedInPlan, pinnedPapers, peekSpot, resultPreview,
   massIds, canCompare, COMPARE_QUESTION, addQuestion, createHistory, changedFields, recordStep, undoStep, redoStep,
   invertStep, HISTORY_LIMIT, planDrawing, dragMode, wheelZoom, orbitBy, viewName, viewFor, panBy,
@@ -226,6 +228,124 @@ test('a card draws the lots and the scheme\'s blocks in the site frame, with a s
   assert.equal(planDrawing({ plan: null }, { kind: 'note' }), null, 'nothing to draw');
   assert.equal(planDrawing(null, null), null);
   assert.ok(planDrawing(null, mass), 'a scheme without site facts still draws, u east and v north');
+});
+
+test('a left drag on empty table picks papers with a box, window or crossing as in Rhino', () => {
+  // a sits wholly inside the box below; b sticks out of its right side; c is far away.
+  const items = [
+    { id: 'a', left: 20, top: 20, right: 60, bottom: 60 },
+    { id: 'b', left: 80, top: 20, right: 140, bottom: 60 },
+    { id: 'c', left: 300, top: 300, right: 340, bottom: 340 },
+  ];
+  const tl = { x: 10, y: 10 };
+  const br = { x: 100, y: 100 };
+  // Left to right (window): only what lies wholly inside, replacing the selection.
+  assert.equal(boxMode(tl, br), 'window');
+  assert.deepEqual(boxPick(['c'], tl, br, items), ['a']);
+  // Right to left (crossing): whatever the box touches; dragging up or down does not matter.
+  assert.equal(boxMode(br, tl), 'crossing');
+  assert.deepEqual(boxPick([], br, tl, items), ['a', 'b']);
+  assert.deepEqual(boxPick([], { x: 100, y: 10 }, { x: 10, y: 100 }, items), ['a', 'b']);
+  // Shift adds to the selection, Ctrl takes away.
+  assert.deepEqual(boxPick(['c'], tl, br, items, { add: true }), ['c', 'a']);
+  assert.deepEqual(boxPick(['a', 'b', 'c'], br, tl, items, { remove: true }), ['c']);
+  // A scheme counts once though both its paper and its buildings fall in the box, and a window
+  // takes it when one of its buildings lies wholly inside, wherever its paper is.
+  const scheme = [...items, { id: 'm', left: 30, top: 70, right: 50, bottom: 90 }, { id: 'm', left: 70, top: 70, right: 90, bottom: 90 }, { id: 'm', left: 500, top: 500, right: 600, bottom: 560 }];
+  assert.deepEqual(boxPick([], tl, br, scheme), ['a', 'm']);
+  assert.deepEqual(boxPick([], br, tl, scheme), ['a', 'b', 'm']);
+  // Never more than one message may carry.
+  const many = Array.from({ length: 12 }, (_, i) => ({ id: `p${i}`, left: 20 + i, top: 20, right: 30 + i, bottom: 30 }));
+  assert.equal(boxPick([], tl, br, many).length, MAX_CONTEXT);
+});
+
+test('each building of a scheme is picked on its own', () => {
+  assert.equal(blockKey('mass-1', 2), 'mass-1#2');
+  assert.deepEqual(parseBlockKey('ai-mass-7b#0'), { id: 'ai-mass-7b', index: 0 });
+  const papers = [
+    { id: 'a', kind: 'mass', blocks: [{}, {}, {}] },
+    { id: 'b', kind: 'mass', blocks: [{}] },
+    { id: 'n', kind: 'note' },
+  ];
+  // Grouped by scheme; blocks no longer there (an undo, a deleted paper) drop out.
+  const groups = pickedBlocks(papers, ['a#2', 'b#0', 'a#0', 'a#5', 'gone#0', 'n#0']);
+  assert.deepEqual(groups.map((g) => [g.paper.id, g.indices]), [['a', [2, 0]], ['b', [0]]]);
+  // A box may pick any number of blocks, though papers stop at what one message carries.
+  const many = Array.from({ length: 12 }, (_, i) => ({ id: `a#${i}`, left: 20 + i, top: 20, right: 30 + i, bottom: 30 }));
+  assert.equal(boxPick([], { x: 10, y: 10 }, { x: 100, y: 100 }, many, { limit: Infinity }).length, 12);
+});
+
+test('the gumball edits the picked blocks only: move along u and v, size, floors', () => {
+  // A move on the table turns into the site's frame: with the frame turned 90°, east is −v.
+  const turned = { x: 0, y: 0, angle: Math.PI / 2 };
+  const east = frameDelta(turned, 10, 0);
+  close(east.du, 0);
+  close(east.dv, -10);
+  const north = frameDelta(turned, 0, 4);
+  close(north.du, 4);
+  close(north.dv, 0);
+  // Picked blocks keep their places to one another, moved in steps of 10 cm; the rest stay.
+  const blocks = [{ u: 0, v: 0, w: 10, d: 10, floors: 3 }, { u: 15, v: 2, w: 8, d: 8, floors: 5 }];
+  assert.deepEqual(editBlocks(blocks, [0, 1], { du: 3.04, dv: -1.26 }).map((b) => [b.u, b.v]), [[3, -1.3], [18, 0.7]]);
+  const one = editBlocks(blocks, [1], { du: 5 });
+  assert.equal(one[0], blocks[0]);
+  assert.equal(one[1].u, 20);
+  // Sizes in 10 cm steps, never under 1 m; floors whole, 1 to 200.
+  assert.deepEqual(editBlocks(blocks, [0], { dw: 2.46, dd: -30 })[0], { u: 0, v: 0, w: 12.5, d: 1, floors: 3 });
+  assert.equal(editBlocks(blocks, [0], { df: 1.6 })[0].floors, 5);
+  assert.equal(editBlocks(blocks, [0], { df: -9 })[0].floors, 1);
+  assert.equal(editBlocks(blocks, [0], { df: 999 })[0].floors, 200);
+  // An arrow follows the pointer along itself only, and an arrow seen end-on does not move.
+  close(axisDrag([10, 0], 50, 30), 5);
+  close(axisDrag([0, -4], 0, -20), 5);
+  assert.equal(axisDrag([0.1, 0.2], 50, 50), 0);
+  // The gumball stands in the middle of all the picked buildings, or nowhere without any.
+  assert.deepEqual(blocksCenter(null, blocks), { x: 7, y: 0.5 }); // x −5…19, y −5…6
+  assert.equal(blocksCenter(null, []), null);
+});
+
+test("SketchUp's tools on blocks: rectangle, push/pull, copy, rotate, scale", () => {
+  const frame = { x: 100, y: 50, angle: Math.PI / 2 }; // u points north on the table
+  // A rectangle dragged on the table lies square to the site, one floor high; too small is nothing.
+  close(toFrame(frame, 100, 60).u, 10);
+  close(toFrame(frame, 90, 50).v, 10);
+  assert.deepEqual(rectBlock(frame, { x: 100, y: 50 }, { x: 90, y: 70 }), { u: 10, v: 5, w: 20, d: 10, floors: 1 });
+  assert.equal(rectBlock(frame, { x: 100, y: 50 }, { x: 99.5, y: 70 }), null);
+  // Push/pull: the top adds floors; a side moves out while the opposite side stays put.
+  const b = { u: 0, v: 0, w: 10, d: 6, floors: 2 };
+  assert.equal(pushBlock(b, 'top', 8.4, 4.2).floors, 4);
+  assert.deepEqual(pushBlock(b, 'w+', 4), { u: 2, v: 0, w: 14, d: 6, floors: 2 }); // −u side stays at −5
+  assert.deepEqual(pushBlock(b, 'd-', 2), { u: 0, v: -1, w: 10, d: 8, floors: 2 }); // +v side stays at 3
+  assert.equal(pushBlock(b, 'w-', -50).w, 1);
+  // A turned block pushes along its own side: turned 90°, its +u face looks along +v.
+  const turned = pushBlock({ ...b, a: 90 }, 'w+', 4);
+  close(turned.u, 0);
+  close(turned.v, 2);
+  // Copies go after the others and leave the originals where they were.
+  const two = [b, { u: 20, v: 0, w: 8, d: 8, floors: 3 }];
+  const copied = copyBlocks(two, [1], 5, 0);
+  assert.deepEqual(copied.indices, [2]);
+  assert.equal(copied.blocks[1], two[1]);
+  assert.equal(copied.blocks[2].u, 25);
+  // Rotate about a point: the middles go round it and each block turns with them.
+  const r = turnBlocks(two, [0, 1], { u: 10, v: 0 }, 90);
+  close(r[0].u, 10);
+  close(r[0].v, -10);
+  assert.equal(r[0].a, 90);
+  close(r[1].v, 10);
+  assert.equal(turnBlocks([{ ...b, a: 170 }], [0], { u: 0, v: 0 }, 20)[0].a, -170); // kept within ±180
+  assert.equal('a' in turnBlocks([{ ...b, a: 90 }], [0], { u: 0, v: 0 }, -90)[0], false); // unturned again
+  // Scale about a point: middles spread and sizes follow; floors stay; never under 1 m.
+  const s = scaleBlocks(two, [0, 1], { u: 10, v: 0 }, 2);
+  assert.deepEqual([s[0].u, s[0].w, s[0].d, s[0].floors], [-10, 20, 12, 2]);
+  assert.equal(scaleBlocks(two, [0], { u: 0, v: 0 }, 0.01)[0].w, 1);
+  // The protractor keeps to 5° steps, or 1°.
+  assert.equal(snapAngle(43), 45);
+  assert.equal(snapAngle(43, 1), 43);
+  // A turned block's footprint turns about its middle.
+  const corners = blockCorners(null, { u: 0, v: 0, w: 10, d: 2, a: 90 });
+  close(corners[0][0], 1);
+  close(corners[0][1], -5);
 });
 
 test('the mouse works like Rhino: right drag orbits, a plan straight into 3D', () => {

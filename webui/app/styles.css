@@ -342,7 +342,7 @@ button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 .settings-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
 dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; }
 /* ---- drafting table (제도판, table.js): WebGL below, paper (CSS3D) above, controls at the edges */
-:root { --table: #f0f2f4; --table-grid: #dde2e7; --paper: #ffffff; --trace-paper: rgb(255 255 255 / .68); --pen: #36536b; --lot: #cf3f2e; --mass: #e8ebee; --select: #36536b; --note: #faf3dc; --note-ink: #69572f; --ok: #2f7d4f; }
+:root { --table: #f0f2f4; --table-grid: #dde2e7; --paper: #ffffff; --trace-paper: rgb(255 255 255 / .68); --pen: #36536b; --lot: #cf3f2e; --mass: #e8ebee; --select: #36536b; --pick: #e3a008; --note: #faf3dc; --note-ink: #69572f; --ok: #2f7d4f; }
 /* The board panel: its head, the selection bar, and the slot the table (#table-host) lies over. */
 .board-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 18px 22px 15px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .board-heading { flex: 1; min-width: 0; }
@@ -361,9 +361,28 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .board-canvas { position: relative; flex: 1; min-height: 0; background: var(--table); }
 #table-slot { position: absolute; inset: 0; }
 .table-host { position: fixed; z-index: 5; border-radius: 0 0 var(--radius) var(--radius); overflow: hidden; }
-.table { position: absolute; inset: 0; container-type: size; overflow: hidden; overflow: clip; touch-action: none; user-select: none; background: var(--table); cursor: grab; font-size: 14px; }
+.table { position: absolute; inset: 0; container-type: size; overflow: hidden; overflow: clip; touch-action: none; user-select: none; background: var(--table); cursor: default; font-size: 14px; }
+/* Selection box: a window (left to right) is solid, a crossing (right to left) dashed, as in Rhino. */
+.table-box { position: absolute; z-index: 2; pointer-events: none; border: 1px solid var(--brand); background: color-mix(in srgb, var(--brand) 8%, transparent); }
+.table-box.is-crossing { border-style: dashed; }
+.table-box[hidden] { display: none; }
+/* Gumball, as in Rhino: red u and green v arrows (the site's long side and across), a square to move freely. */
+.table-gumball { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.table-gumball[hidden] { display: none; }
+.table-gumball svg { width: 100%; height: 100%; overflow: visible; }
+.table-gumball [data-gumball] { pointer-events: auto; cursor: move; }
+.gb-hit { stroke: transparent; stroke-width: 16; }
+.gb-shaft { stroke-width: 2.5; }
+.gb-u { --gb: #d64545; } .gb-v { --gb: #3a9a4a; } .gb-z { --gb: #3b6fd6; }
+[data-gumball] .gb-shaft { stroke: var(--gb); }
+[data-gumball] .gb-head { fill: var(--gb); }
+.gb-size { fill: white; stroke: var(--gb); stroke-width: 2; }
+.gb-size:hover { fill: var(--gb); }
+[data-gumball]:hover .gb-shaft { stroke-width: 4; }
+.gb-free { fill: color-mix(in srgb, var(--brand) 25%, white); stroke: var(--brand); stroke-width: 1.5; }
+.gb-free:hover { fill: var(--brand); }
 .table:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
-.table.tool-pen, .table.tool-note { cursor: crosshair; }
+.table.tool-pen, .table.tool-note, .table.tool-model { cursor: crosshair; }
 .table-stage, .table-gl, .table-css { position: absolute; inset: 0; }
 .table-css { pointer-events: none; }
 .table-error { position: absolute; inset: 40% 20px auto; text-align: center; color: var(--muted); }
@@ -468,7 +487,7 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .ui-zoom { right: 16px; bottom: 16px; }
 .ui-zoom .scale { padding: 0 6px; }
 .ui-help { left: 16px; bottom: 16px; font-size: 10px; line-height: 1.8; color: var(--muted); pointer-events: none; max-width: 45%; }
-.ui-hint { left: 50%; bottom: 76px; transform: translateX(-50%); padding: 10px 14px; border-radius: 8px; background: var(--brand); color: white; font-size: 12px; max-width: min(520px, 90%); }
+.ui-hint { pointer-events: none; left: 50%; bottom: 76px; transform: translateX(-50%); padding: 10px 14px; border-radius: 8px; background: var(--brand); color: white; font-size: 12px; max-width: min(520px, 90%); }
 .ui-hint[hidden] { display: none; }
 .tray { left: 0; top: 0; bottom: 0; width: var(--tray-width); display: none; flex-direction: column; gap: 10px; padding: 14px; overflow-y: auto; background: var(--surface); border-right: 1px solid var(--line); box-shadow: 6px 0 18px rgb(0 0 0 / .08); z-index: 3; cursor: auto; user-select: text; }
 .tray.open { display: flex; }
