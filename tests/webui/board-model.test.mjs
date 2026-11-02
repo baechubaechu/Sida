@@ -12,6 +12,7 @@ import {
   folded, foldedInPlan, pinnedPapers, peekSpot, resultPreview,
   massIds, canCompare, COMPARE_QUESTION, addQuestion, createHistory, changedFields, recordStep, undoStep, redoStep,
   invertStep, HISTORY_LIMIT, planDrawing, dragMode, wheelZoom, orbitBy, viewName, viewFor, panBy,
+  photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_MAX_SIDE, MAX_PHOTOS_AT_ONCE, KIND_LABELS,
 } from '../../webui/app/board-model.js';
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -504,4 +505,54 @@ test('the table lies down to 90° for elevations, and an elevation pans with the
   close(plan.y, 10);
   close(plan.z, 0);
   close(lerpView(v, { ...v, z: 0 }, 0.5).z, 10);
+});
+
+test('a photo the server takes is uploaded as it is; others are redrawn as a smaller JPEG', () => {
+  const MB = 1024 * 1024;
+  assert.equal(photoPlan('image/jpeg', 3 * MB, 4032, 3024), 'keep'); // a phone photo
+  assert.equal(photoPlan('image/png', 1 * MB, 1920, 1080), 'keep');
+  assert.equal(photoPlan('image/jpeg', 12 * MB, 4000, 3000), 'shrink'); // too heavy
+  assert.equal(photoPlan('image/png', 2 * MB, 9000, 6000), 'shrink'); // too large
+  assert.equal(photoPlan('image/heic', 2 * MB, 4032, 3024), 'shrink'); // the server does not take it
+  assert.equal(photoPlan('', 2 * MB, 100, 100), 'shrink');
+  assert.equal(photoPlan('image/gif', 12 * MB, 800, 600), 'keep'); // an animation stays
+  assert.equal(photoPlan('image/gif', 30 * MB, 800, 600), 'shrink');
+  assert.deepEqual(shrunkSize(5120, 2560), { width: PHOTO_MAX_SIDE, height: 1280 });
+  assert.deepEqual(shrunkSize(800, 600), { width: 800, height: 600 }); // never enlarged
+});
+
+test('a photo paper keeps the picture shape with its longest side at the chosen size', () => {
+  assert.deepEqual(photoPaperSize(4032, 3024), { w: 300, h: 225 });
+  assert.deepEqual(photoPaperSize(3024, 4032), { w: 225, h: 300 });
+  assert.deepEqual(photoPaperSize(1000, 1000, 500), { w: 500, h: 500 });
+  assert.deepEqual(photoPaperSize(10000, 100), { w: 300, h: 40 }); // a panorama is still something to grab
+  assert.deepEqual(photoPaperSize(0, 0), { w: 300, h: 225 });
+});
+
+test('a photo is named after its file, and a pasted screenshot has no name', () => {
+  assert.equal(photoTitle('대지 북측 전경.JPG'), '대지 북측 전경');
+  assert.equal(photoTitle('sketch.v2.png'), 'sketch.v2');
+  assert.equal(photoTitle('image.png'), '');
+  assert.equal(photoTitle(''), '');
+  assert.equal(photoTitle(`${'가'.repeat(200)}.jpg`).length, 120);
+  assert.equal(paperName({ kind: 'photo', title: '' }), '사진');
+  assert.equal(paperName({ kind: 'photo', title: '북측' }), '북측');
+  assert.equal(KIND_LABELS.photo, '사진');
+});
+
+test('only pictures are taken from what was dropped, a few at a time', () => {
+  const file = (name, type) => ({ name, type });
+  const got = pickPhotoFiles([file('a.jpg', 'image/jpeg'), file('b.pdf', 'application/pdf'), file('c.HEIC', ''), file('d.txt', '')]);
+  assert.deepEqual(got.files.map((f) => f.name), ['a.jpg', 'c.HEIC']);
+  assert.equal(got.skipped, 2);
+  const many = pickPhotoFiles(Array.from({ length: 13 }, (_, i) => file(`${i}.png`, 'image/png')));
+  assert.equal(many.files.length, MAX_PHOTOS_AT_ONCE);
+  assert.equal(many.skipped, 3);
+  assert.deepEqual(pickPhotoFiles(null), { files: [], skipped: 0 });
+});
+
+test('a removed photo can be undone (the server keeps its file)', () => {
+  const photo = { id: 'photo-1', kind: 'photo', file: 'photo-1.jpg' };
+  const history = recordStep(createHistory(), [{ op: 'remove', paper: photo }]);
+  assert.equal(history.past.length, 1);
 });

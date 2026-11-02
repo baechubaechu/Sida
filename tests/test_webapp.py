@@ -1168,6 +1168,36 @@ def test_board_api_places_and_discards_ai_papers(client, project):
     assert client.post(f"{base}/tray/x/place", json={"x": "far"}).status_code == 404
 
 
+def test_board_api_uploads_a_photo_and_serves_it_back(client, project):
+    base = f"/api/projects/{project.name}/board"
+    jpeg = b"\xff\xd8\xff\xe0" + b"\x00" * 64
+    r = client.post(
+        f"{base}/photos",
+        files={"file": ("site.jpg", jpeg, "image/jpeg")},
+        data={"title": "대지 사진", "x": "12.5", "w": "300", "h": "200"},
+    )
+    assert r.status_code == 201
+    paper = r.json()["paper"]
+    assert paper["kind"] == "photo" and paper["title"] == "대지 사진" and paper["x"] == 12.5 and paper["h"] == 200
+    assert [p["id"] for p in client.get(base).json()["papers"]] == ["site", paper["id"]]
+
+    got = client.get(f"{base}/photos/{paper['id']}")
+    assert got.status_code == 200 and got.content == jpeg and got.headers["content-type"] == "image/jpeg"
+    assert "immutable" in got.headers["cache-control"]
+    assert client.get(f"{base}/photos/site").status_code == 404
+    assert client.get(f"{base}/photos/nope").status_code == 404
+
+    # The type is read from the bytes, not from what the browser said.
+    r = client.post(f"{base}/photos", files={"file": ("x.jpg", b"%PDF-1.7", "image/jpeg")})
+    assert r.status_code == 400 and "PNG, JPEG, GIF or WebP" in r.json()["detail"]
+    assert client.post(f"{base}/photos", files={"file": ("x.png", b"", "image/png")}).status_code == 400
+    assert client.post(f"{base}/photos", data={"title": "no file"}).status_code == 422
+    assert client.post("/api/projects/nope/board/photos", files={"file": ("x.jpg", jpeg, "image/jpeg")}).status_code == 404
+
+    assert client.delete(f"{base}/papers/{paper['id']}").status_code == 200
+    assert client.get(f"{base}/photos/{paper['id']}").status_code == 404
+
+
 def test_board_context_computes_ratios_from_the_saved_site_facts(client, project, fake_vworld, mock_config):
     from sida.experts.site import site_facts
 
