@@ -1,4 +1,4 @@
-"""Terrain packs: contour lines and spot heights of an area, kept outside the repository.
+"""Terrain packs: contour lines, spot heights and ground areas of a region, kept outside the repository.
 
 A pack is one SQLite file (standard library only) made once from the 국토지리정보원
 연속수치지형도 downloads (등고선 N3L_F0010000, 표고점 N3P_F0020000, CC BY) by
@@ -8,6 +8,9 @@ point's box makes a site's neighbourhood a fast query.
 
 Packs live in ~/Sida/context_data (TERRAIN_DIR) — raw and processed map data never go in the
 repository. `query` reads every pack there that covers the box.
+
+Areas are polygons of what the ground is (KINDS: road, sidewalk, water), for colouring the
+ground and cutting it into layers; a pack made from contours alone simply has none.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from pathlib import Path
 TERRAIN_DIR = Path.home() / "Sida" / "context_data"
 SUFFIX = ".terrain.sqlite"
 FORMAT = 1
+KINDS = ("road", "sidewalk", "water")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -26,6 +30,8 @@ CREATE TABLE IF NOT EXISTS contours (id INTEGER PRIMARY KEY, elev REAL NOT NULL,
 CREATE VIRTUAL TABLE IF NOT EXISTS contours_box USING rtree(id, west, east, south, north);
 CREATE TABLE IF NOT EXISTS spots (id INTEGER PRIMARY KEY, lon REAL NOT NULL, lat REAL NOT NULL, elev REAL NOT NULL);
 CREATE VIRTUAL TABLE IF NOT EXISTS spots_box USING rtree(id, west, east, south, north);
+CREATE TABLE IF NOT EXISTS areas (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, ring TEXT NOT NULL);
+CREATE VIRTUAL TABLE IF NOT EXISTS areas_box USING rtree(id, west, east, south, north);
 """
 
 
@@ -63,6 +69,21 @@ def add_spot(conn: sqlite3.Connection, lon: float, lat: float, elev: float) -> N
     conn.execute("INSERT INTO spots_box VALUES (?, ?, ?, ?, ?)", (cur.lastrowid, lon, lon, lat, lat))
 
 
+def add_area(conn: sqlite3.Connection, kind: str, ring: list[list[float]]) -> None:
+    """One ground area (a KINDS value) as a closed [lon, lat] ring."""
+    if kind not in KINDS:
+        raise ValueError(f"not an area kind: {kind}")
+    if len(ring) < 3:
+        return
+    lons = [p[0] for p in ring]
+    lats = [p[1] for p in ring]
+    cur = conn.execute(
+        "INSERT INTO areas (kind, ring) VALUES (?, ?)",
+        (kind, json.dumps([[round(x, 7), round(y, 7)] for x, y in ring], separators=(",", ":"))),
+    )
+    conn.execute("INSERT INTO areas_box VALUES (?, ?, ?, ?, ?)", (cur.lastrowid, min(lons), max(lons), min(lats), max(lats)))
+
+
 def packs(folder: Path | None = None) -> list[Path]:
     """Every pack in the folder (TERRAIN_DIR by default), by name."""
     folder = TERRAIN_DIR if folder is None else folder
@@ -77,11 +98,12 @@ def info(path: Path) -> dict:
 
 def query(west: float, south: float, east: float, north: float, folder: Path | None = None) -> dict:
     """
-    Contours and spot heights touching the box, from every pack in the folder:
+    Contours, spot heights and ground areas touching the box, from every pack in the folder:
     {"contours": [{"elev", "points": [[lon, lat]]}], "spots": [[lon, lat, elev]],
-    "sources": [pack meta]}. Empty lists when no pack covers the box.
+    "areas": [{"kind", "ring": [[lon, lat]]}], "sources": [pack meta]}. Empty lists when no
+    pack covers the box.
     """
-    out: dict = {"contours": [], "spots": [], "sources": []}
+    out: dict = {"contours": [], "spots": [], "areas": [], "sources": []}
     for path in packs(folder):
         with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as conn:
             lines = conn.execute(
@@ -94,8 +116,19 @@ def query(west: float, south: float, east: float, north: float, folder: Path | N
                 "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",
                 (west, east, south, north),
             ).fetchall()
-            if lines or points:
+            areas = conn.execute(
+                "SELECT a.kind, a.ring FROM areas a JOIN areas_box b ON b.id = a.id "
+                "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",
+                (west, east, south, north),
+            ).fetchall() if _has_table(conn, "areas") else []
+            if lines or points or areas:
                 out["sources"].append(dict(conn.execute("SELECT key, value FROM meta")))
         out["contours"] += [{"elev": elev, "points": json.loads(text)} for elev, text in lines]
         out["spots"] += [[lon, lat, elev] for lon, lat, elev in points]
+        out["areas"] += [{"kind": kind, "ring": json.loads(text)} for kind, text in areas]
     return out
+
+
+def _has_table(conn: sqlite3.Connection, name: str) -> bool:
+    """Packs made before areas were added have no areas table."""
+    return conn.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (name,)).fetchone() is not None

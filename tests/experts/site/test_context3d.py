@@ -41,6 +41,8 @@ def pack(tmp_path):
         terrain_pack.add_contour(conn, elev, [lonlat(x, y) for x in range(-300, 301, 20)])
     terrain_pack.add_spot(conn, *lonlat(0, 0), 15.0)
     terrain_pack.add_contour(conn, 99.0, [lonlat(5000, 5000), lonlat(5100, 5000)])  # far away
+    terrain_pack.add_area(conn, "water", square(-150, -150, 20)[:-1])
+    terrain_pack.add_area(conn, "sidewalk", square(30, 30, 2)[:-1])  # inside the road parcel below
     conn.commit()
     conn.close()
     return tmp_path
@@ -53,7 +55,10 @@ def test_pack_query_returns_only_what_touches_the_box(pack):
     assert sorted(c["elev"] for c in found["contours"]) == [10.0, 13.0, 17.0, 20.0]
     assert found["spots"] == [pytest.approx([*lonlat(0, 0), 15.0])]
     assert found["sources"][0]["source_date"] == "2026-10-01"
-    assert terrain_pack.query(west, south, east, north, folder=pack / "none") == {"contours": [], "spots": [], "sources": []}
+    assert [a["kind"] for a in found["areas"]] == ["water", "sidewalk"]
+    assert terrain_pack.query(west, south, east, north, folder=pack / "none") == {"contours": [], "spots": [], "areas": [], "sources": []}
+    with pytest.raises(ValueError):
+        terrain_pack.add_area(None, "lake", [])
 
 
 def test_ground_keeps_fixed_heights_and_is_smooth_between_them():
@@ -141,9 +146,15 @@ def test_build_places_ground_buildings_and_parcels_in_the_table_frame(pack, monk
     assert by_name["층수만"]["height_source"] == "estimate"
     assert by_name["도로명 층수"]["height"] == pytest.approx(6 * context3d.STOREY_OTHER)
     assert by_name["대지 안 건물"]["on_site"] is True and by_name["층수만"]["on_site"] is False
-    north_base = by_name["층수만"]["base"]
+    north = by_name["층수만"]
     south = out["unknown_buildings"][0]
-    assert north_base > 0 > south["base"]  # standing on the rising ground, not on z = 0
+    assert north["ground"] > 0 > south["base"]  # standing on the rising ground, not on z = 0
+    # on the slope the foundation reaches the downhill side; the height is counted from the middle
+    assert north["foundation"] > 0.2 and north["base"] == pytest.approx(north["ground"] - north["foundation"], abs=0.02)
+    assert north["top"] == pytest.approx(north["ground"] + north["height"], abs=0.02)
+    line = np.array(north["ground_line"])
+    assert line[:, 2].max() - line[:, 2].min() > 0.4  # the line on the ground follows the slope
+    assert np.hypot(*np.diff(line[:, :2], axis=0).T).max() <= context3d.DRAPE_GAP + 1e-6
     assert len(out["unknown_buildings"]) == 1 and len(out["left_out"]) == 1
     assert out["counts"] == {"ledger": 1, "vworld": 1, "estimate": 3, "unknown": 1, "inner": 1}
     outline = np.array(by_name["대장 높이"]["outline"])
@@ -152,6 +163,23 @@ def test_build_places_ground_buildings_and_parcels_in_the_table_frame(pack, monk
 
     roads = [p for p in out["parcels"] if p["road"]]
     assert [p["label"] for p in roads] == ["5 도"]
+
+    def ground_at(x, y):
+        n, step = terrain["n"], terrain["step"]
+        return terrain["classes"][round((y + 200) / step) * n + round((x + 200) / step)]
+
+    assert len(terrain["classes"]) == terrain["n"] ** 2
+    assert ground_at(28, 28) == "s"  # sidewalk area wins inside the road parcel
+    assert ground_at(33, 33) == "r"  # the rest of the road parcel
+    assert ground_at(-150, -150) == "w" and ground_at(-100, 100) == "g"
+
+
+def test_classify_takes_sidewalk_over_road_over_water():
+    ring = np.array([[0, 0], [10, 0], [10, 10], [0, 10]], dtype=float)
+    small = np.array([[2, 2], [4, 2], [4, 4], [2, 4]], dtype=float)
+    pts = np.array([[3, 3], [8, 8], [20, 20]], dtype=float)
+    assert context3d.classify(pts, [("water", ring), ("road", ring), ("sidewalk", small)]) == "srg"
+    assert context3d.classify(pts, []) == "ggg"
 
 
 def test_build_without_a_pack_keeps_buildings_on_flat_ground_and_reports_ledger_failures(tmp_path, monkeypatch):

@@ -13,6 +13,11 @@ z = 0, so the site, the schemes and the surroundings line up without moving anyt
   estimate and says so. A building with neither height nor floors stays an outline at ground
   level ("unknown"), never a made-up box. A small record inside a bigger building is left out.
 - Parcels: VWorld 연속지적 outlines; road parcels (지목 도) are marked.
+- What the ground is, point by point on the screen's grid: road, sidewalk, water or the rest
+  ("site"), from the pack's areas (1:5,000 수치지형도 polygons) and the road parcels.
+- A building stands at the middle height of the ground along its outline, and its foundation
+  goes down to the lowest point there, so on a slope no side floats; its line on the ground
+  follows the terrain.
 
 VWorld replies are used for drawing only and are not stored (이용약관 제19조); a short
 in-memory cache keeps one site from being fetched twice in a row.
@@ -37,6 +42,7 @@ SOLVE_STEP = 2.0  # m, the grid the ground is computed on
 VIEW_STEP = 4.0  # m, the grid the screen gets
 MARGIN = 60.0  # m read beyond the radius so the edge of the ground is not guessed
 INDEX_EVERY = 25.0  # m: index (계곡선) contours on a 5 m interval
+DRAPE_GAP = 2.0  # m between the points of a building's line on the ground
 # Storey heights for an estimate from the number of floors (m), by the 건축물대장 main use.
 STOREY = (
     (("주택", "아파트", "다세대", "연립", "다가구", "기숙사"), 2.9),
@@ -169,7 +175,7 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None) -> dict:
     """
     The ground around the site from the terrain packs: {"grid" (SOLVE_STEP, relative to the
     site's middle), "half", "step", "ground_elev" (m above sea level at the middle), "contours",
-    "sources"}. {"grid": None, ...} when no pack covers the site.
+    "sources", "areas" [(kind, local ring)]}. {"grid": None, ...} when no pack covers the site.
     """
     half = radius + MARGIN
     found = terrain_pack.query(*frame.box(half), folder=folder)
@@ -184,9 +190,11 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None) -> dict:
         spots = np.asarray(found["spots"], dtype=float)
         for (x, y), z in zip(frame.local(spots[:, :2]), spots[:, 2], strict=True):
             fixed.append((x, y, z))
+    areas = [(a["kind"], frame.local(a["ring"])) for a in found["areas"]]
     grid = solve_ground(fixed, half, SOLVE_STEP)
     if grid is None:
-        return {"grid": None, "half": half, "step": SOLVE_STEP, "ground_elev": None, "contours": [], "sources": []}
+        return {"grid": None, "half": half, "step": SOLVE_STEP, "ground_elev": None, "contours": [], "sources": [],
+                "areas": areas}
     elev0 = float(sample(grid, half, SOLVE_STEP, [0.0], [0.0])[0])
     contours = []
     for elev, pts in lines:
@@ -199,7 +207,7 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None) -> dict:
             })
     return {
         "grid": grid - elev0, "half": half, "step": SOLVE_STEP, "ground_elev": round(elev0, 2),
-        "contours": contours, "sources": found["sources"],
+        "contours": contours, "sources": found["sources"], "areas": areas,
     }
 
 
@@ -216,14 +224,55 @@ def _runs(points: np.ndarray, keep: np.ndarray) -> list[np.ndarray]:
     return runs
 
 
-def view_grid(g: dict, radius: float, step: float = VIEW_STEP) -> dict | None:
-    """The ground as the screen draws it: heights on a `step` grid over ±radius, rows south to north."""
+CLASS_CODES = {"site": "g", "road": "r", "sidewalk": "s", "water": "w"}
+# A spot of ground that lies in several areas takes the first of these (a stream under a road
+# bridge is drawn as the road the designer can walk on, a pavement inside a road area as pavement).
+CLASS_ORDER = ("sidewalk", "road", "water")
+
+
+def inside_many(points: np.ndarray, ring: np.ndarray) -> np.ndarray:
+    """Which of the (m × 2) points lie inside the ring (even-odd rule), all at once."""
+    inside = np.zeros(len(points), dtype=bool)
+    lo, hi = ring.min(axis=0), ring.max(axis=0)
+    near = np.all((points >= lo) & (points <= hi), axis=1)
+    if not near.any():
+        return inside
+    x, y = points[near, 0][:, None], points[near, 1][:, None]
+    xs, ys = ring[:, 0][None, :], ring[:, 1][None, :]
+    xj, yj = np.roll(ring[:, 0], 1)[None, :], np.roll(ring[:, 1], 1)[None, :]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        at = (xj - xs) * (y - ys) / (yj - ys) + xs
+    crossing = ((ys > y) != (yj > y)) & (x < at)
+    inside[near] = (np.count_nonzero(crossing, axis=1) % 2).astype(bool)
+    return inside
+
+
+def classify(points: np.ndarray, areas: list[tuple[str, np.ndarray]]) -> str:
+    """One letter per point (CLASS_CODES): what the ground is there, 'g' outside every area."""
+    codes = np.full(len(points), "g", dtype="<U1")
+    taken = np.zeros(len(points), dtype=bool)
+    for kind in CLASS_ORDER:
+        for k, ring in areas:
+            if k == kind and len(ring) >= 3:
+                hit = inside_many(points, ring) & ~taken
+                codes[hit] = CLASS_CODES[kind]
+                taken |= hit
+    return "".join(codes)
+
+
+def view_grid(g: dict, radius: float, areas: list[tuple[str, np.ndarray]] | None = None,
+              step: float = VIEW_STEP) -> dict | None:
+    """
+    The ground as the screen draws it: heights on a `step` grid over ±radius (rows south to
+    north) and what the ground is at each point ("classes", CLASS_CODES letters).
+    """
     if g["grid"] is None:
         return None
     axis = np.arange(-radius, radius + step / 2, step)
     xx, yy = np.meshgrid(axis, axis)
     z = sample(g["grid"], g["half"], g["step"], xx.ravel(), yy.ravel())
-    return {"min": -radius, "step": step, "n": len(axis), "z": [round(float(v), 2) for v in z]}
+    classes = classify(np.column_stack([xx.ravel(), yy.ravel()]), areas or [])
+    return {"min": -radius, "step": step, "n": len(axis), "z": [round(float(v), 2) for v in z], "classes": classes}
 
 
 # ---------------------------------------------------------------------------
@@ -348,8 +397,14 @@ def surroundings(
     buildings, unknown, left_out = [], [], []
     counts = {"ledger": 0, "vworld": 0, "estimate": 0, "unknown": 0, "inner": len(inner)}
     for i, (ring, props, area, middle) in enumerate(found):
-        base = float(np.min(ground_at(ring[:, 0], ring[:, 1])))
-        outline = [[round(x, 2), round(y, 2)] for x, y in (ring if _area(ring) > 0 else ring[::-1])]
+        ccw = ring if _area(ring) > 0 else ring[::-1]
+        edge = _densify(np.vstack([ccw, ccw[:1]]), DRAPE_GAP)
+        under = ground_at(edge[:, 0], edge[:, 1])
+        # A building stands at the middle height of the ground along its outline; on a slope its
+        # foundation reaches down to the lowest point, so no side hangs in the air.
+        level, base = float(np.median(under)), float(np.min(under))
+        outline = [[round(x, 2), round(y, 2)] for x, y in ccw]
+        touch = [[round(x, 2), round(y, 2), round(float(z) + 0.02, 2)] for (x, y), z in zip(edge, under, strict=True)]
         name = str(props.get("bld_nm") or "").strip()
         if i in inner:
             left_out.append({"outline": outline, "base": round(base, 2), "name": name})
@@ -367,11 +422,13 @@ def surroundings(
             height, source = floors * storey_height(use), "estimate"
         else:
             counts["unknown"] += 1
-            unknown.append({"outline": outline, "base": round(base, 2), "name": name})
+            unknown.append({"outline": outline, "base": round(base, 2), "ground_line": touch, "name": name})
             continue
         counts[source] += 1
         buildings.append({
-            "outline": outline, "base": round(base, 2), "height": round(height, 2), "height_source": source,
+            "outline": outline, "base": round(base, 2), "ground": round(level, 2),
+            "foundation": round(level - base, 2), "top": round(level + height, 2), "ground_line": touch,
+            "height": round(height, 2), "height_source": source,
             "floors": floors or None, "use": use, "name": name,
             "on_site": bool(site_rings) and any(_inside(middle, r) for r in site_rings),
         })
@@ -426,7 +483,9 @@ def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = N
         "origin": {"lon": origin["lon"], "lat": origin["lat"]},
         "radius": radius,
         "ground_elev": g["ground_elev"],
-        "terrain": view_grid(g, radius),
+        "terrain": view_grid(g, radius, g["areas"] + [
+            ("road", np.asarray(p["ring"], dtype=float)) for p in around["parcels"] if p["road"]
+        ]),
         "terrain_sources": terrain_sources,
         "contours": g["contours"],
         **around,
