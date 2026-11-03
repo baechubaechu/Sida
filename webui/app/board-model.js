@@ -833,9 +833,9 @@ export function contourLines(terrain, interval) {
 
 export const HEIGHT_SOURCES = {
   ledger: '건축물대장 높이', file: '건물통합정보 높이', vworld: '건축물정보 높이',
-  estimate: '층수×층고 추정', map_estimate: '추정(수치지형도 층수)',
+  estimate: '층수×층고 추정', api_estimate: '추정(브이월드 API 층수)', map_estimate: '추정(수치지형도 층수)',
 };
-const ESTIMATED = new Set(['estimate', 'map_estimate']);
+const ESTIMATED = new Set(['estimate', 'api_estimate', 'map_estimate']);
 
 // Whether a building's height is an estimate (drawn in its own colour, said so in the note).
 export function isEstimate(building) {
@@ -855,7 +855,7 @@ export function aroundNote(context) {
       + (c.unknown ? ` · 높이 미확인 ${c.unknown}동은 바닥선만` : ''),
     '필지·도로 필지: 브이월드 연속지적도 (화면 표시용, 저장하지 않음)',
   ];
-  if (c.estimate || c.map_estimate) lines.push('추정 높이는 층수 × 층고(주거 2.9m, 업무·상업 3.8m, 그 밖 3.3m)로, 실제 높이가 아닙니다.');
+  if (c.estimate || c.api_estimate || c.map_estimate) lines.push('추정 높이는 층수 × 층고(주거 2.9m, 업무·상업 3.8m, 그 밖 3.3m)로, 실제 높이가 아닙니다.');
   if (context.disclaimer) lines.push(context.disclaimer);
   return lines;
 }

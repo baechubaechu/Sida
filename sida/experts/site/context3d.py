@@ -13,8 +13,10 @@ z = 0, so the site, the schemes and the surroundings line up without moving anyt
   estimate and says so. A building with neither height nor floors stays an outline at ground
   level ("unknown"), never a made-up box. A small record inside a bigger building is left out.
 - Parcels: VWorld 연속지적 outlines; road parcels (지목 도) are marked.
-- Where neither the 건축물대장 nor GIS건물통합정보 has a height or floors, a 1:5,000 수치지형도
-  building over the same spot (its middle inside, or more than half the outline shared) gives
+- Where neither the 건축물대장 nor GIS건물통합정보 has a height or floors, VWorld's 도로명주소
+  건물 (gro_flo_co) or 건축물정보 (grnd_flr) floors under the building's middle are asked for, in
+  one box query per layer and only then ("api_estimate"; kept in memory for the answer, never
+  written down); failing that, a 1:5,000 수치지형도 building over the same spot (its middle inside, or more than half the outline shared) gives
   its 층수, again × the storey height and marked as an estimate ("map_estimate").
 - What the ground is, point by point on the screen's grid: road, sidewalk, water or the rest
   ("site"), from the pack's areas (1:5,000 수치지형도 polygons) and the road parcels.
@@ -207,7 +209,7 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None) -> dict:
             contours.append({
                 "elev": round(elev, 2), "z": round(elev - elev0, 3),
                 "index": abs(elev / INDEX_EVERY - round(elev / INDEX_EVERY)) < 1e-6,
-                "points": [[round(x, 2), round(y, 2)] for x, y in run],
+                "points": [[round(float(x), 2), round(float(y), 2)] for x, y in run],
             })
     return {
         "grid": grid - elev0, "half": half, "step": SOLVE_STEP, "ground_elev": round(elev0, 2),
@@ -346,6 +348,7 @@ def _match(records: list[dict], props: dict, area: float) -> dict | None:
     return None
 
 
+ESTIMATES = ("estimate", "api_estimate", "map_estimate")  # height sources that are floors × a storey height
 OVERLAP = 0.5  # share of a building's outline a 1:5,000 building must cover to lend its floors
 
 
@@ -404,6 +407,22 @@ def surroundings(
             spbd, notes = [], [*notes, f"spbd:{exc.kind}"]
     parcels = landapi.features_in_box("LP_PA_CBND_BUBUN", *box, http_get=http_get)
 
+    api_floors: list | None = None  # VWorld floors, fetched once the first file building lacks them
+
+    def vworld_floors(middle) -> int:
+        """Floors VWorld knows for the building under this point (0 when none)."""
+        nonlocal api_floors
+        if api_floors is None:
+            api_floors = []
+            for layer, field in (("LT_C_SPBD", "gro_flo_co"), ("LT_C_BLDGINFO", "grnd_flr")):
+                try:
+                    found = landapi.features_in_box(layer, *box, http_get=http_get)
+                except landapi.LandApiError as exc:
+                    notes.append(f"{layer}:{exc.kind}")
+                    continue
+                api_floors += [(_rings(f["shape"], frame), _number(f["properties"].get(field))) for f in found]
+        return int(next((fl for rings, fl in api_floors if fl > 0 and any(_inside(middle, r) for r in rings)), 0))
+
     lots = [(_rings(p["shape"], frame), str(p["properties"].get("pnu") or ""), str(p["properties"].get("jibun") or ""))
             for p in parcels]
     floors_spbd = [(_rings(f["shape"], frame), _number(f["properties"].get("gro_flo_co"))) for f in spbd]
@@ -444,7 +463,8 @@ def surroundings(
                     records[pnu] = rows
 
     buildings, unknown, left_out = [], [], []
-    counts = {"ledger": 0, "vworld": 0, "file": 0, "estimate": 0, "map_estimate": 0, "unknown": 0, "inner": len(inner)}
+    counts = {"ledger": 0, "vworld": 0, "file": 0, "estimate": 0, "api_estimate": 0, "map_estimate": 0,
+              "unknown": 0, "inner": len(inner)}
     map_rings = [(r, float(m["floors"]), m.get("use", "")) for m in mapped or [] for r in _rings(
         {"type": "Polygon", "coordinates": [m["ring"]]}, frame)]
     for i, (ring, props, area, middle) in enumerate(found):
@@ -454,8 +474,8 @@ def surroundings(
         # A building stands at the middle height of the ground along its outline; on a slope its
         # foundation reaches down to the lowest point, so no side hangs in the air.
         level, base = float(np.median(under)), float(np.min(under))
-        outline = [[round(x, 2), round(y, 2)] for x, y in ccw]
-        touch = [[round(x, 2), round(y, 2), round(float(z) + 0.02, 2)] for (x, y), z in zip(edge, under, strict=True)]
+        outline = [[round(float(x), 2), round(float(y), 2)] for x, y in ccw]
+        touch = [[round(float(x), 2), round(float(y), 2), round(float(z) + 0.02, 2)] for (x, y), z in zip(edge, under, strict=True)]
         name = str(props.get("bld_nm") or "").strip()
         if i in inner:
             left_out.append({"outline": outline, "base": round(base, 2), "name": name})
@@ -471,6 +491,9 @@ def surroundings(
             height, source = _number(props.get("height")), file_source
         elif floors:
             height, source = floors * storey_height(use), "estimate"
+        elif packed and (asked := vworld_floors(middle)):
+            floors = asked
+            height, source = floors * storey_height(use), "api_estimate"
         elif (lent := map_floors(ring, map_rings)) is not None:
             floors = int(lent[0])
             use = use or lent[1]
@@ -491,7 +514,7 @@ def surroundings(
     for rings, _pnu, jibun in lots:
         for ring in rings:
             if np.abs(ring.mean(axis=0)).max() <= radius + 30:
-                lots_out.append({"ring": [[round(x, 2), round(y, 2)] for x, y in ring],
+                lots_out.append({"ring": [[round(float(x), 2), round(float(y), 2)] for x, y in ring],
                                  "road": jibun.strip().endswith("도"), "label": jibun.strip()})
     return {"buildings": buildings, "unknown_buildings": unknown, "left_out": left_out,
             "parcels": lots_out, "counts": counts, "notes": notes}
@@ -532,7 +555,7 @@ def export_layers(around: dict) -> list[dict]:
                 if a["kind"] == kind:
                     ring = _densify(np.vstack([a["ring"], a["ring"][:1]]), DRAPE_GAP)
                     zs = sample(grid, half, t["step"], ring[:, 0], ring[:, 1]) + 0.03
-                    curves.append({"points": [[round(x, 2), round(y, 2), round(float(z), 2)] for (x, y), z in zip(ring, zs, strict=True)],
+                    curves.append({"points": [[round(float(x), 2), round(float(y), 2), round(float(z), 2)] for (x, y), z in zip(ring, zs, strict=True)],
                                    "closed": False})
             if curves:
                 out.append(layer(f"지형 - {short}", color, curves=curves))
@@ -544,7 +567,7 @@ def export_layers(around: dict) -> list[dict]:
     if around.get("building_source", {}).get("pack"):
         groups = {"측정 높이": [], "추정 높이": []}
         for b in around.get("buildings") or []:
-            key = "추정 높이" if b["height_source"] in ("estimate", "map_estimate") else "측정 높이"
+            key = "추정 높이" if b["height_source"] in ESTIMATES else "측정 높이"
             groups[key].append({"outline": b["outline"], "base": b["base"], "height": round(b["top"] - b["base"], 2)})
         for short, solids in groups.items():
             if solids:
@@ -603,7 +626,7 @@ def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = N
         "terrain_sources": terrain_sources,
         "building_source": building_source,
         "areas": [
-            {"kind": kind, "ring": [[round(x, 2), round(y, 2)] for x, y in ring]}
+            {"kind": kind, "ring": [[round(float(x), 2), round(float(y), 2)] for x, y in ring]}
             for kind, ring in g["areas"] if len(ring) >= 3 and np.abs(ring.mean(axis=0)).max() <= radius
         ],
         "contours": g["contours"],

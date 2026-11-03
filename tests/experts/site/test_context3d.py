@@ -157,7 +157,8 @@ def test_build_places_ground_buildings_and_parcels_in_the_table_frame(pack, monk
     assert line[:, 2].max() - line[:, 2].min() > 0.4  # the line on the ground follows the slope
     assert np.hypot(*np.diff(line[:, :2], axis=0).T).max() <= context3d.DRAPE_GAP + 1e-6
     assert len(out["unknown_buildings"]) == 1 and len(out["left_out"]) == 1
-    assert out["counts"] == {"ledger": 1, "vworld": 1, "file": 0, "estimate": 3, "map_estimate": 0, "unknown": 1, "inner": 1}
+    assert out["counts"] == {"ledger": 1, "vworld": 1, "file": 0, "estimate": 3, "api_estimate": 0, "map_estimate": 0,
+                             "unknown": 1, "inner": 1}
     outline = np.array(by_name["대장 높이"]["outline"])
     assert context3d._area(outline) > 0  # counter-clockwise even when VWorld gave it clockwise
     assert outline[:, 0].mean() == pytest.approx(60, abs=0.1)
@@ -286,7 +287,7 @@ def test_export_layers_hold_the_ground_contours_and_file_buildings_only(pack, mo
     conn = terrain_pack.create(pack / f"b{terrain_pack.SUFFIX}", {"name": "b", "kind": "buildings", "source": "GIS건물통합정보"})
     terrain_pack.add_building(conn, square(60, 0, 10)[:-1], {"pnu": "1111010100100020000"})
     terrain_pack.add_building(conn, square(0, 60, 10)[:-1], {"floors": 3, "use": "공장"})
-    terrain_pack.add_building(conn, square(-60, 0, 10)[:-1], {})
+    terrain_pack.add_building(conn, square(0, -60, 10)[:-1], {})  # VWorld has no floors there either
     conn.commit()
     conn.close()
     layers = {layer["short"]: layer for layer in context3d.export_layers(
@@ -301,3 +302,35 @@ def test_the_export_hook_gives_nothing_without_a_site(tmp_path):
     from sida.experts.site import hooks
 
     assert hooks.board_export_layers(tmp_path) == []
+
+
+def test_a_file_building_without_height_or_floors_asks_vworld_once_per_layer(tmp_path, monkeypatch):
+    """Recorded VWorld replies around one building near 무교동 45 (tests/fixtures/landapi/context_*)."""
+    import json
+    from pathlib import Path
+
+    fixtures = Path(__file__).resolve().parents[2] / "fixtures" / "landapi"
+    building = json.loads((fixtures / "context_pack_building_mugyo.json").read_text(encoding="utf-8"))
+    replies = {layer: json.loads((fixtures / f"context_{layer}_mugyo_box.json").read_text(encoding="utf-8"))
+               for layer in ("LT_C_SPBD", "LT_C_BLDGINFO")}
+    calls = []
+
+    def http_get(url, params):
+        calls.append(params["data"])
+        return replies.get(params["data"], {"response": {"status": "NOT_FOUND"}})
+
+    monkeypatch.setattr(landapi, "_http_get", http_get)
+    monkeypatch.setattr(landapi, "vworld_credentials", lambda: ("key", "domain"))
+    conn = terrain_pack.create(tmp_path / f"b{terrain_pack.SUFFIX}", {"name": "b", "kind": "buildings", "source": "GIS건물통합정보"})
+    terrain_pack.add_building(conn, building["ring"], {"pnu": "1114010100100330001", "use": "제2종근린생활시설"})
+    conn.commit()
+    conn.close()
+
+    plan = {"origin": building["origin"], "parcels": []}
+    out = context3d.build(plan, 200, folder=tmp_path, ledger=lambda pnu: [], use_cache=False)
+    (b,) = out["buildings"]
+    assert b["height_source"] == "api_estimate" and b["floors"] == building["floors"] == 7
+    assert b["height"] == pytest.approx(7 * 3.8)  # 근린생활시설 storeys
+    assert out["counts"]["api_estimate"] == 1 and out["counts"]["unknown"] == 0
+    assert sorted(calls) == ["LP_PA_CBND_BUBUN", "LT_C_BLDGINFO", "LT_C_SPBD"]  # one box query each
+    assert not any(p.name != f"b{terrain_pack.SUFFIX}" for p in tmp_path.iterdir())  # nothing written down
