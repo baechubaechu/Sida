@@ -502,6 +502,59 @@ def surroundings(
 # ---------------------------------------------------------------------------
 
 
+AREA_LAYERS = {"road": ("도로", (150, 150, 150)), "sidewalk": ("인도", (190, 180, 160)), "water": ("수계", (90, 160, 200))}
+EXPORT_GROUP = "대지 주변"
+
+
+def export_layers(around: dict) -> list[dict]:
+    """
+    The surroundings as board_export layers (same frame as the table): the ground as a height
+    grid, its road / sidewalk / water outlines laid on it, the contour lines (index ones apart)
+    and the buildings as solids from their foundation, split by where the height came from.
+    Only what comes from map files is written (packs, CC BY): VWorld replies are for the screen
+    only (이용약관 제19조), so parcels, and buildings drawn from VWorld, stay out.
+    """
+    def layer(short, color, **parts):
+        return {"name": f"{EXPORT_GROUP} - {short}", "short": short, "parent": EXPORT_GROUP, "color": color,
+                "curves": [], "solids": [], "surfaces": [], "labels": [], **parts}
+
+    out = []
+    t = around.get("terrain")
+    if t:
+        out.append(layer("지형", (170, 150, 120), surfaces=[
+            {"min_x": t["min"], "min_y": t["min"], "step": t["step"], "nx": t["n"], "ny": t["n"], "z": t["z"]}]))
+    if t and around.get("areas"):
+        grid = np.asarray(t["z"], dtype=float).reshape(t["n"], t["n"])
+        half = -t["min"]
+        for kind, (short, color) in AREA_LAYERS.items():
+            curves = []
+            for a in around["areas"]:
+                if a["kind"] == kind:
+                    ring = _densify(np.vstack([a["ring"], a["ring"][:1]]), DRAPE_GAP)
+                    zs = sample(grid, half, t["step"], ring[:, 0], ring[:, 1]) + 0.03
+                    curves.append({"points": [[round(x, 2), round(y, 2), round(float(z), 2)] for (x, y), z in zip(ring, zs, strict=True)],
+                                   "closed": False})
+            if curves:
+                out.append(layer(f"지형 - {short}", color, curves=curves))
+    for index, short, color in ((False, "등고선", (180, 160, 120)), (True, "등고선 - 계곡선", (120, 100, 70))):
+        curves = [{"points": [[x, y, c["z"]] for x, y in c["points"]], "closed": False}
+                  for c in around.get("contours") or [] if bool(c["index"]) == index]
+        if curves:
+            out.append(layer(short, color, curves=curves))
+    if around.get("building_source", {}).get("pack"):
+        groups = {"측정 높이": [], "추정 높이": []}
+        for b in around.get("buildings") or []:
+            key = "추정 높이" if b["height_source"] in ("estimate", "map_estimate") else "측정 높이"
+            groups[key].append({"outline": b["outline"], "base": b["base"], "height": round(b["top"] - b["base"], 2)})
+        for short, solids in groups.items():
+            if solids:
+                out.append(layer(f"건물 - {short}", (200, 200, 200) if short == "측정 높이" else (220, 200, 160), solids=solids))
+        unknown = [{"points": b["ground_line"], "closed": False} for b in around.get("unknown_buildings") or [] if b.get("ground_line")]
+        if unknown:
+            out.append(layer("건물 - 높이 미확인(바닥선)", (200, 120, 50), curves=unknown))
+    return out
+
+
 def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = None, http_get=None,
           ledger=None, use_cache: bool = True) -> dict:
     """
@@ -549,6 +602,10 @@ def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = N
         ]),
         "terrain_sources": terrain_sources,
         "building_source": building_source,
+        "areas": [
+            {"kind": kind, "ring": [[round(x, 2), round(y, 2)] for x, y in ring]}
+            for kind, ring in g["areas"] if len(ring) >= 3 and np.abs(ring.mean(axis=0)).max() <= radius
+        ],
         "contours": g["contours"],
         **around,
         "seconds": round(time.perf_counter() - started, 1),

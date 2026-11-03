@@ -29,6 +29,22 @@ def board_site(project_dir) -> dict | None:
     return site_facts.board_summary(facts) if facts else None
 
 
+def board_export_layers(project_dir) -> list[dict]:
+    """The site's surroundings (ground, contours, buildings from map files) for the CAD/Rhino export.
+    Nothing when no site is looked up, or when the surroundings cannot be had right now."""
+    from sida.board import site_plan
+    from sida.experts.site import context3d, landapi
+
+    facts = site_facts.load_facts(project_dir)
+    plan = site_plan(site_facts.board_summary(facts)["parcels"]) if facts else None
+    if not plan:
+        return []
+    try:
+        return context3d.export_layers(context3d.build(plan))
+    except (landapi.LandApiError, ValueError):
+        return []
+
+
 def run_needs(config, agent, project_dir) -> str | None:
     """The Conductor runs the site reader only on a looked-up site; the designer picks it first."""
     if agent.get("id") == "site_reader" and site_facts.load_facts(project_dir) is None:

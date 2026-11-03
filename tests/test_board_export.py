@@ -147,3 +147,27 @@ def test_a_missing_package_is_a_plain_message_not_a_crash(tmp_path, monkeypatch)
     monkeypatch.setitem(board_export.WRITERS, "3dm", missing)
     with pytest.raises(ValueError, match="rhino3dm package is not installed"):
         board_export.export_board(tmp_path, "3dm", hooks=NO_SITE)
+
+
+def test_a_height_grid_goes_out_as_a_nurbs_surface_in_3dm_and_a_mesh_in_dxf(tmp_path):
+    # a 4 × 4 grid 10 m apart from (-15, -15), rising 1 m per column eastward
+    ground = SimpleNamespace(board_export_layers=lambda path: [{
+        "name": "대지 주변 - 지형", "short": "지형", "parent": "대지 주변", "color": (170, 150, 120),
+        "surfaces": [{"min_x": -15, "min_y": -15, "step": 10, "nx": 4, "ny": 4, "z": [i % 4 for i in range(16)]}],
+    }])
+    path = tmp_path / "out.3dm"
+    path.write_bytes(board_export.export_board(tmp_path, "3dm", hooks=[("site", ground)]))
+    model = rhino3dm.File3dm.Read(str(path))
+    layers = {layer.FullPath: layer.Index for layer in model.Layers}
+    assert "대지 주변::지형" in layers
+    surfaces = [o.Geometry for o in model.Objects if o.Attributes.LayerIndex == layers["대지 주변::지형"]]
+    assert len(surfaces) == 1
+    nurbs = surfaces[0]
+    nurbs = nurbs.ToNurbsSurface() if hasattr(nurbs, "ToNurbsSurface") else nurbs
+    u, v = nurbs.Domain(0), nurbs.Domain(1)
+    corner = nurbs.PointAt(u.T1, v.T0)
+    assert (corner.X, corner.Y, corner.Z) == (pytest.approx(15), pytest.approx(-15), pytest.approx(3))  # through the corner
+
+    doc = ezdxf.read(io.StringIO(board_export.export_board(tmp_path, "dxf", hooks=[("site", ground)]).decode("utf-8")))
+    mesh = list(doc.modelspace().query('MESH[layer=="대지 주변 - 지형"]'))
+    assert len(mesh) == 1 and len(mesh[0].vertices) == 16 and len(mesh[0].faces) == 9

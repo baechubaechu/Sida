@@ -13,6 +13,8 @@ labels as text dots. Both are in metres.
 
 Another domain can add layers (for example buildings around the site) with a hook
 `board_export_layers(project_dir) -> list[layer]` in its hooks.py, in the same layer form.
+A layer may also hold `surfaces`: height grids (the ground around a site), written as a NURBS
+surface through the grid in 3dm and as a MESH in DXF.
 """
 
 from __future__ import annotations
@@ -51,11 +53,12 @@ _BAD_NAME = re.compile(r'[<>/\\":;?*|=,`{}\[\]]+|::')
 
 def layer(name: str, color, *, parent: str = "", visible: bool = True) -> dict:
     """An empty layer: curves [{points [[x,y,z]], closed}], solids [{outline [[x,y]] counter-
-    clockwise, base, height}] and labels [{at [x,y,z], text}]. Optional: `short` (its name
+    clockwise, base, height}], surfaces [{min_x, min_y, step, nx, ny, z}] (heights row by row
+    from the south-west corner) and labels [{at [x,y,z], text}]. Optional: `short` (its name
     under the parent group in Rhino) and `linetype` (a DXF linetype such as DASHED)."""
     return {
         "name": name, "parent": parent, "color": tuple(color), "visible": visible,
-        "curves": [], "solids": [], "labels": [],
+        "curves": [], "solids": [], "surfaces": [], "labels": [],
     }
 
 
@@ -196,6 +199,16 @@ def _prism_mesh(solid: dict) -> tuple[list[tuple], list[tuple]]:
     return vertices, faces
 
 
+def _grid_points(surface: dict) -> list[list[tuple]]:
+    """The grid's points, [row][column] from the south-west corner."""
+    nx, ny, step = surface["nx"], surface["ny"], surface["step"]
+    z = surface["z"]
+    return [
+        [(surface["min_x"] + i * step, surface["min_y"] + j * step, float(z[j * nx + i])) for i in range(nx)]
+        for j in range(ny)
+    ]
+
+
 def to_dxf(scene: dict) -> bytes:
     """The scene as an AutoCAD 2013 DXF in metres (UTF-8)."""
     import ezdxf
@@ -227,6 +240,16 @@ def to_dxf(scene: dict) -> bytes:
             with mesh.edit_data() as data:
                 data.vertices = vertices
                 data.faces = faces
+        for surface in item.get("surfaces") or []:
+            rows = _grid_points(surface)
+            nx = surface["nx"]
+            mesh = msp.add_mesh(dxfattribs=attribs)
+            with mesh.edit_data() as data:
+                data.vertices = [p for row in rows for p in row]
+                data.faces = [
+                    (j * nx + i, j * nx + i + 1, (j + 1) * nx + i + 1, (j + 1) * nx + i)
+                    for j in range(len(rows) - 1) for i in range(nx - 1)
+                ]
         for label in item["labels"]:
             msp.add_text(
                 label["text"], height=1.2, dxfattribs={**attribs, "style": style.dxf.name}
@@ -281,6 +304,10 @@ def to_3dm(scene: dict) -> bytes:
             if solid["base"]:
                 body.Translate(r.Vector3d(0, 0, solid["base"]))
             model.Objects.AddExtrusion(body, attributes)
+        for surface in scene_layer.get("surfaces") or []:
+            body = _nurbs(r, surface)
+            if body is not None:
+                model.Objects.AddSurface(body, attributes)
         for label in scene_layer["labels"]:
             model.Objects.AddTextDot(label["text"], r.Point3d(*label["at"]), attributes)
     handle, path = tempfile.mkstemp(suffix=".3dm")
@@ -291,6 +318,23 @@ def to_3dm(scene: dict) -> bytes:
         return Path(path).read_bytes()
     finally:
         os.unlink(path)
+
+
+def _nurbs(r, surface: dict):
+    """A NURBS surface with the grid as its control points (cubic where the grid allows it):
+    smooth, through the four corners, within a fraction of a metre of the grid elsewhere."""
+    rows = _grid_points(surface)
+    nu, nv = surface["nx"], surface["ny"]
+    if nu < 2 or nv < 2:
+        return None
+    order_u, order_v = min(4, nu), min(4, nv)
+    body = r.NurbsSurface.Create(3, False, order_u, order_v, nu, nv)
+    body.KnotsU.CreateUniformKnots(1.0)
+    body.KnotsV.CreateUniformKnots(1.0)
+    for j, row in enumerate(rows):
+        for i, (x, y, z) in enumerate(row):
+            body.Points[(i, j)] = r.Point4d(x, y, z, 1.0)
+    return body if body.IsValid else None
 
 
 WRITERS = {"dxf": to_dxf, "3dm": to_3dm}

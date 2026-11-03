@@ -271,3 +271,33 @@ def test_overlap_share_and_map_floors():
     assert context3d.overlap_share(a, far) == 0
     assert context3d.map_floors(a, [(far, 5.0, ""), (half, 2.0, "업무시설")]) == (2.0, "업무시설")  # its middle is inside
     assert context3d.map_floors(a, [(far, 5.0, "")]) is None
+
+
+def test_export_layers_hold_the_ground_contours_and_file_buildings_only(pack, monkeypatch):
+    fake_vworld_layers(monkeypatch)
+    out = context3d.build(plan_for_site(), 200, folder=pack, ledger=ledger, use_cache=False)
+    names = [layer["short"] for layer in context3d.export_layers(out)]
+    assert names == ["지형", "지형 - 인도", "지형 - 수계", "등고선"]  # buildings came from VWorld: not written
+    ground = context3d.export_layers(out)[0]["surfaces"][0]
+    assert ground["nx"] == ground["ny"] == out["terrain"]["n"] and ground["min_x"] == -200
+    water = context3d.export_layers(out)[2]["curves"][0]["points"]
+    assert all(len(p) == 3 for p in water) and water[0][2] < 0  # laid on the ground, which is low to the south
+
+    conn = terrain_pack.create(pack / f"b{terrain_pack.SUFFIX}", {"name": "b", "kind": "buildings", "source": "GIS건물통합정보"})
+    terrain_pack.add_building(conn, square(60, 0, 10)[:-1], {"pnu": "1111010100100020000"})
+    terrain_pack.add_building(conn, square(0, 60, 10)[:-1], {"floors": 3, "use": "공장"})
+    terrain_pack.add_building(conn, square(-60, 0, 10)[:-1], {})
+    conn.commit()
+    conn.close()
+    layers = {layer["short"]: layer for layer in context3d.export_layers(
+        context3d.build(plan_for_site(), 200, folder=pack, ledger=ledger, use_cache=False))}
+    assert {"건물 - 측정 높이", "건물 - 추정 높이", "건물 - 높이 미확인(바닥선)"} <= set(layers)
+    measured = layers["건물 - 측정 높이"]["solids"][0]
+    assert measured["height"] > 11.2  # the 건축물대장 height plus the foundation on the slope
+    assert all(layer["parent"] == context3d.EXPORT_GROUP for layer in layers.values())
+
+
+def test_the_export_hook_gives_nothing_without_a_site(tmp_path):
+    from sida.experts.site import hooks
+
+    assert hooks.board_export_layers(tmp_path) == []
