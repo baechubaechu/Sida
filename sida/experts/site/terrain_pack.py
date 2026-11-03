@@ -13,7 +13,8 @@ Areas are polygons of what the ground is (KINDS: road, sidewalk, water), for col
 ground and cutting it into layers, from the 1:5,000 수치지형도 (도로경계, 보도, 하천경계·실폭하천·
 호소). Buildings are the GIS건물통합정보 outlines (국토교통부, CC BY) with the 건축물대장 values
 the file carries (BUILDING_FIELDS). Each kind can be its own pack; a pack holds only what it
-was made from.
+was made from. Map buildings are the 1:5,000 수치지형도 건물 polygons with their 층수 and 용도,
+kept only to fill in floors where GIS건물통합정보 has none.
 """
 
 from __future__ import annotations
@@ -39,6 +40,8 @@ CREATE TABLE IF NOT EXISTS areas (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, ri
 CREATE VIRTUAL TABLE IF NOT EXISTS areas_box USING rtree(id, west, east, south, north);
 CREATE TABLE IF NOT EXISTS buildings (id INTEGER PRIMARY KEY, ring TEXT NOT NULL, attrs TEXT NOT NULL);
 CREATE VIRTUAL TABLE IF NOT EXISTS buildings_box USING rtree(id, west, east, south, north);
+CREATE TABLE IF NOT EXISTS map_buildings (id INTEGER PRIMARY KEY, ring TEXT NOT NULL, floors REAL NOT NULL, use TEXT NOT NULL);
+CREATE VIRTUAL TABLE IF NOT EXISTS map_buildings_box USING rtree(id, west, east, south, north);
 """
 
 
@@ -106,6 +109,19 @@ def add_building(conn: sqlite3.Connection, ring: list[list[float]], attrs: dict)
     conn.execute("INSERT INTO buildings_box VALUES (?, ?, ?, ?, ?)", (cur.lastrowid, min(lons), max(lons), min(lats), max(lats)))
 
 
+def add_map_building(conn: sqlite3.Connection, ring: list[list[float]], floors: float, use: str = "") -> None:
+    """One 1:5,000 수치지형도 building with a known number of floors (above ground)."""
+    if len(ring) < 3 or not floors or floors <= 0:
+        return
+    lons = [p[0] for p in ring]
+    lats = [p[1] for p in ring]
+    cur = conn.execute(
+        "INSERT INTO map_buildings (ring, floors, use) VALUES (?, ?, ?)",
+        (json.dumps([[round(x, 7), round(y, 7)] for x, y in ring], separators=(",", ":")), float(floors), use or ""),
+    )
+    conn.execute("INSERT INTO map_buildings_box VALUES (?, ?, ?, ?, ?)", (cur.lastrowid, min(lons), max(lons), min(lats), max(lats)))
+
+
 def packs(folder: Path | None = None) -> list[Path]:
     """Every pack in the folder (TERRAIN_DIR by default), by name."""
     folder = TERRAIN_DIR if folder is None else folder
@@ -123,9 +139,10 @@ def query(west: float, south: float, east: float, north: float, folder: Path | N
     Contours, spot heights, ground areas and buildings touching the box, from every pack in the
     folder: {"contours": [{"elev", "points": [[lon, lat]]}], "spots": [[lon, lat, elev]],
     "areas": [{"kind", "ring": [[lon, lat]]}], "buildings": [{"ring", **BUILDING_FIELDS}],
-    "sources": [pack meta]}. Empty lists when no pack covers the box.
+    "map_buildings": [{"ring", "floors", "use"}], "sources": [pack meta]}. Empty lists when no
+    pack covers the box.
     """
-    out: dict = {"contours": [], "spots": [], "areas": [], "buildings": [], "sources": []}
+    out: dict = {"contours": [], "spots": [], "areas": [], "buildings": [], "map_buildings": [], "sources": []}
     for path in packs(folder):
         with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as conn:
             lines = conn.execute(
@@ -148,12 +165,18 @@ def query(west: float, south: float, east: float, north: float, folder: Path | N
                 "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",
                 (west, east, south, north),
             ).fetchall() if _has_table(conn, "buildings") else []
-            if lines or points or areas or houses:
+            mapped = conn.execute(
+                "SELECT m.ring, m.floors, m.use FROM map_buildings m JOIN map_buildings_box b ON b.id = m.id "
+                "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",
+                (west, east, south, north),
+            ).fetchall() if _has_table(conn, "map_buildings") else []
+            if lines or points or areas or houses or mapped:
                 out["sources"].append(dict(conn.execute("SELECT key, value FROM meta")))
         out["contours"] += [{"elev": elev, "points": json.loads(text)} for elev, text in lines]
         out["spots"] += [[lon, lat, elev] for lon, lat, elev in points]
         out["areas"] += [{"kind": kind, "ring": json.loads(text)} for kind, text in areas]
         out["buildings"] += [{"ring": json.loads(ring), **json.loads(attrs)} for ring, attrs in houses]
+        out["map_buildings"] += [{"ring": json.loads(ring), "floors": floors, "use": use} for ring, floors, use in mapped]
     return out
 
 

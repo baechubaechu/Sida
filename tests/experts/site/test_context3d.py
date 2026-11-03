@@ -57,7 +57,7 @@ def test_pack_query_returns_only_what_touches_the_box(pack):
     assert found["sources"][0]["source_date"] == "2026-10-01"
     assert [a["kind"] for a in found["areas"]] == ["water", "sidewalk"]
     assert terrain_pack.query(west, south, east, north, folder=pack / "none") == {
-        "contours": [], "spots": [], "areas": [], "buildings": [], "sources": []}
+        "contours": [], "spots": [], "areas": [], "buildings": [], "map_buildings": [], "sources": []}
     with pytest.raises(ValueError):
         terrain_pack.add_area(None, "lake", [])
 
@@ -157,7 +157,7 @@ def test_build_places_ground_buildings_and_parcels_in_the_table_frame(pack, monk
     assert line[:, 2].max() - line[:, 2].min() > 0.4  # the line on the ground follows the slope
     assert np.hypot(*np.diff(line[:, :2], axis=0).T).max() <= context3d.DRAPE_GAP + 1e-6
     assert len(out["unknown_buildings"]) == 1 and len(out["left_out"]) == 1
-    assert out["counts"] == {"ledger": 1, "vworld": 1, "file": 0, "estimate": 3, "unknown": 1, "inner": 1}
+    assert out["counts"] == {"ledger": 1, "vworld": 1, "file": 0, "estimate": 3, "map_estimate": 0, "unknown": 1, "inner": 1}
     outline = np.array(by_name["대장 높이"]["outline"])
     assert context3d._area(outline) > 0  # counter-clockwise even when VWorld gave it clockwise
     assert outline[:, 0].mean() == pytest.approx(60, abs=0.1)
@@ -245,3 +245,29 @@ def test_build_takes_buildings_from_a_pack_before_vworld(pack, monkeypatch):
     no_ledger = context3d.build(plan_for_site(), 200, folder=pack, ledger=lambda pnu: [], use_cache=False)
     filed = {b["name"]: b for b in no_ledger["buildings"]}["파일 건물"]
     assert filed["height"] == 7.5 and filed["height_source"] == "file"
+
+
+def test_a_building_with_no_height_or_floors_takes_them_from_the_1_5000_map(pack, monkeypatch):
+    fake_vworld_layers(monkeypatch)
+    conn = terrain_pack.create(pack / f"m{terrain_pack.SUFFIX}", {"name": "m", "kind": "areas", "source": "1:5,000"})
+    terrain_pack.add_map_building(conn, square(1, -59, 9)[:-1], 3, "제1종근린생활시설")  # over the unknown one
+    terrain_pack.add_map_building(conn, square(150, -150, 5)[:-1], 9, "")  # over nothing
+    terrain_pack.add_map_building(conn, square(0, 0, 1)[:-1], 0, "")  # no floors: not kept
+    conn.commit()
+    conn.close()
+
+    out = context3d.build(plan_for_site(), 200, folder=pack, ledger=ledger, use_cache=False)
+    lent = [b for b in out["buildings"] if b["height_source"] == "map_estimate"]
+    assert len(lent) == 1 and lent[0]["floors"] == 3 and lent[0]["height"] == pytest.approx(3 * 3.8)
+    assert out["counts"]["map_estimate"] == 1 and out["counts"]["unknown"] == 0
+    assert out["unknown_buildings"] == []
+
+
+def test_overlap_share_and_map_floors():
+    a = np.array([[0, 0], [10, 0], [10, 10], [0, 10]], dtype=float)
+    half = np.array([[5, -5], [20, -5], [20, 20], [5, 20]], dtype=float)
+    far = np.array([[50, 50], [60, 50], [60, 60], [50, 60]], dtype=float)
+    assert context3d.overlap_share(a, half) == pytest.approx(0.5, abs=0.06)
+    assert context3d.overlap_share(a, far) == 0
+    assert context3d.map_floors(a, [(far, 5.0, ""), (half, 2.0, "업무시설")]) == (2.0, "업무시설")  # its middle is inside
+    assert context3d.map_floors(a, [(far, 5.0, "")]) is None

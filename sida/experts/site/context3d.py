@@ -13,6 +13,9 @@ z = 0, so the site, the schemes and the surroundings line up without moving anyt
   estimate and says so. A building with neither height nor floors stays an outline at ground
   level ("unknown"), never a made-up box. A small record inside a bigger building is left out.
 - Parcels: VWorld 연속지적 outlines; road parcels (지목 도) are marked.
+- Where neither the 건축물대장 nor GIS건물통합정보 has a height or floors, a 1:5,000 수치지형도
+  building over the same spot (its middle inside, or more than half the outline shared) gives
+  its 층수, again × the storey height and marked as an estimate ("map_estimate").
 - What the ground is, point by point on the screen's grid: road, sidewalk, water or the rest
   ("site"), from the pack's areas (1:5,000 수치지형도 polygons) and the road parcels.
 - A building stands at the middle height of the ground along its outline, and its foundation
@@ -194,7 +197,8 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None) -> dict:
     grid = solve_ground(fixed, half, SOLVE_STEP)
     if grid is None:
         return {"grid": None, "half": half, "step": SOLVE_STEP, "ground_elev": None, "contours": [],
-                "sources": found["sources"], "areas": areas, "buildings": found["buildings"]}
+                "sources": found["sources"], "areas": areas, "buildings": found["buildings"],
+                "map_buildings": found["map_buildings"]}
     elev0 = float(sample(grid, half, SOLVE_STEP, [0.0], [0.0])[0])
     contours = []
     for elev, pts in lines:
@@ -208,6 +212,7 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None) -> dict:
     return {
         "grid": grid - elev0, "half": half, "step": SOLVE_STEP, "ground_elev": round(elev0, 2),
         "contours": contours, "sources": found["sources"], "areas": areas, "buildings": found["buildings"],
+        "map_buildings": found["map_buildings"],
     }
 
 
@@ -341,6 +346,32 @@ def _match(records: list[dict], props: dict, area: float) -> dict | None:
     return None
 
 
+OVERLAP = 0.5  # share of a building's outline a 1:5,000 building must cover to lend its floors
+
+
+def overlap_share(a: np.ndarray, b: np.ndarray, gap: float = 0.5) -> float:
+    """About how much of ring `a`'s area ring `b` covers (points `gap` m apart over `a`'s box)."""
+    lo, hi = a.min(axis=0), a.max(axis=0)
+    xs = np.arange(lo[0] + gap / 2, hi[0], gap)
+    ys = np.arange(lo[1] + gap / 2, hi[1], gap)
+    if not len(xs) or not len(ys):
+        return 0.0
+    pts = np.column_stack([g.ravel() for g in np.meshgrid(xs, ys)])
+    in_a = inside_many(pts, a)
+    if not in_a.any():
+        return 0.0
+    return float((in_a & inside_many(pts, b)).sum() / in_a.sum())
+
+
+def map_floors(ring: np.ndarray, mapped: list[tuple[np.ndarray, float, str]]) -> tuple[float, str] | None:
+    """(floors, use) of the 1:5,000 building over this outline, or None."""
+    middle = ring.mean(axis=0)
+    for other, floors, use in mapped:
+        if _inside(middle, other) or _inside(other.mean(axis=0), ring) or overlap_share(ring, other) > OVERLAP:
+            return floors, use
+    return None
+
+
 def _pack_features(buildings: list[dict]) -> list[dict]:
     """Pack buildings (terrain_pack.BUILDING_FIELDS) in the shape VWorld's 건축물정보 features have."""
     return [
@@ -354,6 +385,7 @@ def _pack_features(buildings: list[dict]) -> list[dict]:
 def surroundings(
     frame: Frame, radius: float, ground_at: Callable, *, site_rings: list[np.ndarray] | None = None,
     http_get=None, ledger: Callable[[str], list[dict]] | None = None, packed: list[dict] | None = None,
+    mapped: list[dict] | None = None,
 ) -> dict:
     """
     Buildings (with their height and where it came from) and parcels around the site. The
@@ -412,7 +444,9 @@ def surroundings(
                     records[pnu] = rows
 
     buildings, unknown, left_out = [], [], []
-    counts = {"ledger": 0, "vworld": 0, "file": 0, "estimate": 0, "unknown": 0, "inner": len(inner)}
+    counts = {"ledger": 0, "vworld": 0, "file": 0, "estimate": 0, "map_estimate": 0, "unknown": 0, "inner": len(inner)}
+    map_rings = [(r, float(m["floors"]), m.get("use", "")) for m in mapped or [] for r in _rings(
+        {"type": "Polygon", "coordinates": [m["ring"]]}, frame)]
     for i, (ring, props, area, middle) in enumerate(found):
         ccw = ring if _area(ring) > 0 else ring[::-1]
         edge = _densify(np.vstack([ccw, ccw[:1]]), DRAPE_GAP)
@@ -437,6 +471,10 @@ def surroundings(
             height, source = _number(props.get("height")), file_source
         elif floors:
             height, source = floors * storey_height(use), "estimate"
+        elif (lent := map_floors(ring, map_rings)) is not None:
+            floors = int(lent[0])
+            use = use or lent[1]
+            height, source = floors * storey_height(use), "map_estimate"
         else:
             counts["unknown"] += 1
             unknown.append({"outline": outline, "base": round(base, 2), "ground_line": touch, "name": name})
@@ -493,7 +531,7 @@ def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = N
     site_rings = [np.asarray(r, dtype=float) for p in plan.get("parcels") or [] for r in p.get("rings") or []]
     packed = [b for b in g["buildings"] if np.abs(frame.local(b["ring"]).mean(axis=0)).max() <= radius]
     around = surroundings(frame, radius, ground_at, site_rings=site_rings, http_get=http_get, ledger=ledger,
-                          packed=packed)
+                          packed=packed, mapped=g["map_buildings"])
 
     def source(s):
         return {"name": s.get("source", ""), "date": s.get("source_date", ""), "pack": s.get("name", "")}

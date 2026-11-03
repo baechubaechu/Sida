@@ -5,7 +5,8 @@ CC BY). Only what lies in the box is kept. Each kind of source goes in its own p
 
   --contours DIR   국토지리정보원 연속수치지형도 등고선 N3L_F0010000*.shp, 표고점 N3P_F0020000*.shp
   --areas DIR      1:5,000 수치지형도 v2.0 SHP sheets (unzipped, any depth): 도로경계 N3A_A0010000,
-                   보도 N3A_A0033320, 하천경계 N3A_E0010001, 실폭하천 N3A_E0032111, 호소 N3A_E0052114
+                   보도 N3A_A0033320, 하천경계 N3A_E0010001, 실폭하천 N3A_E0032111, 호소 N3A_E0052114,
+                   and 건물 N3A_B0010000 (층수, 용도: floors where GIS건물통합정보 has none)
   --buildings PATH GIS건물통합정보 AL_D010_<시도>_<날짜>.zip (or a folder of them: the newest by the
                    date in the name is taken; pyshp reads the zip as it is)
 
@@ -143,7 +144,26 @@ def main() -> int:
                         lons, lats = tr.transform(*zip(*part, strict=True))
                         terrain_pack.add_area(conn, kind, [list(p) for p in zip(lons, lats, strict=True)])
                         count += 1
-        done(path, conn, f"{count} areas", started)
+        houses = 0
+        for shp in sorted(args.areas.rglob("N3A_B0010000.shp")):
+            tr, own = projected(shp)
+            # building names hold a few characters outside euc-kr: cp949 reads them, a stray byte is replaced
+            reader = shapefile.Reader(str(shp)[:-4], encoding="cp949", encodingErrors="replace")
+            names = [f[0] for f in reader.fields[1:]]
+            floors_at, use_at = names.index("층수"), names.index("용도")
+            for i, shape in enumerate(reader.iterShapes()):
+                if not shape.points or outside(shape.bbox, own):
+                    continue
+                row = reader.record(i)
+                try:
+                    floors = float(row[floors_at])
+                except (TypeError, ValueError):
+                    continue
+                if floors > 0:
+                    lons, lats = tr.transform(*zip(*parts(shape)[0], strict=True))
+                    terrain_pack.add_map_building(conn, [list(p) for p in zip(lons, lats, strict=True)], floors, str(row[use_at] or ""))
+                    houses += 1
+        done(path, conn, f"{count} areas, {houses} map buildings with floors", started)
 
     if args.buildings:
         started = time.perf_counter()
