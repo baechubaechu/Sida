@@ -56,7 +56,8 @@ def test_pack_query_returns_only_what_touches_the_box(pack):
     assert found["spots"] == [pytest.approx([*lonlat(0, 0), 15.0])]
     assert found["sources"][0]["source_date"] == "2026-10-01"
     assert [a["kind"] for a in found["areas"]] == ["water", "sidewalk"]
-    assert terrain_pack.query(west, south, east, north, folder=pack / "none") == {"contours": [], "spots": [], "areas": [], "sources": []}
+    assert terrain_pack.query(west, south, east, north, folder=pack / "none") == {
+        "contours": [], "spots": [], "areas": [], "buildings": [], "sources": []}
     with pytest.raises(ValueError):
         terrain_pack.add_area(None, "lake", [])
 
@@ -156,7 +157,7 @@ def test_build_places_ground_buildings_and_parcels_in_the_table_frame(pack, monk
     assert line[:, 2].max() - line[:, 2].min() > 0.4  # the line on the ground follows the slope
     assert np.hypot(*np.diff(line[:, :2], axis=0).T).max() <= context3d.DRAPE_GAP + 1e-6
     assert len(out["unknown_buildings"]) == 1 and len(out["left_out"]) == 1
-    assert out["counts"] == {"ledger": 1, "vworld": 1, "estimate": 3, "unknown": 1, "inner": 1}
+    assert out["counts"] == {"ledger": 1, "vworld": 1, "file": 0, "estimate": 3, "unknown": 1, "inner": 1}
     outline = np.array(by_name["대장 높이"]["outline"])
     assert context3d._area(outline) > 0  # counter-clockwise even when VWorld gave it clockwise
     assert outline[:, 0].mean() == pytest.approx(60, abs=0.1)
@@ -217,3 +218,30 @@ def test_storey_height_by_use():
     assert context3d.storey_height("제2종근린생활시설") == 3.8
     assert context3d.storey_height("공장") == context3d.STOREY_OTHER
     assert context3d.storey_height("") == context3d.STOREY_OTHER
+
+
+def test_build_takes_buildings_from_a_pack_before_vworld(pack, monkeypatch):
+    calls = fake_vworld_layers(monkeypatch)
+    conn = terrain_pack.create(pack / f"b{terrain_pack.SUFFIX}", {
+        "name": "b", "kind": "buildings", "source": "GIS건물통합정보", "source_date": "2026-03-06"})
+    terrain_pack.add_building(conn, square(60, 0, 10)[:-1], {"pnu": "1111010100100020000", "height": 7.5, "floors": 2,
+                                                              "use": "업무시설", "name": "파일 건물", "date": "2026-03-06"})
+    terrain_pack.add_building(conn, square(-60, 0, 10)[:-1], {"pnu": "1111010100100090000", "floors": 4, "use": "공동주택"})
+    terrain_pack.add_building(conn, square(600, 600, 10)[:-1], {"name": "범위 밖"})
+    conn.commit()
+    conn.close()
+
+    out = context3d.build(plan_for_site(), 200, folder=pack, ledger=ledger, use_cache=False)
+    layers = [c["data"] for c in calls]
+    assert "LT_C_BLDGINFO" not in layers and "LT_C_SPBD" not in layers  # the pack has the buildings
+    assert "LP_PA_CBND_BUBUN" in layers  # parcels still come from VWorld, for drawing only
+    by_name = {b["name"]: b for b in out["buildings"]}
+    assert by_name["파일 건물"]["height"] == 11.2  # the 건축물대장 height (matched by the file's PNU) comes first
+    assert [b["height"] for b in out["buildings"] if b["name"] == ""] == [pytest.approx(4 * 2.9)]
+    assert out["counts"]["ledger"] == 1 and out["counts"]["estimate"] == 1 and out["counts"]["vworld"] == 0
+    assert out["building_source"] == {"name": "GIS건물통합정보", "date": "2026-03-06", "pack": "b"}
+    assert [s["pack"] for s in out["terrain_sources"]] == ["test"]
+
+    no_ledger = context3d.build(plan_for_site(), 200, folder=pack, ledger=lambda pnu: [], use_cache=False)
+    filed = {b["name"]: b for b in no_ledger["buildings"]}["파일 건물"]
+    assert filed["height"] == 7.5 and filed["height_source"] == "file"

@@ -10,7 +10,10 @@ Packs live in ~/Sida/context_data (TERRAIN_DIR) — raw and processed map data n
 repository. `query` reads every pack there that covers the box.
 
 Areas are polygons of what the ground is (KINDS: road, sidewalk, water), for colouring the
-ground and cutting it into layers; a pack made from contours alone simply has none.
+ground and cutting it into layers, from the 1:5,000 수치지형도 (도로경계, 보도, 하천경계·실폭하천·
+호소). Buildings are the GIS건물통합정보 outlines (국토교통부, CC BY) with the 건축물대장 values
+the file carries (BUILDING_FIELDS). Each kind can be its own pack; a pack holds only what it
+was made from.
 """
 
 from __future__ import annotations
@@ -23,6 +26,8 @@ TERRAIN_DIR = Path.home() / "Sida" / "context_data"
 SUFFIX = ".terrain.sqlite"
 FORMAT = 1
 KINDS = ("road", "sidewalk", "water")
+# What a building keeps from GIS건물통합정보: PNU, 용도, 높이 (m), 지상층수, 건물명, 동명, 기준일.
+BUILDING_FIELDS = ("pnu", "use", "height", "floors", "name", "dong", "date")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -32,6 +37,8 @@ CREATE TABLE IF NOT EXISTS spots (id INTEGER PRIMARY KEY, lon REAL NOT NULL, lat
 CREATE VIRTUAL TABLE IF NOT EXISTS spots_box USING rtree(id, west, east, south, north);
 CREATE TABLE IF NOT EXISTS areas (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, ring TEXT NOT NULL);
 CREATE VIRTUAL TABLE IF NOT EXISTS areas_box USING rtree(id, west, east, south, north);
+CREATE TABLE IF NOT EXISTS buildings (id INTEGER PRIMARY KEY, ring TEXT NOT NULL, attrs TEXT NOT NULL);
+CREATE VIRTUAL TABLE IF NOT EXISTS buildings_box USING rtree(id, west, east, south, north);
 """
 
 
@@ -84,6 +91,21 @@ def add_area(conn: sqlite3.Connection, kind: str, ring: list[list[float]]) -> No
     conn.execute("INSERT INTO areas_box VALUES (?, ?, ?, ?, ?)", (cur.lastrowid, min(lons), max(lons), min(lats), max(lats)))
 
 
+def add_building(conn: sqlite3.Connection, ring: list[list[float]], attrs: dict) -> None:
+    """One building outline ([lon, lat] ring) and its BUILDING_FIELDS values."""
+    if len(ring) < 3:
+        return
+    lons = [p[0] for p in ring]
+    lats = [p[1] for p in ring]
+    kept = {k: attrs.get(k) for k in BUILDING_FIELDS if attrs.get(k) not in (None, "")}
+    cur = conn.execute(
+        "INSERT INTO buildings (ring, attrs) VALUES (?, ?)",
+        (json.dumps([[round(x, 7), round(y, 7)] for x, y in ring], separators=(",", ":")),
+         json.dumps(kept, ensure_ascii=False, separators=(",", ":"))),
+    )
+    conn.execute("INSERT INTO buildings_box VALUES (?, ?, ?, ?, ?)", (cur.lastrowid, min(lons), max(lons), min(lats), max(lats)))
+
+
 def packs(folder: Path | None = None) -> list[Path]:
     """Every pack in the folder (TERRAIN_DIR by default), by name."""
     folder = TERRAIN_DIR if folder is None else folder
@@ -98,12 +120,12 @@ def info(path: Path) -> dict:
 
 def query(west: float, south: float, east: float, north: float, folder: Path | None = None) -> dict:
     """
-    Contours, spot heights and ground areas touching the box, from every pack in the folder:
-    {"contours": [{"elev", "points": [[lon, lat]]}], "spots": [[lon, lat, elev]],
-    "areas": [{"kind", "ring": [[lon, lat]]}], "sources": [pack meta]}. Empty lists when no
-    pack covers the box.
+    Contours, spot heights, ground areas and buildings touching the box, from every pack in the
+    folder: {"contours": [{"elev", "points": [[lon, lat]]}], "spots": [[lon, lat, elev]],
+    "areas": [{"kind", "ring": [[lon, lat]]}], "buildings": [{"ring", **BUILDING_FIELDS}],
+    "sources": [pack meta]}. Empty lists when no pack covers the box.
     """
-    out: dict = {"contours": [], "spots": [], "areas": [], "sources": []}
+    out: dict = {"contours": [], "spots": [], "areas": [], "buildings": [], "sources": []}
     for path in packs(folder):
         with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as conn:
             lines = conn.execute(
@@ -121,11 +143,17 @@ def query(west: float, south: float, east: float, north: float, folder: Path | N
                 "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",
                 (west, east, south, north),
             ).fetchall() if _has_table(conn, "areas") else []
-            if lines or points or areas:
+            houses = conn.execute(
+                "SELECT h.ring, h.attrs FROM buildings h JOIN buildings_box b ON b.id = h.id "
+                "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",
+                (west, east, south, north),
+            ).fetchall() if _has_table(conn, "buildings") else []
+            if lines or points or areas or houses:
                 out["sources"].append(dict(conn.execute("SELECT key, value FROM meta")))
         out["contours"] += [{"elev": elev, "points": json.loads(text)} for elev, text in lines]
         out["spots"] += [[lon, lat, elev] for lon, lat, elev in points]
         out["areas"] += [{"kind": kind, "ring": json.loads(text)} for kind, text in areas]
+        out["buildings"] += [{"ring": json.loads(ring), **json.loads(attrs)} for ring, attrs in houses]
     return out
 
 

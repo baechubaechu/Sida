@@ -193,8 +193,8 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None) -> dict:
     areas = [(a["kind"], frame.local(a["ring"])) for a in found["areas"]]
     grid = solve_ground(fixed, half, SOLVE_STEP)
     if grid is None:
-        return {"grid": None, "half": half, "step": SOLVE_STEP, "ground_elev": None, "contours": [], "sources": [],
-                "areas": areas}
+        return {"grid": None, "half": half, "step": SOLVE_STEP, "ground_elev": None, "contours": [],
+                "sources": found["sources"], "areas": areas, "buildings": found["buildings"]}
     elev0 = float(sample(grid, half, SOLVE_STEP, [0.0], [0.0])[0])
     contours = []
     for elev, pts in lines:
@@ -207,7 +207,7 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None) -> dict:
             })
     return {
         "grid": grid - elev0, "half": half, "step": SOLVE_STEP, "ground_elev": round(elev0, 2),
-        "contours": contours, "sources": found["sources"], "areas": areas,
+        "contours": contours, "sources": found["sources"], "areas": areas, "buildings": found["buildings"],
     }
 
 
@@ -341,18 +341,35 @@ def _match(records: list[dict], props: dict, area: float) -> dict | None:
     return None
 
 
+def _pack_features(buildings: list[dict]) -> list[dict]:
+    """Pack buildings (terrain_pack.BUILDING_FIELDS) in the shape VWorld's 건축물정보 features have."""
+    return [
+        {"properties": {"bld_nm": b.get("name", ""), "dong_nm": b.get("dong", ""), "height": b.get("height"),
+                        "grnd_flr": b.get("floors"), "pnu": b.get("pnu", ""), "use": b.get("use", "")},
+         "shape": {"type": "Polygon", "coordinates": [b["ring"]]}}
+        for b in buildings
+    ]
+
+
 def surroundings(
     frame: Frame, radius: float, ground_at: Callable, *, site_rings: list[np.ndarray] | None = None,
-    http_get=None, ledger: Callable[[str], list[dict]] | None = None,
+    http_get=None, ledger: Callable[[str], list[dict]] | None = None, packed: list[dict] | None = None,
 ) -> dict:
-    """Buildings (with their height and where it came from) and parcels around the site."""
+    """
+    Buildings (with their height and where it came from) and parcels around the site. The
+    buildings come from the packs (`packed`, GIS건물통합정보) where there are some, else from
+    VWorld's 건축물정보 and 도로명주소 건물 layers.
+    """
     box = frame.box(radius)
     notes: list[str] = []
-    bldg = landapi.features_in_box("LT_C_BLDGINFO", *box, http_get=http_get)
-    try:
-        spbd = landapi.features_in_box("LT_C_SPBD", *box, http_get=http_get)
-    except landapi.LandApiError as exc:
-        spbd, notes = [], [*notes, f"spbd:{exc.kind}"]
+    if packed:
+        bldg, spbd, file_source = _pack_features(packed), [], "file"
+    else:
+        bldg, file_source = landapi.features_in_box("LT_C_BLDGINFO", *box, http_get=http_get), "vworld"
+        try:
+            spbd = landapi.features_in_box("LT_C_SPBD", *box, http_get=http_get)
+        except landapi.LandApiError as exc:
+            spbd, notes = [], [*notes, f"spbd:{exc.kind}"]
     parcels = landapi.features_in_box("LP_PA_CBND_BUBUN", *box, http_get=http_get)
 
     lots = [(_rings(p["shape"], frame), str(p["properties"].get("pnu") or ""), str(p["properties"].get("jibun") or ""))
@@ -374,7 +391,7 @@ def surroundings(
     def pnu_at(pt) -> str | None:
         return next((pnu for rings, pnu, _j in lots if any(_inside(pt, r) for r in rings)), None)
 
-    pnus = {i: pnu_at(found[i][3]) for i in range(len(found)) if i not in inner}
+    pnus = {i: str(found[i][1].get("pnu") or "") or pnu_at(found[i][3]) for i in range(len(found)) if i not in inner}
     records: dict[str, list[dict]] = {}
     wanted = sorted({p for p in pnus.values() if p})
     if wanted:
@@ -395,7 +412,7 @@ def surroundings(
                     records[pnu] = rows
 
     buildings, unknown, left_out = [], [], []
-    counts = {"ledger": 0, "vworld": 0, "estimate": 0, "unknown": 0, "inner": len(inner)}
+    counts = {"ledger": 0, "vworld": 0, "file": 0, "estimate": 0, "unknown": 0, "inner": len(inner)}
     for i, (ring, props, area, middle) in enumerate(found):
         ccw = ring if _area(ring) > 0 else ring[::-1]
         edge = _densify(np.vstack([ccw, ccw[:1]]), DRAPE_GAP)
@@ -410,14 +427,14 @@ def surroundings(
             left_out.append({"outline": outline, "base": round(base, 2), "name": name})
             continue
         row = _match(records.get(pnus[i] or "", []), props, area)
-        use = (row or {}).get("purpose", "")
+        use = (row or {}).get("purpose", "") or str(props.get("use") or "")
         floors = (row or {}).get("floors_above") or int(_number(props.get("grnd_flr"))) or int(
             next((fl for rings, fl in floors_spbd if fl > 0 and any(_inside(middle, r) for r in rings)), 0)
         )
         if row and (row.get("height_m") or 0) > 0:
             height, source = float(row["height_m"]), "ledger"
         elif _number(props.get("height")) > 0:
-            height, source = _number(props.get("height")), "vworld"
+            height, source = _number(props.get("height")), file_source
         elif floors:
             height, source = floors * storey_height(use), "estimate"
         else:
@@ -474,11 +491,17 @@ def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = N
         def ground_at(x, y):
             return sample(g["grid"], g["half"], g["step"], x, y)
     site_rings = [np.asarray(r, dtype=float) for p in plan.get("parcels") or [] for r in p.get("rings") or []]
-    around = surroundings(frame, radius, ground_at, site_rings=site_rings, http_get=http_get, ledger=ledger)
-    terrain_sources = [
-        {"name": s.get("source", ""), "date": s.get("source_date", ""), "pack": s.get("name", "")}
-        for s in g["sources"]
-    ]
+    packed = [b for b in g["buildings"] if np.abs(frame.local(b["ring"]).mean(axis=0)).max() <= radius]
+    around = surroundings(frame, radius, ground_at, site_rings=site_rings, http_get=http_get, ledger=ledger,
+                          packed=packed)
+
+    def source(s):
+        return {"name": s.get("source", ""), "date": s.get("source_date", ""), "pack": s.get("name", "")}
+
+    terrain_sources = [source(s) for s in g["sources"] if s.get("kind", "contours") in ("contours", "areas")]
+    building_packs = [source(s) for s in g["sources"] if s.get("kind") == "buildings"]
+    building_source = (building_packs[0] if packed and building_packs
+                       else {"name": "브이월드 건축물정보·도로명주소 건물 (실시간, 저장하지 않음)", "date": "", "pack": ""})
     out = {
         "origin": {"lon": origin["lon"], "lat": origin["lat"]},
         "radius": radius,
@@ -487,6 +510,7 @@ def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = N
             ("road", np.asarray(p["ring"], dtype=float)) for p in around["parcels"] if p["road"]
         ]),
         "terrain_sources": terrain_sources,
+        "building_source": building_source,
         "contours": g["contours"],
         **around,
         "seconds": round(time.perf_counter() - started, 1),
