@@ -288,6 +288,8 @@ function tableHooks(name) {
       return api(`${projectApi(name)}/board/photos`, { method: 'POST', form });
     }, true),
     photoUrl: (id) => `${projectApi(name)}/board/photos/${encodeURIComponent(id)}`,
+    // The site's surroundings in 3D (ground, nearby buildings): GET .../site/context.
+    context: (radius) => api(`${projectApi(name)}/site/context?radius=${encodeURIComponent(radius)}`),
     place: (id, placement) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}/place`, { method: 'POST', body: placement }), true),
     discard: (id) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}`, { method: 'DELETE' }), true),
     select: (ids) => { ui.selected = ids; render(false); },

@@ -556,3 +556,33 @@ test('a removed photo can be undone (the server keeps its file)', () => {
   const history = recordStep(createHistory(), [{ op: 'remove', paper: photo }]);
   assert.equal(history.past.length, 1);
 });
+
+test('contour lines cut the ground grid at every interval, every fifth is an index line', async () => {
+  const { contourLines, groundPoint, aroundNote, isEstimate } = await import('../../webui/app/board-model.js');
+  // a 3 × 3 grid rising 1 m per 10 m to the north: z = 0, 1, 2 by row
+  const terrain = { min: -10, step: 10, n: 3, z: [0, 0, 0, 1, 1, 1, 2, 2, 2] };
+  assert.deepEqual(groundPoint(terrain, 2, 1), [10, 0, 1]);
+  const lines = contourLines(terrain, 0.5);
+  assert.deepEqual(lines.map((l) => l.z), [0.5, 1, 1.5]);
+  for (const s of lines.find((l) => l.z === 0.5).segments) { close(s[1], -5); close(s[3], -5); }
+  assert.equal(contourLines(terrain, 0.2).find((l) => l.z === 1).index, true);
+  assert.equal(contourLines(terrain, 0.2).find((l) => l.z === 0.6).index, false);
+  assert.deepEqual(contourLines(null, 1), []);
+  assert.deepEqual(contourLines(terrain, 0), []);
+
+  const note = aroundNote({
+    terrain_sources: [{ name: '국토지리정보원 등고선', date: '2026-10-01' }],
+    building_source: { name: 'GIS건물통합정보', date: '2026-03-06' },
+    counts: { ledger: 2, vworld: 0, estimate: 3, map_estimate: 1, unknown: 4 }, disclaimer: '측량 결과가 아닙니다.',
+  });
+  assert.match(note[0], /기준 2026-10-01/);
+  assert.equal(note[1], '건물: GIS건물통합정보 (기준 2026-03-06)');
+  assert.match(note[2], /건축물대장 높이 2동/);
+  assert.match(note[2], /추정\(수치지형도 층수\) 1동/);
+  assert.doesNotMatch(note[2], /건축물정보 높이/); // a source no building used is not listed
+  assert.match(note[2], /높이 미확인 4동/);
+  assert.equal(isEstimate({ height_source: 'map_estimate' }), true);
+  assert.equal(isEstimate({ height_source: 'ledger' }), false);
+  assert.ok(note.some((l) => l.includes('추정')) && note.at(-1) === '측량 결과가 아닙니다.');
+  assert.match(aroundNote({ terrain_sources: [], counts: {} })[0], /평지/);
+});
