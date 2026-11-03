@@ -334,3 +334,28 @@ def test_a_file_building_without_height_or_floors_asks_vworld_once_per_layer(tmp
     assert out["counts"]["api_estimate"] == 1 and out["counts"]["unknown"] == 0
     assert sorted(calls) == ["LP_PA_CBND_BUBUN", "LT_C_BLDGINFO", "LT_C_SPBD"]  # one box query each
     assert not any(p.name != f"b{terrain_pack.SUFFIX}" for p in tmp_path.iterdir())  # nothing written down
+
+
+def test_vworld_floors_stay_out_of_the_export(tmp_path, monkeypatch):
+    """The building that got VWorld's floors on the screen goes out as a ground line (no map floors here)."""
+    test_a_file_building_without_height_or_floors_asks_vworld_once_per_layer(tmp_path, monkeypatch)
+    import json
+    from pathlib import Path
+
+    fixtures = Path(__file__).resolve().parents[2] / "fixtures" / "landapi"
+    origin = json.loads((fixtures / "context_pack_building_mugyo.json").read_text(encoding="utf-8"))["origin"]
+    out = context3d.build({"origin": origin, "parcels": []}, 200, folder=tmp_path, ledger=lambda pnu: [], use_cache=False)
+    assert out["buildings"][0]["offline"] is None
+    layers = {layer["short"]: layer for layer in context3d.export_layers(out)}
+    assert "건물 - 추정 높이" not in layers and len(layers["건물 - 높이 미확인(바닥선)"]["curves"]) == 1
+
+    # with a 1:5,000 building over it, the export uses those floors instead
+    conn = terrain_pack.create(tmp_path / f"m{terrain_pack.SUFFIX}", {"name": "m", "kind": "areas", "source": "1:5,000"})
+    terrain_pack.add_map_building(conn, json.loads((fixtures / "context_pack_building_mugyo.json").read_text(encoding="utf-8"))["ring"], 6, "")
+    conn.commit()
+    conn.close()
+    out = context3d.build({"origin": origin, "parcels": []}, 200, folder=tmp_path, ledger=lambda pnu: [], use_cache=False)
+    b = out["buildings"][0]
+    assert b["height_source"] == "api_estimate" and b["offline"] == {"height": pytest.approx(6 * 3.8), "source": "map_estimate", "floors": 6}
+    solid = {layer["short"]: layer for layer in context3d.export_layers(out)}["건물 - 추정 높이"]["solids"][0]
+    assert solid["height"] == pytest.approx(b["ground"] + 6 * 3.8 - b["base"], abs=0.02)

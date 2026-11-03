@@ -494,6 +494,10 @@ def surroundings(
         elif packed and (asked := vworld_floors(middle)):
             floors = asked
             height, source = floors * storey_height(use), "api_estimate"
+            # What the file export uses instead: VWorld's floors stay on the screen (제19조)
+            lent = map_floors(ring, map_rings)
+            offline = {"height": round(lent[0] * storey_height(use or lent[1]), 2), "source": "map_estimate",
+                       "floors": int(lent[0])} if lent else None
         elif (lent := map_floors(ring, map_rings)) is not None:
             floors = int(lent[0])
             use = use or lent[1]
@@ -503,10 +507,13 @@ def surroundings(
             unknown.append({"outline": outline, "base": round(base, 2), "ground_line": touch, "name": name})
             continue
         counts[source] += 1
+        if source != "api_estimate":
+            offline = None
         buildings.append({
             "outline": outline, "base": round(base, 2), "ground": round(level, 2),
             "foundation": round(level - base, 2), "top": round(level + height, 2), "ground_line": touch,
             "height": round(height, 2), "height_source": source,
+            **({"offline": offline} if source == "api_estimate" else {}),
             "floors": floors or None, "use": use, "name": name,
             "on_site": bool(site_rings) and any(_inside(middle, r) for r in site_rings),
         })
@@ -566,13 +573,19 @@ def export_layers(around: dict) -> list[dict]:
             out.append(layer(short, color, curves=curves))
     if around.get("building_source", {}).get("pack"):
         groups = {"측정 높이": [], "추정 높이": []}
+        unknown = [{"points": b["ground_line"], "closed": False} for b in around.get("unknown_buildings") or [] if b.get("ground_line")]
         for b in around.get("buildings") or []:
-            key = "추정 높이" if b["height_source"] in ESTIMATES else "측정 높이"
-            groups[key].append({"outline": b["outline"], "base": b["base"], "height": round(b["top"] - b["base"], 2)})
+            height, source = b["height"], b["height_source"]
+            if source == "api_estimate":  # VWorld's floors are for the screen only: fall back without them
+                if not b.get("offline"):
+                    unknown.append({"points": b["ground_line"], "closed": False})
+                    continue
+                height, source = b["offline"]["height"], b["offline"]["source"]
+            key = "추정 높이" if source in ESTIMATES else "측정 높이"
+            groups[key].append({"outline": b["outline"], "base": b["base"], "height": round(b["ground"] + height - b["base"], 2)})
         for short, solids in groups.items():
             if solids:
                 out.append(layer(f"건물 - {short}", (200, 200, 200) if short == "측정 높이" else (220, 200, 160), solids=solids))
-        unknown = [{"points": b["ground_line"], "closed": False} for b in around.get("unknown_buildings") or [] if b.get("ground_line")]
         if unknown:
             out.append(layer("건물 - 높이 미확인(바닥선)", (200, 120, 50), curves=unknown))
     return out
