@@ -3,9 +3,14 @@ Pieces laid out on sheets of material with as little waste as practical.
 
 Each piece is drawn on a grid (`res` mm cells), grown by half the gap plus one cell so pieces
 never come closer than `gap` once cut, and tried in `rotations` orientations. Biggest pieces go
-first (by the room their outline takes, not their area: a ring takes its whole hull); each goes to the lowest, then leftmost, free spot over all orientations on the first
-sheet that has room (found for every spot at once by an FFT correlation of the sheet's filled
-cells with the piece's cells). Holes inside pieces count as free, so small pieces can go in them.
+first (by the room their outline takes, not their area: a ring takes its whole hull); each goes
+to the lowest, then leftmost, free spot over all orientations on the first sheet that has room
+(found for every spot at once by an FFT correlation of the sheet's filled cells with the
+piece's cells).
+
+A laser job cuts in two passes, inner cuts then outer cuts, so pieces nest only one deep: a
+piece without holes may sit in another piece's hole, but a piece with holes never goes inside
+a hole and never has a piece with holes inside its own.
 """
 
 from __future__ import annotations
@@ -79,7 +84,8 @@ def rasterize(poly: Polygon, res: float, shape: tuple[int, int]) -> np.ndarray:
 
 
 def _variants(piece: Piece, rotations: int, res: float, grow: float):
-    """The piece in each orientation: (angle, offset to put its grown bounds at 0,0, cells)."""
+    """The piece in each orientation: (angle, offset to put its grown bounds at 0,0, cells,
+    cells of its outline with the holes filled)."""
     out = []
     seen = set()
     for i in range(rotations):
@@ -89,13 +95,16 @@ def _variants(piece: Piece, rotations: int, res: float, grow: float):
         x0, y0, x1, y1 = grown.bounds
         shape = (int(np.ceil((y1 - y0) / res)), int(np.ceil((x1 - x0) / res)))
         cells = np.zeros(shape, dtype=bool)
+        filled = np.zeros(shape, dtype=bool)
         for part in getattr(grown, "geoms", [grown]):
-            cells |= rasterize(affinity.translate(part, -x0, -y0), res, shape)
+            moved = affinity.translate(part, -x0, -y0)
+            cells |= rasterize(moved, res, shape)
+            filled |= rasterize(Polygon(moved.exterior), res, shape)
         key = (shape, cells.tobytes())
         if key in seen:  # a symmetric piece looks the same turned
             continue
         seen.add(key)
-        out.append((angle, (-x0, -y0), cells))
+        out.append((angle, (-x0, -y0), cells, filled))
     return out
 
 
@@ -110,9 +119,16 @@ def nest(pieces: list[Piece], sheet_w: float, sheet_h: float, *, gap: float = 2.
     def empty_sheet():
         occ = np.ones((rows, cols), dtype=bool)
         occ[edge:rows - edge, edge:cols - edge] = False
-        return occ
+        return {"material": occ, "holed": occ.copy()}  # cut material; outlines of pieces with holes, filled
 
-    sheets: list[np.ndarray] = []
+    def free_spots(grid_f, cells):
+        h, w = cells.shape
+        kernel = np.zeros((rows, cols))
+        kernel[:h, :w] = cells
+        hits = np.fft.irfft2(grid_f * np.conj(np.fft.rfft2(kernel)), s=(rows, cols))
+        return hits[: rows - h + 1, : cols - w + 1] < 0.5
+
+    sheets: list[dict] = []
     placements: list[Placement] = []
     grow = gap / 2 + res
     for piece in sorted(pieces, key=lambda p: -p.shape.convex_hull.area):  # the most room-taking first
@@ -121,32 +137,34 @@ def nest(pieces: list[Piece], sheet_w: float, sheet_h: float, *, gap: float = 2.
         for n in range(len(sheets) + 1):
             if n == len(sheets):
                 sheets.append(empty_sheet())
-            occ = sheets[n]
-            occ_f = np.fft.rfft2(occ.astype(np.float64))
+            grids = sheets[n]
+            material_f = np.fft.rfft2(grids["material"].astype(np.float64))
+            holed_f = np.fft.rfft2(grids["holed"].astype(np.float64)) if piece.holed else None
             best = None
-            for angle, (ox, oy), cells in variants:
+            for angle, (ox, oy), cells, filled in variants:
                 h, w = cells.shape
                 if h > rows or w > cols:
                     continue
-                kernel = np.zeros((rows, cols))
-                kernel[:h, :w] = cells
-                hits = np.fft.irfft2(occ_f * np.conj(np.fft.rfft2(kernel)), s=(rows, cols))
-                free = hits[: rows - h + 1, : cols - w + 1] < 0.5
+                free = free_spots(material_f, cells)
+                if piece.holed:  # not inside a hole, and no piece with holes inside its own
+                    free &= free_spots(holed_f, filled)
                 if not free.any():
                     continue
                 r = int(np.argmax(free.any(axis=1)))  # lowest row with room
                 c = int(np.argmax(free[r]))
                 score = (r + h, c)
                 if best is None or score < best[0]:
-                    best = (score, r, c, angle, ox, oy, cells)
+                    best = (score, r, c, angle, ox, oy, cells, filled)
             if best is None:
-                if n == len(sheets) - 1 and not occ[edge:rows - edge, edge:cols - edge].any():
+                if n == len(sheets) - 1 and not grids["material"][edge:rows - edge, edge:cols - edge].any():
                     sheets.pop()
                     raise DoesNotFit(f"piece {piece.id} does not fit on a {sheet_w:g} × {sheet_h:g} mm sheet")
                 continue
-            _, r, c, angle, ox, oy, cells = best
+            _, r, c, angle, ox, oy, cells, filled = best
             h, w = cells.shape
-            occ[r:r + h, c:c + w] |= cells
+            grids["material"][r:r + h, c:c + w] |= cells
+            if piece.holed:
+                grids["holed"][r:r + h, c:c + w] |= filled
             placements.append(Placement(piece=piece, sheet=n, angle=angle, dx=c * res + ox, dy=r * res + oy))
             placed = True
             break
