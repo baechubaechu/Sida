@@ -1,10 +1,12 @@
 """
 Files for the laser and for the person putting the model together.
 
-- `sheet_svg` / `sheet_dxf`: one sheet for the laser, in mm. Cut lines red, engraved lines
-  blue (the colours most laser shops map to cut and score; change them with `colors`). Each
-  piece has its id and a north arrow engraved, so a cut piece says which layer it is and which
-  way it faces.
+- `sheet_svg` / `sheet_dxf`: one sheet for the laser, in mm, in three kinds of line: engrave
+  (blue), inner cut (red: holes, and the outline of a piece that sits in a hole, innermost
+  first) and outer cut (green: the outer outlines). The laser runs engrave, then inner, then
+  outer, so nothing drops out before it is cut. Change the colours with `colors`. Each piece
+  has its id and a north arrow engraved, so a cut piece says which layer it is and which way
+  it faces.
 - `guide_svg`: the same sheet for people, pieces filled by height and ids written large.
 - `assembly_svg`: the finished model from above, every piece in its place with its id, the
   site outlined, a north arrow and a scale bar.
@@ -22,9 +24,8 @@ from sida.model_base.nesting import Layout, Placement
 from sida.model_base.pieces import ModelPlan, Piece, _polygons
 from sida.model_base.strokefont import strokes, text_width
 
-CUT = "#FF0000"
-ENGRAVE = "#0000FF"
-COLORS = {"cut": CUT, "engrave": ENGRAVE}
+COLORS = {"engrave": "#0000FF", "inner": "#FF0000", "outer": "#00A000"}
+DXF_LAYERS = {"engrave": ("ENGRAVE", 5), "inner": ("CUT_INNER", 1), "outer": ("CUT_OUTER", 3)}  # ACI blue, red, green
 HAIRLINE = 0.1  # mm: lasers read the colour, not the width
 LOW, HIGH = (233, 228, 206), (104, 132, 86)  # guide fill from the lowest to the highest layer
 
@@ -83,37 +84,52 @@ def _piece_geometry(p: Placement):
     return shape, cuts, engrave + label_strokes(p.piece, p)
 
 
+def cut_passes(layout: Layout, sheet: int) -> dict:
+    """
+    The sheet's lines by laser pass: engrave, inner (each closed cut inside another one, the
+    deepest first) and outer (the rest). `depth` counts the cut lines around a line; layouts
+    nest one deep, so it is 0, 1 (a hole) or 2 (a piece in a hole).
+    """
+    rings, engrave = [], []
+    for p in layout.on_sheet(sheet):
+        _, cuts, lines = _piece_geometry(p)
+        rings += cuts
+        engrave += [line for line in lines if len(line) > 1]
+    areas = [Polygon(r) for r in rings]
+    depth = []
+    for i, poly in enumerate(areas):
+        inside = poly.representative_point()
+        depth.append(sum(1 for j, other in enumerate(areas) if j != i and other.area > poly.area and other.contains(inside)))
+    inner = [r for _, r in sorted(((d, r) for d, r in zip(depth, rings, strict=True) if d > 0), key=lambda t: -t[0])]
+    outer = [r for d, r in zip(depth, rings, strict=True) if d == 0]
+    return {"engrave": engrave, "inner": inner, "outer": outer, "max_depth": max(depth, default=0)}
+
+
 def sheet_svg(layout: Layout, sheet: int, colors: dict | None = None) -> str:
     c = {**COLORS, **(colors or {})}
     w, h = layout.sheet_w, layout.sheet_h
     flip = _flip(h)
-    cut_paths, engrave_paths = [], []
-    for p in layout.on_sheet(sheet):
-        _, cuts, engrave = _piece_geometry(p)
-        cut_paths += [_path(r, flip, closed=True) for r in cuts]
-        engrave_paths += [_path(line, flip) for line in engrave if len(line) > 1]
+    passes = cut_passes(layout, sheet)
     style = f'fill="none" stroke-width="{HAIRLINE}"'
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}mm" height="{h}mm" viewBox="0 0 {w} {h}">\n'
-        f'<g id="engrave" {style} stroke="{c["engrave"]}">\n' + "\n".join(f'<path d="{d}"/>' for d in engrave_paths) + "\n</g>\n"
-        f'<g id="cut" {style} stroke="{c["cut"]}">\n' + "\n".join(f'<path d="{d}"/>' for d in cut_paths) + "\n</g>\n</svg>\n"
-    )
+    groups = []
+    for name, closed in (("engrave", False), ("inner", True), ("outer", True)):  # the order the laser runs them
+        paths = "\n".join(f'<path d="{_path(line, flip, closed=closed)}"/>' for line in passes[name])
+        groups.append(f'<g id="{name}" {style} stroke="{c[name]}">\n{paths}\n</g>')
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}mm" height="{h}mm" viewBox="0 0 {w} {h}">\n'
+            + "\n".join(groups) + "\n</svg>\n")
 
 
 def sheet_dxf(layout: Layout, sheet: int, path) -> None:
     import ezdxf
 
     doc = ezdxf.new("R2013", setup=True, units=4)  # 4 = millimetres
-    doc.layers.add("CUT", color=1)  # red
-    doc.layers.add("ENGRAVE", color=5)  # blue
+    for name, color in DXF_LAYERS.values():
+        doc.layers.add(name, color=color)
     msp = doc.modelspace()
-    for p in layout.on_sheet(sheet):
-        _, cuts, engrave = _piece_geometry(p)
-        for ring in cuts:
-            msp.add_lwpolyline(ring, close=True, dxfattribs={"layer": "CUT"})
-        for line in engrave:
-            if len(line) > 1:
-                msp.add_lwpolyline(line, dxfattribs={"layer": "ENGRAVE"})
+    passes = cut_passes(layout, sheet)
+    for kind in ("engrave", "inner", "outer"):
+        for line in passes[kind]:
+            msp.add_lwpolyline(line, close=kind != "engrave", dxfattribs={"layer": DXF_LAYERS[kind][0]})
     doc.saveas(path)
 
 
@@ -137,7 +153,7 @@ def guide_svg(layout: Layout, sheet: int, plan: ModelPlan) -> str:
         size = max(2.5, min(9, p.piece.label_room * 0.7))
         out.append(_text(x, y + size * 0.35, size, p.piece.id))
     total = sum(1 for _ in layout.on_sheet(sheet))
-    out.append(_text(2, h + 10, 5, f"판 {sheet + 1}/{layout.sheets} · 조각 {total}개 · {w:g}×{h:g} mm · 색이 진할수록 높은 층 · 점선: 다음 층·대지 경계 새김선", anchor="start", weight="400"))
+    out.append(_text(2, h + 10, 5, f"판 {sheet + 1}/{layout.sheets} · 조각 {total}개 · {w:g}×{h:g} mm · 색이 진할수록 높은 층 · 점선: 다음 층·대지 경계 새김선 · 레이저 순서: 새김 → 내부 커팅(빨강) → 외부 커팅(초록)", anchor="start", weight="400"))
     out.append("</svg>\n")
     return "\n".join(out)
 
@@ -177,7 +193,8 @@ def plan_pieces(layout: Layout) -> list[Piece]:
 def piece_rows(layout: Layout) -> list[dict]:
     return [
         {"id": p.piece.id, "layer": p.piece.layer, "level_m": p.piece.level_m, "sheet": p.sheet + 1,
-         "tile": p.piece.tile, "area_mm2": round(p.piece.area, 1), "label_hidden": p.piece.label_hidden}
+         "tile": p.piece.tile, "seam_shown_mm": p.piece.seam_mm, "area_mm2": round(p.piece.area, 1),
+         "label_hidden": p.piece.label_hidden}
         for p in sorted(layout.placements, key=lambda q: (q.piece.layer, q.piece.id))
     ]
 
