@@ -171,6 +171,13 @@ def assembly_svg(plan: ModelPlan, layout: Layout) -> str:
         out.append(f'<path d="{d}" fill="{layer_fill(piece.layer, len(plan.layers))}" fill-rule="evenodd" stroke="#5b4a3a" stroke-width="0.25"/>')
     if plan.site_mm is not None:
         out.append(f'<path d="{_path(list(plan.site_mm.exterior.coords), flip, closed=True)}" fill="none" stroke="#cf3f2e" stroke-width="0.8" stroke-dasharray="3 1.5"/>')
+    if len(plan.modules) > 1:  # where the model comes apart, and which module is which
+        for n, module in enumerate(plan.modules, start=1):
+            out.append(f'<path d="{_path(list(module.exterior.coords), flip, closed=True)}" fill="none" stroke="#20262d" stroke-width="1.2"/>')
+            mx0, _, _, my1 = module.bounds
+            x, y = flip(mx0 + 4, my1 - 4)
+            out.append(f'<circle cx="{x + 5}" cy="{y + 5}" r="5" fill="#20262d"/>')
+            out.append(_text(x + 5, y + 7, 6, str(n), fill="#ffffff"))
     for piece in plan_pieces(layout):
         x, y = flip(*piece.show_at)
         size = max(3.2, min(7, piece.show_room * 0.8))
@@ -181,7 +188,9 @@ def assembly_svg(plan: ModelPlan, layout: Layout) -> str:
     bar = 20 * 1000 / plan.scale  # 20 m
     out.append(f'<path d="M{pad},{h + pad + 8} h{bar}" stroke="#20262d" stroke-width="0.8"/>')
     out.append(_text(pad + bar / 2, h + pad + 13, 3.5, "20 m", weight="400"))
-    out.append(_text(pad, h + pad + 20, 4, f"조립도 1:{plan.scale} · 판 두께 {plan.thickness_mm:g} mm = 등고 {plan.interval_m:g} m · 조각 이름·판 번호 (예: 03B·2 = 3층 B 조각, 2번 판)", anchor="start", weight="400"))
+    example = "1-03B·2 = 1번 모듈 3층 B 조각, 2번 판" if len(plan.modules) > 1 else "03B·2 = 3층 B 조각, 2번 판"
+    modules = f" · 모듈 {len(plan.modules)}개(굵은 선에서 나뉨)" if len(plan.modules) > 1 else ""
+    out.append(_text(pad, h + pad + 20, 4, f"조립도 1:{plan.scale} · 판 두께 {plan.thickness_mm:g} mm = 등고 {plan.interval_m:g} m{modules} · 조각 이름·판 번호 (예: {example})", anchor="start", weight="400"))
     out.append("</svg>\n")
     return "\n".join(out)
 
@@ -192,9 +201,8 @@ def plan_pieces(layout: Layout) -> list[Piece]:
 
 def piece_rows(layout: Layout) -> list[dict]:
     return [
-        {"id": p.piece.id, "layer": p.piece.layer, "level_m": p.piece.level_m, "sheet": p.sheet + 1,
-         "tile": p.piece.tile, "seam_shown_mm": p.piece.seam_mm, "area_mm2": round(p.piece.area, 1),
-         "label_hidden": p.piece.label_hidden}
-        for p in sorted(layout.placements, key=lambda q: (q.piece.layer, q.piece.id))
+        {"id": p.piece.id, "module": p.piece.module, "layer": p.piece.layer, "level_m": p.piece.level_m,
+         "sheet": p.sheet + 1, "area_mm2": round(p.piece.area, 1), "label_hidden": p.piece.label_hidden}
+        for p in sorted(layout.placements, key=lambda q: (q.piece.module, q.piece.layer, q.piece.id))
     ]
 

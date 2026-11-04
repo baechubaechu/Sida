@@ -27,11 +27,8 @@ from sida.model_base.output import (  # noqa: E402
     sheet_dxf,
     sheet_svg,
 )
-from sida.model_base.pieces import HOLLOW_MODES  # noqa: E402
 from sida.model_base.plan import cut_plan  # noqa: E402
 from sida.model_base.terrain import example_terrain  # noqa: E402
-
-HOLLOW_LABELS = {"none": "안 함", "all": "모든 층", "alternate": "한 층 걸러"}
 
 
 def size(text: str) -> tuple[float, float]:
@@ -47,9 +44,7 @@ def main(argv=None) -> int:
     ap.add_argument("--area", default="240x180", help="ground to model, m (east-west x north-south)")
     ap.add_argument("--relief", type=float, default=16.0, help="example ground: highest minus lowest, m")
     ap.add_argument("--seed", type=int, default=7, help="which example ground")
-    ap.add_argument("--hollow", choices=("auto", *HOLLOW_MODES), default="auto",
-                    help="hollow the hidden middle of none, all or every other layer (auto: the fewest sheets)")
-    ap.add_argument("--rim", type=float, default=8.0, help="rim kept under the next layer when hollowing, mm")
+    ap.add_argument("--hollow", type=float, default=0.0, help="hollow the hidden middle of each layer, keeping this rim (mm); 0 = solid")
     ap.add_argument("--colors", default="", help="laser colours, e.g. engrave=#0000FF,inner=#FF0000,outer=#00A000")
     ap.add_argument("--gap", type=float, default=2.0, help="space between pieces, mm")
     ap.add_argument("--margin", type=float, default=5.0, help="unused edge of the sheet, mm")
@@ -63,8 +58,7 @@ def main(argv=None) -> int:
     started = time.time()
     terrain = example_terrain(a.seed, width_m=width_m, depth_m=depth_m, relief_m=a.relief)
     colors = dict(item.split("=", 1) for item in a.colors.split(",") if "=" in item)
-    cut = cut_plan(terrain, sheet_w, sheet_h, scale=a.scale, thickness_mm=a.thickness,
-                   hollow=HOLLOW_MODES if a.hollow == "auto" else a.hollow, hollow_rim_mm=a.rim,
+    cut = cut_plan(terrain, sheet_w, sheet_h, scale=a.scale, thickness_mm=a.thickness, hollow_rim_mm=a.hollow,
                    gap=a.gap, margin=a.margin, res=a.res, rotations=a.rotations)
     plan, pieces, layout = cut.model, cut.pieces, cut.layout
 
@@ -82,14 +76,11 @@ def main(argv=None) -> int:
         writer.writerows(rows)
 
     w, d = plan.size_mm
-    print(f"{terrain.name}: {width_m:g}×{depth_m:g} m → 모형 {w:.0f}×{d:.0f} mm (1:{a.scale})")
+    print(f"{terrain.name}: {width_m:g}×{depth_m:g} m → 모형 {w:.0f}×{d:.0f} mm (1:{a.scale})"
+          + (f" → 판에 맞게 모듈 {len(plan.modules)}개로 나눔" if len(plan.modules) > 1 else ""))
     print(f"판 {a.thickness:g} mm = 등고 {plan.interval_m:g} m · 층 {len(plan.layers)}개 · 조각 {len(pieces)}개"
           + (f" (너무 작아 뺀 조각 {plan.dropped}개)" if plan.dropped else ""))
     print(f"재료 {sheet_w:g}×{sheet_h:g} mm 판 {layout.sheets}장 · 재료 사용률 {layout.utilisation() * 100:.0f}%"
-          + f" · 속 비우기: {HOLLOW_LABELS[cut.hollow]}"
-          + (" · 다음 층에 가려지는 선으로 나눔" if cut.hidden_cuts and any(p.tile for p in pieces) else "")
-          + (" · 고리를 칼집으로 엶" if cut.opened else "")
-          + (f" · 판보다 커서 나눈 이음 중 보이는 길이 {cut.seam_mm:g} mm" if cut.seam_mm else "")
           + f" · {time.time() - started:.1f}초")
     print(f"파일: {out}/")
     return 0
