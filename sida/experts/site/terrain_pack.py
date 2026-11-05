@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 TERRAIN_DIR = Path.home() / "Sida" / "context_data"
@@ -130,7 +131,7 @@ def packs(folder: Path | None = None) -> list[Path]:
 
 def info(path: Path) -> dict:
     """A pack's meta values (source, version date, bounds as given when it was made)."""
-    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as conn:
+    with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as conn:
         return dict(conn.execute("SELECT key, value FROM meta"))
 
 
@@ -144,7 +145,7 @@ def query(west: float, south: float, east: float, north: float, folder: Path | N
     """
     out: dict = {"contours": [], "spots": [], "areas": [], "buildings": [], "map_buildings": [], "sources": []}
     for path in packs(folder):
-        with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as conn:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as conn:
             lines = conn.execute(
                 "SELECT c.elev, c.points FROM contours c JOIN contours_box b ON b.id = c.id "
                 "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",

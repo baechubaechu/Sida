@@ -25,7 +25,9 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+import tempfile
 import time
+from contextlib import ExitStack
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,9 +65,17 @@ def main() -> int:
     ap.add_argument("--source-date", default="", help="the download's 기준일 / 갱신일 (contours, areas)")
     ap.add_argument("--out", type=Path, default=terrain_pack.TERRAIN_DIR)
     args = ap.parse_args()
+    if Path(args.name).name != args.name or args.name in {"", ".", ".."}:
+        ap.error("--name must be a single file name")
     if not (args.contours or args.areas or args.buildings):
         ap.error("give --contours, --areas or --buildings")
 
+    args.out.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=args.out) as staging, ExitStack() as cleanup:
+        return build(args, Path(staging), cleanup)
+
+
+def build(args, staging: Path, cleanup: ExitStack) -> int:
     import shapefile  # pyshp
     from pyproj import CRS, Transformer
 
@@ -89,17 +99,19 @@ def main() -> int:
         return [shape.points[a:z] for a, z in zip(bounds, bounds[1:], strict=False)]
 
     def pack(kind: str, date: str):
-        path = args.out / f"{args.name}-{kind}{terrain_pack.SUFFIX}"
+        path = staging / f"{args.name}-{kind}{terrain_pack.SUFFIX}"
         conn = terrain_pack.create(path, {
             "name": f"{args.name}-{kind}", "kind": kind, "source": SOURCES[kind], "source_date": date,
             "box": args.box, "made": time.strftime("%Y-%m-%d"),
         })
+        cleanup.callback(conn.close)
         return path, conn
 
     def done(path: Path, conn, counted: str, started: float) -> None:
         conn.commit()
         conn.execute("VACUUM")
         conn.close()
+        path = path.replace(args.out / path.name)
         print(f"wrote {path} ({path.stat().st_size / 1e6:.1f} MB): {counted} in {time.perf_counter() - started:.0f} s")
 
     if args.contours:
@@ -124,10 +136,15 @@ def main() -> int:
             reader = shapefile.Reader(str(shp)[:-4], encoding="cp949")
             nume = [f[0] for f in reader.fields[1:]].index("NUME")
             for i, shape in enumerate(reader.iterShapes()):
-                if shape.points and not outside(shape.bbox, own):
-                    lon, lat = tr.transform(*shape.points[0])
+                if not shape.points:
+                    continue
+                x, y = shape.points[0][:2]
+                if own[0] <= x <= own[2] and own[1] <= y <= own[3]:
+                    lon, lat = tr.transform(x, y)
                     terrain_pack.add_spot(conn, lon, lat, float(reader.record(i)[nume]))
                     points += 1
+        if not (lines or points):
+            raise ValueError("no contours or spot heights found in the requested area")
         done(path, conn, f"{lines} lines, {points} spots", started)
 
     if args.areas:
@@ -163,6 +180,8 @@ def main() -> int:
                     lons, lats = tr.transform(*zip(*parts(shape)[0], strict=True))
                     terrain_pack.add_map_building(conn, [list(p) for p in zip(lons, lats, strict=True)], floors, str(row[use_at] or ""))
                     houses += 1
+        if not (count or houses):
+            raise ValueError("no areas or map buildings found in the requested area")
         done(path, conn, f"{count} areas, {houses} map buildings with floors", started)
 
     if args.buildings:
@@ -210,6 +229,8 @@ def main() -> int:
             count += 1
             if count % 100000 == 0:
                 print(f"{count} buildings so far")
+        if not count:
+            raise ValueError("no buildings found in the requested area")
         conn.execute("UPDATE meta SET value = ? WHERE key = 'source_date'", (args.source_date or date,))
         conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('file', ?)", (source.name,))
         done(path, conn, f"{count} buildings from {source.name} (기준일 {args.source_date or date})", started)
