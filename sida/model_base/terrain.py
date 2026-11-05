@@ -23,7 +23,7 @@ class Terrain:
     xs: np.ndarray  # metres, west to east
     ys: np.ndarray  # metres, south to north
     z: np.ndarray  # metres, shape (len(ys), len(xs))
-    site: Polygon | None = None  # the site boundary in the same metres
+    site: Polygon | MultiPolygon | None = None  # the site boundary in the same metres
     name: str = ""
     # What parts of the ground are (AREA_KINDS): one shape per kind, within the extent.
     areas: tuple[tuple[str, Polygon | MultiPolygon], ...] = ()
@@ -73,10 +73,11 @@ def example_terrain(seed: int = 0, *, width_m: float = 240, depth_m: float = 180
     return Terrain(xs=xs, ys=ys, z=z, site=site, name=f"예시 지형 {seed}")
 
 
-def _polygon(shape) -> Polygon | None:
+def _polygon(shape) -> Polygon | MultiPolygon | None:
+    """A shapely shape as it is, or a ring of points as a polygon."""
     if shape is None:
         return None
-    poly = shape if isinstance(shape, Polygon) else Polygon(np.asarray(shape, dtype=float))
+    poly = shape if hasattr(shape, "geom_type") else Polygon(np.asarray(shape, dtype=float))
     poly = poly.buffer(0)
     return poly if not poly.is_empty else None
 

@@ -12,11 +12,17 @@ Files for the laser and for the person putting the model together.
   site outlined, roads, pavements and water shaded, buildings with their sheet counts, a north
   arrow and a scale bar.
 - `piece_rows`: one row per piece (id, layer, height, sheet) for a list.
+- `files` / `zip_files`: all of the above by file name, ready to save or send.
 """
 
 from __future__ import annotations
 
+import csv
+import io
 import math
+import tempfile
+import zipfile
+from pathlib import Path
 from xml.sax.saxutils import escape
 
 from shapely.geometry import Polygon
@@ -189,8 +195,8 @@ def assembly_svg(plan: ModelPlan, layout: Layout) -> str:
         if d:
             out.append(f'<path d="{d}" fill="{AREA_STYLE[kind]}" fill-opacity="0.22" fill-rule="evenodd" '
                        f'stroke="{AREA_STYLE[kind]}" stroke-width="0.35"/>')
-    if plan.site_mm is not None:
-        out.append(f'<path d="{_path(list(plan.site_mm.exterior.coords), flip, closed=True)}" fill="none" stroke="#cf3f2e" stroke-width="0.8" stroke-dasharray="3 1.5"/>')
+    for poly in _polygons(plan.site_mm) if plan.site_mm is not None else []:
+        out.append(f'<path d="{_path(list(poly.exterior.coords), flip, closed=True)}" fill="none" stroke="#cf3f2e" stroke-width="0.8" stroke-dasharray="3 1.5"/>')
     if len(plan.modules) > 1:  # where the model comes apart, and which module is which
         for n, module in enumerate(plan.modules, start=1):
             out.append(f'<path d="{_path(list(module.exterior.coords), flip, closed=True)}" fill="none" stroke="#20262d" stroke-width="1.2"/>')
@@ -238,3 +244,33 @@ def piece_rows(layout: Layout) -> list[dict]:
         for p in sorted(layout.placements, key=lambda q: (q.piece.module, q.piece.layer, q.piece.id))
     ]
 
+
+
+def files(plan: ModelPlan, layout: Layout, colors: dict | None = None) -> dict[str, bytes]:
+    """Every file of a cutting layout by name: per sheet the laser SVG and DXF and the guide,
+    then assembly.svg and pieces.csv (UTF-8 with a BOM, so Excel reads the Korean)."""
+    out: dict[str, bytes] = {}
+    with tempfile.TemporaryDirectory() as folder:
+        for n in range(layout.sheets):
+            out[f"sheet-{n + 1}.svg"] = sheet_svg(layout, n, colors).encode("utf-8")
+            out[f"sheet-{n + 1}-guide.svg"] = guide_svg(layout, n, plan).encode("utf-8")
+            path = Path(folder) / f"sheet-{n + 1}.dxf"
+            sheet_dxf(layout, n, path)
+            out[path.name] = path.read_bytes()
+    out["assembly.svg"] = assembly_svg(plan, layout).encode("utf-8")
+    rows = piece_rows(layout)
+    text = io.StringIO(newline="")
+    if rows:
+        writer = csv.DictWriter(text, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    out["pieces.csv"] = ("\ufeff" + text.getvalue()).encode("utf-8")
+    return out
+
+
+def zip_files(named: dict[str, bytes]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, data in named.items():
+            z.writestr(name, data)
+    return buffer.getvalue()

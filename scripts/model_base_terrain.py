@@ -13,20 +13,13 @@ model from above, every piece in its place) and pieces.csv.
 from __future__ import annotations
 
 import argparse
-import csv
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sida.model_base.output import (  # noqa: E402
-    assembly_svg,
-    guide_svg,
-    piece_rows,
-    sheet_dxf,
-    sheet_svg,
-)
+from sida.model_base.output import files  # noqa: E402
 from sida.model_base.plan import cut_plan  # noqa: E402
 from sida.model_base.terrain import example_terrain  # noqa: E402
 
@@ -64,16 +57,8 @@ def main(argv=None) -> int:
 
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    for n in range(layout.sheets):
-        (out / f"sheet-{n + 1}.svg").write_text(sheet_svg(layout, n, colors), encoding="utf-8")
-        (out / f"sheet-{n + 1}-guide.svg").write_text(guide_svg(layout, n, plan), encoding="utf-8")
-        sheet_dxf(layout, n, out / f"sheet-{n + 1}.dxf")
-    (out / "assembly.svg").write_text(assembly_svg(plan, layout), encoding="utf-8")
-    rows = piece_rows(layout)
-    with (out / "pieces.csv").open("w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
+    for filename, data in files(plan, layout, colors).items():
+        (out / filename).write_bytes(data)
 
     w, d = plan.size_mm
     print(f"{terrain.name}: {width_m:g}×{depth_m:g} m → 모형 {w:.0f}×{d:.0f} mm (1:{a.scale})"
