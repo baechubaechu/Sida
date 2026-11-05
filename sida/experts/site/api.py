@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from typing import Annotated
+from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel
 
 from sida import board, telemetry, workspace
-from sida.experts.site import context3d, datago, landapi, site_facts
+from sida.experts.site import context3d, datago, landapi, model_base, site_facts
 from sida.i18n import t
+from sida.model_base.nesting import DoesNotFit
 from sida.project import load_project
 
 MAX_SHAPES = 50  # parcels per shape request: a merged site is a handful, not a 동
@@ -169,6 +171,53 @@ def _project_router(load_config, core) -> APIRouter:
             raise HTTPException(status_code=400, detail=t("web_site_context_no_plan"))
         out = _land(context3d.build, plan, radius)
         return {**out, "disclaimer": t("site_context_disclaimer")}
+
+    def _site_plan(name: str) -> tuple:
+        path = core(workspace.find_project, load_config(), name)
+        facts = site_facts.load_facts(path)
+        if facts is None:
+            raise HTTPException(status_code=404, detail=t("web_site_none"))
+        plan = board.site_plan(site_facts.board_summary(facts)["parcels"])
+        if plan is None:
+            raise HTTPException(status_code=400, detail=t("web_site_context_no_plan"))
+        return path, plan
+
+    def _model(fn, *args, **kwargs):
+        try:
+            return _land(fn, *args, **kwargs)
+        except model_base.NoTerrain as exc:
+            raise HTTPException(status_code=400, detail=t("web_model_base_no_terrain")) from exc
+        except DoesNotFit as exc:
+            raise HTTPException(status_code=400, detail=t("web_model_base_too_big")) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=t("web_model_base_bad", reason=str(exc))) from exc
+
+    @router.get("/model-base")
+    def get_model_base(name: str, interval: float = 1.5, radius: float = context3d.DEFAULT_RADIUS) -> dict:
+        """The ground around the site stepped every `interval` m, with the buildings on it."""
+        _path, plan = _site_plan(name)
+        return _model(model_base.stepped, plan, interval, radius)
+
+    @router.get("/model-base/files")
+    def get_model_base_files(name: str, scale: int = 500, thickness: float = 3.0, sheet: str = "600x400",
+                             radius: float = 100.0, hollow: float = 0.0) -> Response:
+        """Laser files (zip) for the model ±radius m around the site, cut from sheets of material."""
+        path, plan = _site_plan(name)
+        w, _, h = sheet.lower().partition("x")
+        try:
+            size = (float(w), float(h))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=t("web_model_base_bad", reason="sheet is WIDTHxHEIGHT mm")) from exc
+        if not (100 <= scale <= 5000 and 0.5 <= thickness <= 20 and all(50 <= v <= 3000 for v in size) and 0 <= hollow <= 50):
+            raise HTTPException(status_code=400, detail=t("web_model_base_bad", reason="scale 1:100–5000, thickness 0.5–20 mm, sheet 50–3000 mm"))
+        data, summary = _model(model_base.cut_files, plan, radius=radius, scale=scale, thickness_mm=thickness,
+                               sheet=size, hollow_rim_mm=hollow)
+        filename = f"{path.name}_모형바닥_1-{scale}_{thickness:g}mm.zip"
+        return Response(data, media_type="application/zip", headers={
+            "Content-Disposition": f"attachment; filename=\"sida-model-base.zip\"; filename*=UTF-8''{quote(filename)}",
+            "Cache-Control": "no-store",
+            "X-Model-Base": ";".join(f"{k}={v}" for k, v in summary.items() if not isinstance(v, list)),
+        })
 
     @router.get("/ordinance")
     def get_ordinance(name: str) -> dict:
