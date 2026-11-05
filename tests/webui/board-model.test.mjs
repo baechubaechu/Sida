@@ -586,3 +586,35 @@ test('contour lines cut the ground grid at every interval, every fifth is an ind
   assert.ok(note.some((l) => l.includes('추정')) && note.at(-1) === '측량 결과가 아닙니다.');
   assert.match(aroundNote({ terrain_sources: [], counts: {} })[0], /평지/);
 });
+
+test('the idea board: text from a message, reordering, links and notes', async () => {
+  const {
+    ideaText, moveIdea, dropIdea, sameOrder, ideaPapers, linkPapers, pickedNotes, ideasInPlay, MAX_IDEA_TEXT, MAX_IDEA_PAPERS,
+  } = await import('../../webui/app/board-model.js');
+  assert.equal(ideaText('  중정을 중심으로 \n\n  동을 돌린다 '), '중정을 중심으로\n동을 돌린다');
+  const long = ideaText('가'.repeat(700));
+  assert.equal(long.length, MAX_IDEA_TEXT);
+  assert.ok(long.endsWith('…'));
+  assert.equal(ideaText(null), '');
+
+  const ids = ['a', 'b', 'c'];
+  assert.deepEqual(moveIdea(ids, 'b', -1), ['b', 'a', 'c']);
+  assert.deepEqual(moveIdea(ids, 'c', 1), ids);
+  assert.deepEqual(moveIdea(ids, 'x', 1), ids);
+  assert.deepEqual(dropIdea(ids, 'c', 'a'), ['c', 'a', 'b']);
+  assert.deepEqual(dropIdea(ids, 'a', 'c', true), ['b', 'c', 'a']);
+  assert.deepEqual(dropIdea(ids, 'a', 'a'), ids);
+  assert.ok(sameOrder(ids, ['a', 'b', 'c']) && !sameOrder(ids, ['a', 'c', 'b']));
+
+  const board = {
+    papers: [{ id: 'site', kind: 'site' }, { id: 'n1', kind: 'note', text: '  북측은 낮게 ' }, { id: 'n2', kind: 'note', text: ' ' }],
+    tray: [{ id: 'm1', kind: 'mass', title: '안 A' }],
+    ideas: [{ id: 'i1', text: 'x', papers: ['m1', 'gone'], off: false }, { id: 'i2', text: 'y', papers: [], off: true }],
+  };
+  assert.deepEqual(ideaPapers(board.ideas[0], board), [{ id: 'm1', name: '안 A' }]);
+  assert.deepEqual(linkPapers(['a'], ['b', 'a']), ['a', 'b']);
+  assert.equal(linkPapers([], Array.from({ length: 12 }, (_, i) => `p${i}`)).length, MAX_IDEA_PAPERS);
+  assert.deepEqual(pickedNotes(['m1', 'n1', 'n2'], board), [{ id: 'n1', text: '북측은 낮게' }]);
+  assert.equal(ideasInPlay(board), 1);
+  assert.equal(ideasInPlay(null), 0);
+});

@@ -189,7 +189,7 @@ def _context(session: engine.Session, agent: dict) -> str:
     output = session.project.read_module(agent["output"]) or "(not run yet)"
     state = session.project.read_state() or "(none)"
     language = "Korean" if get_language() == "ko" else "English"
-    table = board.expert_block(session.table)
+    table = board.expert_context(session.project.path, session.table)
     return (
         f"YOUR ROLE (expert id: {agent['id']}):\n{role}\n\n"
         f"PROJECT BRIEF:\n{session.project_brief}\n\n"

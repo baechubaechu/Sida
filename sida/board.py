@@ -1,8 +1,12 @@
 """The drafting table (제도판): sheets of paper laid around the site, saved in the project.
 
 Independent of HTTP and of the screen. The table is stored as board.json in the project
-folder: {"rev", "papers", "tray", "pins"}. The designer adds, moves and edits papers one at
-a time (the screen and the AI write to the same file, so nobody saves it whole).
+folder: {"rev", "papers", "tray", "pins", "ideas"}. The designer adds, moves and edits papers one
+at a time (the screen and the AI write to the same file, so nobody saves it whole).
+
+The idea board (`ideas`, 2026-11-05) is the designer's ordered list of main ideas, kept beside
+the table. Only the designer writes it; every Conductor call and expert run reads the ideas
+that are not set aside (`ideas_block`), and nothing the AI does changes them.
 
 What the AI makes never lands on the table itself (2026-10-26 지훈 결정). It goes to the AI
 section, `tray`: massing schemes and notes the Conductor proposes (a change to the designer's
@@ -78,12 +82,21 @@ MAX_PHOTO_BYTES = 20 * 1024 * 1024
 PHOTO_FILE = re.compile(r"photo-[0-9a-f]{8}\.(?:png|jpg|gif|webp)")
 PHOTO_MEDIA = {"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}
 ORPHAN_SECONDS = 24 * 3600  # a removed photo's file is kept this long, so the screen can undo
+# The idea board: the designer's main ideas, in their order.
+MAX_IDEAS = 40
+MAX_IDEA_TEXT = 600
+MAX_IDEA_PAPERS = 8
+TALK_ID = re.compile(r"\d{2,4}")  # the Conductor talk ids of sida/talks.py
 
 _lock = threading.Lock()
 
 
 class PaperNotFound(LookupError):
     """No paper with this id on the table."""
+
+
+class IdeaNotFound(LookupError):
+    """No idea with this id on the idea board."""
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +113,7 @@ def _site_paper() -> dict:
 
 
 def _empty() -> dict:
-    return {"rev": 0, "papers": [_site_paper()], "tray": [], "pins": []}
+    return {"rev": 0, "papers": [_site_paper()], "tray": [], "pins": [], "ideas": []}
 
 
 def load_board(project_path: Path) -> dict:
@@ -120,7 +133,12 @@ def load_board(project_path: Path) -> dict:
     tray = data.get("tray") if isinstance(data.get("tray"), list) else []
     tray = [p for p in tray if isinstance(p, dict) and p.get("kind") in KINDS]
     pins = data.get("pins") if isinstance(data.get("pins"), list) else []
-    return {"rev": int(data.get("rev") or 0), "papers": papers, "tray": tray, "pins": pins}
+    ideas = data.get("ideas") if isinstance(data.get("ideas"), list) else []
+    ideas = [i for i in ideas if isinstance(i, dict) and i.get("id") and isinstance(i.get("text"), str)]
+    there = {p.get("id") for p in papers + tray}
+    for idea in ideas:  # a linked paper taken off the table (or dropped from the AI section) goes
+        idea["papers"] = [i for i in idea.get("papers") or [] if i in there]
+    return {"rev": int(data.get("rev") or 0), "papers": papers, "tray": tray, "pins": pins, "ideas": ideas}
 
 
 def _save(project_path: Path, board: dict) -> dict:
@@ -400,6 +418,101 @@ def discard_paper(project_path: Path, paper_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# The idea board: the designer's main ideas (the AI reads them, never writes them)
+# ---------------------------------------------------------------------------
+
+
+def _find_idea(board: dict, idea_id: str) -> dict:
+    for idea in board["ideas"]:
+        if idea.get("id") == idea_id:
+            return idea
+    raise IdeaNotFound(idea_id)
+
+
+def clean_idea(data: dict, board: dict) -> dict:
+    """An idea as saved: {id, text, papers, talk, off, created_at}. Raises ValueError."""
+    text = _text(data.get("text"), "text", MAX_IDEA_TEXT).strip()
+    if not text:
+        raise ValueError("an idea needs text")
+    papers = data.get("papers") or []
+    if not isinstance(papers, list) or not all(isinstance(i, str) for i in papers):
+        raise ValueError("papers must be a list of paper ids")
+    papers = list(dict.fromkeys(papers))
+    if len(papers) > MAX_IDEA_PAPERS:
+        raise ValueError(f"an idea links at most {MAX_IDEA_PAPERS} papers")
+    for paper_id in papers:
+        if not _taken(board, paper_id):
+            raise ValueError(f"unknown paper on the table: {paper_id}")
+    talk = data.get("talk")
+    if talk in (None, ""):
+        talk = None
+    elif not isinstance(talk, str) or not TALK_ID.fullmatch(talk):
+        raise ValueError("talk must be a Conductor talk id such as 01")
+    off = data.get("off", False)
+    if not isinstance(off, bool):
+        raise ValueError("off must be true or false")
+    idea = {"id": data["id"], "text": text, "papers": papers, "talk": talk, "off": off}
+    if data.get("created_at"):
+        idea["created_at"] = str(data["created_at"])
+    return idea
+
+
+def add_idea(project_path: Path, data: dict) -> dict:
+    """
+    Put an idea on the idea board, at the end or at `at` (0 = first). `papers` and `talk`
+    link it to papers and a Conductor talk. Returns {idea, rev}. Raises ValueError.
+    """
+    with _lock:
+        board = load_board(project_path)
+        if len(board["ideas"]) >= MAX_IDEAS:
+            raise ValueError(f"the idea board holds at most {MAX_IDEAS} ideas")
+        idea = clean_idea({**data, "id": f"idea-{uuid.uuid4().hex[:8]}", "created_at": _now()}, board)
+        at = data.get("at")
+        if at is None:
+            at = len(board["ideas"])
+        if isinstance(at, bool) or not isinstance(at, int):
+            raise ValueError("at must be a whole number")
+        board["ideas"].insert(max(0, min(at, len(board["ideas"]))), idea)
+        board = _save(project_path, board)
+    return {"idea": idea, "rev": board["rev"]}
+
+
+def update_idea(project_path: Path, idea_id: str, changes: dict) -> dict:
+    """Rewrite an idea, change its links or set it aside (`off`). Returns {idea, rev}."""
+    changes = {k: v for k, v in changes.items() if k in {"text", "papers", "talk", "off"}}
+    with _lock:
+        board = load_board(project_path)
+        current = _find_idea(board, idea_id)
+        idea = clean_idea({**current, **changes}, board)
+        board["ideas"][board["ideas"].index(current)] = idea
+        board = _save(project_path, board)
+    return {"idea": idea, "rev": board["rev"]}
+
+
+def delete_idea(project_path: Path, idea_id: str) -> dict:
+    """Take an idea off the idea board. Returns {rev}."""
+    with _lock:
+        board = load_board(project_path)
+        board["ideas"].remove(_find_idea(board, idea_id))
+        board = _save(project_path, board)
+    return {"rev": board["rev"]}
+
+
+def order_ideas(project_path: Path, ids: list) -> dict:
+    """Put the ideas in this order; `ids` names every idea once. Returns {ideas, rev}."""
+    if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+        raise ValueError("ids must be a list of idea ids")
+    with _lock:
+        board = load_board(project_path)
+        if sorted(ids) != sorted(i["id"] for i in board["ideas"]):
+            raise ValueError("ids must name every idea on the board once")
+        by_id = {i["id"]: i for i in board["ideas"]}
+        board["ideas"] = [by_id[i] for i in ids]
+        board = _save(project_path, board)
+    return {"ideas": board["ideas"], "rev": board["rev"]}
+
+
+# ---------------------------------------------------------------------------
 # Validation: what a paper may hold
 # ---------------------------------------------------------------------------
 
@@ -668,6 +781,44 @@ def expert_block(selection: Selection | None) -> str:
     )
 
 
+def ideas_block(board: dict | None) -> str:
+    """
+    The designer's main ideas for a model ("" when there are none in play). Ideas set aside
+    (`off`) are left out; the model is only told how many there are.
+    """
+    if not board:
+        return ""
+    ideas = board.get("ideas") or []
+    shown = [i for i in ideas if not i.get("off")]
+    if not shown:
+        return ""
+    names = {p["id"]: paper_name(p) for p in board["papers"] + board["tray"]}
+    lines = []
+    for n, idea in enumerate(shown, 1):
+        text = "\n   ".join(line.strip() for line in idea["text"].splitlines() if line.strip())
+        links = [f'{i} "{names[i]}"' for i in idea.get("papers") or [] if i in names]
+        if idea.get("talk"):
+            links.append(f"Conductor talk {idea['talk']}")
+        lines.append(f"{n}. {text}" + (f" (linked: {', '.join(links)})" if links else ""))
+    aside = len(ideas) - len(shown)
+    return (
+        "DESIGNER'S MAIN IDEAS (the idea board, in the designer's order). The designer chose and "
+        "wrote these; they are the project's main direction. Keep them in mind in every answer. "
+        "You never add, rewrite, reorder or drop them. If a suggestion goes against one, say which "
+        "one and why, and leave the choice to the designer.\n"
+        + "\n".join(lines)
+        + (f"\n({aside} more set aside by the designer for now: do not apply them.)" if aside else "")
+    )
+
+
+def expert_context(project_path: Path, selection: Selection | None) -> str:
+    """The idea board and the selected papers, for an expert's prompt ("" for neither)."""
+    table = selection.board if selection is not None else (
+        load_board(project_path) if board_path(project_path).exists() else None
+    )
+    return "\n\n".join(part for part in (ideas_block(table), expert_block(selection)) if part)
+
+
 def _index(papers: list[dict]) -> str:
     return "\n".join(
         f"- {p['id']} · {KIND_WORDS.get(p['kind'], p['kind'])} \"{paper_name(p)}\""
@@ -883,6 +1034,8 @@ def context_view(project_path: Path, config: dict, ids: list[str] | None) -> dic
     return {
         "mode": mode,
         "papers": [{"id": p["id"], "name": paper_name(p)} for p in (selection.papers if selection else ())],
-        "conductor": conductor_block(selection, board, mode),
-        "expert": expert_block(selection),
+        "conductor": "\n\n".join(
+            part for part in (ideas_block(board), conductor_block(selection, board, mode)) if part
+        ),
+        "expert": expert_context(project_path, selection),
     }

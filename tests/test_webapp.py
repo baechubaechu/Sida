@@ -1157,6 +1157,29 @@ def test_board_api_lays_moves_and_removes_papers(client, project):
     assert client.get("/api/projects/nope/board").status_code == 404
 
 
+def test_board_api_keeps_the_idea_board_in_order(client, project):
+    base = f"/api/projects/{project.name}/board"
+    assert client.get(base).json()["ideas"] == []
+    r = client.post(f"{base}/ideas", json={"text": "길에서 마당이 보이게", "papers": ["site"]})
+    assert r.status_code == 201 and r.json()["idea"]["papers"] == ["site"] and r.json()["rev"] == 1
+    a = r.json()["idea"]["id"]
+    b = client.post(f"{base}/ideas", json={"text": "북측은 낮게", "at": 0}).json()["idea"]["id"]
+    assert [i["id"] for i in client.get(base).json()["ideas"]] == [b, a]
+
+    r = client.patch(f"{base}/ideas/{a}", json={"off": True, "talk": "01"})
+    assert r.status_code == 200 and r.json()["idea"]["off"] is True and r.json()["idea"]["talk"] == "01"
+    r = client.put(f"{base}/ideas/order", json={"ids": [a, b]})
+    assert r.status_code == 200 and [i["id"] for i in r.json()["ideas"]] == [a, b]
+    assert client.delete(f"{base}/ideas/{b}").json() == {"rev": 5}
+
+    assert client.post(f"{base}/ideas", json={"text": ""}).status_code == 400
+    assert client.post(f"{base}/ideas", json={"text": "x", "papers": ["gone"]}).status_code == 400
+    assert client.put(f"{base}/ideas/order", json={"ids": []}).status_code == 400
+    assert client.patch(f"{base}/ideas/idea-gone", json={"text": "x"}).status_code == 404
+    assert client.delete(f"{base}/ideas/idea-gone").status_code == 404
+    assert client.post("/api/projects/nope/board/ideas", json={"text": "x"}).status_code == 404
+
+
 def test_board_api_exports_the_table_as_cad_and_rhino_files(client, project):
     base = f"/api/projects/{project.name}/board"
     client.post(f"{base}/papers", json={"kind": "mass", "id": "mass-a", "title": "안 A", "blocks": [{"w": 30, "d": 20, "floors": 4}]})
