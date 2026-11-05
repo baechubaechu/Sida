@@ -359,3 +359,76 @@ def test_vworld_floors_stay_out_of_the_export(tmp_path, monkeypatch):
     assert b["height_source"] == "api_estimate" and b["offline"] == {"height": pytest.approx(6 * 3.8), "source": "map_estimate", "floors": 6}
     solid = {layer["short"]: layer for layer in context3d.export_layers(out)}["건물 - 추정 높이"]["solids"][0]
     assert solid["height"] == pytest.approx(b["ground"] + 6 * 3.8 - b["base"], abs=0.02)
+
+
+def test_a_ledger_lookup_that_drops_is_tried_once_more_before_falling_back(tmp_path, monkeypatch):
+    fake_vworld_layers(monkeypatch)
+    monkeypatch.setattr(context3d, "LEDGER_WAIT", 0)
+    tries: dict[str, int] = {}
+
+    def flaky(pnu):  # every parcel drops once, then answers
+        tries[pnu] = tries.get(pnu, 0) + 1
+        if tries[pnu] == 1:
+            raise landapi.LandApiError("network", "timed out")
+        return ledger(pnu)
+
+    out = context3d.build(plan_for_site(), 200, folder=tmp_path, ledger=flaky, use_cache=False)
+    assert tries and set(tries.values()) == {2}
+    assert not [n for n in out["notes"] if n.startswith("ledger:")]
+
+    def down(pnu):  # still down on the second try: the old fallback, said once per parcel
+        tries[pnu] = tries.get(pnu, 0) + 1
+        raise landapi.LandApiError("network", "timed out")
+
+    tries.clear()
+    out = context3d.build(plan_for_site(), 200, folder=tmp_path, ledger=down, use_cache=False)
+    assert set(tries.values()) == {2} and out["counts"]["ledger"] == 0
+    assert out["notes"].count("ledger:network") == len(tries)
+
+    def no_key(pnu):  # a missing key is not worth a second try
+        tries[pnu] = tries.get(pnu, 0) + 1
+        raise landapi.LandApiError("no_key", "DATA_GO_KR_API_KEY")
+
+    tries.clear()
+    context3d.build(plan_for_site(), 200, folder=tmp_path, ledger=no_key, use_cache=False)
+    assert set(tries.values()) == {1}
+
+
+def test_lines_are_cut_to_the_ground_square():
+    parts = context3d.clip_line([[-250, 0], [0, 0], [250, 0]], 200)
+    assert [p.tolist() for p in parts] == [[[-200, 0], [0, 0], [200, 0]]]
+    # out, in, out and in again: two parts, each ending on the edge
+    parts = context3d.clip_line([[0, 0], [0, 300], [10, 300], [10, 0]], 200)
+    assert [p.tolist() for p in parts] == [[[0, 0], [0, 200]], [[10, 200], [10, 0]]]
+    assert context3d.clip_line([[300, 300], [400, 300]], 200) == []
+
+
+def test_exported_ground_lines_stay_on_the_ground(pack, monkeypatch):
+    fake_vworld_layers(monkeypatch)
+    conn = terrain_pack.create(pack / f"r{terrain_pack.SUFFIX}", {"name": "r", "kind": "areas", "source": "1:5,000"})
+    plan = plan_for_site()
+    # a road strip running far past the east edge of the 200 m square
+    terrain_pack.add_area(conn, "road", [lonlat(x, y) for x, y in ((100, -5), (270, -5), (270, 5), (100, 5))])
+    conn.commit()
+    conn.close()
+    out = context3d.build(plan, 200, folder=pack, ledger=ledger, use_cache=False)
+    road = next(layer for layer in context3d.export_layers(out) if layer["short"] == "지형 - 도로")
+    points = [p for c in road["curves"] for p in c["points"]]
+    assert max(abs(x) for x, _, _ in points) <= 200.01 and max(abs(y) for _, y, _ in points) <= 200.01
+
+
+def test_the_ground_hook_gives_the_terrain_grid_or_nothing(tmp_path, pack, monkeypatch):
+    from sida.experts.site import hooks
+
+    assert hooks.board_ground(tmp_path) is None  # no site
+    fake_vworld_layers(monkeypatch)
+    out = context3d.build(plan_for_site(), 200, folder=pack, ledger=ledger, use_cache=False)
+    monkeypatch.setattr(hooks.site_facts, "load_facts", lambda path: {"x": 1})
+    monkeypatch.setattr(hooks.site_facts, "board_summary", lambda facts: {"parcels": [{}]})
+    plan = plan_for_site()
+    monkeypatch.setattr("sida.board.site_plan", lambda parcels: plan)
+    monkeypatch.setattr(context3d, "build", lambda plan: out)
+    ground = hooks.board_ground(tmp_path)
+    assert ground["nx"] == out["terrain"]["n"] and ground["min_x"] == out["terrain"]["min"] and ground["z"] == out["terrain"]["z"]
+    monkeypatch.setattr(context3d, "build", lambda plan: {**out, "terrain": None})
+    assert hooks.board_ground(tmp_path) is None  # no terrain pack over the site

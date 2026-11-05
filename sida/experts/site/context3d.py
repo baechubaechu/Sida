@@ -55,7 +55,9 @@ STOREY = (
 )
 STOREY_OTHER = 3.3
 CACHE_SECONDS = 600
-LEDGER_WORKERS = 8
+LEDGER_WORKERS = 4  # 건축물대장 lookups at once (more drops more replies on data.go.kr)
+LEDGER_RETRY = ("network", "bad_response")  # failures worth one more try, after LEDGER_WAIT s
+LEDGER_WAIT = 0.6
 
 _cache: dict[tuple, tuple[float, dict]] = {}
 
@@ -449,10 +451,13 @@ def surroundings(
         look = ledger or datago.buildings
 
         def one(pnu):
-            try:
-                return pnu, look(pnu)
-            except landapi.LandApiError as exc:
-                return pnu, exc.kind
+            for again in (False, True):
+                try:
+                    return pnu, look(pnu)
+                except landapi.LandApiError as exc:
+                    if again or exc.kind not in LEDGER_RETRY:
+                        return pnu, exc.kind
+                    time.sleep(LEDGER_WAIT)
 
         with ThreadPoolExecutor(max_workers=LEDGER_WORKERS) as pool:
             for pnu, rows in pool.map(one, wanted):
@@ -536,6 +541,42 @@ AREA_LAYERS = {"road": ("도로", (150, 150, 150)), "sidewalk": ("인도", (190,
 EXPORT_GROUP = "대지 주변"
 
 
+def clip_line(points, lim: float) -> list[np.ndarray]:
+    """The parts of a polyline inside the square |x|, |y| <= lim (Liang–Barsky per segment), each
+    part a run of points with the cut points on the square's edge."""
+    pts = np.asarray(points, dtype=float)
+    parts: list[list] = []
+    run: list = []
+    for a, b in zip(pts[:-1], pts[1:], strict=True):
+        d = b - a
+        t0, t1 = 0.0, 1.0
+        for p, q in ((-d[0], a[0] + lim), (d[0], lim - a[0]), (-d[1], a[1] + lim), (d[1], lim - a[1])):
+            if p == 0:
+                if q < 0:
+                    t0, t1 = 1.0, 0.0
+            elif p < 0:
+                t0 = max(t0, q / p)
+            else:
+                t1 = min(t1, q / p)
+        if t0 > t1:
+            if run:
+                parts.append(run)
+                run = []
+            continue
+        start, end = a + d * t0, a + d * t1
+        if not run or t0 > 0:
+            if run:
+                parts.append(run)
+            run = [start]
+        run.append(end)
+        if t1 < 1:
+            parts.append(run)
+            run = []
+    if run:
+        parts.append(run)
+    return [np.asarray(r) for r in parts if len(r) >= 2]
+
+
 def export_layers(around: dict) -> list[dict]:
     """
     The surroundings as board_export layers (same frame as the table): the ground as a height
@@ -559,8 +600,10 @@ def export_layers(around: dict) -> list[dict]:
         for kind, (short, color) in AREA_LAYERS.items():
             curves = []
             for a in around["areas"]:
-                if a["kind"] == kind:
-                    ring = _densify(np.vstack([a["ring"], a["ring"][:1]]), DRAPE_GAP)
+                if a["kind"] != kind:
+                    continue
+                # cut to the ground's square, so no line hangs past the edge of the surface
+                for ring in clip_line(_densify(np.vstack([a["ring"], a["ring"][:1]]), DRAPE_GAP), half):
                     zs = sample(grid, half, t["step"], ring[:, 0], ring[:, 1]) + 0.03
                     curves.append({"points": [[round(float(x), 2), round(float(y), 2), round(float(z), 2)] for (x, y), z in zip(ring, zs, strict=True)],
                                    "closed": False})

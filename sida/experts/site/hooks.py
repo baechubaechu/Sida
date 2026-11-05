@@ -45,6 +45,23 @@ def board_export_layers(project_dir) -> list[dict]:
         return []
 
 
+def board_ground(project_dir) -> dict | None:
+    """The ground around the site as a height grid (board_export surface form), for standing the
+    masses on it in the export. None without a site or a terrain pack over it."""
+    from sida.board import site_plan
+    from sida.experts.site import context3d, landapi
+
+    facts = site_facts.load_facts(project_dir)
+    plan = site_plan(site_facts.board_summary(facts)["parcels"]) if facts else None
+    if not plan:
+        return None
+    try:
+        t = context3d.build(plan).get("terrain")
+    except (landapi.LandApiError, ValueError):
+        return None
+    return {"min_x": t["min"], "min_y": t["min"], "step": t["step"], "nx": t["n"], "ny": t["n"], "z": t["z"]} if t else None
+
+
 def run_needs(config, agent, project_dir) -> str | None:
     """The Conductor runs the site reader only on a looked-up site; the designer picks it first."""
     if agent.get("id") == "site_reader" and site_facts.load_facts(project_dir) is None:
