@@ -10,7 +10,10 @@ import {
   ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
   togglePicked, shapesToFetch, MAP_PICK_ZOOM, EXPORT_FORMATS, boardExport,
 } from './model.js';
-import { keepSelected, pickedNames, massIds, canCompare, COMPARE_QUESTION, addQuestion } from './board-model.js';
+import {
+  keepSelected, pickedNames, massIds, canCompare, COMPARE_QUESTION, addQuestion,
+  ideaText, moveIdea, dropIdea, sameOrder, ideaPapers, linkPapers, pickedNotes, ideasInPlay, MAX_IDEA_TEXT, MAX_IDEA_PAPERS,
+} from './board-model.js';
 import {
   COMMANDS, GROUP_LABELS, readLine, suggest, pickOption, addHistory, remember, HISTORY_LINES,
 } from './command-model.js';
@@ -48,6 +51,8 @@ const ui = {
   // The workspace: the drafting table, and beside it the experts, the site page or an expert's
   // page. Conductor conversations open in a collapsible left panel.
   expertsCollapsed: false, conductor: { open: true, active: null, list: false },
+  // The right panel shows the experts or the idea board (2026-11-05 지훈: a tab beside the experts).
+  sideTab: 'experts', ideaEdit: '', ideaConfirm: '', ideaBusy: false, ideaDrag: '', ideaLinkNew: true,
   pane: 'board', focusComposer: false, creatingTalk: false, talkMenu: '',
   panelRatios: { left: .27, right: .21, detail: .38 },
   settings: null, settingsDraft: null, settingsError: '', chatgptModels: null, chatgptNote: '',
@@ -612,8 +617,14 @@ function composer(key, placeholder, label, disabled) {
   </form>`;
 }
 
-function bubble(item, speaker) {
-  if (item.kind === 'user') return `${contextChips(item.context)}<article class="message-user" aria-label="내 메시지">${escape(item.text)}</article>`;
+// A saved message can go onto the idea board (all of it, or the part selected in it).
+function ideaButton(source) {
+  if (!source || currentRoute.page !== 'project') return '';
+  return `<button type="button" class="to-idea" data-action="idea-from-message" ${source.talk ? `data-talk="${escape(source.talk)}"` : ''} title="이 메시지(또는 드래그로 고른 부분)를 아이디어 보드에 넣기">＋ 아이디어로</button>`;
+}
+
+function bubble(item, speaker, source = null) {
+  if (item.kind === 'user') return `${contextChips(item.context)}<article class="message-user" aria-label="내 메시지">${escape(item.text)}${source && item.text ? ideaButton(source) : ''}</article>`;
   if (item.kind === 'note') return `<p class="event-note ${item.tone || ''}">${escape(item.text)}</p>`;
   if (item.kind === 'card') {
     const expert = expertById(item.agent);
@@ -624,7 +635,7 @@ function bubble(item, speaker) {
       <span class="analysis-link">분석 보기 ↗</span></button>`;
   }
   const [who, role] = Array.isArray(speaker) ? speaker : [speaker, ''];
-  return `<article><h3 class="speaker">${escape(who)}${role ? ` <span>${escape(role)}</span>` : ''}</h3><div class="assistant-copy markdown">${renderMarkdown(item.text)}</div></article>`;
+  return `<article><h3 class="speaker">${escape(who)}${role ? ` <span>${escape(role)}</span>` : ''}</h3><div class="assistant-copy markdown">${renderMarkdown(item.text)}</div>${source && item.text ? ideaButton(source) : ''}</article>`;
 }
 
 function workingLine(forMain) {
@@ -719,7 +730,8 @@ function talkConversation(view) {
         ${loaded?.error ? `<p class="error-text">${escape(loaded.error)}</p>` : ''}
         ${empty && !loaded?.error ? `<p class="muted">${loaded ? '아직 대화가 없습니다.' : '대화를 불러오는 중입니다.'}</p>` : ''}
         <div class="message-list" role="log" aria-label="대화 메시지">
-          ${[...items, ...pending, ...live].map((item) => bubble(item, ['Sida', 'Conductor'])).join('')}
+          ${items.map((item) => bubble(item, ['Sida', 'Conductor'], { talk: id })).join('')}
+          ${[...pending, ...live].map((item) => bubble(item, ['Sida', 'Conductor'])).join('')}
           ${talkWorking(id)}
         </div>
       </div>
@@ -835,6 +847,7 @@ function expertsPanel() {
   const busy = jobRunning();
   const picked = ui.selected.length;
   return `<aside id="experts-panel" class="experts panel" aria-label="전문가">
+    ${sideTabs()}
     <header class="pane-head"><div><span class="eyebrow">함께 검토하기</span><h2>전문가 <span class="expert-count">${experts.length}</span></h2>
       <p>${picked ? `고른 종이 ${picked}장과 함께 실행` : '브리프와 제도판을 보고 실행'}</p></div>
       <button type="button" class="ghost" data-action="collapse-experts" aria-label="전문가 패널 접기" aria-controls="experts-panel" aria-expanded="true">›</button></header>
@@ -856,6 +869,81 @@ function expertsPanel() {
       <button type="button" class="mini" data-action="run-expert" data-agent="${id}" ${busy ? 'disabled' : ''} title="${e.done ? '다시 실행' : '실행'}${picked ? ` (고른 종이 ${picked}장과 함께)` : ''}">${status === 'running' ? '실행 중' : e.done ? '다시' : '실행'}</button></li>`;
   }).join('')}</ul></div>
     <section class="runs" aria-label="검토 진행"><h3>검토 진행</h3>${runsBlock()}</section></aside>`;
+}
+
+// The two tabs on top of the right panel: the experts and the idea board.
+function sideTabs() {
+  const count = (ui.board?.ideas || []).length;
+  const tab = (id, label) => `<button type="button" role="tab" data-action="side-tab" data-tab="${id}" aria-selected="${ui.sideTab === id}" aria-controls="experts-panel">${label}</button>`;
+  return `<nav class="side-tabs" role="tablist" aria-label="오른쪽 칸">${tab('experts', '전문가')}${tab('ideas', `아이디어${count ? ` <span class="expert-count">${count}</span>` : ''}`)}</nav>`;
+}
+
+function ideaTalkChip(idea, editing) {
+  if (!idea.talk) return '';
+  const known = ui.session?.talks?.some((t) => t.id === idea.talk);
+  const label = known ? `대화: ${talkTitle(talkSummary(idea.talk))}` : '지운 대화';
+  return `<span class="attachment idea-talk">${known
+    ? `<button type="button" class="attachment-title" data-action="talk-open" data-talk="${escape(idea.talk)}" title="이 대화 열기">${escape(label)}</button>`
+    : `<span class="attachment-title">${escape(label)}</span>`}${editing ? `<button type="button" class="attachment-remove" data-action="idea-unlink-talk" data-idea="${escape(idea.id)}" aria-label="대화 연결 끊기">×</button>` : ''}</span>`;
+}
+
+function ideaItem(idea, index, total) {
+  const id = escape(idea.id);
+  const editing = ui.ideaEdit === idea.id;
+  const busy = ui.ideaBusy;
+  const papers = ideaPapers(idea, ui.board);
+  const links = papers.map((p) => `<span class="attachment"><button type="button" class="attachment-title" data-action="inspect-paper" data-id="${escape(p.id)}" title="상세 보기">${escape(p.name)}</button>${editing ? `<button type="button" class="attachment-remove" data-action="idea-unlink" data-idea="${id}" data-id="${escape(p.id)}" aria-label="${escape(p.name)} 연결 끊기">×</button>` : ''}</span>`).join('') + ideaTalkChip(idea, editing);
+  const more = ui.selected.filter((x) => !(idea.papers || []).includes(x));
+  const key = `idea-edit:${idea.id}`;
+  const body = editing
+    ? `<form class="idea-edit" data-idea-form="${id}">
+        <textarea data-focus="${escape(key)}" data-idea-draft="${escape(key)}" aria-label="아이디어 ${index + 1} 고치기" maxlength="${MAX_IDEA_TEXT}" rows="3">${escape(draftFor(key))}</textarea>
+        <div class="idea-edit-actions"><span class="composer-hint">Enter 저장 · Esc 취소</span>
+          <button type="button" class="secondary small" data-action="idea-cancel">취소</button><button type="submit" class="primary small" ${busy ? 'disabled' : ''}>저장</button></div></form>`
+    : `<p class="idea-text">${escape(idea.text)}</p>`;
+  const confirm = ui.ideaConfirm === idea.id;
+  return `<li class="idea ${idea.off ? 'is-off' : ''} ${ui.ideaDrag === idea.id ? 'is-dragging' : ''}" data-idea="${id}">
+      <span class="idea-num" draggable="true" title="끌어서 순서 바꾸기" aria-hidden="true">${index + 1}</span>
+      <div class="idea-body">
+        ${idea.off ? '<span class="idea-off-badge">잠시 뺌 · AI에게 안 감</span>' : ''}
+        ${body}
+        ${links ? `<div class="idea-links" aria-label="연결된 자료">${links}</div>` : ''}
+        <div class="idea-actions" aria-label="아이디어 ${index + 1} 편집">
+          <button type="button" data-action="idea-move" data-idea="${id}" data-step="-1" aria-label="위로" title="위로" ${index === 0 || busy ? 'disabled' : ''}>↑</button>
+          <button type="button" data-action="idea-move" data-idea="${id}" data-step="1" aria-label="아래로" title="아래로" ${index === total - 1 || busy ? 'disabled' : ''}>↓</button>
+          ${editing ? '' : `<button type="button" data-action="idea-edit" data-idea="${id}">고치기</button>`}
+          <button type="button" data-action="idea-off" data-idea="${id}" ${busy ? 'disabled' : ''} title="${idea.off ? 'AI가 다시 이 아이디어를 고려합니다' : '이 아이디어 없이 탐색해 보고 싶을 때: AI에게 보내지 않습니다'}">${idea.off ? '다시 넣기' : '잠시 빼기'}</button>
+          ${more.length ? `<button type="button" data-action="idea-link" data-idea="${id}" ${busy || (idea.papers || []).length >= MAX_IDEA_PAPERS ? 'disabled' : ''}>＋ 고른 종이 ${more.length}개 연결</button>` : ''}
+          <button type="button" class="idea-delete ${confirm ? 'confirm' : ''}" data-action="idea-delete" data-idea="${id}" ${busy ? 'disabled' : ''}>${confirm ? '정말 지우기' : '지우기'}</button>
+        </div>
+      </div>
+    </li>`;
+}
+
+function ideasPanel() {
+  const ideas = ui.board?.ideas || [];
+  const busy = ui.ideaBusy || !ui.board;
+  const picked = ui.selected.length;
+  const notes = pickedNotes(ui.selected, ui.board);
+  const inPlay = ideasInPlay(ui.board);
+  const list = !ui.board ? '<p class="muted">제도판을 불러오는 중입니다.</p>'
+    : ideas.length ? `<ol class="idea-list" aria-label="아이디어 목록 (순서대로)">${ideas.map((idea, i) => ideaItem(idea, i, ideas.length)).join('')}</ol>`
+    : `<div class="idea-empty"><p><b>설계를 이끌 메인 아이디어를 모아 두세요.</b></p>
+        <p>아래에 직접 적거나, 대화의 답변에서 <b>＋ 아이디어로</b>를 누르면 그 메시지(드래그로 고른 부분)가 들어옵니다. 순서가 곧 중요도입니다.</p></div>`;
+  return `<aside id="experts-panel" class="experts panel ideas-panel" aria-label="아이디어 보드">
+    ${sideTabs()}
+    <header class="pane-head"><div><span class="eyebrow">메인 방향</span><h2>아이디어 보드 <span class="expert-count">${ideas.length}</span></h2>
+      <p>${ideas.length ? `AI가 읽는 아이디어 ${inPlay}개 · AI는 읽기만 하고 바꾸지 않습니다` : 'AI는 읽기만 하고 바꾸지 않습니다'}</p></div>
+      <button type="button" class="ghost" data-action="collapse-experts" aria-label="아이디어 보드 접기" aria-controls="experts-panel" aria-expanded="true">›</button></header>
+    <div class="experts-scroll ideas-scroll" data-scroll="ideas" data-scroll-from="top">${list}</div>
+    <form class="idea-new" id="idea-new-form" aria-label="새 아이디어">
+      ${notes.length ? `<button type="button" class="idea-from-notes" data-action="idea-notes" ${busy ? 'disabled' : ''}>고른 메모 ${notes.length}장을 아이디어로</button>` : ''}
+      <textarea data-focus="idea-new" data-idea-draft="idea-new" aria-label="새 아이디어" placeholder="새 아이디어 적기 (예: 길에서 마당이 보이게)" maxlength="${MAX_IDEA_TEXT}" rows="2">${escape(draftFor('idea-new'))}</textarea>
+      <div class="idea-new-footer">
+        ${picked ? `<label class="idea-link-picked"><input type="checkbox" id="idea-new-link" ${ui.ideaLinkNew ? 'checked' : ''}> 고른 종이 ${Math.min(picked, MAX_IDEA_PAPERS)}장 연결</label>` : '<span class="composer-hint">Enter 추가 · Shift+Enter 줄 바꿈</span>'}
+        <button type="submit" class="primary small" ${busy ? 'disabled' : ''}>추가</button></div>
+    </form>
+  </aside>`;
 }
 
 function proposalBlock(agent) {
@@ -993,7 +1081,8 @@ function chatTab(name, agent, expert) {
       ${ui.chatMissing ? `<p class="expert-note error-text">${escape(chatTitle(chat))} 대화를 찾을 수 없습니다. 다른 대화를 고르거나 새 분석 채팅을 시작해 주세요.</p>` : ''}
       ${!ui.chatMissing && !items.length && !pending.length && !live.length ? `<p class="muted">${escape(expert.name)}에게 결과에 대해 묻거나 더 파고들 점을 적어 보세요.</p>` : ''}
       <div class="message-list" role="log" aria-label="${escape(expert.name)} 대화">
-        ${[...items, ...pending, ...live].map((item) => bubble(item, expert.name)).join('')}
+        ${items.map((item) => bubble(item, expert.name, {})).join('')}
+        ${[...pending, ...live].map((item) => bubble(item, expert.name)).join('')}
         ${workingLine(false)}
       </div>
     </div>
@@ -1419,7 +1508,7 @@ function boardHead(name, site, agent) {
       <div class="board-heading"><span class="eyebrow"><a href="#/">프로젝트</a><span aria-hidden="true">/</span><button type="button" class="project-name-edit" data-action="project-info" data-project="${escape(name)}" title="프로젝트 정보 수정">${escape(currentProjectLabel(name))} ✎</button><span aria-hidden="true">/</span>${site ? '대지' : '디자인'}</span><h1>제도판</h1></div>
       <div class="panel-toggles">
         <button type="button" class="panel-toggle" data-action="conductor-toggle" aria-controls="conductor-panel" aria-expanded="${shown}" aria-label="Conductor 대화 ${shown ? '접기' : '열기'}">대화</button>
-        ${site || agent || !ui.expertsCollapsed ? '' : '<button type="button" class="panel-toggle" data-action="toggle-experts-panel" aria-controls="experts-panel" aria-expanded="false"><span aria-hidden="true">‹</span> 전문가</button>'}
+        ${site || agent || !ui.expertsCollapsed ? '' : `<button type="button" class="panel-toggle" data-action="toggle-experts-panel" aria-controls="experts-panel" aria-expanded="false"><span aria-hidden="true">‹</span> ${ui.sideTab === 'ideas' ? '아이디어' : '전문가'}</button>`}
         <details class="export-menu"><summary class="panel-toggle" title="CAD·라이노 파일로 내보내기 (export)">내보내기</summary>
           <div class="export-options">${EXPORT_FORMATS.map((f) => `<button type="button" data-action="export-board" data-format="${f.key}">${f.label}</button>`).join('')}
           <p class="muted">대지 경계·매스안·트레이싱 선이 레이어별로 들어갑니다. 단위 m, 원점은 대지 가운데.</p></div></details>
@@ -1482,13 +1571,13 @@ function workspaceView() {
   // site page or an expert's page takes their place. Conductor sits on the left when open.
   const side = site ? 'site-open' : agent ? 'expert-open' : '';
   const expertsFolded = !agent && !site && ui.expertsCollapsed;
-  const sideLabel = site ? '대지' : expert ? expert.name : '전문가';
+  const sideLabel = site ? '대지' : expert ? expert.name : ui.sideTab === 'ideas' ? '아이디어' : '전문가';
   const tabs = [['conductor', '대화'], ['board', '제도판'], ['side', sideLabel]];
   return `<main class="studio with-table ${side} pane-${ui.pane} ${ui.conductor.open ? 'conductor-open' : ''} ${expertsFolded ? 'experts-collapsed' : ''}" id="main" tabindex="-1">
       ${conductorPanel()}
       ${ui.conductor.open ? panelSplitter('left') : ''}
       <section class="board panel" aria-label="제도판">${boardHead(name, site, agent)}<div class="board-canvas"><div id="table-slot"></div></div></section>
-      ${site ? sitePage(name) : agent ? expertPage(name, agent) : expertsPanel()}
+      ${site ? sitePage(name) : agent ? expertPage(name, agent) : ui.sideTab === 'ideas' ? ideasPanel() : expertsPanel()}
       ${!expertsFolded ? panelSplitter('right') : ''}
       ${commandBar()}
       <nav class="pane-tabs" aria-label="화면 바꾸기">${tabs.map(([id, label]) => `<button type="button" data-action="pane" data-pane="${id}" aria-pressed="${ui.pane === id}">${escape(label)}</button>`).join('')}</nav>
@@ -1886,6 +1975,10 @@ function runCommand(name, command) {
       ui.pane = 'conductor';
       say(ui.conductor.list ? 'talks — 대화 목록을 열었습니다.' : 'talks — 대화로 돌아갑니다.');
       break;
+    case 'idea':
+      openIdeas(name);
+      say('idea — 아이디어 보드를 열었습니다. 오른쪽 칸에 적거나 대화에서 ＋ 아이디어로를 누르세요.');
+      break;
     case 'export':
       c.prompt = {
         text: '어떤 파일로 내보낼까요?',
@@ -1913,6 +2006,174 @@ function runCommand(name, command) {
       say(`${command.name}: 아직 쓸 수 없는 명령입니다.`, 'warn');
   }
 }
+
+// ------------------------------------------------------------------ the idea board
+
+// Show the idea board in the right panel (closing an expert's or the site page first).
+function openIdeas(name) {
+  if (currentRoute.agent || currentRoute.site) location.hash = projectUrl(name);
+  ui.sideTab = 'ideas';
+  ui.expertsCollapsed = false;
+  ui.pane = 'side';
+}
+
+// One idea-board change through the API; the board is read again either way.
+async function ideaCall(name, path, method, body) {
+  ui.ideaBusy = true;
+  render(false);
+  const result = await boardCall(name, () => api(`${projectApi(name)}/board/ideas${path}`, { method, body }), true);
+  ui.ideaBusy = false;
+  render(false);
+  return result;
+}
+
+const ideaById = (id) => (ui.board?.ideas || []).find((i) => i.id === id);
+const ideaUrl = (id) => `/${encodeURIComponent(id)}`;
+
+// `done`: the toast to show, false for none.
+async function addIdea(name, data, done) {
+  const text = ideaText(data.text);
+  if (!text) { toast('아이디어로 넣을 글이 없습니다.', 'warn'); return null; }
+  const result = await ideaCall(name, '', 'POST', { ...data, text });
+  if (result && done !== false) { toast(done || `아이디어 보드 ${(ui.board?.ideas || []).length}번에 넣었습니다.`); announce('아이디어를 넣었습니다.'); }
+  return result;
+}
+
+async function addTypedIdea(name) {
+  const text = draftFor('idea-new').trim();
+  if (!text || ui.ideaBusy) return;
+  const link = app.querySelector('#idea-new-link');
+  const papers = link?.checked ? linkPapers([], ui.selected) : [];
+  if (await addIdea(name, { text, papers }, '아이디어를 넣었습니다.')) {
+    drafts.delete('idea-new');
+    render(false);
+    app.querySelector('[data-focus="idea-new"]')?.focus({ preventScroll: true });
+  }
+}
+
+// The text selected inside a message. Kept as the selection changes, in case pressing the
+// button clears the selection before the click arrives (a few seconds at most).
+let messagePick = { article: null, text: '', at: 0 };
+const selectedIn = (article) => {
+  const sel = document.getSelection();
+  if (!sel || sel.isCollapsed || !article.contains(sel.anchorNode)) return '';
+  return sel.toString().trim();
+};
+document.addEventListener('selectionchange', () => {
+  const sel = document.getSelection();
+  const node = sel?.anchorNode;
+  const article = (node?.nodeType === 1 ? node : node?.parentElement)?.closest?.('.message-list article');
+  const text = article ? selectedIn(article) : '';
+  if (text) messagePick = { article, text, at: Date.now() };
+});
+
+// The message as read on screen: the answer's rendered text, or the designer's own words.
+function messageText(article) {
+  const copy = article.querySelector('.assistant-copy');
+  if (copy) return copy.innerText || copy.textContent || '';
+  return [...article.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE).map((n) => n.textContent).join('');
+}
+
+function ideaFromMessage(name, button) {
+  const article = button.closest('article');
+  if (!article) return;
+  const recent = messagePick.article === article && Date.now() - messagePick.at < 8000 && document.getSelection()?.isCollapsed;
+  const picked = selectedIn(article) || (recent ? messagePick.text : '');
+  const text = picked || messageText(article);
+  messagePick = { article: null, text: '', at: 0 };
+  const talk = button.dataset.talk || null;
+  addIdea(name, { text, talk }, picked ? '고른 부분을 아이디어 보드에 넣었습니다.' : '메시지를 아이디어 보드에 넣었습니다.').then((result) => {
+    if (result && !currentRoute.agent && !currentRoute.site) { ui.sideTab = 'ideas'; ui.expertsCollapsed = false; render(false); }
+  });
+}
+
+async function ideasFromNotes(name) {
+  const notes = pickedNotes(ui.selected, ui.board);
+  let added = 0;
+  for (const note of notes) {
+    if (!(await addIdea(name, { text: note.text, papers: [note.id] }, false))) break;
+    added += 1;
+  }
+  if (added) toast(`메모 ${added}장을 아이디어로 넣었습니다.`);
+}
+
+async function saveIdea(name, id) {
+  const key = `idea-edit:${id}`;
+  const text = draftFor(key).trim();
+  if (!text) { toast('아이디어 내용을 적어 주세요. 지우려면 지우기를 누르세요.', 'warn'); return; }
+  if (await ideaCall(name, ideaUrl(id), 'PATCH', { text })) { ui.ideaEdit = ''; drafts.delete(key); render(false); }
+}
+
+function orderIdeas(name, ids) {
+  const now = (ui.board?.ideas || []).map((i) => i.id);
+  if (sameOrder(now, ids)) return;
+  const by = new Map((ui.board?.ideas || []).map((i) => [i.id, i]));
+  ui.board.ideas = ids.map((id) => by.get(id)); // drawn at once; the server's answer follows
+  ideaCall(name, '/order', 'PUT', { ids });
+}
+
+function ideaAction(name, action, button) {
+  const id = button.dataset.idea;
+  const idea = id ? ideaById(id) : null;
+  if (action !== 'idea-delete') ui.ideaConfirm = '';
+  if (action === 'side-tab') { ui.sideTab = button.dataset.tab; render(false); return; }
+  if (action === 'idea-from-message') { ideaFromMessage(name, button); return; }
+  if (action === 'idea-notes') { ideasFromNotes(name); return; }
+  if (action === 'idea-cancel') { drafts.delete(`idea-edit:${ui.ideaEdit}`); ui.ideaEdit = ''; render(false); return; }
+  if (!idea || ui.ideaBusy) return;
+  if (action === 'idea-move') orderIdeas(name, moveIdea(ui.board.ideas.map((i) => i.id), id, Number(button.dataset.step)));
+  if (action === 'idea-edit') {
+    ui.ideaEdit = id;
+    drafts.set(`idea-edit:${id}`, idea.text);
+    render(false);
+    const box = app.querySelector(`[data-focus="idea-edit:${CSS.escape(id)}"]`);
+    box?.focus({ preventScroll: true });
+    box?.setSelectionRange(box.value.length, box.value.length);
+  }
+  if (action === 'idea-off') ideaCall(name, ideaUrl(id), 'PATCH', { off: !idea.off });
+  if (action === 'idea-link') ideaCall(name, ideaUrl(id), 'PATCH', { papers: linkPapers(idea.papers, ui.selected) });
+  if (action === 'idea-unlink') ideaCall(name, ideaUrl(id), 'PATCH', { papers: (idea.papers || []).filter((x) => x !== button.dataset.id) });
+  if (action === 'idea-unlink-talk') ideaCall(name, ideaUrl(id), 'PATCH', { talk: null });
+  if (action === 'idea-delete') {
+    if (ui.ideaConfirm !== id) { ui.ideaConfirm = id; render(false); return; }
+    ui.ideaConfirm = '';
+    if (ui.ideaEdit === id) ui.ideaEdit = '';
+    ideaCall(name, ideaUrl(id), 'DELETE');
+  }
+}
+
+// Dragging an idea onto another puts it before that one (after it, past the middle).
+app.addEventListener('dragstart', (event) => {
+  const item = event.target.closest?.('.idea[data-idea]');
+  if (!item) return;
+  ui.ideaDrag = item.dataset.idea;
+  event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('text/plain', item.querySelector('.idea-text')?.textContent || '');
+  item.classList.add('is-dragging');
+});
+app.addEventListener('dragover', (event) => {
+  const item = ui.ideaDrag && event.target.closest?.('.idea[data-idea]');
+  if (!item) return;
+  event.preventDefault();
+  const r = item.getBoundingClientRect();
+  for (const el of app.querySelectorAll('.idea.drop-before, .idea.drop-after')) el.classList.remove('drop-before', 'drop-after');
+  if (item.dataset.idea !== ui.ideaDrag) item.classList.add(event.clientY > r.top + r.height / 2 ? 'drop-after' : 'drop-before');
+});
+app.addEventListener('drop', (event) => {
+  const item = ui.ideaDrag && event.target.closest?.('.idea[data-idea]');
+  if (!item) return;
+  event.preventDefault();
+  const r = item.getBoundingClientRect();
+  const ids = (ui.board?.ideas || []).map((i) => i.id);
+  const dragged = ui.ideaDrag;
+  ui.ideaDrag = '';
+  orderIdeas(currentRoute.name, dropIdea(ids, dragged, item.dataset.idea, event.clientY > r.top + r.height / 2));
+});
+app.addEventListener('dragend', () => {
+  if (!ui.ideaDrag) return;
+  ui.ideaDrag = '';
+  render(false);
+});
 
 // The drawing table as a DXF or 3dm file, with the scheme the table shows switched on.
 async function downloadBoard(name, format) {
@@ -2387,6 +2648,7 @@ app.addEventListener('click', (event) => {
   if (action === 'new-chat') newChat(button.dataset.agent);
   if (action === 'run-expert') runExpert(name, button.dataset.agent, button.dataset.withoutSite === 'true');
   if (action === 'unpick') unpick(button.dataset.id);
+  if (action === 'side-tab' || action.startsWith('idea-')) ideaAction(name, action, button);
   const talkId = button.dataset.talk;
   if (action === 'talk-menu') { event.preventDefault(); ui.talkMenu = talkMenu(ui.talkMenu, 'toggle', talkId); render(false); }
   if (action === 'talk-open') {
@@ -2434,6 +2696,7 @@ app.addEventListener('input', (event) => {
     ui.cmd.pick = 0;
     updateCommandLine();
   }
+  if (target.dataset.ideaDraft) drafts.set(target.dataset.ideaDraft, target.value);
   if (target.id === 'revision-text') drafts.set(`revision:${currentRoute.agent}`, target.value);
   if (target.id === 'feedback-text') drafts.set(`feedback:${currentRoute.agent}`, target.value);
   if (target.id === 'site-query') ui.find.query = target.value;
@@ -2450,6 +2713,7 @@ app.addEventListener('change', (event) => {
   if (region) chooseRegion(region, event.target.value);
   if (pick) togglePick(pick, event.target.checked);
   if (lot === 'mountain') ui.find.mountain = event.target.checked;
+  if (event.target.id === 'idea-new-link') ui.ideaLinkNew = event.target.checked;
   const { ordDetailed } = event.target.dataset || {};
   if (ordDetailed) setOrdinanceOption(currentRoute.name, ordDetailed, { detailed: event.target.checked });
   // Checklist ticks stay on screen only for now (not saved to the project).
@@ -2503,6 +2767,10 @@ app.addEventListener('submit', async (event) => {
     searchUses();
   } else if (form.id === 'command-form') {
     runCommandLine();
+  } else if (form.id === 'idea-new-form') {
+    addTypedIdea(currentRoute.name);
+  } else if (form.dataset.ideaForm) {
+    saveIdea(currentRoute.name, form.dataset.ideaForm);
   } else if (form.dataset.composer === 'conductor-new') {
     const key = 'conductor-new';
     const text = draftFor(key).trim();
@@ -2563,6 +2831,18 @@ function commandKey(event) {
 
 app.addEventListener('keydown', (event) => {
   if (event.target.id === 'command-input') { commandKey(event); return; }
+  if (event.target.dataset?.ideaDraft) {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
+      event.preventDefault();
+      event.target.closest('form').requestSubmit();
+    } else if (event.key === 'Escape' && ui.ideaEdit) {
+      event.preventDefault();
+      drafts.delete(`idea-edit:${ui.ideaEdit}`);
+      ui.ideaEdit = '';
+      render(false);
+    }
+    return;
+  }
   if (event.target.matches('.composer textarea') && event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     event.target.closest('form').requestSubmit();

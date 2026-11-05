@@ -893,3 +893,51 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .photo-drop { position: absolute; inset: 12px; z-index: 30; display: grid; place-items: center; border: 2px dashed var(--brand); border-radius: 14px; background: color-mix(in srgb, var(--brand) 8%, transparent); pointer-events: none; }
 .photo-drop span { padding: 8px 16px; border-radius: 999px; background: var(--surface); color: var(--brand); font-weight: 700; }
 .photo-drop[hidden] { display: none; }
+
+/* ---- the idea board (오른쪽 칸 "아이디어" 탭): the designer's main ideas, in order; the AI only reads them */
+.side-tabs { display: flex; gap: 4px; padding: 10px 12px 0; flex-shrink: 0; border-bottom: 1px solid var(--line); }
+.side-tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 7px 10px 8px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font-size: 13px; font-weight: 600; }
+.side-tabs button[aria-selected="true"] { color: var(--brand); border-bottom-color: var(--brand); }
+.side-tabs .expert-count { min-width: 18px; height: 18px; margin-left: 2px; font-size: 10px; }
+.ideas-scroll { padding: 10px 12px 12px; }
+.idea-empty { padding: 14px; font-size: 12px; line-height: 1.8; color: var(--muted); background: #f7f9fb; border: 1px solid var(--line); border-radius: 8px; }
+.idea-empty p { margin: 0 0 6px; }
+.idea-empty b { color: var(--text); }
+.idea-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.idea { position: relative; display: flex; gap: 10px; padding: 10px 10px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--note); color: var(--note-ink); }
+.idea.is-off { background: var(--surface-subtle); color: var(--muted); border-style: dashed; }
+.idea.is-off .idea-text { text-decoration: line-through; text-decoration-color: #b8bec6; }
+.idea.is-dragging { opacity: .45; }
+.idea.drop-before { box-shadow: 0 -3px 0 var(--brand); }
+.idea.drop-after { box-shadow: 0 3px 0 var(--brand); }
+.idea-num { flex-shrink: 0; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--surface); border: 1px solid var(--line); color: var(--brand); font-size: 12px; font-weight: 700; cursor: grab; user-select: none; }
+.idea-num:active { cursor: grabbing; }
+.idea-body { flex: 1; min-width: 0; display: grid; gap: 6px; }
+.idea-text { margin: 0; font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+.idea.is-off .idea-text { color: var(--muted); }
+.idea-off-badge { justify-self: start; padding: 1px 8px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-size: 10px; font-weight: 700; color: var(--muted); }
+.idea-links { display: flex; flex-wrap: wrap; gap: 4px; }
+.idea-links .attachment { font-size: 11px; }
+.idea-actions { display: flex; flex-wrap: wrap; gap: 2px 4px; opacity: .55; transition: opacity .15s; }
+.idea:hover .idea-actions, .idea:focus-within .idea-actions { opacity: 1; }
+@media (hover: none) { .idea-actions { opacity: 1; } }
+.idea-actions button { border: 0; background: none; color: var(--brand); font-size: 11px; padding: 3px 5px; border-radius: 5px; }
+.idea-actions button:hover:not(:disabled) { background: var(--surface); }
+.idea-actions button:disabled { color: #a3abb4; }
+.idea-actions .idea-delete { margin-left: auto; color: var(--muted); }
+.idea-actions .idea-delete.confirm { color: white; background: #a83232; }
+.idea-edit textarea { width: 100%; padding: 8px 10px; font: inherit; font-size: 14px; resize: vertical; }
+.idea-edit-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+.idea-edit-actions .composer-hint { margin-right: auto; }
+.idea-new { flex-shrink: 0; display: grid; gap: 6px; margin: 0 12px 14px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: white; }
+.idea-new textarea { width: 100%; border: 0; padding: 4px 2px; font: inherit; font-size: 14px; resize: none; outline: none; }
+.idea-new-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.idea-link-picked { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--brand); }
+.idea-from-notes { justify-self: start; border: 1px dashed var(--brand); background: var(--selected); color: var(--brand); border-radius: 7px; padding: 5px 10px; font-size: 12px; }
+/* "＋ 아이디어로" under a saved message: quiet until the message is pointed at. */
+.message-list article { position: relative; }
+.to-idea { display: block; margin: 6px 0 0 auto; border: 1px solid transparent; background: none; color: var(--muted); border-radius: 6px; padding: 2px 8px; font-size: 11px; opacity: 0; transition: opacity .15s; }
+.message-user .to-idea { margin-bottom: -4px; white-space: normal; }
+.message-list article:hover .to-idea, .to-idea:focus-visible { opacity: 1; }
+.to-idea:hover { border-color: var(--line); color: var(--brand); background: var(--surface); }
+@media (hover: none) { .to-idea { opacity: 1; } }

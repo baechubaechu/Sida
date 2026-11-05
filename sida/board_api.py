@@ -19,7 +19,7 @@ def create_router(load_config, core) -> APIRouter:
             return core(fn, *args, **kwargs)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except board.PaperNotFound as exc:
+        except (board.PaperNotFound, board.IdeaNotFound) as exc:
             raise HTTPException(status_code=404, detail=f"not found: {exc.args[0]}") from exc
 
     def project(name: str):
@@ -68,6 +68,24 @@ def create_router(load_config, core) -> APIRouter:
     @router.delete("/tray/{paper_id}")
     def discard_paper(name: str, paper_id: str) -> dict:
         return call(board.discard_paper, call(project, name), paper_id)
+
+    # The idea board: the designer's main ideas, in order (the AI only reads them).
+    @router.post("/ideas")
+    def add_idea(name: str, body: dict) -> JSONResponse:
+        return JSONResponse(call(board.add_idea, call(project, name), body), status_code=201)
+
+    # Declared before /ideas/{idea_id} so "order" is not read as an idea id.
+    @router.put("/ideas/order")
+    def order_ideas(name: str, body: dict) -> dict:
+        return call(board.order_ideas, call(project, name), body.get("ids"))
+
+    @router.patch("/ideas/{idea_id}")
+    def update_idea(name: str, idea_id: str, body: dict) -> dict:
+        return call(board.update_idea, call(project, name), idea_id, body)
+
+    @router.delete("/ideas/{idea_id}")
+    def delete_idea(name: str, idea_id: str) -> dict:
+        return call(board.delete_idea, call(project, name), idea_id)
 
     @router.get("/export")
     def export(name: str, format: str = "dxf", active: str = "") -> Response:
