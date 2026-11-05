@@ -33,6 +33,13 @@ def feature(ring, **props) -> dict:
     return {"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [ring]}, "properties": props}
 
 
+@pytest.fixture(autouse=True)
+def coarse_ground(monkeypatch):
+    """Solve the ground on a 4 m grid instead of 2 m: four times fewer cells, same checks.
+    The solver itself is checked at 2 m in test_ground_keeps_fixed_heights_and_is_smooth_between_them."""
+    monkeypatch.setattr(context3d, "SOLVE_STEP", 4.0)
+
+
 @pytest.fixture
 def pack(tmp_path):
     """A pack where the ground rises 10 m from y = -150 (10 m) to y = 150 (20 m), plus a spot height."""
