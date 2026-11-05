@@ -150,3 +150,12 @@ def test_the_expert_chat_reads_the_designers_main_ideas(chat_session):
     expert_chat.expert_chat(s, agent(s), "이 방향 괜찮아?")
     context = provider.calls[0]["messages"][1]["content"]
     assert "DESIGNER'S MAIN IDEAS" in context and "1. 길에서 마당이 보이게" in context
+
+
+def test_a_damaged_board_does_not_stop_an_expert_chat(chat_session):
+    from sida import board
+
+    s, provider = chat_session([ANSWER])
+    board.board_path(s.project.path).write_bytes(b"\xff")
+    expert_chat.expert_chat(s, agent(s), "이 방향 괜찮아?")
+    assert provider.calls and "DESIGNER'S MAIN IDEAS" not in provider.calls[0]["messages"][1]["content"]

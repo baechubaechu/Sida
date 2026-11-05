@@ -40,6 +40,7 @@ frame: `u` along the long side of its largest parcel, `v` across it, from that p
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 import threading
@@ -115,6 +116,25 @@ def _site_paper() -> dict:
 
 def _empty() -> dict:
     return {"rev": 0, "papers": [_site_paper()], "tray": [], "pins": [], "ideas": []}
+
+
+log = logging.getLogger(__name__)
+
+
+def read_board(project_path: Path) -> dict | None:
+    """
+    The saved table for a prompt (the Conductor's and the experts' reading of it): None when
+    there is none, and None with a warning in the log when it cannot be read, so a damaged
+    board.json never stops a conversation or an expert run. Edits keep using load_board,
+    which refuses to replace a board it cannot read.
+    """
+    if not board_path(project_path).exists():
+        return None
+    try:
+        return load_board(project_path)
+    except SidaError as exc:
+        log.warning("%s (read without the drawing table)", exc.message)
+        return None
 
 
 def load_board(project_path: Path) -> dict:
@@ -814,9 +834,7 @@ def ideas_block(board: dict | None) -> str:
 
 def expert_context(project_path: Path, selection: Selection | None) -> str:
     """The idea board and the selected papers, for an expert's prompt ("" for neither)."""
-    table = selection.board if selection is not None else (
-        load_board(project_path) if board_path(project_path).exists() else None
-    )
+    table = selection.board if selection is not None else read_board(project_path)
     return "\n\n".join(part for part in (ideas_block(table), expert_block(selection)) if part)
 
 

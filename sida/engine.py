@@ -16,7 +16,8 @@ Event kinds and their data:
   module_saved      agent, path, preview, truncated
   module_failed     agent, reason
   tray_added        paper            (a paper in the drawing table's AI section, sida/board.py)
-  tray_failed       reason           (the Conductor's paper was refused; it is told why)
+  tray_failed       reason           (the Conductor's paper was refused, it is told why; or an expert's
+                                    result could not go to the AI section of an unreadable board)
   run_skipped       agent, reason ("limit" | "state_pending" | "held", or a domain's run_needs
                     reason such as "no_site"), limit; with a run_needs reason also address
                     (a site address the Conductor passed, "" when none)
@@ -39,7 +40,7 @@ from sida import board
 from sida.conductor import ask_conductor, parse_action
 from sida.conductor_context import render_conductor_prompt
 from sida.config import ROOT, agent_by_id, get_agents, is_held, resolve_agent
-from sida.errors import fail
+from sida.errors import SidaError, fail
 from sida.experts import run_needs
 from sida.i18n import get_language
 from sida.project import MAIN_TALK, Project, open_or_create
@@ -391,7 +392,7 @@ def conductor_turn(
             data = action.get("paper") if isinstance(action.get("paper"), dict) else {}
             try:
                 paper = board.propose_paper(session.project.path, data)
-            except ValueError as exc:
+            except (ValueError, SidaError) as exc:
                 session.send("tray_failed", reason=str(exc))
                 result = f"The paper was refused: {exc}. Fix it or tell the designer."
             else:
@@ -438,10 +439,10 @@ def table_for_conductor(session: Session) -> tuple[str, bool]:
     """(drawing-table text for the Conductor's calls, whether it gets read_board).
     Every Conductor gets the designer's main ideas (the idea board). Beyond that a local one
     gets nothing here: the selected paper names are in the history line."""
-    if not board.board_path(session.project.path).exists():
+    table = session.table.board if session.table is not None else board.read_board(session.project.path)
+    if table is None:  # no board yet, or one that cannot be read (board.read_board logs it)
         return "", False
     mode = board.context_mode(session.config)
-    table = session.table.board if session.table is not None else board.load_board(session.project.path)
     parts = (board.ideas_block(table), board.conductor_block(session.table, table, mode))
     return "\n\n".join(part for part in parts if part), mode == "full"
 
@@ -598,7 +599,11 @@ def run_module(session: Session, agent: dict, *, revision: str | None = None) ->
         truncated=len(lines) > PREVIEW_LINES,
     )
     about = [p["id"] for p in session.table.papers] if session.table is not None else []
-    paper = board.expert_result(session.project.path, agent, text, about)
+    try:
+        paper = board.expert_result(session.project.path, agent, text, about)
+    except SidaError as exc:  # a board.json that cannot be read is left alone; the result is saved above
+        session.send("tray_failed", reason=exc.message)
+        paper = None
     if paper is not None:
         session.send("tray_added", paper=paper)
     return ModuleRun(agent=agent, text=text, path=path)

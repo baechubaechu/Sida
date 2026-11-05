@@ -643,3 +643,21 @@ def test_the_context_view_shows_the_ideas_the_models_get(tmp_path, mock_config):
     board.add_idea(tmp_path, {"text": "북측은 낮게"})
     seen = board.context_view(tmp_path, mock_config, [])
     assert "1. 북측은 낮게" in seen["conductor"] and "1. 북측은 낮게" in seen["expert"]
+
+
+def test_a_damaged_board_does_not_stop_the_conductor_or_an_expert_run(make_session, scripted, table, caplog):
+    path = board.board_path(table.path)
+    path.write_bytes(b'{"papers":[')  # cut off mid-write
+    run = '비평가에게 보이겠습니다\n```action\n{"type":"run","agent":"design_critic"}\n```'
+    c = scripted([run, '정리했습니다.\n```action\n{"type":"none"}\n```'])
+    w = scripted(["## 결과\n- 북측 동이 높음"] * 3)
+    s = make_session(c_provider=c, w_provider=w)
+    with caplog.at_level("WARNING", logger="sida.board"):
+        engine.converse(s, "비평해 줘")
+    assert c.calls and w.calls  # the Conductor answered and the expert ran, without the table
+    assert "DRAWING TABLE" not in _texts(c.calls[0]["messages"])
+    assert "without the drawing table" in caplog.text
+    assert path.read_bytes() == b'{"papers":['  # left as it was for the designer to restore
+    assert board.read_board(table.path) is None
+    with pytest.raises(SidaError):  # an edit still refuses to replace it
+        board.add_idea(table.path, {"text": "new"})
