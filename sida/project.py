@@ -163,25 +163,6 @@ class Project:
         text = path.read_text(encoding="utf-8").strip()
         return text or None
 
-    def update_brief_sections(self, updates: dict[str, str]) -> str:
-        """
-        Replace only the given `## Section` bodies in brief.md.
-        Unknown sections and any extra content are preserved. Empty values are ignored.
-        Returns the new brief text.
-        """
-        current = self.read_brief()
-        backup = self.path / "brief.prev.md"
-        atomic_write_text(backup, current)
-
-        text = current
-        for heading, body in updates.items():
-            body = body.strip()
-            if not body:
-                continue
-            text = replace_section(text, heading, body)
-        atomic_write_text(self.brief_path, text.rstrip() + "\n")
-        return text
-
     def updated_at(self) -> str:
         if self.session_path.exists():
             try:
