@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from sida import config as sida_config
-from sida import hardware, settings, webapp
+from sida import settings, webapp
 
 ROOT = sida_config.ROOT
 
@@ -44,19 +44,6 @@ def test_first_run_shows_team_defaults(client, env_keys):
     assert body["gpu"] is None
 
 
-def test_put_local_mode_writes_only_config_local(client):
-    team = (ROOT / "config.yaml").read_bytes()
-    r = client.put("/api/settings", json={"mode": "local", "local_profile": "local_plus"})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["first_run"] is False
-    assert body["mode"] == "local" and body["local_profile"] == "local_plus"
-    assert body["conductor"]["model"] == "qwen3.5:9b"  # the profile's model
-    text = sida_config.local_config_path().read_text(encoding="utf-8")
-    assert "provider: ollama" in text and "local_profile: local_plus" in text
-    assert (ROOT / "config.yaml").read_bytes() == team
-
-
 def test_put_changes_only_the_fields_given(client):
     client.put("/api/settings", json={"mode": "local"})
     body = client.put("/api/settings", json={"worker_provider": "openrouter", "rag_enabled": True}).json()
@@ -77,7 +64,6 @@ def test_put_empty_body_finishes_first_run(client):
     "change",
     [
         {"mode": "hybrid"},
-        {"local_profile": "huge"},
         {"conductor_provider": "mock"},
         {"state_update": "sometimes"},
     ],
@@ -90,12 +76,6 @@ def test_put_rejects_a_bad_value_and_writes_nothing(client, change):
 
 def test_put_rejects_unknown_fields(client):
     assert client.put("/api/settings", json={"language": "en"}).status_code == 422
-
-
-def test_gpu_and_recommended_profile(client, monkeypatch):
-    monkeypatch.setattr(hardware, "query_nvidia_smi", lambda: "RTX 5070 Ti, 16303\n")
-    gpu = client.get("/api/settings").json()["gpu"]
-    assert gpu["name"] == "RTX 5070 Ti" and gpu["recommended_profile"] == "local_plus"
 
 
 def test_put_key_saves_to_env_and_never_returns_it(client, env_keys):

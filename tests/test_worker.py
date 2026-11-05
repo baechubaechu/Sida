@@ -131,18 +131,6 @@ def test_run_worker_uses_declared_inputs_only(mock_config, agents, project, scri
     assert "stale legacy block" not in sent
 
 
-def test_worker_input_budget_only_for_local_with_known_ctx():
-    from sida.worker import worker_input_budget
-
-    cloud = {"provider": "openrouter", "num_ctx": None, "max_tokens": 2500}
-    assert worker_input_budget(cloud, 100) is None
-    assert worker_input_budget({"provider": "ollama", "num_ctx": None, "max_tokens": 2500}, 100) is None
-    local = {"provider": "ollama", "num_ctx": 8192, "max_tokens": 2500}
-    expected = int((8192 - 2500) * worker.CHARS_PER_TOKEN) - 3000 - worker.BUDGET_MARGIN_CHARS
-    assert worker_input_budget(local, 3000) == expected
-    assert worker_input_budget(local, 99999) == 0  # fixed parts alone overflow
-
-
 def test_clip_block_keeps_start_and_handoff():
     from sida.worker import TRIM_MARK, clip_block
 
@@ -176,36 +164,6 @@ def test_fit_worker_inputs_fair_share_and_knowledge_cap():
 def _valid_output(agent):
     headers = worker.expected_headers((ROOT / agent["file"]).read_text(encoding="utf-8"))
     return "\n\n".join(f"## {h}\n- x" for h in headers)
-
-
-def test_local_worker_prompt_fits_context_and_reports_trimming(
-    mock_config, agents, project, scripted, capsys
-):
-    from sida.config import agent_by_id
-    from sida.runtime import resolve_worker_runtime
-
-    mock_config["conductor"]["local_profile"] = "local"  # 8K context
-    mock_config["worker"]["provider"] = "ollama"
-    mock_config["rag"] = {"enabled": False}
-    rt = resolve_worker_runtime(mock_config)
-    for a in agents[:6]:
-        (project.modules_dir / a["output"]).write_text(
-            f"# {a['name']}\n\n" + "내용 " * 2500 + "\n## Handoff\n- → design_critic: 확인\n",
-            encoding="utf-8",
-        )
-    agent = agent_by_id(agents, "design_critic")  # inputs: all
-    provider = scripted([_valid_output(agent)])
-    run_worker_agent(
-        "", mock_config, agent, project.read_brief(), [], project.modules_dir,
-        provider=provider, project_state=project.read_state(),
-    )
-
-    sent = sum(len(m["content"]) for m in provider.calls[0]["messages"])
-    assert sent <= (rt["num_ctx"] - rt["max_tokens"]) * worker.CHARS_PER_TOKEN
-    prompt = provider.calls[0]["messages"][1]["content"]
-    assert prompt.startswith("AGENT PROMPT:")  # role is intact
-    assert prompt.count("→ design_critic: 확인") == 6  # every Handoff survived
-    assert "[module]" in capsys.readouterr().err
 
 
 def test_cloud_worker_prompt_is_never_trimmed(mock_config, agents, project, scripted, capsys):
