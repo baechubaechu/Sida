@@ -618,3 +618,16 @@ test('the idea board: text from a message, reordering, links and notes', async (
   assert.equal(ideasInPlay(board), 1);
   assert.equal(ideasInPlay(null), 0);
 });
+
+test('the surroundings legend lists only the ground kinds and building kinds that are drawn', async () => {
+  const { aroundLegend } = await import('../../webui/app/board-model.js');
+  // no 1:5,000 areas here (마포): the grid is all 대지, so no 도로·인도·수계 chips
+  const plain = aroundLegend({ terrain: { classes: 'gggg' }, buildings: [{ height_source: 'ledger' }], counts: {} });
+  assert.deepEqual(plain.map(([k]) => k), ['g']);
+  const full = aroundLegend({
+    terrain: { classes: 'grsw' }, buildings: [{ height_source: 'map_estimate' }], counts: { unknown: 2 },
+  });
+  assert.deepEqual(full.map(([k]) => k), ['g', 'r', 's', 'w', 'guess', 'unknown']);
+  assert.deepEqual(aroundLegend({ terrain: null, buildings: [], counts: {} }), [['g', '대지']]); // flat
+  assert.deepEqual(aroundLegend(null), []);
+});

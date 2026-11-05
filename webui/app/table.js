@@ -20,7 +20,7 @@ import {
   snapTape,
   massIds, createHistory, recordStep, undoStep, redoStep, changedFields, planDrawing,
   photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE,
-  CONTOUR_STEPS, GROUND_COLORS, GROUND_NAMES, contourLines, aroundNote, isEstimate,
+  CONTOUR_STEPS, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate,
 } from './board-model.js';
 
 const SNAP = 7; // metres: a tracing sheet this close to its place on the site clicks into register
@@ -880,8 +880,9 @@ export class DraftingTable {
     const unknown = new THREE.LineBasicMaterial({ color: 0xc8742f });
     for (const b of data.unknown_buildings || []) if (b.ground_line) around.add(lineOf(b.ground_line, unknown));
     const hex = (k) => `#${GROUND_COLORS[k].toString(16).padStart(6, '0')}`;
-    const legend = Object.entries(GROUND_NAMES).map(([k, name]) => `<span><i style="background:${hex(k)}"></i>${name}</span>`).join('');
-    note.innerHTML = `<p class="legend">${legend}<span><i class="guess"></i>추정 높이</span><span><i class="unknown"></i>높이 미확인(바닥선)</span></p>
+    const legend = aroundLegend(data).map(([k, name]) => (GROUND_COLORS[k] === undefined
+      ? `<span><i class="${k}"></i>${name}</span>` : `<span><i style="background:${hex(k)}"></i>${name}</span>`)).join('');
+    note.innerHTML = `<p class="legend">${legend}</p>
       ${aroundNote(data).map((line) => `<p>${escape(line)}</p>`).join('')}`;
     this.invalidate();
   }

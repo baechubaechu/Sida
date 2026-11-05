@@ -791,6 +791,19 @@ export const CONTOUR_STEPS = [1, 2, 5];
 export const GROUND_COLORS = { g: 0xd9d1bf, r: 0xb3b3b0, s: 0xe6e1d6, w: 0x9cc7d9 };
 export const GROUND_NAMES = { g: '대지', r: '도로', s: '인도', w: '수계' };
 
+// The legend under the surroundings: only the ground kinds the grid has and the building kinds
+// that are drawn ([kind, name]; kind is a ground letter, 'guess' or 'unknown'). Without a ground
+// grid the ground is drawn flat as 대지.
+export function aroundLegend(context) {
+  if (!context) return [];
+  const classes = context.terrain?.classes;
+  const ground = Object.entries(GROUND_NAMES).filter(([k]) => (classes ? classes.includes(k) : k === 'g'));
+  const c = context.counts || {};
+  const guess = (context.buildings || []).some((b) => ESTIMATED.has(b.height_source));
+  return [...ground, ...(guess ? [['guess', '추정 높이']] : []),
+    ...(c.unknown || context.unknown_buildings?.length ? [['unknown', '높이 미확인(바닥선)']] : [])];
+}
+
 // The point at grid column i, row j of the ground.
 export function groundPoint(terrain, i, j) {
   return [terrain.min + i * terrain.step, terrain.min + j * terrain.step, terrain.z[j * terrain.n + i]];
