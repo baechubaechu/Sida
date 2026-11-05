@@ -305,13 +305,14 @@ def test_the_export_hook_gives_nothing_without_a_site(tmp_path):
 
 
 def test_a_file_building_without_height_or_floors_asks_vworld_once_per_layer(tmp_path, monkeypatch):
-    """Recorded VWorld replies around one building near 무교동 45 (tests/fixtures/landapi/context_*)."""
+    """VWorld replies around one building, recorded and then moved to a made-up spot with made-up names
+    (tests/fixtures/landapi/context_*_sample*): no real place is in the repository."""
     import json
     from pathlib import Path
 
     fixtures = Path(__file__).resolve().parents[2] / "fixtures" / "landapi"
-    building = json.loads((fixtures / "context_pack_building_mugyo.json").read_text(encoding="utf-8"))
-    replies = {layer: json.loads((fixtures / f"context_{layer}_mugyo_box.json").read_text(encoding="utf-8"))
+    building = json.loads((fixtures / "context_pack_building_sample.json").read_text(encoding="utf-8"))
+    replies = {layer: json.loads((fixtures / f"context_{layer}_sample_box.json").read_text(encoding="utf-8"))
                for layer in ("LT_C_SPBD", "LT_C_BLDGINFO")}
     calls = []
 
@@ -343,7 +344,7 @@ def test_vworld_floors_stay_out_of_the_export(tmp_path, monkeypatch):
     from pathlib import Path
 
     fixtures = Path(__file__).resolve().parents[2] / "fixtures" / "landapi"
-    origin = json.loads((fixtures / "context_pack_building_mugyo.json").read_text(encoding="utf-8"))["origin"]
+    origin = json.loads((fixtures / "context_pack_building_sample.json").read_text(encoding="utf-8"))["origin"]
     out = context3d.build({"origin": origin, "parcels": []}, 200, folder=tmp_path, ledger=lambda pnu: [], use_cache=False)
     assert out["buildings"][0]["offline"] is None
     layers = {layer["short"]: layer for layer in context3d.export_layers(out)}
@@ -351,7 +352,7 @@ def test_vworld_floors_stay_out_of_the_export(tmp_path, monkeypatch):
 
     # with a 1:5,000 building over it, the export uses those floors instead
     conn = terrain_pack.create(tmp_path / f"m{terrain_pack.SUFFIX}", {"name": "m", "kind": "areas", "source": "1:5,000"})
-    terrain_pack.add_map_building(conn, json.loads((fixtures / "context_pack_building_mugyo.json").read_text(encoding="utf-8"))["ring"], 6, "")
+    terrain_pack.add_map_building(conn, json.loads((fixtures / "context_pack_building_sample.json").read_text(encoding="utf-8"))["ring"], 6, "")
     conn.commit()
     conn.close()
     out = context3d.build({"origin": origin, "parcels": []}, 200, folder=tmp_path, ledger=lambda pnu: [], use_cache=False)
