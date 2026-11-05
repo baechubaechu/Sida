@@ -14,7 +14,8 @@ Every piece carries what the designer needs to put it back:
 - `id` like "1-03B": module 1, layer 3, its second part (parts read north to south, then west to
   east). With one module the id is just "03B".
 - `engrave`: lines scored on the piece: where the next layer sits (to line it up), and the
-  part of the site boundary that shows on this piece
+  parts of the site boundary and of the edges of roads, pavements and water that show on
+  this piece
 - `label_at` / `label_room`: a spot for the id, preferably where the next layer will cover
   it, and the radius free around it
 """
@@ -73,6 +74,7 @@ class ModelPlan:
     pieces: list[Piece]
     site_mm: Polygon | None
     dropped: int = 0  # bits too small to cut
+    areas_mm: list[tuple[str, Polygon | MultiPolygon]] = field(default_factory=list)  # road, sidewalk, water
 
 
 def contour_interval(scale: int, thickness_mm: float) -> float:
@@ -184,6 +186,11 @@ def slice_terrain(terrain: Terrain, *, scale: int = 500, thickness_mm: float = 3
     modules = module_boxes(size, cols, rows)
 
     edge = to_mm(extent).boundary.buffer(0.2)
+    areas = [(kind, to_mm(shape)) for kind, shape in terrain.areas]
+    # The edges of roads, pavements and water, scored where they show; the model's edge is cut anyway.
+    area_edges = unary_union([shape.boundary for _, shape in areas]).difference(edge) if areas else LineString()
+    if site is not None and not area_edges.is_empty:  # a site on a road is scored once
+        area_edges = area_edges.difference(site.boundary.buffer(0.2))
     # Where each next layer meets the one below: its outline, less the model's own edges.
     steps = [regions[k + 1].boundary.difference(edge) if k + 1 < len(regions) else LineString() for k in range(len(regions))]
 
@@ -206,8 +213,11 @@ def slice_terrain(terrain: Terrain, *, scale: int = 500, thickness_mm: float = 3
                     if inner.area > MIN_PIECE_MM2 * 4:
                         shape = part.difference(inner).buffer(0)
                 engrave = _lines(steps[k].intersection(part.buffer(OVERLAP)))
+                shows = part.difference(above).buffer(OVERLAP)
                 if site is not None:
-                    engrave += _lines(site.boundary.intersection(part.difference(above).buffer(OVERLAP)))
+                    engrave += _lines(site.boundary.intersection(shows))
+                if not area_edges.is_empty:
+                    engrave += _lines(area_edges.intersection(shows))
                 at, room_ = _label_spot(covered.intersection(shape) if not covered.is_empty else Polygon())
                 label_hidden = True
                 if room_ < MIN_LABEL_ROOM:
@@ -224,4 +234,5 @@ def slice_terrain(terrain: Terrain, *, scale: int = 500, thickness_mm: float = 3
                     label_hidden=label_hidden, show_at=show_at, show_room=show_room,
                 ))
     return ModelPlan(scale=scale, thickness_mm=thickness_mm, interval_m=interval, base_m=base, size_mm=size,
-                     modules=modules, layers=regions, pieces=pieces, site_mm=site, dropped=dropped)
+                     modules=modules, layers=regions, pieces=pieces, site_mm=site, dropped=dropped,
+                     areas_mm=areas)
