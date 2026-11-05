@@ -14,7 +14,7 @@ python -m venv .venv
 pip install -e ".[dev]"
 git config core.hooksPath .githooks   # 머지된 로컬 브랜치 자동 정리
 copy .env.example .env          # Mac/Linux: cp .env.example .env  → 본인 API 키 입력
-pytest                          # 전부 통과하는지 확인
+pytest -n auto                  # 전부 통과하는지 확인 (병렬)
 ```
 
 `.env`는 절대 커밋하지 않습니다 (`.gitignore`에 등록됨). 새 환경변수가 생기면 `.env.example`에만 이름을 추가하세요.
@@ -37,7 +37,7 @@ git pull
 git switch -c feat/짧은-설명
 
 # 코드 수정 후
-ruff check . && pytest
+ruff check . && python scripts/related_tests.py   # 바꾼 부분의 테스트만 (전체는 CI)
 git add <바꾼 파일>              # git add . 는 지양, 커밋 전 git status/diff 확인
 git commit -m "feat: 무엇을 했는지"
 git push -u origin feat/짧은-설명
