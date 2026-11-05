@@ -20,11 +20,11 @@ const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ $
 test('mass base uses interpolated edges and interior ground points like CAD', () => {
   const t = {min: -10, n: 5, step: 5, z: Array.from({length: 25}, (_, k) => 10 - (k % 5) * 5)};
   const ring = [[-6,-6],[6,-6],[6,6],[-6,6]];
-  assert.equal(massBase(t, ring), -6);
+  assert.equal(massBase(ring, t), -6);
   t.z[12] = -12;
-  assert.equal(massBase(t, ring), -12);
-  assert.equal(massBase(null, ring), 0);
-  assert.equal(massBase(t, ring.map(([x,y]) => [x+50,y])), 0);
+  assert.equal(massBase(ring, t), -12);
+  assert.equal(massBase(ring, null), 0);
+  assert.equal(massBase(ring.map(([x,y]) => [x+50,y]), t), 0);
 });
 
 test('changing site drops old 3D data and ignores late responses', async () => {
@@ -670,4 +670,21 @@ test('the source note starts folded on a narrow table', async () => {
   assert.equal(noteStartsOpen(900), true);
   assert.equal(noteStartsOpen(1400), true);
   assert.equal(noteStartsOpen(undefined), false);
+});
+
+test('a block on the board stands on the ground under it only while the surroundings are shown', async () => {
+  const { DraftingTable } = await import('../../webui/app/table.js');
+  const { massBase, blockCorners } = await import('../../webui/app/board-model.js');
+  // ground falling 1 m per 5 m eastward over ±10 m
+  const terrain = { min: -10, n: 5, step: 5, z: Array.from({ length: 25 }, (_, k) => -(-10 + (k % 5) * 5) / 5) };
+  const t = Object.create(DraftingTable.prototype);
+  const frame = { x: 0, y: 0, angle: 0 };
+  const block = { u: 4, v: 0, w: 4, d: 4, floors: 3 };
+  Object.assign(t, { aroundOn: false, around: { terrain } });
+  assert.equal(t.blockBase(frame, block), 0); // surroundings off: on the table
+  t.aroundOn = true;
+  assert.equal(t.blockBase(frame, block), massBase(blockCorners(frame, block), terrain));
+  assert.equal(t.blockBase(frame, block), -1.2); // its east edge at x = 6
+  t.around = null;
+  assert.equal(t.blockBase(frame, block), 0);
 });

@@ -486,6 +486,7 @@ export class DraftingTable {
   faceAxis(b, face) {
     const frame = this.site?.plan?.frame || { x: 0, y: 0, angle: 0 };
     const [mx, my] = blockCorners(frame, { ...b, w: 0, d: 0 })[0];
+    const z0 = this.blockBase(frame, b); // the block stands on the ground under it (massBase)
     let dir = [0, 0, riseFor(this.view.tilt)];
     if (face !== 'top') {
       const t = frame.angle + ((b.a || 0) * Math.PI) / 180 + (face[0] === 'd' ? Math.PI / 2 : 0);
@@ -495,8 +496,8 @@ export class DraftingTable {
     const { camera } = this.gl;
     const r = this.root.getBoundingClientRect();
     const at = (x, y, z) => { const p = new THREE.Vector3(x, y, z).project(camera); return [((p.x + 1) / 2) * r.width, ((1 - p.y) / 2) * r.height]; };
-    const [ax, ay] = at(mx, my, 0);
-    const [bx, by] = at(mx + dir[0], my + dir[1], dir[2]);
+    const [ax, ay] = at(mx, my, z0);
+    const [bx, by] = at(mx + dir[0], my + dir[1], z0 + dir[2]);
     return [bx - ax, by - ay];
   }
 
@@ -596,7 +597,7 @@ export class DraftingTable {
     if (preview) papers.push(preview);
     for (const paper of papers) for (const b of paper.blocks) {
       const outline = blockCorners(frame, b);
-      const z = massBase(this.aroundOn && this.around?.terrain, outline);
+      const z = this.blockBase(frame, b);
       const base = outline.map(([x, y]) => ({ x, y, z }));
       ring(base);
       if (riseFor(this.view.tilt) > .01) {
@@ -918,6 +919,12 @@ export class DraftingTable {
       ${open ? aroundNote(data).map((line) => `<p>${escape(line)}</p>`).join('') : ''}`;
   }
 
+  // How high a block stands: on the lowest ground under it while the surroundings are shown
+  // (the same rule as the export), else on the table (0).
+  blockBase(frame, b) {
+    return massBase(blockCorners(frame, b), this.aroundOn ? this.around?.terrain : null);
+  }
+
   // The active scheme stands solid; the others (and an AI scheme being previewed) as outlines.
   drawMasses() {
     if (!this.gl) return;
@@ -932,7 +939,7 @@ export class DraftingTable {
     const build = (paper, faint, tint) => {
       for (const [index, b] of (paper.blocks || []).entries()) {
         const h = b.floors * (paper.floor_height || 4.2);
-        const base = massBase(this.aroundOn && this.around?.terrain, blockCorners(frame, b));
+        const base = this.blockBase(frame, b);
         const geom = new THREE.BoxGeometry(b.w, b.d, h);
         // A click or a selection box on a building picks that block (not an AI scheme in preview).
         const own = tint ? {} : { paper: paper.id, index };
@@ -957,7 +964,7 @@ export class DraftingTable {
           tag.textContent = `${b.floors}F`;
           const obj = new THREE.CSS3DObject(tag);
           const [cx, cy] = blockCorners(frame, { ...b, w: 0, d: 0 })[0];
-          obj.position.set(cx, cy, 0.2);
+          obj.position.set(cx, cy, base + 0.2);
           obj.scale.setScalar(PX);
           g.cssScene.add(obj);
           g.labels.push(obj);

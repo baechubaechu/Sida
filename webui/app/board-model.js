@@ -816,10 +816,12 @@ export function groundPoint(terrain, i, j) {
   return [terrain.min + i * terrain.step, terrain.min + j * terrain.step, terrain.z[j * terrain.n + i]];
 }
 
-// Match board_export.mass_base: sample the edges at half-grid intervals and every
-// interior grid vertex. Footprints entirely outside the terrain stand at zero.
-export function massBase(terrain, outline) {
-  if (!terrain || !outline.length) return 0;
+// Where a block of a mass stands (z of its floor), the same as board_export.mass_base(outline,
+// ground) and with its argument order: the lowest ground under the footprint, sampled along
+// the edges every half grid step and at every grid point inside; 0 without the ground or for a
+// footprint entirely off it. `terrain` is the context's grid {min, step, n, z}.
+export function massBase(outline, terrain) {
+  if (!terrain || !outline?.length) return 0;
   const { min, step, n, z } = terrain;
   let low = Infinity;
   function sample(x, y) {
