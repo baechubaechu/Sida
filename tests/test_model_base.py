@@ -6,7 +6,7 @@ import itertools
 import ezdxf
 import numpy as np
 import pytest
-from shapely.geometry import Point, Polygon, box
+from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import unary_union
 
 from sida.model_base import strokefont
@@ -27,7 +27,7 @@ from sida.model_base.pieces import (
     slice_terrain,
 )
 from sida.model_base.plan import cut_plan
-from sida.model_base.terrain import Terrain, example_terrain
+from sida.model_base.terrain import Terrain, example_terrain, terrain_from_grid
 
 
 @pytest.fixture(scope="module")
@@ -248,3 +248,52 @@ def test_rotated_pieces_keep_their_shape():
     placed = layout.placements[0].place(piece.shape)
     assert placed.area == pytest.approx(piece.area)
     assert placed.is_valid
+
+
+def _table_ground(half=100.0, step=2.0):
+    """A ground grid shaped as the drawing table's: square, ±half around the site's middle, z = 0 there."""
+    axis = -half + step * np.arange(int(round(2 * half / step)) + 1)
+    x, y = np.meshgrid(axis, axis)
+    return 0.06 * x + 4.0 * np.exp(-((x - 30) ** 2 + (y + 20) ** 2) / 800.0) - 4.0 * np.exp(-(30**2 + 20**2) / 800.0)
+
+
+def test_table_ground_is_cut_around_the_site_with_heights_above_sea_level():
+    grid = _table_ground()
+    site = [(-15, -10), (15, -10), (15, 10), (-15, 10)]
+    road = [(-200, 30), (200, 30), (200, 42), (-200, 42)]
+    t = terrain_from_grid(grid, 100.0, 2.0, width_m=120, depth_m=80, base_elev=37.5, site=site,
+                          areas=[("road", road), ("parcel", site)], name="무교동 45")
+    assert t.xs[0] == 0 and t.xs[-1] == pytest.approx(120) and t.ys[-1] == pytest.approx(80)
+    assert t.z.shape == (len(t.ys), len(t.xs))
+    middle = t.z[np.argmin(np.abs(t.ys - 40)), np.argmin(np.abs(t.xs - 60))]
+    assert middle == pytest.approx(37.5)  # the grid's middle is the site's middle, at its height above sea level
+    assert np.allclose(t.z, grid[30:71, 20:81] + 37.5)  # rows y = -40…40, columns x = -60…60 of the grid
+    assert t.site.bounds == pytest.approx((45, 30, 75, 50))
+    assert [kind for kind, _ in t.areas] == ["road"]  # kinds the model does not engrave are left out
+    assert t.areas[0][1].bounds == pytest.approx((0, 70, 120, 80))  # clipped to the model's edge
+    with pytest.raises(ValueError):
+        terrain_from_grid(grid, 100.0, 2.0, width_m=240, depth_m=80)
+    with pytest.raises(ValueError):
+        terrain_from_grid(None, 100.0, 2.0, width_m=120, depth_m=80)
+
+
+def test_road_edges_are_engraved_where_they_show_and_shaded_on_the_assembly_map():
+    road = [(-200, 30), (200, 30), (200, 42), (-200, 42)]
+    walk = [(-200, 26), (200, 26), (200, 30), (-200, 30)]
+    t = terrain_from_grid(_table_ground(), 100.0, 2.0, width_m=120, depth_m=100, base_elev=20,
+                          site=[(-15, -10), (15, -10), (15, 10), (-15, 10)],
+                          areas=[("road", road), ("sidewalk", walk)])
+    plan = slice_terrain(t, scale=500, thickness_mm=3)
+    mm = 1000 / 500
+    edges = [LineString([(0, y * mm), (120 * mm, y * mm)]) for y in (50 + 26, 50 + 30, 50 + 42)]
+    scored = unary_union([ln for p in plan.pieces for ln in p.engrave])
+    for edge in edges:  # each edge is scored once along its whole length across the layers
+        assert scored.intersection(edge.buffer(0.05)).length == pytest.approx(edge.length, rel=0.03)
+    for p in plan.pieces:
+        above = plan.layers[p.layer + 1] if p.layer + 1 < len(plan.layers) else Polygon()
+        for ln in p.engrave:
+            if any(ln.distance(e) < 0.01 for e in edges):  # never under the next layer
+                assert ln.difference(above.buffer(-0.2)).length == pytest.approx(ln.length, abs=0.05)
+    layout = nest(plan.pieces, 400, 300, res=2, rotations=4)
+    svg = assembly_svg(plan, layout)
+    assert "#8a8f96" in svg and "도로·인도 경계" in svg

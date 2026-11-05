@@ -9,7 +9,7 @@ Files for the laser and for the person putting the model together.
   it faces.
 - `guide_svg`: the same sheet for people, pieces filled by height and ids written large.
 - `assembly_svg`: the finished model from above, every piece in its place with its id, the
-  site outlined, a north arrow and a scale bar.
+  site outlined, roads, pavements and water shaded, a north arrow and a scale bar.
 - `piece_rows`: one row per piece (id, layer, height, sheet) for a list.
 """
 
@@ -28,6 +28,8 @@ COLORS = {"engrave": "#0000FF", "inner": "#FF0000", "outer": "#00A000"}
 DXF_LAYERS = {"engrave": ("ENGRAVE", 5), "inner": ("CUT_INNER", 1), "outer": ("CUT_OUTER", 3)}  # ACI blue, red, green
 HAIRLINE = 0.1  # mm: lasers read the colour, not the width
 LOW, HIGH = (233, 228, 206), (104, 132, 86)  # guide fill from the lowest to the highest layer
+AREA_STYLE = {"road": "#8a8f96", "sidewalk": "#b9a98f", "water": "#4f8fc0"}  # assembly map outlines
+AREA_NAMES = {"road": "도로", "sidewalk": "인도", "water": "수계"}
 
 
 def _rings(poly: Polygon):
@@ -153,7 +155,7 @@ def guide_svg(layout: Layout, sheet: int, plan: ModelPlan) -> str:
         size = max(2.5, min(9, p.piece.label_room * 0.7))
         out.append(_text(x, y + size * 0.35, size, p.piece.id))
     total = sum(1 for _ in layout.on_sheet(sheet))
-    out.append(_text(2, h + 10, 5, f"판 {sheet + 1}/{layout.sheets} · 조각 {total}개 · {w:g}×{h:g} mm · 색이 진할수록 높은 층 · 점선: 다음 층·대지 경계 새김선 · 레이저 순서: 새김 → 내부 커팅(빨강) → 외부 커팅(초록)", anchor="start", weight="400"))
+    out.append(_text(2, h + 10, 5, f"판 {sheet + 1}/{layout.sheets} · 조각 {total}개 · {w:g}×{h:g} mm · 색이 진할수록 높은 층 · 점선: 새김선(다음 층·대지 경계·도로 등) · 레이저 순서: 새김 → 내부 커팅(빨강) → 외부 커팅(초록)", anchor="start", weight="400"))
     out.append("</svg>\n")
     return "\n".join(out)
 
@@ -169,6 +171,11 @@ def assembly_svg(plan: ModelPlan, layout: Layout) -> str:
     for piece in sorted(plan_pieces(layout), key=lambda q: q.layer):
         d = " ".join(_path(r, flip, closed=True) for poly in _polygons(piece.shape) for r in _rings(poly))
         out.append(f'<path d="{d}" fill="{layer_fill(piece.layer, len(plan.layers))}" fill-rule="evenodd" stroke="#5b4a3a" stroke-width="0.25"/>')
+    for kind, shape in plan.areas_mm:
+        d = " ".join(_path(r, flip, closed=True) for poly in _polygons(shape) for r in _rings(poly))
+        if d:
+            out.append(f'<path d="{d}" fill="{AREA_STYLE[kind]}" fill-opacity="0.22" fill-rule="evenodd" '
+                       f'stroke="{AREA_STYLE[kind]}" stroke-width="0.35"/>')
     if plan.site_mm is not None:
         out.append(f'<path d="{_path(list(plan.site_mm.exterior.coords), flip, closed=True)}" fill="none" stroke="#cf3f2e" stroke-width="0.8" stroke-dasharray="3 1.5"/>')
     if len(plan.modules) > 1:  # where the model comes apart, and which module is which
@@ -190,7 +197,9 @@ def assembly_svg(plan: ModelPlan, layout: Layout) -> str:
     out.append(_text(pad + bar / 2, h + pad + 13, 3.5, "20 m", weight="400"))
     example = "1-03B·2 = 1번 모듈 3층 B 조각, 2번 판" if len(plan.modules) > 1 else "03B·2 = 3층 B 조각, 2번 판"
     modules = f" · 모듈 {len(plan.modules)}개(굵은 선에서 나뉨)" if len(plan.modules) > 1 else ""
-    out.append(_text(pad, h + pad + 20, 4, f"조립도 1:{plan.scale} · 판 두께 {plan.thickness_mm:g} mm = 등고 {plan.interval_m:g} m{modules} · 조각 이름·판 번호 (예: {example})", anchor="start", weight="400"))
+    kinds = [AREA_NAMES[kind] for kind, _ in plan.areas_mm]
+    areas = f" · 새김선: {'·'.join(kinds)} 경계" if kinds else ""
+    out.append(_text(pad, h + pad + 20, 4, f"조립도 1:{plan.scale} · 판 두께 {plan.thickness_mm:g} mm = 등고 {plan.interval_m:g} m{modules}{areas} · 조각 이름·판 번호 (예: {example})", anchor="start", weight="400"))
     out.append("</svg>\n")
     return "\n".join(out)
 
