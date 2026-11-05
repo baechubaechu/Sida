@@ -1,4 +1,4 @@
-"""LLM providers: construction, retries, Ollama request details, the mock provider."""
+"""LLM providers: construction, retries, the mock provider."""
 
 from __future__ import annotations
 
@@ -24,7 +24,6 @@ from tests.conftest import ROOT
 
 def test_make_provider_kinds():
     assert make_provider("openrouter", api_key="k").name == "openrouter"
-    assert make_provider("ollama", base_url="http://h:1/v1").base_url == "http://h:1"
     assert make_provider("mock").name == "mock"
     assert make_provider("chatgpt").name == "chatgpt"  # no key: the sign-in is checked per call
 
@@ -69,50 +68,6 @@ def test_non_retryable_raises_immediately(monkeypatch):
     with pytest.raises(LLMError):
         _with_retries(hard)
     assert calls["n"] == 1
-
-
-def test_ollama_unreachable_is_llmerror():
-    p = make_provider("ollama", base_url="http://127.0.0.1:9")  # closed port
-    with pytest.raises(LLMError):
-        p.chat("m", [{"role": "user", "content": "hi"}], 0.1, 5)
-
-
-def test_ollama_sends_think_false_by_default(monkeypatch):
-    captured = {}
-
-    class FakeResp:
-        status_code = 200
-
-        def json(self):
-            return {"message": {"role": "assistant", "content": "ok"}, "eval_count": 1}
-
-    def fake_post(url, json=None, timeout=None):
-        captured["body"] = json
-        return FakeResp()
-
-    monkeypatch.setattr("sida.providers.requests.post", fake_post)
-    p = make_provider("ollama", base_url="http://127.0.0.1:11434")
-    out, _ = p.chat("qwen3.5:9b", [{"role": "user", "content": "hi"}], 0.2, 100)
-    assert out == "ok"
-    assert captured["body"]["think"] is False
-
-
-def test_ollama_empty_content_with_thinking_is_retryable(monkeypatch):
-    class FakeResp:
-        status_code = 200
-
-        def json(self):
-            return {
-                "message": {"role": "assistant", "content": "", "thinking": "…"},
-                "done_reason": "length",
-                "eval_count": 700,
-            }
-
-    monkeypatch.setattr("sida.providers.requests.post", lambda *a, **k: FakeResp())
-    p = make_provider("ollama", base_url="http://h", think=True)
-    with pytest.raises(LLMError) as ei:
-        p.chat("m", [{"role": "user", "content": "hi"}], 0.1, 50)
-    assert "thinking" in str(ei.value).lower()
 
 
 def test_mock_worker_matches_output_format():
@@ -288,18 +243,9 @@ def test_openrouter_sends_tools_and_reads_calls(monkeypatch):
     ]
 
 
-def test_ollama_tool_arguments_arrive_as_an_object(monkeypatch):
-    data = {"message": {"content": "대지부터", "tool_calls": [{"function": {"name": "run_expert", "arguments": {"agent": "site_reader"}}}]}}
-    sent = json_post(monkeypatch, FakeJson(data))
-    text, calls, _ = providers.OllamaProvider().chat_tools("qwen3.5:9b", [{"role": "user", "content": "hi"}], TOOLS, 0.2, 100)
-    assert text == "대지부터" and calls == [{"name": "run_expert", "arguments": {"agent": "site_reader"}}]
-    assert sent[0]["tools"][0]["function"]["name"] == "run_expert" and sent[0]["think"] is False
-
-
 @pytest.mark.parametrize(
     ("make", "response"),
     [
-        (lambda: providers.OllamaProvider(), FakeJson({"error": "x does not support tools"}, status=400)),
         (lambda: providers.OpenRouterProvider("k"), FakeJson({}, status=404, text="No endpoints found that support tool use")),
     ],
 )

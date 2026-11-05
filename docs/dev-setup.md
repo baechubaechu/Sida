@@ -121,7 +121,7 @@ LAW_OPEN_API_OC=
 
 ```bash
 ruff check .
-pytest
+pytest -n auto
 ```
 
 둘 다 통과하면 세팅이 끝났습니다. CI도 같은 검사를 하고, 통과하지 않은 PR은 머지되지 않습니다.

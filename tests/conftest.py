@@ -20,6 +20,7 @@ from sida import (  # noqa: E402
     providers,
     runtime,
     settings,
+    storage,
     telemetry,
 )
 from sida import config as sida_config  # noqa: E402
@@ -174,6 +175,13 @@ def fake_vworld(monkeypatch, fake_ordinance, fake_datago):
     http_get.calls = calls
     http_get.overrides = overrides
     return http_get
+
+
+@pytest.fixture(autouse=True)
+def no_disk_flush(monkeypatch):
+    """Saved files are not forced to the disk in tests: each flush is slow on Windows and
+    the test folder is thrown away. tests/test_storage.py patches os.fsync itself."""
+    monkeypatch.setattr(storage.os, "fsync", lambda _fd: None)
 
 
 @pytest.fixture(autouse=True)

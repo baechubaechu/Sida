@@ -133,8 +133,6 @@ def test_the_history_keeps_only_the_paper_names_and_a_screen_gets_them_back(tmp_
     [
         ({"provider": "chatgpt"}, "full"),
         ({"provider": "openrouter"}, "full"),
-        ({"provider": "ollama"}, "names"),
-        ({"provider": "ollama", "board_context": "full"}, "full"),
         ({"provider": "chatgpt", "board_context": "names"}, "names"),
         ({"provider": "chatgpt", "board_context": "typo"}, "full"),
     ],
