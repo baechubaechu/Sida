@@ -7,6 +7,16 @@ from types import SimpleNamespace
 import pytest
 
 from sida import board, conductor, engine
+from sida.errors import SidaError
+
+
+@pytest.mark.parametrize("damaged", [b'{"papers":[', b'{}', b'\xff'])
+def test_edit_refuses_to_replace_an_unreadable_board(tmp_path, damaged):
+    path = board.board_path(tmp_path)
+    path.write_bytes(damaged)
+    with pytest.raises(SidaError):
+        board.add_idea(tmp_path, {"text": "new"})
+    assert path.read_bytes() == damaged
 
 MASS = {"kind": "mass", "title": "안 A · 판상형", "blocks": [{"u": 0, "v": 0, "w": 36, "d": 24, "floors": 5}]}
 SITE = [("site", SimpleNamespace(board_site=lambda path: {"area_m2": 1000.0, "lines": ["대지: 필지 2개"]}))]

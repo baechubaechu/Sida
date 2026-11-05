@@ -47,7 +47,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from sida.i18n import agent_name
+from sida.errors import SidaError
+from sida.i18n import agent_name, t
 from sida.storage import atomic_write_text
 
 BOARD_FILE = "board.json"
@@ -117,16 +118,16 @@ def _empty() -> dict:
 
 
 def load_board(project_path: Path) -> dict:
-    """The saved table; a new or unreadable one is the site paper alone (rev 0)."""
+    """Start an empty table only when there is no saved board."""
     path = board_path(project_path)
-    if not path.exists():
-        return _empty()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except FileNotFoundError:
         return _empty()
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise SidaError(t("board_read_failed", path=path)) from exc
     if not isinstance(data, dict) or not isinstance(data.get("papers"), list):
-        return _empty()
+        raise SidaError(t("board_read_failed", path=path))
     papers = [p for p in data["papers"] if isinstance(p, dict) and p.get("kind") in KINDS]
     if not any(p.get("id") == SITE_ID for p in papers):
         papers.insert(0, _site_paper())
