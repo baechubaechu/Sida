@@ -9,7 +9,8 @@ Files for the laser and for the person putting the model together.
   it faces.
 - `guide_svg`: the same sheet for people, pieces filled by height and ids written large.
 - `assembly_svg`: the finished model from above, every piece in its place with its id, the
-  site outlined, roads, pavements and water shaded, a north arrow and a scale bar.
+  site outlined, roads, pavements and water shaded, buildings with their sheet counts, a north
+  arrow and a scale bar.
 - `piece_rows`: one row per piece (id, layer, height, sheet) for a list.
 """
 
@@ -30,6 +31,13 @@ HAIRLINE = 0.1  # mm: lasers read the colour, not the width
 LOW, HIGH = (233, 228, 206), (104, 132, 86)  # guide fill from the lowest to the highest layer
 AREA_STYLE = {"road": "#8a8f96", "sidewalk": "#b9a98f", "water": "#4f8fc0"}  # assembly map outlines
 AREA_NAMES = {"road": "도로", "sidewalk": "인도", "water": "수계"}
+BUILDING_FILL, ESTIMATE_FILL = "#c9c9c9", "#e2d3b4"  # measured height, floors × a storey height
+
+
+def piece_fill(piece: Piece, layers: int) -> str:
+    if piece.kind == "building":
+        return ESTIMATE_FILL if piece.estimated else BUILDING_FILL
+    return layer_fill(piece.layer, layers)
 
 
 def _rings(poly: Polygon):
@@ -148,7 +156,7 @@ def guide_svg(layout: Layout, sheet: int, plan: ModelPlan) -> str:
     for p in layout.on_sheet(sheet):
         shape, cuts, _ = _piece_geometry(p)
         d = " ".join(_path(r, flip, closed=True) for r in cuts)
-        out.append(f'<path d="{d}" fill="{layer_fill(p.piece.layer, len(plan.layers))}" fill-rule="evenodd" stroke="#5b4a3a" stroke-width="0.3"/>')
+        out.append(f'<path d="{d}" fill="{piece_fill(p.piece, len(plan.layers))}" fill-rule="evenodd" stroke="#5b4a3a" stroke-width="0.3"/>')
         for line in p.piece.engrave:
             out.append(f'<path d="{_path(list(p.place(line).coords), flip)}" fill="none" stroke="#2b5d8a" stroke-width="0.25" stroke-dasharray="1.2 0.8"/>')
         x, y = flip(*p.place_point(p.piece.label_at))
@@ -168,9 +176,14 @@ def assembly_svg(plan: ModelPlan, layout: Layout) -> str:
     sheet_of = {p.piece.id: p.sheet + 1 for p in layout.placements}
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{w + 2 * pad}mm" height="{h + 2 * pad + 24}mm" viewBox="0 0 {w + 2 * pad} {h + 2 * pad + 24}">',
            f'<rect width="{w + 2 * pad}" height="{h + 2 * pad + 24}" fill="#ffffff"/>']
-    for piece in sorted(plan_pieces(layout), key=lambda q: q.layer):
+    for piece in sorted((q for q in plan_pieces(layout) if q.kind == "ground"), key=lambda q: q.layer):
         d = " ".join(_path(r, flip, closed=True) for poly in _polygons(piece.shape) for r in _rings(poly))
         out.append(f'<path d="{d}" fill="{layer_fill(piece.layer, len(plan.layers))}" fill-rule="evenodd" stroke="#5b4a3a" stroke-width="0.25"/>')
+    for fp in plan.footprints_mm:  # height not known: engraved outline only
+        out.append(f'<path d="{_path(list(fp.exterior.coords), flip, closed=True)}" fill="none" stroke="#8a6a3a" stroke-width="0.3" stroke-dasharray="1 0.8"/>')
+    for b in plan.buildings:
+        d = " ".join(_path(r, flip, closed=True) for r in _rings(b.footprint))
+        out.append(f'<path d="{d}" fill="{ESTIMATE_FILL if b.estimated else BUILDING_FILL}" fill-rule="evenodd" stroke="#4a4a4a" stroke-width="0.3"/>')
     for kind, shape in plan.areas_mm:
         d = " ".join(_path(r, flip, closed=True) for poly in _polygons(shape) for r in _rings(poly))
         if d:
@@ -185,7 +198,12 @@ def assembly_svg(plan: ModelPlan, layout: Layout) -> str:
             x, y = flip(mx0 + 4, my1 - 4)
             out.append(f'<circle cx="{x + 5}" cy="{y + 5}" r="5" fill="#20262d"/>')
             out.append(_text(x + 5, y + 7, 6, str(n), fill="#ffffff"))
+    for b in plan.buildings:
+        x, y = flip(*b.footprint.representative_point().coords[0])
+        out.append(_text(x, y + 1, 2.6, f"{b.id}×{b.sheets}", weight="500"))
     for piece in plan_pieces(layout):
+        if piece.kind == "building":
+            continue
         x, y = flip(*piece.show_at)
         size = max(3.2, min(7, piece.show_room * 0.8))
         out.append(_text(x, y + size * 0.35, size, f"{piece.id}·{sheet_of[piece.id]}"))
@@ -199,6 +217,10 @@ def assembly_svg(plan: ModelPlan, layout: Layout) -> str:
     modules = f" · 모듈 {len(plan.modules)}개(굵은 선에서 나뉨)" if len(plan.modules) > 1 else ""
     kinds = [AREA_NAMES[kind] for kind, _ in plan.areas_mm]
     areas = f" · 새김선: {'·'.join(kinds)} 경계" if kinds else ""
+    if plan.buildings:
+        areas += " · 건물 B07×5 = 7번 건물 5장 쌓기(회색 측정 높이, 베이지 추정 높이)"
+    if plan.footprints_mm:
+        areas += " · 점선: 높이 미확인 건물(바닥선만 새김)"
     out.append(_text(pad, h + pad + 20, 4, f"조립도 1:{plan.scale} · 판 두께 {plan.thickness_mm:g} mm = 등고 {plan.interval_m:g} m{modules}{areas} · 조각 이름·판 번호 (예: {example})", anchor="start", weight="400"))
     out.append("</svg>\n")
     return "\n".join(out)
@@ -210,8 +232,9 @@ def plan_pieces(layout: Layout) -> list[Piece]:
 
 def piece_rows(layout: Layout) -> list[dict]:
     return [
-        {"id": p.piece.id, "module": p.piece.module, "layer": p.piece.layer, "level_m": p.piece.level_m,
-         "sheet": p.sheet + 1, "area_mm2": round(p.piece.area, 1), "label_hidden": p.piece.label_hidden}
+        {"id": p.piece.id, "kind": p.piece.kind, "module": p.piece.module, "layer": p.piece.layer,
+         "level_m": p.piece.level_m, "sheet": p.sheet + 1, "area_mm2": round(p.piece.area, 1),
+         "label_hidden": p.piece.label_hidden, "estimated": p.piece.estimated}
         for p in sorted(layout.placements, key=lambda q: (q.piece.module, q.piece.layer, q.piece.id))
     ]
 
