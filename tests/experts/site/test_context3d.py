@@ -496,17 +496,20 @@ def _matching_case(pack, monkeypatch):
     324㎡ outline carrying the tower's name and height (대장 23층·97.6m·1,677㎡) while the map has
     the 1,681㎡ outline; and a parcel whose 동 is only in VWorld (screen only).
     """
-    hall, tower, only = "1111010100100110000", "1111010100100120000", "1111010100100130000"
+    hall, tower, only, far = ("1111010100100110000", "1111010100100120000", "1111010100100130000",
+                              "1111010100100140000")
     conn = terrain_pack.create(pack / f"b{terrain_pack.SUFFIX}", {"name": "b", "kind": "buildings", "source": "GIS건물통합정보"})
     terrain_pack.add_building(conn, square(-75, -20, 20)[:-1], {"pnu": hall, "height": 35.8, "floors": 6, "use": "업무시설"})
     terrain_pack.add_building(conn, square(-45, 20, 5)[:-1], {"pnu": hall})  # a piece inside the 신관
     terrain_pack.add_building(conn, square(75, 10, 9)[:-1], {"pnu": tower, "height": 97.6, "floors": 23, "name": "센터플레이스"})
     terrain_pack.add_building(conn, square(25, 140, 3)[:-1], {"pnu": only})  # a shed
+    terrain_pack.add_building(conn, square(0, -185, 3)[:-1], {"pnu": far})  # a shed on a parcel reaching out
     conn.commit()
     conn.close()
     conn = terrain_pack.create(pack / f"m{terrain_pack.SUFFIX}", {"name": "m", "kind": "areas", "source": "1:5,000"})
     terrain_pack.add_map_building(conn, square(-50, 15, 25)[:-1], 11, "업무시설")  # the 신관
     terrain_pack.add_map_building(conn, square(50, -5, 20.5)[:-1], 23, "근린생활시설")  # the tower
+    terrain_pack.add_map_building(conn, square(0, -230, 15)[:-1], 4, "")  # past the radius
     conn.commit()
     conn.close()
     layers = {
@@ -514,7 +517,8 @@ def _matching_case(pack, monkeypatch):
         "LT_C_BLDGINFO": [],
         "LP_PA_CBND_BUBUN": [feature(square(-60, 0, 45), pnu=hall, jibun="31 대"),
                              feature(square(60, 0, 40), pnu=tower, jibun="155 대"),
-                             feature(square(5, 125, 30), pnu=only, jibun="7 대")],
+                             feature(square(5, 125, 30), pnu=only, jibun="7 대"),
+                             feature(square(0, -215, 35), pnu=far, jibun="9 대")],
     }
 
     def http_get(url, params):
@@ -531,6 +535,7 @@ def _matching_case(pack, monkeypatch):
         tower: [{"dong": "", "name": "센터플레이스", "purpose": "업무시설", "building_area_m2": 1677.0,
                  "floors_above": 23, "height_m": 97.6}],
         only: [{"dong": "별관", "name": "", "purpose": "업무시설", "building_area_m2": 900.0, "floors_above": 5, "height_m": 20.0}],
+        far: [{"dong": "", "name": "", "purpose": "", "building_area_m2": 900.0, "floors_above": 4, "height_m": 15.0}],
     }
     return lambda pnu: rows.get(pnu, [])
 
@@ -548,9 +553,11 @@ def test_each_ledger_dong_takes_the_outline_closest_to_its_building_area(pack, m
     tower = by_height[97.6]  # 센터플레이스: 23층 on the ~1,681㎡ outline, not the small one
     assert tower["floors"] == 23 and tower["match"]["source"] == "map" and tower["match"]["ratio"] == 1.0
     assert abs(context3d._area(np.asarray(tower["outline"]))) == pytest.approx(1681, rel=0.01)
-    assert sorted(b["name"] for b in out["unknown_buildings"]) == ["", "센터플레이스"]  # the shed; the small one repeats the tower
+    assert sorted(b["name"] for b in out["unknown_buildings"]) == ["", "", "센터플레이스"]  # two sheds; the small one repeats the tower
     assert sum(b["height"] == 97.6 for b in out["buildings"]) == 1
 
+    assert 15.0 not in by_height  # its only outline lies past the radius: not drawn
+    assert all(np.abs(np.asarray(b["outline"]).mean(axis=0)).max() <= 200 for b in out["buildings"])
     annex = by_height[20.0]  # only VWorld has its outline: drawn, but never written to a file
     assert annex["display_only"] and annex["match"]["source"] == "vworld"
     solids = [s["height"] for layer in context3d.export_layers(out) for s in layer.get("solids", [])]

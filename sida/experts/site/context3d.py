@@ -504,6 +504,8 @@ def surroundings(
 
         def here(ring, parcel=parcel, near=near):
             m = ring.mean(axis=0)
+            if np.abs(m).max() > radius:  # like the file's outlines: only within the radius
+                return False
             if parcel:
                 return any(_inside(m, r) for r in parcel)
             return any(np.hypot(*(m - n)) <= NEAR_PARCEL for n in near)
