@@ -20,6 +20,7 @@ from shapely import affinity
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.polygon import orient
 
+from sida.model_base.buildings import Building, seat
 from sida.model_base.pieces import _polygons, layer_regions
 from sida.model_base.terrain import Terrain
 
@@ -52,11 +53,14 @@ def _ring(coords, digits: int) -> list[list[float]]:
     return pts[:-1] if len(pts) > 1 and pts[0] == pts[-1] else pts
 
 
-def terrace_view(terrain: Terrain, interval_m: float, *, tolerance: float = 0.2, digits: int = 2) -> dict:
+def terrace_view(terrain: Terrain, interval_m: float, *, buildings: list[Building] | tuple = (),
+                 tolerance: float = 0.2, digits: int = 2) -> dict:
     """
     The steps for the screen: {"interval", "base_elev", "datum", "steps": [{"level", "top",
-    "bottom", "polygons": [{"outline" (counter-clockwise), "holes" (clockwise)}]}]}. Outlines
-    are simplified by `tolerance` m.
+    "bottom", "polygons": [{"outline" (counter-clockwise), "holes" (clockwise)}]}], "buildings":
+    [{"outline", "holes", "bottom", "top", "sheets", "estimated"}]}. Outlines are simplified by
+    `tolerance` m. A building with a height stands on its step as a whole number of sheets, as
+    the cut model has it (see buildings.py); one without a height is left to the screen's own view.
     """
     out = []
     for step in terraces(terrain, interval_m):
@@ -69,4 +73,19 @@ def terrace_view(terrain: Terrain, interval_m: float, *, tolerance: float = 0.2,
                              "holes": [_ring(r.coords, digits) for r in poly.interiors if len(r.coords) >= 4]})
         if polygons:
             out.append({"level": step.level_m, "top": step.top, "bottom": step.bottom, "polygons": polygons})
-    return {"interval": interval_m, "base_elev": out[0]["level"] if out else None, "datum": terrain.datum, "steps": out}
+    base, regions = layer_regions(terrain, interval_m)
+    extent = affinity.translate(terrain.extent, *terrain.origin)
+    stands = []
+    for b in buildings:
+        if b.top_z is None or not b.outline.intersects(extent):
+            continue
+        k, sheets = seat(b, base=base, interval=interval_m, datum=terrain.datum, layers=len(regions))
+        bottom = base + k * interval_m - terrain.datum
+        for part in _polygons(b.outline.intersection(extent)):
+            part = orient(part, sign=1.0)
+            stands.append({"outline": _ring(part.exterior.coords, digits),
+                           "holes": [_ring(r.coords, digits) for r in part.interiors],
+                           "bottom": round(bottom, 3), "top": round(bottom + sheets * interval_m, 3),
+                           "sheets": sheets, "estimated": b.estimated})
+    return {"interval": interval_m, "base_elev": out[0]["level"] if out else None, "datum": terrain.datum,
+            "steps": out, "buildings": stands}

@@ -12,7 +12,8 @@ is. Within a module every layer piece fits a sheet, so nothing else is cut.
 
 Every piece carries what the designer needs to put it back:
 - `id` like "1-03B": module 1, layer 3, its second part (parts read north to south, then west to
-  east). With one module the id is just "03B".
+  east). With one module the id is just "03B". A building's sheets are "B07.1", "B07.2"… from
+  the bottom (buildings numbered north to south, then west to east; see buildings.py).
 - `engrave`: lines scored on the piece: where the next layer sits (to line it up), and the
   parts of the site boundary and of the edges of roads, pavements and water that show on
   this piece
@@ -24,6 +25,7 @@ from __future__ import annotations
 
 import math
 import string
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 import contourpy
@@ -32,6 +34,7 @@ from shapely import affinity
 from shapely.geometry import LineString, MultiLineString, MultiPolygon, Polygon, box
 from shapely.ops import polylabel, unary_union
 
+from sida.model_base.buildings import Building, seat
 from sida.model_base.terrain import Terrain
 
 MIN_PIECE_MM2 = 12.0  # smaller bits are not worth cutting (and fall through the laser grid)
@@ -52,6 +55,8 @@ class Piece:
     label_hidden: bool = True  # the id sits where the next layer covers it
     show_at: tuple[float, float] = (0.0, 0.0)  # where the id is written on the assembly map (a part that shows)
     show_room: float = 0.0
+    kind: str = "ground"  # or "building"
+    estimated: bool = False  # a building whose height is floors × a storey height
 
     @property
     def area(self) -> float:
@@ -75,6 +80,18 @@ class ModelPlan:
     site_mm: Polygon | None
     dropped: int = 0  # bits too small to cut
     areas_mm: list[tuple[str, Polygon | MultiPolygon]] = field(default_factory=list)  # road, sidewalk, water
+    buildings: list[PlacedBuilding] = field(default_factory=list)
+    footprints_mm: list[Polygon] = field(default_factory=list)  # buildings without a height: engraved only
+
+
+@dataclass
+class PlacedBuilding:
+    id: str  # "B07" (with a module prefix when the model has modules)
+    layer: int  # the step it stands on
+    sheets: int
+    footprint: Polygon  # model mm
+    estimated: bool = False
+    name: str = ""
 
 
 def contour_interval(scale: int, thickness_mm: float) -> float:
@@ -177,12 +194,14 @@ def layer_regions(terrain: Terrain, interval: float) -> tuple[float, list[Polygo
 
 
 def slice_terrain(terrain: Terrain, *, scale: int = 500, thickness_mm: float = 3.0,
-                  room: tuple[float, float] | None = None, hollow_rim_mm: float = 0.0) -> ModelPlan:
+                  room: tuple[float, float] | None = None, hollow_rim_mm: float = 0.0,
+                  buildings: Sequence[Building] = ()) -> ModelPlan:
     """
     The ground as stacked layers and their pieces. With `room` (the usable width and height of a
     sheet, mm) a model bigger than that is first cut into modules that fit (see `module_grid`).
     With `hollow_rim_mm` > 0 each layer above the base keeps only a rim that wide under the layer
-    above it, so its hidden middle is not cut from material.
+    above it, so its hidden middle is not cut from material. `buildings` (in the drawing table's
+    frame, see buildings.py) stand on the model as stacks of their footprint.
     """
     interval = contour_interval(scale, thickness_mm)
     mm = 1000.0 / scale
@@ -199,17 +218,47 @@ def slice_terrain(terrain: Terrain, *, scale: int = 500, thickness_mm: float = 3
     cols, rows = module_grid(size, *room) if room else (1, 1)
     modules = module_boxes(size, cols, rows)
 
+    # Buildings: each stands on the step of its lowest ground; the layers above get its footprint cut out.
+    ox, oy = terrain.origin
+    model_box = to_mm(extent)
+    seated: list[tuple[int, Polygon, int, Building]] = []  # (layer, footprint, sheets, building)
+    footprints: list[Polygon] = []
+    dropped = 0
+    for b in buildings:
+        fp = to_mm(affinity.translate(b.outline, -ox, -oy)).intersection(model_box)
+        fp = max(_polygons(fp), key=lambda q: q.area, default=None)
+        if fp is None:
+            continue
+        if b.top_z is None or fp.area < MIN_PIECE_MM2:
+            dropped += b.top_z is not None
+            footprints.append(fp)
+            continue
+        k, sheets = seat(b, base=base, interval=interval, datum=terrain.datum, layers=len(regions))
+        seated.append((k, fp, sheets, b))
+    seated.sort(key=lambda t: (-round(t[1].centroid.y / 20), t[1].centroid.x))  # north to south, west to east
+    plain = list(regions)
+    for k, fp, _, _ in seated:
+        for j in range(k + 1, len(regions)):
+            regions[j] = regions[j].difference(fp)
+
     edge = to_mm(extent).boundary.buffer(0.2)
     areas = [(kind, to_mm(shape)) for kind, shape in terrain.areas]
     # The edges of roads, pavements and water, scored where they show; the model's edge is cut anyway.
     area_edges = unary_union([shape.boundary for _, shape in areas]).difference(edge) if areas else LineString()
     if site is not None and not area_edges.is_empty:  # a site on a road is scored once
         area_edges = area_edges.difference(site.boundary.buffer(0.2))
-    # Where each next layer meets the one below: its outline, less the model's own edges.
-    steps = [regions[k + 1].boundary.difference(edge) if k + 1 < len(regions) else LineString() for k in range(len(regions))]
+    footprint_edges = unary_union([fp.boundary for fp in footprints]) if footprints else LineString()
+    # Where each next layer meets the one below: its outline, less the model's own edges and
+    # what lies under a building (its footprint is engraved instead).
+    steps = []
+    for k in range(len(regions)):
+        line = plain[k + 1].boundary.difference(edge) if k + 1 < len(regions) else LineString()
+        under = [fp for j, fp, _, _ in seated if j <= k]
+        if under and not line.is_empty:
+            line = line.difference(unary_union(under).buffer(0.2))
+        steps.append(line)
 
     pieces: list[Piece] = []
-    dropped = 0
     for m, module in enumerate(modules, start=1):
         prefix = f"{m}-" if len(modules) > 1 else ""
         for k, whole in enumerate(regions):
@@ -232,6 +281,11 @@ def slice_terrain(terrain: Terrain, *, scale: int = 500, thickness_mm: float = 3
                     engrave += _lines(site.boundary.intersection(shows))
                 if not area_edges.is_empty:
                     engrave += _lines(area_edges.intersection(shows))
+                if not footprint_edges.is_empty:
+                    engrave += _lines(footprint_edges.intersection(shows))
+                for j, fp, _, _ in seated:  # where a building on this step goes
+                    if j == k:
+                        engrave += _lines(fp.boundary.intersection(part.buffer(OVERLAP)))
                 at, room_ = _label_spot(covered.intersection(shape) if not covered.is_empty else Polygon())
                 label_hidden = True
                 if room_ < MIN_LABEL_ROOM:
@@ -247,6 +301,18 @@ def slice_terrain(terrain: Terrain, *, scale: int = 500, thickness_mm: float = 3
                     shape=shape, module=m, engrave=engrave, label_at=at, label_room=room_,
                     label_hidden=label_hidden, show_at=show_at, show_room=show_room,
                 ))
+    placed: list[PlacedBuilding] = []
+    for n, (k, fp, sheets, b) in enumerate(seated, start=1):
+        m = next((i for i, module in enumerate(modules, start=1) if module.contains(fp.centroid)), 1)
+        bid = f"{m}-B{n:02d}" if len(modules) > 1 else f"B{n:02d}"
+        placed.append(PlacedBuilding(id=bid, layer=k, sheets=sheets, footprint=fp, estimated=b.estimated, name=b.name))
+        at, room_ = _label_spot(fp)
+        for s_ in range(1, sheets + 1):
+            pieces.append(Piece(
+                id=f"{bid}.{s_}", layer=k + s_, level_m=round(base + (k + s_) * interval, 3), shape=fp, module=m,
+                label_at=at, label_room=room_, label_hidden=s_ < sheets, show_at=at, show_room=room_,
+                kind="building", estimated=b.estimated,
+            ))
     return ModelPlan(scale=scale, thickness_mm=thickness_mm, interval_m=interval, base_m=base, size_mm=size,
                      modules=modules, layers=regions, pieces=pieces, site_mm=site, dropped=dropped,
-                     areas_mm=areas)
+                     areas_mm=areas, buildings=placed, footprints_mm=footprints)

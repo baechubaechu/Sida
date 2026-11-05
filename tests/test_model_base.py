@@ -328,3 +328,73 @@ def test_stepped_ground_has_a_slab_per_interval_topped_at_its_contour():
     assert len(twice["steps"]) < len(view["steps"])  # a coarser interval, fewer steps
     with pytest.raises(ValueError):
         terraces(t, 0)
+
+
+def _square(cx, cy, w, d):
+    return [[cx - w / 2, cy - d / 2], [cx + w / 2, cy - d / 2], [cx + w / 2, cy + d / 2], [cx - w / 2, cy + d / 2]]
+
+
+def test_surrounding_buildings_keep_only_heights_that_may_be_written_down():
+    from sida.model_base.buildings import buildings_from_context
+
+    around = {
+        "buildings": [
+            {"outline": _square(40, -20, 12, 10), "base": 1.0, "ground": 1.5, "height": 12.0, "height_source": "ledger"},
+            {"outline": _square(-40, 20, 10, 10), "base": -2.0, "ground": -1.8, "height": 9.0, "height_source": "estimate"},
+            {"outline": _square(0, 0, 10, 10), "base": 0.0, "ground": 0.0, "height": 30.0, "height_source": "ledger", "on_site": True},
+            {"outline": _square(60, 30, 8, 8), "base": 0.0, "ground": 0.0, "height": 11.4, "height_source": "api_estimate"},
+            {"outline": _square(60, 10, 8, 8), "base": 0.0, "ground": 0.0, "height": 11.4, "height_source": "api_estimate",
+             "offline": {"height": 7.6, "source": "map_estimate"}},
+        ],
+        "unknown_buildings": [{"outline": _square(-60, -30, 9, 9), "base": -3.0}],
+    }
+    got = buildings_from_context(around)
+    assert len(got) == 5  # the one on the site is left out
+    measured, estimated, api_only, offline, unknown = got
+    assert measured.top_z == pytest.approx(13.5) and not measured.estimated
+    assert estimated.estimated and estimated.top_z == pytest.approx(7.2)
+    assert api_only.top_z is None  # VWorld's API floors are for the screen only
+    assert offline.top_z == pytest.approx(7.6) and offline.estimated
+    assert unknown.top_z is None and unknown.base_z == -3.0
+    assert len(buildings_from_context(around, include_site=True)) == 6
+
+
+def test_buildings_stand_on_their_step_as_stacked_sheets_in_a_cut_out():
+    from sida.model_base.buildings import Building
+    from sida.model_base.terraces import terrace_view
+
+    t = terrain_from_grid(_table_ground(), 100.0, 2.0, width_m=160, depth_m=120, base_elev=20)
+    # On the side of the hill at (30, -20): the lowest ground along the outline is its seat.
+    on_hill = Polygon(_square(20, -20, 14, 10))
+    xs = np.linspace(13, 27, 15)
+    rim = [float(t.z[np.argmin(np.abs(t.ys - (y + 60))), np.argmin(np.abs(t.xs - (x + 80)))]) - 20
+           for x in xs for y in (-25, -15)]
+    hill = Building(outline=on_hill, base_z=min(rim), top_z=max(rim) + 9.0)
+    unknown = Building(outline=Polygon(_square(-50, 30, 10, 10)), base_z=0.0)
+    plan = slice_terrain(t, scale=500, thickness_mm=3, buildings=[hill, unknown])
+    (b,) = plan.buildings
+    assert b.id == "B01" and b.layer == int(np.floor((min(rim) + 20 - plan.base_m) / 1.5 + 1e-9))
+    stack = [p for p in plan.pieces if p.kind == "building"]
+    assert [p.id for p in stack] == [f"B01.{i}" for i in range(1, b.sheets + 1)]
+    assert b.sheets == round((max(rim) + 9.0 + 20 - (plan.base_m + b.layer * 1.5)) / 1.5)
+    assert [p.label_hidden for p in stack] == [True] * (b.sheets - 1) + [False]  # only the roof shows its id
+    fp = b.footprint
+    for k in range(b.layer + 1, len(plan.layers)):  # the layers above the seat make room for it
+        assert plan.layers[k].intersection(fp).area < 0.5
+    assert plan.layers[b.layer + 1].area > 0  # the hill itself is still there
+    seat = [p for p in plan.pieces if p.kind == "ground" and p.layer == b.layer]
+    scored = unary_union([ln for p in seat for ln in p.engrave])
+    assert scored.intersection(fp.boundary.buffer(0.05)).length == pytest.approx(fp.length, rel=0.03)
+    (dashed,) = plan.footprints_mm  # a building without a height is only scored on the ground
+    all_scored = unary_union([ln for p in plan.pieces for ln in p.engrave])
+    assert all_scored.intersection(dashed.boundary.buffer(0.05)).length == pytest.approx(dashed.length, rel=0.03)
+    layout = nest(plan.pieces, 400, 300, res=2, rotations=4)
+    assert sum(1 for p in layout.placements if p.piece.kind == "building") == b.sheets
+    assert f"B01×{b.sheets}" in assembly_svg(plan, layout)
+    rows = piece_rows(layout)
+    assert {r["kind"] for r in rows} == {"ground", "building"}
+
+    view = terrace_view(t, 1.5, buildings=[hill, unknown])
+    (stand,) = view["buildings"]
+    assert stand["bottom"] == pytest.approx(plan.base_m + b.layer * 1.5 - 20)
+    assert stand["top"] - stand["bottom"] == pytest.approx(b.sheets * 1.5) and stand["sheets"] == b.sheets
