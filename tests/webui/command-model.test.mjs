@@ -86,3 +86,10 @@ test('history keeps the newest lines and skips repeats', () => {
   assert.equal(lines.at(-1).text, 'l24');
   assert.deepEqual(remember(remember(remember([], 'plan'), 'plan'), '  '), ['plan']);
 });
+
+test('idea opens the idea board', () => {
+  assert.equal(readLine('idea').command.name, 'idea');
+  assert.equal(readLine('IDEAS').command.name, 'idea');
+  assert.equal(readLine('ㅑㅇㄷㅁ').command.name, 'idea'); // typed with the Korean keyboard on
+  assert.deepEqual(readLine('idea 하나 더'), { kind: 'ask', text: 'idea 하나 더' });
+});

@@ -436,12 +436,14 @@ def conductor_turn(
 
 def table_for_conductor(session: Session) -> tuple[str, bool]:
     """(drawing-table text for the Conductor's calls, whether it gets read_board).
-    A local Conductor gets nothing here: the selected paper names are in the history line."""
-    mode = board.context_mode(session.config)
-    if mode != "full" or not board.board_path(session.project.path).exists():
+    Every Conductor gets the designer's main ideas (the idea board). Beyond that a local one
+    gets nothing here: the selected paper names are in the history line."""
+    if not board.board_path(session.project.path).exists():
         return "", False
+    mode = board.context_mode(session.config)
     table = session.table.board if session.table is not None else board.load_board(session.project.path)
-    return board.conductor_block(session.table, table, mode), True
+    parts = (board.ideas_block(table), board.conductor_block(session.table, table, mode))
+    return "\n\n".join(part for part in parts if part), mode == "full"
 
 
 def max_expert_runs(session: Session) -> int:
@@ -583,7 +585,7 @@ def run_module(session: Session, agent: dict, *, revision: str | None = None) ->
         project_state=session.project.read_state(),
         notify=notify,
         revision=revision,
-        board_block=board.expert_block(session.table),
+        board_block=board.expert_context(session.project.path, session.table),
     )
     session.refresh_modules()
     path = session.output_dir / agent["output"]

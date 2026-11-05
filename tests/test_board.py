@@ -13,7 +13,7 @@ SITE = [("site", SimpleNamespace(board_site=lambda path: {"area_m2": 1000.0, "li
 
 
 def test_a_new_table_holds_only_the_site_and_papers_are_saved_one_by_one(tmp_path):
-    assert board.load_board(tmp_path) == {"rev": 0, "papers": [board._site_paper()], "tray": [], "pins": []}
+    assert board.load_board(tmp_path) == {"rev": 0, "papers": [board._site_paper()], "tray": [], "pins": [], "ideas": []}
     assert not board.board_path(tmp_path).exists()  # reading saves nothing
 
     mass = board.add_paper(tmp_path, {**MASS, "id": "mass-a", "x": 40, "y": 10, "w": 300, "h": 210})
@@ -442,7 +442,7 @@ def test_the_view_adds_the_site_and_each_schemes_figures(tmp_path):
     tray_id = got["tray"][0]["id"]
     assert got["figures"][tray_id]["floor_area_m2"] == 200.0
     assert got["site"]["lines"] == ["대지: 필지 1개"] and len(got["site"]["plan"]["parcels"]) == 1
-    assert board.load_board(tmp_path).keys() == {"rev", "papers", "tray", "pins"}  # nothing derived is saved
+    assert board.load_board(tmp_path).keys() == {"rev", "papers", "tray", "pins", "ideas"}  # nothing derived is saved
 
     bare = board.view(tmp_path, hooks=[("site", SimpleNamespace(board_site=lambda path: None))])
     assert bare["site"] is None and bare["figures"]["mass-a"]["coverage_pct"] is None
@@ -529,3 +529,107 @@ def test_a_hand_edited_photo_file_name_cannot_reach_outside_the_photo_folder(tmp
         board.photo_file(tmp_path, paper["id"])
     with pytest.raises(board.PaperNotFound):
         board.photo_file(tmp_path, "site")
+
+
+# --- the idea board -------------------------------------------------------------
+
+
+def test_ideas_are_kept_in_the_designers_order_and_edited_one_by_one(tmp_path):
+    board.add_paper(tmp_path, {**MASS, "id": "mass-a"})
+    first = board.add_idea(tmp_path, {"text": "  중정을 중심으로 동을 돌린다  ", "papers": ["mass-a"], "talk": "02"})
+    idea = first["idea"]
+    assert idea["id"].startswith("idea-") and idea["text"] == "중정을 중심으로 동을 돌린다"
+    assert idea["papers"] == ["mass-a"] and idea["talk"] == "02" and idea["off"] is False and idea["created_at"]
+    second = board.add_idea(tmp_path, {"text": "북측은 낮게"})["idea"]
+    top = board.add_idea(tmp_path, {"text": "길에서 마당이 보이게", "at": 0})["idea"]
+    assert [i["id"] for i in board.load_board(tmp_path)["ideas"]] == [top["id"], idea["id"], second["id"]]
+
+    changed = board.update_idea(tmp_path, idea["id"], {"text": "중정 둘", "off": True, "id": "x", "created_at": "y"})
+    assert changed["idea"]["id"] == idea["id"] and changed["idea"]["text"] == "중정 둘" and changed["idea"]["off"] is True
+    assert changed["idea"]["created_at"] == idea["created_at"]
+    ordered = board.order_ideas(tmp_path, [second["id"], idea["id"], top["id"]])
+    assert [i["id"] for i in ordered["ideas"]] == [second["id"], idea["id"], top["id"]]
+    assert board.delete_idea(tmp_path, top["id"])["rev"] == ordered["rev"] + 1
+    assert [i["text"] for i in board.load_board(tmp_path)["ideas"]] == ["북측은 낮게", "중정 둘"]
+
+
+@pytest.mark.parametrize(
+    "data, message",
+    [
+        ({"text": "  "}, "needs text"),
+        ({"text": "가" * 601}, "longer than"),
+        ({"text": "x", "papers": ["nope"]}, "unknown paper"),
+        ({"text": "x", "papers": "site"}, "list of paper ids"),
+        ({"text": "x", "talk": "../01"}, "talk id"),
+        ({"text": "x", "off": "yes"}, "true or false"),
+        ({"text": "x", "at": "first"}, "whole number"),
+    ],
+)
+def test_bad_ideas_are_refused_and_nothing_is_saved(tmp_path, data, message):
+    with pytest.raises(ValueError, match=message):
+        board.add_idea(tmp_path, data)
+    assert not board.board_path(tmp_path).exists()
+
+
+def test_reordering_must_name_every_idea_and_unknown_ideas_are_not_found(tmp_path):
+    a = board.add_idea(tmp_path, {"text": "a"})["idea"]["id"]
+    board.add_idea(tmp_path, {"text": "b"})
+    with pytest.raises(ValueError, match="every idea"):
+        board.order_ideas(tmp_path, [a])
+    with pytest.raises(ValueError, match="every idea"):
+        board.order_ideas(tmp_path, [a, a])
+    with pytest.raises(board.IdeaNotFound):
+        board.update_idea(tmp_path, "idea-nope", {"text": "x"})
+    with pytest.raises(board.IdeaNotFound):
+        board.delete_idea(tmp_path, "idea-nope")
+
+
+def test_a_paper_taken_off_the_table_drops_out_of_the_ideas_it_was_linked_to(tmp_path):
+    board.add_paper(tmp_path, {"kind": "note", "id": "n1", "text": "북측 일조"})
+    idea = board.add_idea(tmp_path, {"text": "북측은 낮게", "papers": ["n1", "site"]})["idea"]
+    board.delete_paper(tmp_path, "n1")
+    assert board.load_board(tmp_path)["ideas"][0]["papers"] == ["site"]
+    assert board.update_idea(tmp_path, idea["id"], {"off": True})["idea"]["papers"] == ["site"]
+
+
+def test_the_ideas_block_lists_the_ideas_in_play_with_their_links(tmp_path):
+    board.add_paper(tmp_path, {**MASS, "id": "mass-a"})
+    board.add_idea(tmp_path, {"text": "중정을 중심으로\n동을 돌린다", "papers": ["mass-a"], "talk": "02"})
+    aside = board.add_idea(tmp_path, {"text": "옥상 정원"})["idea"]
+    board.add_idea(tmp_path, {"text": "북측은 낮게"})
+    board.update_idea(tmp_path, aside["id"], {"off": True})
+    text = board.ideas_block(board.load_board(tmp_path))
+    assert "DESIGNER'S MAIN IDEAS" in text and "never add, rewrite, reorder or drop" in text
+    assert '1. 중정을 중심으로\n   동을 돌린다 (linked: mass-a "안 A · 판상형", Conductor talk 02)' in text
+    assert "2. 북측은 낮게" in text and "옥상 정원" not in text
+    assert "(1 more set aside by the designer for now: do not apply them.)" in text
+    board.update_idea(tmp_path, board.load_board(tmp_path)["ideas"][0]["id"], {"off": True})
+    board.delete_idea(tmp_path, board.load_board(tmp_path)["ideas"][2]["id"])
+    assert board.ideas_block(board.load_board(tmp_path)) == ""  # all set aside: nothing to say
+    assert board.ideas_block(None) == ""
+
+
+@pytest.mark.parametrize("mode", ["full", "names"])
+def test_every_conductor_and_every_expert_reads_the_ideas_but_has_no_way_to_change_them(
+    make_session, scripted, table, mock_config, mode
+):
+    mock_config["conductor"]["board_context"] = mode
+    board.add_idea(table.path, {"text": "길에서 마당이 보이게"})
+    run = '비평가에게 보이겠습니다\n```action\n{"type":"run","agent":"design_critic"}\n```'
+    c = scripted([run, '정리했습니다.\n```action\n{"type":"none"}\n```'])
+    w = scripted(["## 결과\n- 북측 동이 높음"] * 3)
+    s = make_session(c_provider=c, w_provider=w)
+    engine.converse(s, "비평해 줘")  # nothing selected on the table
+    assert "1. 길에서 마당이 보이게" in _texts(c.calls[0]["messages"])
+    assert ("DRAWING TABLE" in _texts(c.calls[0]["messages"])) == (mode == "full")
+    assert "1. 길에서 마당이 보이게" in _texts(w.calls[0]["messages"])
+    tools = [t["name"] for t in conductor.conductor_tools(s.agents, board=True)]
+    assert not any("idea" in name for name in tools)
+    assert [i["text"] for i in board.load_board(table.path)["ideas"]] == ["길에서 마당이 보이게"]
+
+
+def test_the_context_view_shows_the_ideas_the_models_get(tmp_path, mock_config):
+    mock_config["conductor"]["board_context"] = "names"
+    board.add_idea(tmp_path, {"text": "북측은 낮게"})
+    seen = board.context_view(tmp_path, mock_config, [])
+    assert "1. 북측은 낮게" in seen["conductor"] and "1. 북측은 낮게" in seen["expert"]

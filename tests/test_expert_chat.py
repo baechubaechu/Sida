@@ -140,3 +140,13 @@ def test_unknown_or_malformed_chat_ids_are_not_found(chat_session):
             expert_chat.expert_chat(s, a, "안녕", chat_id)
     assert provider.calls == []
     assert not (s.project.path / "chats").exists()
+
+
+def test_the_expert_chat_reads_the_designers_main_ideas(chat_session):
+    from sida import board
+
+    s, provider = chat_session([ANSWER])
+    board.add_idea(s.project.path, {"text": "길에서 마당이 보이게"})
+    expert_chat.expert_chat(s, agent(s), "이 방향 괜찮아?")
+    context = provider.calls[0]["messages"][1]["content"]
+    assert "DESIGNER'S MAIN IDEAS" in context and "1. 길에서 마당이 보이게" in context

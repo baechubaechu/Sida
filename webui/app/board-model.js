@@ -781,3 +781,64 @@ export function pickPhotoFiles(files) {
   const taken = pictures.slice(0, MAX_PHOTOS_AT_ONCE);
   return { files: taken, skipped: all.length - taken.length };
 }
+
+// ------------------------------------------------------------------ the idea board
+// The designer's main ideas, in their order (board.ideas, saved by the server; 2026-11-05).
+// The AI reads them and never changes them; an idea set aside (`off`) is not sent to it.
+
+export const MAX_IDEA_TEXT = 600; // board.MAX_IDEA_TEXT
+export const MAX_IDEA_PAPERS = 8; // board.MAX_IDEA_PAPERS
+
+// Text taken from a conversation or a note for a new idea: each line trimmed, blank lines
+// dropped, and cut to what the server keeps.
+export function ideaText(text, limit = MAX_IDEA_TEXT) {
+  const joined = String(text ?? '').split('\n').map((line) => line.trim()).filter(Boolean).join('\n');
+  return joined.length > limit ? `${joined.slice(0, limit - 1).trimEnd()}…` : joined;
+}
+
+// The order after moving one idea up (step -1) or down (+1); the same order at either end.
+export function moveIdea(ids, id, step) {
+  const from = ids.indexOf(id);
+  const to = from + step;
+  if (from < 0 || to < 0 || to >= ids.length) return [...ids];
+  const out = [...ids];
+  [out[from], out[to]] = [out[to], out[from]];
+  return out;
+}
+
+// The order after dragging `id` onto `target`: before it, or after it with `after`.
+export function dropIdea(ids, id, target, after = false) {
+  if (id === target || !ids.includes(id) || !ids.includes(target)) return [...ids];
+  const out = ids.filter((x) => x !== id);
+  out.splice(out.indexOf(target) + (after ? 1 : 0), 0, id);
+  return out;
+}
+
+export const sameOrder = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+// An idea's linked papers that are still on the table or in the AI section, by name.
+export function ideaPapers(idea, board) {
+  const all = [...(board?.papers || []), ...(board?.tray || [])];
+  return (idea?.papers || []).flatMap((id) => {
+    const paper = all.find((p) => p.id === id);
+    return paper ? [{ id, name: paperName(paper) }] : [];
+  });
+}
+
+// The papers an idea links after adding the picked ones (kept in order, at most MAX_IDEA_PAPERS).
+export function linkPapers(current, picked) {
+  return [...new Set([...(current || []), ...(picked || [])])].slice(0, MAX_IDEA_PAPERS);
+}
+
+// Picked notes with text, which "메모를 아이디어로" turns into ideas (each linked to its note).
+export function pickedNotes(ids, board) {
+  const all = [...(board?.papers || []), ...(board?.tray || [])];
+  return ids.map((id) => all.find((p) => p.id === id))
+    .filter((p) => p?.kind === 'note' && ideaText(p.text))
+    .map((p) => ({ id: p.id, text: ideaText(p.text) }));
+}
+
+// How many ideas the AI reads now (the ones not set aside).
+export function ideasInPlay(board) {
+  return (board?.ideas || []).filter((i) => !i.off).length;
+}
