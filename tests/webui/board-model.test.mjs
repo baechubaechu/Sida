@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  PX, TILT, MAX_TILT, cameraFor, riseFor, groundFor, zoomAround, drawingScale, scaleSpan, scaleBar, lerpView, siteBounds, traceHome,
+  PX, TILT, MAX_TILT, cameraFor, riseFor, groundFor, zoomAround, drawingScale, scaleSpan, scaleBar, lerpView, siteBounds, traceHome, massBase,
   isOverlaid, blockCorners, unplaced, placeUnplaced, freeSpot, fitView, paperName, originLabel,
   figureLines, readScheme, schemeRows, keepSelected, toggleSelected, boxPick, boxMode, pickedNames, MAX_CONTEXT,
   frameDelta, editBlocks, axisDrag, blocksCenter, blockKey, parseBlockKey, pickedBlocks,
@@ -16,6 +16,37 @@ import {
 } from '../../webui/app/board-model.js';
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
+
+test('mass base uses interpolated edges and interior ground points like CAD', () => {
+  const t = {min: -10, n: 5, step: 5, z: Array.from({length: 25}, (_, k) => 10 - (k % 5) * 5)};
+  const ring = [[-6,-6],[6,-6],[6,6],[-6,6]];
+  assert.equal(massBase(t, ring), -6);
+  t.z[12] = -12;
+  assert.equal(massBase(t, ring), -12);
+  assert.equal(massBase(null, ring), 0);
+  assert.equal(massBase(t, ring.map(([x,y]) => [x+50,y])), 0);
+});
+
+test('changing site drops old 3D data and ignores late responses', async () => {
+  const {DraftingTable} = await import('../../webui/app/table.js');
+  const t = Object.create(DraftingTable.prototype);
+  Object.assign(t, {selected:[], picked:[], root:{clientWidth:0}, view:{span:100}});
+  for (const method of ['drawSite','drawMasses','syncPapers','drawTray','drawControls','fit','invalidate','drawAround','animateTo']) t[method] = () => {};
+  const setSite = lon => t.setBoard({site:{plan:{origin:{lon,lat:37},parcels:[],bounds:{min_x:-10,min_y:-10,max_x:10,max_y:10}}}});
+  let finish;
+  t.hooks = {context: () => new Promise(resolve => { finish = resolve; })};
+  setSite(127);
+  const first = t.toggleAround();
+  setSite(128);
+  finish({lon:127, radius:200});
+  await first;
+  assert.ok(!t.around);
+  t.hooks.context = async () => ({lon:128,radius:200});
+  await t.toggleAround();
+  assert.equal(t.around.lon, 128);
+  setSite(129);
+  assert.ok(!t.aroundOn && !t.around);
+});
 const SITE = { plan: { bounds: { min_x: -30, min_y: -50, max_x: 30, max_y: 50 }, frame: { x: 5, y: -10, angle: Math.PI / 2 } } };
 
 test('tape snaps to endpoints before edges, and leaves distant geometry alone', () => {

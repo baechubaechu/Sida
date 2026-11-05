@@ -809,6 +809,44 @@ export function groundPoint(terrain, i, j) {
   return [terrain.min + i * terrain.step, terrain.min + j * terrain.step, terrain.z[j * terrain.n + i]];
 }
 
+// Match board_export.mass_base: sample the edges at half-grid intervals and every
+// interior grid vertex. Footprints entirely outside the terrain stand at zero.
+export function massBase(terrain, outline) {
+  if (!terrain || !outline.length) return 0;
+  const { min, step, n, z } = terrain;
+  let low = Infinity;
+  function sample(x, y) {
+    const u = (x - min) / step, v = (y - min) / step;
+    if (u < 0 || v < 0 || u > n - 1 || v > n - 1) return;
+    const i = Math.min(Math.floor(u), n - 2), j = Math.min(Math.floor(v), n - 2);
+    const a = u - i, b = v - j, k = j * n + i;
+    const south = (1 - a) * z[k] + a * z[k + 1];
+    const north = (1 - a) * z[k + n] + a * z[k + n + 1];
+    low = Math.min(low, (1 - b) * south + b * north);
+  }
+  const edges = outline.map((p, i) => [p, outline[(i + 1) % outline.length]]);
+  for (const [[x, y], [ex, ey]] of edges) {
+    const count = Math.max(1, Math.ceil(2 * Math.hypot(ex - x, ey - y) / step));
+    for (let s = 0; s < count; s++) sample(x + (ex - x) * s / count, y + (ey - y) * s / count);
+  }
+  const gridRange = axis => {
+    const coords = outline.map(point => (point[axis] - min) / step);
+    return [Math.max(0, Math.ceil(Math.min(...coords))), Math.min(n - 1, Math.floor(Math.max(...coords)))];
+  };
+  const [west, east] = gridRange(0), [south, north] = gridRange(1);
+  for (let j = south; j <= north; j++) {
+    for (let i = west; i <= east; i++) {
+      const x = min + i * step, y = min + j * step;
+      let inside = false;
+      for (const [[ax, ay], [bx, by]] of edges) {
+        if ((ay > y) !== (by > y) && x < ax + (y - ay) * (bx - ax) / (by - ay)) inside = !inside;
+      }
+      if (inside) low = Math.min(low, z[j * n + i]);
+    }
+  }
+  return Number.isFinite(low) ? Number(low.toFixed(2)) : 0;
+}
+
 // Contour lines through the ground grid every `interval` m of height (marching squares): one
 // entry per height, {z, index, segments: [[x1, y1, x2, y2], ...]}; every fifth height is an
 // index contour. The very top height (which only touches the grid) is skipped.

@@ -20,7 +20,7 @@ import {
   snapTape,
   massIds, createHistory, recordStep, undoStep, redoStep, changedFields, planDrawing,
   photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE,
-  CONTOUR_STEPS, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate,
+  CONTOUR_STEPS, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase,
 } from './board-model.js';
 
 const SNAP = 7; // metres: a tracing sheet this close to its place on the site clicks into register
@@ -84,6 +84,7 @@ export class DraftingTable {
     this.around = null; // the site's surroundings (GET .../site/context), fetched when first shown
     this.aroundOn = false;
     this.aroundBusy = false;
+    this.aroundRequest = null;
     this.aroundLow = 0;
     this.contourStep = 1;
     this.root = document.createElement('div');
@@ -144,6 +145,7 @@ export class DraftingTable {
   // ------------------------------------------------------------------ mounting
 
   destroy() {
+    this.aroundRequest = null;
     this.ui.number.close();
     window.removeEventListener('keydown', this.onWindowKey);
     window.removeEventListener('paste', this.onPaste);
@@ -157,7 +159,15 @@ export class DraftingTable {
 
   setBoard(view) {
     if (this.gesture) { this.pending = view; return; }
+    const siteChanged = JSON.stringify(this.site?.plan) !== JSON.stringify(view.site?.plan);
     this.site = view.site || null;
+    if (siteChanged) {
+      this.aroundRequest = null;
+      this.aroundBusy = false;
+      this.aroundOn = false;
+      this.around = null;
+      this.drawAround();
+    }
     this.figures = view.figures || {};
     this.tray = view.tray || [];
     this.papers = (view.papers || []).map((p) => ({ ...p }));
@@ -182,7 +192,7 @@ export class DraftingTable {
       if (!this.find(this.detailId)) this.closeDetail();
       else if (!writing) this.drawDetail();
     }
-    if (moved || !this.lotDrawn) this.drawSite();
+    if (siteChanged || !this.lotDrawn) this.drawSite();
     if (moved && this.boardSeen) this.fit(); // a newly saved site: bring it into view
     this.boardSeen = true;
     this.syncPapers();
@@ -584,10 +594,12 @@ export class DraftingTable {
     const preview = this.tray.find(p => p.id === this.preview && p.kind === 'mass');
     if (preview) papers.push(preview);
     for (const paper of papers) for (const b of paper.blocks) {
-      const base = blockCorners(frame, b).map(([x, y]) => ({ x, y, z: 0 }));
+      const outline = blockCorners(frame, b);
+      const z = massBase(this.aroundOn && this.around?.terrain, outline);
+      const base = outline.map(([x, y]) => ({ x, y, z }));
       ring(base);
       if (riseFor(this.view.tilt) > .01) {
-        const top = base.map(p => ({ ...p, z: b.floors * (paper.floor_height || 4.2) }));
+        const top = base.map(p => ({ ...p, z: z + b.floors * (paper.floor_height || 4.2) }));
         ring(top); base.forEach((p, i) => edge(p, top[i]));
       }
     }
@@ -781,20 +793,26 @@ export class DraftingTable {
   // Show or hide the ground and buildings around the site; the first time they are fetched.
   async toggleAround() {
     if (this.aroundBusy) return;
-    if (this.aroundOn) { this.aroundOn = false; this.drawAround(); this.drawControls(); return; }
+    if (this.aroundOn) { this.aroundOn = false; this.drawAround(); this.drawMasses(); this.drawControls(); return; }
     if (!this.site?.plan) { this.say('먼저 대지를 조회하세요. 대지 경계가 있어야 주변을 놓을 수 있습니다.'); return; }
     if (!this.around && this.hooks.context) {
+      const request = Symbol();
+      this.aroundRequest = request;
       this.aroundBusy = true;
       this.drawControls();
       try {
-        this.around = await this.hooks.context(200);
+        const context = await this.hooks.context(200);
+        if (request !== this.aroundRequest) return;
+        this.around = context;
       } catch (error) {
+        if (request !== this.aroundRequest) return;
         this.say(`주변 지형·건물을 불러오지 못했습니다. ${error.message}`);
       }
       this.aroundBusy = false;
     }
     this.aroundOn = Boolean(this.around);
     this.drawAround();
+    this.drawMasses();
     this.drawControls();
     // Lean the table and step back so the whole neighbourhood is in view around the site.
     if (this.aroundOn) {
@@ -901,13 +919,14 @@ export class DraftingTable {
     const build = (paper, faint, tint) => {
       for (const [index, b] of (paper.blocks || []).entries()) {
         const h = b.floors * (paper.floor_height || 4.2);
+        const base = massBase(this.aroundOn && this.around?.terrain, blockCorners(frame, b));
         const geom = new THREE.BoxGeometry(b.w, b.d, h);
         // A click or a selection box on a building picks that block (not an AI scheme in preview).
         const own = tint ? {} : { paper: paper.id, index };
         const picked = !tint && this.picked.includes(blockKey(paper.id, index));
         if (!faint) {
           const box = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ color: picked ? pick.clone().lerp(new THREE.Color(this.colors.mass), 0.55) : this.colors.mass }));
-          box.position.set(b.u, b.v, h / 2);
+          box.position.set(b.u, b.v, base + h / 2);
           box.rotation.z = ((b.a || 0) * Math.PI) / 180;
           box.castShadow = true;
           box.userData = own;
@@ -915,7 +934,7 @@ export class DraftingTable {
         }
         const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geom),
           new THREE.LineBasicMaterial({ color: picked ? pick : tint || ink, transparent: faint && !picked, opacity: faint && !picked ? (tint ? 0.9 : 0.35) : 1 }));
-        edges.position.set(b.u, b.v, h / 2 + 0.05);
+        edges.position.set(b.u, b.v, base + h / 2 + 0.05);
         edges.rotation.z = ((b.a || 0) * Math.PI) / 180;
         edges.userData = own;
         g.masses.add(edges);
