@@ -297,3 +297,34 @@ def test_road_edges_are_engraved_where_they_show_and_shaded_on_the_assembly_map(
     layout = nest(plan.pieces, 400, 300, res=2, rotations=4)
     svg = assembly_svg(plan, layout)
     assert "#8a8f96" in svg and "도로·인도 경계" in svg
+
+
+def test_stepped_ground_has_a_slab_per_interval_topped_at_its_contour():
+    from sida.model_base.terraces import terrace_view, terraces
+
+    grid = _table_ground()
+    site = [(-15, -10), (15, -10), (15, 10), (-15, 10)]
+    t = terrain_from_grid(grid, 100.0, 2.0, width_m=160, depth_m=120, base_elev=37.2, site=site)
+    steps = terraces(t, 1.5)
+    low = float(t.z.min())
+    assert steps[0].level_m % 1.5 == pytest.approx(0) and low - 1.5 < steps[0].level_m <= low  # round heights
+    assert steps[0].shape.area == pytest.approx(160 * 120)
+    assert steps[0].shape.bounds == pytest.approx((-80, -60, 80, 60))  # on the table, around the site's middle
+    for lower, upper in itertools.pairwise(steps):
+        assert upper.level_m - lower.level_m == pytest.approx(1.5)
+        assert upper.bottom == pytest.approx(lower.top)  # each slab stands on the one below
+        assert lower.shape.buffer(0.01).contains(upper.shape)
+    for s in steps:
+        assert s.top == pytest.approx(s.level_m - 37.2)
+    # The site's middle (table z = 0) is on the highest step at or below it.
+    under = [s for s in steps if s.shape.contains(Point(0, 0))]
+    assert -1.5 < under[-1].top <= 0
+    view = terrace_view(t, 1.5)
+    assert view["base_elev"] == pytest.approx(steps[0].level_m) and view["datum"] == pytest.approx(37.2)
+    assert len(view["steps"]) == len(steps)
+    first = view["steps"][0]["polygons"][0]
+    assert Polygon(first["outline"]).exterior.is_ccw and first["outline"][0] != first["outline"][-1]
+    twice = terrace_view(t, 3.0)
+    assert len(twice["steps"]) < len(view["steps"])  # a coarser interval, fewer steps
+    with pytest.raises(ValueError):
+        terraces(t, 0)
