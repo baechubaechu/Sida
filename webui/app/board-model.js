@@ -791,6 +791,13 @@ export const CONTOUR_STEPS = [1, 2, 5];
 export const GROUND_COLORS = { g: 0xd9d1bf, r: 0xb3b3b0, s: 0xe6e1d6, w: 0x9cc7d9 };
 export const GROUND_NAMES = { g: '대지', r: '도로', s: '인도', w: '수계' };
 
+// The note on where the surroundings come from starts folded on a narrow table (under this many
+// px wide), so it does not cover the drawing; the designer can open it.
+export const NOTE_OPEN_WIDTH = 900;
+export function noteStartsOpen(width) {
+  return Number(width) >= NOTE_OPEN_WIDTH;
+}
+
 // The legend under the surroundings: only the ground kinds the grid has and the building kinds
 // that are drawn ([kind, name]; kind is a ground letter, 'guess' or 'unknown'). Without a ground
 // grid the ground is drawn flat as 대지.

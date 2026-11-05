@@ -527,3 +527,12 @@ test('the table is exported with the shown scheme and a file name from the proje
   assert.deepEqual(boardExport('p', '3dm'), { url: '/api/projects/p/board/export?format=3dm', filename: 'p_제도판.3dm' });
   assert.equal(boardExport('p', 'dxf', '', 'a/b:c?').filename, 'a_b_c__제도판.dxf'); // no path or reserved characters
 });
+
+test('what is typed on the new-project page is kept for the next redraw', async () => {
+  const { keepNewDraft } = await import('../../webui/app/model.js');
+  let draft = keepNewDraft({}, 'name', '주변3D_확인');
+  draft = keepNewDraft(draft, 'site', '서울특별시 중구 무교동 45');
+  assert.deepEqual(draft, { name: '주변3D_확인', site: '서울특별시 중구 무교동 45' });
+  assert.equal(keepNewDraft(draft, 'password', 'x'), draft); // not a field of the form
+  assert.deepEqual(keepNewDraft(undefined, 'type', null), { type: '' });
+});

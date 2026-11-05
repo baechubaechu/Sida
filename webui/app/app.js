@@ -8,7 +8,7 @@ import {
   questionAnswer, stateChangeView, sitePath, sitePageFor, needsSiteFirst, siteHeadline, areaText, zoneScope, missingText, SITE_PART_LABELS,
   UNKNOWN, restrictionGroups, buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
   ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
-  togglePicked, shapesToFetch, MAP_PICK_ZOOM, EXPORT_FORMATS, boardExport,
+  togglePicked, shapesToFetch, MAP_PICK_ZOOM, EXPORT_FORMATS, boardExport, keepNewDraft,
 } from './model.js';
 import {
   keepSelected, pickedNames, massIds, canCompare, COMPARE_QUESTION, addQuestion,
@@ -47,7 +47,7 @@ const ui = {
   chat: null, chatMissing: false, module: null, moduleMissing: false, openExperts: new Set(),
   versions: null, version: null, versionMissing: false, showRaw: false, checks: new Set(), feedback: {},
   job: null, live: [], pending: null,
-  revisionOpen: false, creating: false,
+  revisionOpen: false, creating: false, newDraft: {},
   // The workspace: the drafting table, and beside it the experts, the site page or an expert's
   // page. Conductor conversations open in a collapsible left panel.
   expertsCollapsed: false, conductor: { open: true, active: null, list: false },
@@ -573,14 +573,16 @@ function homeView() {
 }
 
 function newView() {
+  const d = ui.newDraft;
+  const value = (key) => escape(d[key] || '');
   return `<main class="new-page" id="main" tabindex="-1">
     <header class="new-topbar"><a class="brand" href="#/">sida</a><a class="back-link" href="#/">← 프로젝트로 돌아가기</a></header>
     <form class="new-project" id="new-project-form" novalidate>
       <h1>새 프로젝트 만들기</h1><p class="intro">새 건축 설계 작업 공간을 만듭니다.</p>
-      <label for="project-name">프로젝트 이름</label><input id="project-name" name="name" placeholder="제목 없는 프로젝트" required maxlength="80" autocomplete="off">
-      <label for="project-type">프로젝트 유형</label><input id="project-type" name="type" placeholder="예: 미술관, 단독주택 (선택)" maxlength="200" autocomplete="off">
-      <label for="project-site">대지 주소</label><input id="project-site" name="site" placeholder="지번 또는 도로명 주소 (선택)" maxlength="300" autocomplete="off">
-      <label for="project-description">설명</label><textarea id="project-description" name="intention" placeholder="설계할 프로젝트와 지금 고민하는 점 (선택)" maxlength="4000"></textarea>
+      <label for="project-name">프로젝트 이름</label><input id="project-name" name="name" data-focus="new-name" value="${value('name')}" placeholder="제목 없는 프로젝트" required maxlength="80" autocomplete="off">
+      <label for="project-type">프로젝트 유형</label><input id="project-type" name="type" data-focus="new-type" value="${value('type')}" placeholder="예: 미술관, 단독주택 (선택)" maxlength="200" autocomplete="off">
+      <label for="project-site">대지 주소</label><input id="project-site" name="site" data-focus="new-site" value="${value('site')}" placeholder="지번 또는 도로명 주소 (선택)" maxlength="300" autocomplete="off">
+      <label for="project-description">설명</label><textarea id="project-description" name="intention" data-focus="new-intention" placeholder="설계할 프로젝트와 지금 고민하는 점 (선택)" maxlength="4000">${value('intention')}</textarea>
       <p class="form-note">대지 주소는 번지까지 정확히 적어 주세요. 다른 설계 조건은 Conductor와 대화하며 정리합니다.</p>
       <p class="form-error error-text" id="new-project-error" role="alert"></p>
       <div class="form-actions"><a class="secondary" href="#/">취소</a><button class="primary" type="submit" ${ui.creating ? 'disabled' : ''}>프로젝트 만들기</button></div>
@@ -2692,6 +2694,7 @@ app.addEventListener('input', (event) => {
     ui.query = target.value;
     document.querySelector('#project-grid').innerHTML = projectCards();
   }
+  if (target.form?.id === 'new-project-form') ui.newDraft = keepNewDraft(ui.newDraft, target.name, target.value);
   if (target.matches('.composer textarea')) drafts.set(target.closest('form').dataset.composer, target.value);
   if (target.id === 'command-input') {
     drafts.set('command', target.value);
@@ -2752,6 +2755,7 @@ app.addEventListener('submit', async (event) => {
     form.querySelector('button[type="submit"]').disabled = true;
     try {
       const { project, created } = await api('/api/projects', { method: 'POST', body: { name, fields } });
+      ui.newDraft = {};
       if (!created) toast(`같은 이름의 프로젝트 "${project.name}"를 열었습니다.`, 'info');
       await loadProjects();
       location.hash = projectUrl(project.name);

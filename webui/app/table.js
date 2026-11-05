@@ -20,7 +20,7 @@ import {
   snapTape,
   massIds, createHistory, recordStep, undoStep, redoStep, changedFields, planDrawing,
   photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE,
-  CONTOUR_STEPS, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase,
+  CONTOUR_STEPS, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, noteStartsOpen,
 } from './board-model.js';
 
 const SNAP = 7; // metres: a tracing sheet this close to its place on the site clicks into register
@@ -85,6 +85,7 @@ export class DraftingTable {
     this.aroundOn = false;
     this.aroundBusy = false;
     this.aroundRequest = null;
+    this.aroundNoteOpen = null; // the source note: open or folded (decided by the width when first shown)
     this.aroundLow = 0;
     this.contourStep = 1;
     this.root = document.createElement('div');
@@ -897,12 +898,24 @@ export class DraftingTable {
     }
     const unknown = new THREE.LineBasicMaterial({ color: 0xc8742f });
     for (const b of data.unknown_buildings || []) if (b.ground_line) around.add(lineOf(b.ground_line, unknown));
+    this.drawAroundNote();
+    this.invalidate();
+  }
+
+  // The legend and, unless folded, where each part comes from; a button folds or opens it.
+  drawAroundNote() {
+    const data = this.aroundOn ? this.around : null;
+    const note = this.ui.aroundNote;
+    if (!data) return;
+    if (this.aroundNoteOpen === null) this.aroundNoteOpen = noteStartsOpen(this.root.getBoundingClientRect().width);
+    const open = this.aroundNoteOpen;
     const hex = (k) => `#${GROUND_COLORS[k].toString(16).padStart(6, '0')}`;
     const legend = aroundLegend(data).map(([k, name]) => (GROUND_COLORS[k] === undefined
       ? `<span><i class="${k}"></i>${name}</span>` : `<span><i style="background:${hex(k)}"></i>${name}</span>`)).join('');
-    note.innerHTML = `<p class="legend">${legend}</p>
-      ${aroundNote(data).map((line) => `<p>${escape(line)}</p>`).join('')}`;
-    this.invalidate();
+    note.classList.toggle('folded', !open);
+    note.innerHTML = `<button type="button" class="note-fold" data-ui="around-note" aria-expanded="${open}">${open ? '자료 출처 접기' : '자료 출처 보기'}</button>
+      <p class="legend">${legend}</p>
+      ${open ? aroundNote(data).map((line) => `<p>${escape(line)}</p>`).join('') : ''}`;
   }
 
   // The active scheme stands solid; the others (and an AI scheme being previewed) as outlines.
@@ -1887,6 +1900,7 @@ export class DraftingTable {
       case 'trace': this.layTracing(); break;
       case 'photo': this.pickPhotos(); break;
       case 'around': this.toggleAround(); break;
+      case 'around-note': this.aroundNoteOpen = !this.aroundNoteOpen; this.drawAroundNote(); break;
       case 'delete': this.removeSelected(); break;
       case 'tray': this.trayOpen = !this.trayOpen; this.drawTray(); this.drawControls(); break;
       case 'north': this.animateTo({ turn: 0 }); break;
