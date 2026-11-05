@@ -401,6 +401,30 @@ def test_lines_are_cut_to_the_ground_square():
     parts = context3d.clip_line([[0, 0], [0, 300], [10, 300], [10, 0]], 200)
     assert [p.tolist() for p in parts] == [[[0, 0], [0, 200]], [[10, 200], [10, 0]]]
     assert context3d.clip_line([[300, 300], [400, 300]], 200) == []
+    assert context3d.clip_line([[100, 300], [300, 100]], 200) == []  # touches one corner only
+
+
+def test_export_keeps_local_ground_and_crossing_contour_without_vworld(tmp_path, monkeypatch):
+    from sida.experts.site import hooks
+
+    conn = terrain_pack.create(tmp_path / "local.terrain.sqlite", {"kind": "contours"})
+    terrain_pack.add_contour(conn, 25, [lonlat(-300, 0), lonlat(300, 0)])
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(terrain_pack, "TERRAIN_DIR", tmp_path)
+    monkeypatch.setattr(hooks.site_facts, "load_facts", lambda path: {"site": "test"})
+    monkeypatch.setattr(hooks.site_facts, "board_summary", lambda facts: {"parcels": []})
+    plan = plan_for_site()
+    monkeypatch.setattr("sida.board.site_plan", lambda parcels: plan)
+
+    def offline(*args, **kwargs):
+        raise AssertionError("export must not request VWorld screen layers")
+
+    monkeypatch.setattr(landapi, "features_in_box", offline)
+    assert hooks.board_ground(tmp_path)["nx"] == 101
+    layers = {item["short"]: item for item in hooks.board_export_layers(tmp_path)}
+    assert layers["지형"]["surfaces"]
+    assert layers["등고선 - 계곡선"]["curves"][0]["points"] == [[-200, 0, 0], [200, 0, 0]]
 
 
 def test_exported_ground_lines_stay_on_the_ground(pack, monkeypatch):
@@ -427,8 +451,8 @@ def test_the_ground_hook_gives_the_terrain_grid_or_nothing(tmp_path, pack, monke
     monkeypatch.setattr(hooks.site_facts, "board_summary", lambda facts: {"parcels": [{}]})
     plan = plan_for_site()
     monkeypatch.setattr("sida.board.site_plan", lambda parcels: plan)
-    monkeypatch.setattr(context3d, "build", lambda plan: out)
+    monkeypatch.setattr(context3d, "build", lambda plan, **kwargs: out)
     ground = hooks.board_ground(tmp_path)
     assert ground["nx"] == out["terrain"]["n"] and ground["min_x"] == out["terrain"]["min"] and ground["z"] == out["terrain"]["z"]
-    monkeypatch.setattr(context3d, "build", lambda plan: {**out, "terrain": None})
+    monkeypatch.setattr(context3d, "build", lambda plan, **kwargs: {**out, "terrain": None})
     assert hooks.board_ground(tmp_path) is None  # no terrain pack over the site

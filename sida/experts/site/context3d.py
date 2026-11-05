@@ -206,8 +206,7 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None) -> dict:
     elev0 = float(sample(grid, half, SOLVE_STEP, [0.0], [0.0])[0])
     contours = []
     for elev, pts in lines:
-        inside = (np.abs(pts) <= radius).all(axis=1)
-        for run in _runs(pts, inside):
+        for run in clip_line(pts, radius):
             contours.append({
                 "elev": round(elev, 2), "z": round(elev - elev0, 3),
                 "index": abs(elev / INDEX_EVERY - round(elev / INDEX_EVERY)) < 1e-6,
@@ -218,19 +217,6 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None) -> dict:
         "contours": contours, "sources": found["sources"], "areas": areas, "buildings": found["buildings"],
         "map_buildings": found["map_buildings"],
     }
-
-
-def _runs(points: np.ndarray, keep: np.ndarray) -> list[np.ndarray]:
-    """The stretches of a line whose points are kept (at least two points each)."""
-    runs, start = [], None
-    for i, k in enumerate(list(keep) + [False]):
-        if k and start is None:
-            start = i
-        elif not k and start is not None:
-            if i - start >= 2:
-                runs.append(points[start:i])
-            start = None
-    return runs
 
 
 CLASS_CODES = {"site": "g", "road": "r", "sidewalk": "s", "water": "w"}
@@ -390,7 +376,7 @@ def _pack_features(buildings: list[dict]) -> list[dict]:
 def surroundings(
     frame: Frame, radius: float, ground_at: Callable, *, site_rings: list[np.ndarray] | None = None,
     http_get=None, ledger: Callable[[str], list[dict]] | None = None, packed: list[dict] | None = None,
-    mapped: list[dict] | None = None,
+    mapped: list[dict] | None = None, for_export: bool = False,
 ) -> dict:
     """
     Buildings (with their height and where it came from) and parcels around the site. The
@@ -399,15 +385,15 @@ def surroundings(
     """
     box = frame.box(radius)
     notes: list[str] = []
-    if packed:
-        bldg, spbd, file_source = _pack_features(packed), [], "file"
+    if packed or for_export:
+        bldg, spbd, file_source = _pack_features(packed or []), [], "file"
     else:
         bldg, file_source = landapi.features_in_box("LT_C_BLDGINFO", *box, http_get=http_get), "vworld"
         try:
             spbd = landapi.features_in_box("LT_C_SPBD", *box, http_get=http_get)
         except landapi.LandApiError as exc:
             spbd, notes = [], [*notes, f"spbd:{exc.kind}"]
-    parcels = landapi.features_in_box("LP_PA_CBND_BUBUN", *box, http_get=http_get)
+    parcels = [] if for_export else landapi.features_in_box("LP_PA_CBND_BUBUN", *box, http_get=http_get)
 
     api_floors: list | None = None  # VWorld floors, fetched once the first file building lacks them
 
@@ -496,7 +482,7 @@ def surroundings(
             height, source = _number(props.get("height")), file_source
         elif floors:
             height, source = floors * storey_height(use), "estimate"
-        elif packed and (asked := vworld_floors(middle)):
+        elif packed and not for_export and (asked := vworld_floors(middle)):
             floors = asked
             height, source = floors * storey_height(use), "api_estimate"
             # What the file export uses instead: VWorld's floors stay on the screen (제19조)
@@ -549,6 +535,8 @@ def clip_line(points, lim: float) -> list[np.ndarray]:
     run: list = []
     for a, b in zip(pts[:-1], pts[1:], strict=True):
         d = b - a
+        if d[0] == 0 and d[1] == 0:
+            continue
         t0, t1 = 0.0, 1.0
         for p, q in ((-d[0], a[0] + lim), (d[0], lim - a[0]), (-d[1], a[1] + lim), (d[1], lim - a[1])):
             if p == 0:
@@ -558,7 +546,7 @@ def clip_line(points, lim: float) -> list[np.ndarray]:
                 t0 = max(t0, q / p)
             else:
                 t1 = min(t1, q / p)
-        if t0 > t1:
+        if t0 >= t1:
             if run:
                 parts.append(run)
                 run = []
@@ -635,7 +623,7 @@ def export_layers(around: dict) -> list[dict]:
 
 
 def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = None, http_get=None,
-          ledger=None, use_cache: bool = True) -> dict:
+          ledger=None, use_cache: bool = True, for_export: bool = False) -> dict:
     """
     The surroundings of a site whose table plan is `plan` (board.site_plan): ground, contours,
     buildings and parcels within `radius` m of its middle, in the table's frame. Raises
@@ -647,7 +635,8 @@ def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = N
     radius = float(radius)
     if not 50 <= radius <= MAX_RADIUS:
         raise ValueError(f"radius must be 50–{MAX_RADIUS:g} m")
-    key = (round(origin["lon"], 7), round(origin["lat"], 7), radius, str(folder))
+    site_rings = [np.asarray(r, dtype=float) for p in plan.get("parcels") or [] for r in p.get("rings") or []]
+    key = (origin["lon"], origin["lat"], radius, str(folder), for_export, tuple(r.tobytes() for r in site_rings))
     hit = _cache.get(key)
     if use_cache and hit and time.time() - hit[0] < CACHE_SECONDS:
         return hit[1]
@@ -660,10 +649,9 @@ def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = N
     else:
         def ground_at(x, y):
             return sample(g["grid"], g["half"], g["step"], x, y)
-    site_rings = [np.asarray(r, dtype=float) for p in plan.get("parcels") or [] for r in p.get("rings") or []]
     packed = [b for b in g["buildings"] if np.abs(frame.local(b["ring"]).mean(axis=0)).max() <= radius]
     around = surroundings(frame, radius, ground_at, site_rings=site_rings, http_get=http_get, ledger=ledger,
-                          packed=packed, mapped=g["map_buildings"])
+                          packed=packed, mapped=g["map_buildings"], for_export=for_export)
 
     def source(s):
         return {"name": s.get("source", ""), "date": s.get("source_date", ""), "pack": s.get("name", "")}

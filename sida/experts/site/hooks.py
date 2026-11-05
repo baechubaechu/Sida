@@ -40,7 +40,7 @@ def board_export_layers(project_dir) -> list[dict]:
     if not plan:
         return []
     try:
-        return context3d.export_layers(context3d.build(plan))
+        return context3d.export_layers(context3d.build(plan, for_export=True))
     except (landapi.LandApiError, ValueError):
         return []
 
@@ -56,7 +56,7 @@ def board_ground(project_dir) -> dict | None:
     if not plan:
         return None
     try:
-        t = context3d.build(plan).get("terrain")
+        t = context3d.build(plan, for_export=True).get("terrain")
     except (landapi.LandApiError, ValueError):
         return None
     return {"min_x": t["min"], "min_y": t["min"], "step": t["step"], "nx": t["n"], "ny": t["n"], "z": t["z"]} if t else None
