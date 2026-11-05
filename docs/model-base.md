@@ -2,6 +2,14 @@
 
 대지 주변 땅을 등고선 층으로 잘라 레이저 커팅 파일로 만들고, 사용자의 재료 판 안에 최대한 빽빽하게 배열합니다. 지금은 땅만 하고, 스크립트의 땅은 **예시 지형**(무작위, `--seed`)입니다. 주변 건물, 화면과 API는 다음 단계입니다. 코드는 `sida/model_base/`, 실행은 `scripts/model_base_terrain.py`입니다.
 
+## 계단식 지형 (3D)
+
+`terrace_view(terrain, interval_m)`(`sida/model_base/terraces.py`)는 땅을 등고 간격마다 한 장씩 쌓은 계단식 3D로 만듭니다. 각 층의 윗면이 그 등고 높이(해발)에 있고 두께는 간격 하나라서, 층의 가장자리가 그 높이의 등고선과 같습니다. 0층은 모형 전체 판입니다.
+
+- **간격은 사용자가 정합니다.** 미터로 바로 넣거나, 판 두께 × 축척(`contour_interval`, 3 mm·1:500 → 1.5 m)으로 구합니다. 레이저 조각도 같은 간격으로 나뉩니다.
+- 결과는 제도판 좌표(대지 가운데 기준 m, z는 대지 가운데 지면 0)의 구멍 있는 폴리곤이라 화면에서 층마다 밀어 올리면(extrude) 됩니다.
+- 화면 연결은 아직입니다. 제도판의 three.js 묶음에는 `ExtrudeGeometry`가 없어 윗면(`ShapeGeometry`)과 옆면을 따로 만듭니다.
+
 ## 실제 지형 연결
 
 `terrain_from_grid`(`sida/model_base/terrain.py`)가 제도판의 대지 주변 지형(`sida/experts/site/context3d.py`의 `ground()`: 대지 가운데 기준 ±half m 정사각 격자, 2 m 간격, 대지 가운데 높이 0)을 받아 모형에 담을 `--area`만큼 대지 가운데를 중심으로 잘라 냅니다.

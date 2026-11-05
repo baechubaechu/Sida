@@ -27,6 +27,10 @@ class Terrain:
     name: str = ""
     # What parts of the ground are (AREA_KINDS): one shape per kind, within the extent.
     areas: tuple[tuple[str, Polygon | MultiPolygon], ...] = ()
+    # Where this ground sits on the drawing table: the table's (x, y) of the terrain's (0, 0),
+    # and the height above sea level of the table's z = 0 (the ground at the site's middle).
+    origin: tuple[float, float] = (0.0, 0.0)
+    datum: float = 0.0
 
     @property
     def extent(self) -> Polygon:
@@ -122,4 +126,5 @@ def terrain_from_grid(grid, half: float, step: float, *, width_m: float, depth_m
             shape = unary_union(kinds[kind]).intersection(extent)
             if not shape.is_empty:
                 shapes.append((kind, shape))
-    return Terrain(xs=xs, ys=ys, z=heights, site=site_poly, name=name, areas=tuple(shapes))
+    return Terrain(xs=xs, ys=ys, z=heights, site=site_poly, name=name, areas=tuple(shapes),
+                   origin=(x0, y0), datum=float(base_elev))

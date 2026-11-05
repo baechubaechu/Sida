@@ -154,6 +154,28 @@ def _label_spot(region) -> tuple[tuple[float, float], float]:
     return best
 
 
+def layer_regions(terrain: Terrain, interval: float) -> tuple[float, list[Polygon | MultiPolygon]]:
+    """
+    The ground as steps `interval` m apart, in the terrain's own metres: (base, regions), where
+    region k is the ground at or above base + k × interval and region 0 is the whole extent.
+    `base` is the highest multiple of the interval at or below the lowest ground, so layers fall
+    on round heights.
+    """
+    if interval <= 0:
+        raise ValueError("the interval must be positive")
+    zmin, zmax = float(np.nanmin(terrain.z)), float(np.nanmax(terrain.z))
+    base = math.floor(zmin / interval + 1e-9) * interval
+    count = max(1, math.ceil((zmax - base) / interval - 1e-9))
+    cg = contourpy.contour_generator(terrain.xs, terrain.ys, terrain.z, fill_type=contourpy.FillType.OuterOffset)
+    extent = terrain.extent
+    regions = [extent]
+    for k in range(1, count + 1):
+        if base + k * interval >= zmax:  # no ground reaches this level
+            break
+        regions.append(_region_at(cg, base + k * interval, zmax + 1.0).intersection(extent))
+    return base, [r for r in regions if not r.is_empty]
+
+
 def slice_terrain(terrain: Terrain, *, scale: int = 500, thickness_mm: float = 3.0,
                   room: tuple[float, float] | None = None, hollow_rim_mm: float = 0.0) -> ModelPlan:
     """
@@ -169,17 +191,9 @@ def slice_terrain(terrain: Terrain, *, scale: int = 500, thickness_mm: float = 3
     def to_mm(geom):
         return affinity.scale(affinity.translate(geom, -x0, -y0), mm, mm, origin=(0, 0))
 
-    zmin, zmax = float(np.nanmin(terrain.z)), float(np.nanmax(terrain.z))
-    base = math.floor(zmin / interval) * interval
-    count = max(1, math.ceil((zmax - base) / interval - 1e-9))
-    cg = contourpy.contour_generator(terrain.xs, terrain.ys, terrain.z, fill_type=contourpy.FillType.OuterOffset)
     extent = terrain.extent
-    regions = [to_mm(extent)]
-    for k in range(1, count + 1):
-        if base + k * interval >= zmax:  # no ground reaches this level
-            break
-        regions.append(to_mm(_region_at(cg, base + k * interval, zmax + 1.0).intersection(extent)))
-    regions = [r for r in regions if not r.is_empty]
+    base, regions_m = layer_regions(terrain, interval)
+    regions = [to_mm(r) for r in regions_m]
     site = to_mm(terrain.site) if terrain.site is not None else None
     size = ((float(terrain.xs[-1]) - x0) * mm, (float(terrain.ys[-1]) - y0) * mm)
     cols, rows = module_grid(size, *room) if room else (1, 1)
