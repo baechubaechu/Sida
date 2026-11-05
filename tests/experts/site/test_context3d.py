@@ -456,3 +456,32 @@ def test_the_ground_hook_gives_the_terrain_grid_or_nothing(tmp_path, pack, monke
     assert ground["nx"] == out["terrain"]["n"] and ground["min_x"] == out["terrain"]["min"] and ground["z"] == out["terrain"]["z"]
     monkeypatch.setattr(context3d, "build", lambda plan, **kwargs: {**out, "terrain": None})
     assert hooks.board_ground(tmp_path) is None  # no terrain pack over the site
+
+
+def test_an_export_after_the_screen_reuses_its_result_without_asking_the_ledger_again(pack, monkeypatch):
+    fake_vworld_layers(monkeypatch)
+    conn = terrain_pack.create(pack / f"b{terrain_pack.SUFFIX}", {"name": "b", "kind": "buildings", "source": "GIS건물통합정보"})
+    terrain_pack.add_building(conn, square(60, 0, 10)[:-1], {"pnu": "1111010100100020000"})
+    terrain_pack.add_building(conn, square(150, 150, 10)[:-1], {})  # floors from VWorld only (screen)
+    conn.commit()
+    conn.close()
+    asked: list[str] = []
+
+    def counting(pnu):
+        asked.append(pnu)
+        return ledger(pnu)
+
+    context3d._cache.clear()
+    screen = context3d.build(plan_for_site(), 200, folder=pack, ledger=counting)
+    n = len(asked)
+    assert n and any(b["height_source"] == "api_estimate" for b in screen["buildings"])
+    export = context3d.build(plan_for_site(), 200, folder=pack, ledger=counting, for_export=True)
+    assert len(asked) == n  # no 건축물대장 call for the export
+    layers = {layer["short"]: layer for layer in context3d.export_layers(export)}
+    solids = [s for k in ("건물 - 측정 높이", "건물 - 추정 높이") for s in layers.get(k, {}).get("solids", [])]
+    assert len(solids) == 1  # the VWorld-floors building is left out of the file (no map floors either)
+    assert "건물 - 높이 미확인(바닥선)" in layers
+    context3d._cache.clear()
+    context3d.build(plan_for_site(), 200, folder=pack, ledger=counting, for_export=True)
+    assert len(asked) > n  # without a screen result the export asks for itself
+    context3d._cache.clear()

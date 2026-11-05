@@ -636,10 +636,16 @@ def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = N
     if not 50 <= radius <= MAX_RADIUS:
         raise ValueError(f"radius must be 50–{MAX_RADIUS:g} m")
     site_rings = [np.asarray(r, dtype=float) for p in plan.get("parcels") or [] for r in p.get("rings") or []]
-    key = (origin["lon"], origin["lat"], radius, str(folder), for_export, tuple(r.tobytes() for r in site_rings))
-    hit = _cache.get(key)
-    if use_cache and hit and time.time() - hit[0] < CACHE_SECONDS:
-        return hit[1]
+    rings = tuple(r.tobytes() for r in site_rings)
+    key = (origin["lon"], origin["lat"], radius, str(folder), for_export, rings)
+    # An export takes what the screen has just drawn for the same site and radius: the ground,
+    # contours and pack buildings are the same, so the 건축물대장 is not asked again.
+    # export_layers leaves its VWorld-only values (parcels, VWorld buildings, api_estimate) out.
+    tried = [key, (*key[:4], False, rings)] if for_export else [key]
+    for k in tried:
+        hit = _cache.get(k)
+        if use_cache and hit and time.time() - hit[0] < CACHE_SECONDS:
+            return hit[1]
     started = time.perf_counter()
     frame = Frame(origin)
     g = ground(frame, radius, folder=folder)
