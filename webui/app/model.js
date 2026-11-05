@@ -779,3 +779,11 @@ export function briefSite(brief) {
   const text = (site?.body || '').trim();
   return text === '-' ? '' : text;
 }
+
+// What the designer has typed on the new-project page, kept outside the page so a redraw (the
+// project list arriving right after the page opens) does not wipe it. Unknown fields are ignored.
+export const NEW_PROJECT_FIELDS = ['name', 'type', 'site', 'intention'];
+export function keepNewDraft(draft, field, value) {
+  if (!NEW_PROJECT_FIELDS.includes(field)) return draft || {};
+  return { ...(draft || {}), [field]: String(value ?? '') };
+}

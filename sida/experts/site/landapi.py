@@ -498,6 +498,29 @@ def _shape(feature: dict) -> dict | None:
     return {"type": geometry["type"], "coordinates": geometry["coordinates"]}
 
 
+AROUND_LAYERS = ("LT_C_BLDGINFO", "LT_C_SPBD", "LP_PA_CBND_BUBUN")
+
+
+def features_in_box(
+    layer: str, west: float, south: float, east: float, north: float, *, http_get: HttpGet | None = None
+) -> list[dict]:
+    """
+    Polygons of a VWorld layer around a site (건축물정보 LT_C_BLDGINFO, 도로명주소 건물
+    LT_C_SPBD, 연속지적 LP_PA_CBND_BUBUN) in a lon/lat box: [{"properties", "shape"}].
+    Only for drawing the neighbourhood: the replies are not to be stored (VWorld 이용약관 제19조).
+    """
+    if layer not in AROUND_LAYERS:
+        raise ValueError(f"not a neighbourhood layer: {layer}")
+    if not (west < east and south < north):
+        raise ValueError("empty box")
+    out = []
+    for feature in _feature_list(layer, http_get, geom_filter=f"BOX({west},{south},{east},{north})", geometry=True):
+        shape = _shape(feature)
+        if shape:
+            out.append({"properties": feature.get("properties") or {}, "shape": shape})
+    return out
+
+
 def parcel_shape(pnu: str, *, http_get: HttpGet | None = None) -> dict | None:
     """
     The boundary of the parcel with this 19-digit PNU as a GeoJSON geometry (Polygon or

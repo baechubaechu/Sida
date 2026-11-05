@@ -13,6 +13,11 @@ imports a domain by name and adding a domain touches no shared file. `hooks.py` 
       The site as the drafting table needs it (sida/board.py): {"area_m2": float | None,
       "lines": [str]}. The area gives a massing scheme its coverage and FAR; None leaves
       them uncomputed. The first domain that answers is used.
+  board_export_layers(project_dir: Path) -> list[dict]
+      Extra layers for the CAD/Rhino export (sida/board_export.py layer form).
+  board_ground(project_dir: Path) -> dict | None
+      The ground around the site as a height grid (board_export surface form), so the export
+      stands each mass on the ground under it. The first domain that answers is used.
   run_needs(config: dict, agent: dict, project_dir: Path) -> str | None
       Something the designer must do before the Conductor may run this expert, as a short
       reason code ("no_site": no site looked up yet), or None. Asked only for runs the

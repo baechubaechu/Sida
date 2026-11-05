@@ -13,6 +13,13 @@ labels as text dots. Both are in metres.
 
 Another domain can add layers (for example buildings around the site) with a hook
 `board_export_layers(project_dir) -> list[layer]` in its hooks.py, in the same layer form.
+A layer may also hold `surfaces`: height grids (the ground around a site), written as a NURBS
+surface through the grid in 3dm and as a MESH in DXF.
+
+A domain that knows the ground around the site gives it with `board_ground(project_dir) ->
+surface | None` (the surface form above). Each block of a mass then stands on the lowest ground
+under its footprint (`mass_base`, the same rule as the screen's board-model.js massBase), so no
+building floats on a slope; without it masses stand at z = 0. The saved table is not changed.
 """
 
 from __future__ import annotations
@@ -51,11 +58,12 @@ _BAD_NAME = re.compile(r'[<>/\\":;?*|=,`{}\[\]]+|::')
 
 def layer(name: str, color, *, parent: str = "", visible: bool = True) -> dict:
     """An empty layer: curves [{points [[x,y,z]], closed}], solids [{outline [[x,y]] counter-
-    clockwise, base, height}] and labels [{at [x,y,z], text}]. Optional: `short` (its name
+    clockwise, base, height}], surfaces [{min_x, min_y, step, nx, ny, z}] (heights row by row
+    from the south-west corner) and labels [{at [x,y,z], text}]. Optional: `short` (its name
     under the parent group in Rhino) and `linetype` (a DXF linetype such as DASHED)."""
     return {
         "name": name, "parent": parent, "color": tuple(color), "visible": visible,
-        "curves": [], "solids": [], "labels": [],
+        "curves": [], "solids": [], "surfaces": [], "labels": [],
     }
 
 
@@ -88,6 +96,60 @@ def block_outline(frame: dict | None, block: dict) -> list[list[float]]:
     return corners
 
 
+def ground_at(ground: dict, x: float, y: float) -> float | None:
+    """The height of a surface grid at (x, y), bilinear; None outside the grid."""
+    nx, ny, step = ground["nx"], ground["ny"], ground["step"]
+    fx, fy = (x - ground["min_x"]) / step, (y - ground["min_y"]) / step
+    if not (0 <= fx <= nx - 1 and 0 <= fy <= ny - 1):
+        return None
+    i, j = min(int(fx), nx - 2), min(int(fy), ny - 2)
+    tx, ty = fx - i, fy - j
+    z = ground["z"]
+    return (z[j * nx + i] * (1 - tx) * (1 - ty) + z[j * nx + i + 1] * tx * (1 - ty)
+            + z[(j + 1) * nx + i] * (1 - tx) * ty + z[(j + 1) * nx + i + 1] * tx * ty)
+
+
+def _inside(x: float, y: float, ring: list[list[float]]) -> bool:
+    hit = False
+    for (x1, y1), (x2, y2) in zip(ring, ring[1:] + ring[:1], strict=True):
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            hit = not hit
+    return hit
+
+
+def lowest_ground(ground: dict | None, outline: list[list[float]]) -> float | None:
+    """The lowest ground under a footprint: along its edges (every half grid step) and at the grid
+    points inside it. None without a ground or when the footprint is off the grid."""
+    if not ground or not outline:
+        return None
+    gap = ground["step"] / 2
+    points = []
+    for (x1, y1), (x2, y2) in zip(outline, outline[1:] + outline[:1], strict=True):
+        k = max(1, math.ceil(math.hypot(x2 - x1, y2 - y1) / gap))
+        points += [(x1 + (x2 - x1) * s / k, y1 + (y2 - y1) * s / k) for s in range(k)]
+    xs, ys = [x for x, _ in outline], [y for _, y in outline]
+    step = ground["step"]
+    for i in range(max(0, math.ceil((min(xs) - ground["min_x"]) / step)), min(ground["nx"], math.floor((max(xs) - ground["min_x"]) / step) + 1)):
+        for j in range(max(0, math.ceil((min(ys) - ground["min_y"]) / step)), min(ground["ny"], math.floor((max(ys) - ground["min_y"]) / step) + 1)):
+            x, y = ground["min_x"] + i * step, ground["min_y"] + j * step
+            if _inside(x, y, outline):
+                points.append((x, y))
+    heights = [h for h in (ground_at(ground, x, y) for x, y in points) if h is not None]
+    return round(min(heights), 2) if heights else None
+
+
+def mass_base(outline: list[list[float]], ground: dict | None, datum: float | None = None) -> float:
+    """
+    Where a block of a mass stands (z of its floor): `datum` when one 계획고 is given for every
+    mass, else the lowest ground under its footprint (it never floats on a slope; uphill it goes
+    into the ground like a basement), else the table (0). board-model.js massBase is the same.
+    """
+    if datum is not None:
+        return float(datum)
+    low = lowest_ground(ground, outline)
+    return 0.0 if low is None else low
+
+
 def _ccw(outline: list[list[float]]) -> list[list[float]]:
     area = sum(
         x1 * y2 - x2 * y1
@@ -110,6 +172,11 @@ def export_scene(project_path: Path, *, active: str | None = None, hooks=None) -
     plan = board.site_plan((summary or {}).get("parcels") or [])
     frame = (plan or {}).get("frame")
     masses = [p for p in saved["papers"] if p.get("kind") == "mass"]
+    ground = None
+    for _domain, module in hooks:
+        give = getattr(module, "board_ground", None)
+        if give is not None and ground is None:
+            ground = give(Path(project_path))
     if active and not any(p["id"] == active for p in masses):
         raise ValueError(f"not a massing scheme on the table: {active}")
 
@@ -136,10 +203,11 @@ def export_scene(project_path: Path, *, active: str | None = None, hooks=None) -
         for block in paper.get("blocks") or []:
             outline = block_outline(frame, block)
             height = round(block["floors"] * storey, 4)
-            mass["solids"].append({"outline": _ccw(outline), "base": 0.0, "height": height})
+            base = mass_base(outline, ground)
+            mass["solids"].append({"outline": _ccw(outline), "base": base, "height": height})
             cx = sum(x for x, _ in outline) / 4
             cy = sum(y for _, y in outline) / 4
-            mass["labels"].append({"at": [round(cx, 3), round(cy, 3), height], "text": f"{block['floors']}F"})
+            mass["labels"].append({"at": [round(cx, 3), round(cy, 3), round(base + height, 4)], "text": f"{block['floors']}F"})
         layers.append(mass)
 
     for paper in saved["papers"]:
@@ -196,6 +264,16 @@ def _prism_mesh(solid: dict) -> tuple[list[tuple], list[tuple]]:
     return vertices, faces
 
 
+def _grid_points(surface: dict) -> list[list[tuple]]:
+    """The grid's points, [row][column] from the south-west corner."""
+    nx, ny, step = surface["nx"], surface["ny"], surface["step"]
+    z = surface["z"]
+    return [
+        [(surface["min_x"] + i * step, surface["min_y"] + j * step, float(z[j * nx + i])) for i in range(nx)]
+        for j in range(ny)
+    ]
+
+
 def to_dxf(scene: dict) -> bytes:
     """The scene as an AutoCAD 2013 DXF in metres (UTF-8)."""
     import ezdxf
@@ -227,6 +305,16 @@ def to_dxf(scene: dict) -> bytes:
             with mesh.edit_data() as data:
                 data.vertices = vertices
                 data.faces = faces
+        for surface in item.get("surfaces") or []:
+            rows = _grid_points(surface)
+            nx = surface["nx"]
+            mesh = msp.add_mesh(dxfattribs=attribs)
+            with mesh.edit_data() as data:
+                data.vertices = [p for row in rows for p in row]
+                data.faces = [
+                    (j * nx + i, j * nx + i + 1, (j + 1) * nx + i + 1, (j + 1) * nx + i)
+                    for j in range(len(rows) - 1) for i in range(nx - 1)
+                ]
         for label in item["labels"]:
             msp.add_text(
                 label["text"], height=1.2, dxfattribs={**attribs, "style": style.dxf.name}
@@ -281,6 +369,10 @@ def to_3dm(scene: dict) -> bytes:
             if solid["base"]:
                 body.Translate(r.Vector3d(0, 0, solid["base"]))
             model.Objects.AddExtrusion(body, attributes)
+        for surface in scene_layer.get("surfaces") or []:
+            body = _nurbs(r, surface)
+            if body is not None:
+                model.Objects.AddSurface(body, attributes)
         for label in scene_layer["labels"]:
             model.Objects.AddTextDot(label["text"], r.Point3d(*label["at"]), attributes)
     handle, path = tempfile.mkstemp(suffix=".3dm")
@@ -291,6 +383,23 @@ def to_3dm(scene: dict) -> bytes:
         return Path(path).read_bytes()
     finally:
         os.unlink(path)
+
+
+def _nurbs(r, surface: dict):
+    """A NURBS surface with the grid as its control points (cubic where the grid allows it):
+    smooth, through the four corners, within a fraction of a metre of the grid elsewhere."""
+    rows = _grid_points(surface)
+    nu, nv = surface["nx"], surface["ny"]
+    if nu < 2 or nv < 2:
+        return None
+    order_u, order_v = min(4, nu), min(4, nv)
+    body = r.NurbsSurface.Create(3, False, order_u, order_v, nu, nv)
+    body.KnotsU.CreateUniformKnots(1.0)
+    body.KnotsV.CreateUniformKnots(1.0)
+    for j, row in enumerate(rows):
+        for i, (x, y, z) in enumerate(row):
+            body.Points[(i, j)] = r.Point4d(x, y, z, 1.0)
+    return body if body.IsValid else None
 
 
 WRITERS = {"dxf": to_dxf, "3dm": to_3dm}

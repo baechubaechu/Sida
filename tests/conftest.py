@@ -25,7 +25,7 @@ from sida import (  # noqa: E402
 from sida import config as sida_config  # noqa: E402
 from sida import project as prj  # noqa: E402
 from sida.experts.regulation import lawapi  # noqa: E402
-from sida.experts.site import datago, landapi  # noqa: E402
+from sida.experts.site import context3d, datago, landapi, terrain_pack  # noqa: E402
 
 REAL_HTTP_GET = landapi._http_get  # the autouse fixture below replaces it for every test
 REAL_LAW_HTTP_GET = lawapi._http_get
@@ -211,6 +211,9 @@ def isolated_settings(tmp_path, monkeypatch):
     monkeypatch.setattr(chatgpt_auth, "_http_post_form", _no_network)
     monkeypatch.setattr(chatgpt_auth, "_http_get_json", lambda url, token=None: _no_network(url, {}))
     chatgpt_auth.reset_pending()
+    # Terrain packs: never this machine's ~/Sida/context_data; no site surroundings cached across tests.
+    monkeypatch.setattr(terrain_pack, "TERRAIN_DIR", tmp_path / "context_data")
+    context3d._cache.clear()
     yield
 
 

@@ -147,3 +147,57 @@ def test_a_missing_package_is_a_plain_message_not_a_crash(tmp_path, monkeypatch)
     monkeypatch.setitem(board_export.WRITERS, "3dm", missing)
     with pytest.raises(ValueError, match="rhino3dm package is not installed"):
         board_export.export_board(tmp_path, "3dm", hooks=NO_SITE)
+
+
+def test_a_height_grid_goes_out_as_a_nurbs_surface_in_3dm_and_a_mesh_in_dxf(tmp_path):
+    # a 4 × 4 grid 10 m apart from (-15, -15), rising 1 m per column eastward
+    ground = SimpleNamespace(board_export_layers=lambda path: [{
+        "name": "대지 주변 - 지형", "short": "지형", "parent": "대지 주변", "color": (170, 150, 120),
+        "surfaces": [{"min_x": -15, "min_y": -15, "step": 10, "nx": 4, "ny": 4, "z": [i % 4 for i in range(16)]}],
+    }])
+    path = tmp_path / "out.3dm"
+    path.write_bytes(board_export.export_board(tmp_path, "3dm", hooks=[("site", ground)]))
+    model = rhino3dm.File3dm.Read(str(path))
+    layers = {layer.FullPath: layer.Index for layer in model.Layers}
+    assert "대지 주변::지형" in layers
+    surfaces = [o.Geometry for o in model.Objects if o.Attributes.LayerIndex == layers["대지 주변::지형"]]
+    assert len(surfaces) == 1
+    nurbs = surfaces[0]
+    nurbs = nurbs.ToNurbsSurface() if hasattr(nurbs, "ToNurbsSurface") else nurbs
+    u, v = nurbs.Domain(0), nurbs.Domain(1)
+    corner = nurbs.PointAt(u.T1, v.T0)
+    assert (corner.X, corner.Y, corner.Z) == (pytest.approx(15), pytest.approx(-15), pytest.approx(3))  # through the corner
+
+    doc = ezdxf.read(io.StringIO(board_export.export_board(tmp_path, "dxf", hooks=[("site", ground)]).decode("utf-8")))
+    mesh = list(doc.modelspace().query('MESH[layer=="대지 주변 - 지형"]'))
+    assert len(mesh) == 1 and len(mesh[0].vertices) == 16 and len(mesh[0].faces) == 9
+
+
+def test_each_block_of_a_mass_stands_on_the_lowest_ground_under_it(tmp_path):
+    # ground falling 1 m per 10 m eastward: z = -x / 10, a 41 × 41 grid 5 m apart over ±100 m
+    n, step = 41, 5.0
+    ground = {"min_x": -100.0, "min_y": -100.0, "step": step, "nx": n, "ny": n,
+              "z": [-(-100.0 + (k % n) * step) / 10 for k in range(n * n)]}
+    # a 20 × 10 block east of the middle (x 30..50): lowest ground at its east edge, x = 50 → -5
+    east = [[30, -5], [50, -5], [50, 5], [30, 5]]
+    assert board_export.mass_base(east, ground) == pytest.approx(-5.0)
+    assert board_export.mass_base(east, None) == 0.0  # no ground: on the table
+    assert board_export.mass_base([[300, 300], [310, 300], [310, 310]], ground) == 0.0  # off the grid
+    assert board_export.mass_base(east, ground, datum=1.5) == 1.5  # one 계획고 for all masses wins
+    # a dip in the middle of a footprint counts, not only its edges
+    pit = dict(ground, z=[0.0] * (n * n))
+    pit["z"][20 * n + 20] = -2.0  # the grid point at (0, 0)
+    assert board_export.mass_base([[-6, -6], [6, -6], [6, 6], [-6, 6]], pit) == pytest.approx(-2.0)
+
+    board.add_paper(tmp_path, {"kind": "mass", "id": "mass-a", "title": "안 A", "blocks": [
+        {"u": 40, "v": 0, "w": 20, "d": 10, "floors": 5}]})
+    hooks = [("site", SimpleNamespace(board_ground=lambda path: ground))]
+    scene = board_export.export_scene(tmp_path, hooks=hooks)
+    solid = next(layer for layer in scene["layers"] if layer["parent"] == "매스")["solids"][0]
+    assert solid["base"] == pytest.approx(-5.0) and solid["height"] == pytest.approx(21.0)
+    label = next(layer for layer in scene["layers"] if layer["parent"] == "매스")["labels"][0]
+    assert label["at"][2] == pytest.approx(16.0)  # the floor tag on its roof
+    saved = next(p for p in board.load_board(tmp_path)["papers"] if p["id"] == "mass-a")["blocks"][0]
+    assert "base" not in saved and "z" not in saved  # the saved table is unchanged
+    flat = board_export.export_scene(tmp_path, hooks=NO_SITE)
+    assert next(layer for layer in flat["layers"] if layer["parent"] == "매스")["solids"][0]["base"] == 0.0

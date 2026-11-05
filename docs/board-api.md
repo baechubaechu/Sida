@@ -85,7 +85,7 @@
 - DXF는 AutoCAD 2013 형식(UTF-8)입니다. 동은 MESH(AutoCAD에서 `CONVTOSOLID`로 솔리드가 됨), 선은 LWPOLYLINE입니다. 매스안 레이어는 DXF에서 `매스 - <이름>`처럼 한 단계로 씁니다. 한글 글자는 `malgun.ttf` 글꼴 스타일을 씁니다.
 - 3dm은 Rhino 7 형식(Rhino 7·8에서 열림)입니다. 동은 닫힌 Extrusion(솔리드), 선은 Polyline 커브, 글자는 TextDot입니다. 매스안·트레이싱지는 `매스`·`트레이싱` 아래 하위 레이어입니다.
 - 대지 사실이 없으면 대지 경계와 기준점 없이 매스안과 트레이싱만 나갑니다(동은 0, 0 기준 동쪽이 `u`).
-- 다른 영역이 레이어를 더할 수 있습니다(예: 주변 건물). 영역의 `hooks.py`에 `board_export_layers(project_dir)`를 두고 `[{name, color, curves, solids, labels}]`를 돌려주면 됩니다(형식은 `board_export.layer`).
+- 다른 영역이 레이어를 더할 수 있습니다. 영역의 `hooks.py`에 `board_export_layers(project_dir)`를 두고 `[{name, color, curves, solids, surfaces, labels}]`를 돌려주면 됩니다(형식은 `board_export.layer`). `surfaces`는 높이 격자 `{min_x, min_y, step, nx, ny, z}`로, 3dm에서는 격자를 제어점으로 한 NURBS 서피스, DXF에서는 MESH가 됩니다. 대지 영역은 이것으로 `대지 주변` 레이어(지형·등고선·주변 건물)를 더합니다([site-context.md](site-context.md)).
 - 쓰는 패키지: `ezdxf`(DXF), `rhino3dm`(3dm). 둘 다 `pyproject.toml` 의존성입니다.
 
 ## AI 섹션

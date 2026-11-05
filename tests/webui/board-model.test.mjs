@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  PX, TILT, MAX_TILT, cameraFor, riseFor, groundFor, zoomAround, drawingScale, scaleSpan, scaleBar, lerpView, siteBounds, traceHome,
+  PX, TILT, MAX_TILT, cameraFor, riseFor, groundFor, zoomAround, drawingScale, scaleSpan, scaleBar, lerpView, siteBounds, traceHome, massBase,
   isOverlaid, blockCorners, unplaced, placeUnplaced, freeSpot, fitView, paperName, originLabel,
   figureLines, readScheme, schemeRows, keepSelected, toggleSelected, boxPick, boxMode, pickedNames, MAX_CONTEXT,
   frameDelta, editBlocks, axisDrag, blocksCenter, blockKey, parseBlockKey, pickedBlocks,
@@ -16,6 +16,37 @@ import {
 } from '../../webui/app/board-model.js';
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
+
+test('mass base uses interpolated edges and interior ground points like CAD', () => {
+  const t = {min: -10, n: 5, step: 5, z: Array.from({length: 25}, (_, k) => 10 - (k % 5) * 5)};
+  const ring = [[-6,-6],[6,-6],[6,6],[-6,6]];
+  assert.equal(massBase(ring, t), -6);
+  t.z[12] = -12;
+  assert.equal(massBase(ring, t), -12);
+  assert.equal(massBase(ring, null), 0);
+  assert.equal(massBase(ring.map(([x,y]) => [x+50,y]), t), 0);
+});
+
+test('changing site drops old 3D data and ignores late responses', async () => {
+  const {DraftingTable} = await import('../../webui/app/table.js');
+  const t = Object.create(DraftingTable.prototype);
+  Object.assign(t, {selected:[], picked:[], root:{clientWidth:0}, view:{span:100}});
+  for (const method of ['drawSite','drawMasses','syncPapers','drawTray','drawControls','fit','invalidate','drawAround','animateTo']) t[method] = () => {};
+  const setSite = lon => t.setBoard({site:{plan:{origin:{lon,lat:37},parcels:[],bounds:{min_x:-10,min_y:-10,max_x:10,max_y:10}}}});
+  let finish;
+  t.hooks = {context: () => new Promise(resolve => { finish = resolve; })};
+  setSite(127);
+  const first = t.toggleAround();
+  setSite(128);
+  finish({lon:127, radius:200});
+  await first;
+  assert.ok(!t.around);
+  t.hooks.context = async () => ({lon:128,radius:200});
+  await t.toggleAround();
+  assert.equal(t.around.lon, 128);
+  setSite(129);
+  assert.ok(!t.aroundOn && !t.around);
+});
 const SITE = { plan: { bounds: { min_x: -30, min_y: -50, max_x: 30, max_y: 50 }, frame: { x: 5, y: -10, angle: Math.PI / 2 } } };
 
 test('tape snaps to endpoints before edges, and leaves distant geometry alone', () => {
@@ -557,6 +588,36 @@ test('a removed photo can be undone (the server keeps its file)', () => {
   assert.equal(history.past.length, 1);
 });
 
+test('contour lines cut the ground grid at every interval, every fifth is an index line', async () => {
+  const { contourLines, groundPoint, aroundNote, isEstimate } = await import('../../webui/app/board-model.js');
+  // a 3 × 3 grid rising 1 m per 10 m to the north: z = 0, 1, 2 by row
+  const terrain = { min: -10, step: 10, n: 3, z: [0, 0, 0, 1, 1, 1, 2, 2, 2] };
+  assert.deepEqual(groundPoint(terrain, 2, 1), [10, 0, 1]);
+  const lines = contourLines(terrain, 0.5);
+  assert.deepEqual(lines.map((l) => l.z), [0.5, 1, 1.5]);
+  for (const s of lines.find((l) => l.z === 0.5).segments) { close(s[1], -5); close(s[3], -5); }
+  assert.equal(contourLines(terrain, 0.2).find((l) => l.z === 1).index, true);
+  assert.equal(contourLines(terrain, 0.2).find((l) => l.z === 0.6).index, false);
+  assert.deepEqual(contourLines(null, 1), []);
+  assert.deepEqual(contourLines(terrain, 0), []);
+
+  const note = aroundNote({
+    terrain_sources: [{ name: '국토지리정보원 등고선', date: '2026-10-01' }],
+    building_source: { name: 'GIS건물통합정보', date: '2026-03-06' },
+    counts: { ledger: 2, vworld: 0, estimate: 3, map_estimate: 1, unknown: 4 }, disclaimer: '측량 결과가 아닙니다.',
+  });
+  assert.match(note[0], /기준 2026-10-01/);
+  assert.equal(note[1], '건물: GIS건물통합정보 (기준 2026-03-06)');
+  assert.match(note[2], /건축물대장 높이 2동/);
+  assert.match(note[2], /추정\(수치지형도 층수\) 1동/);
+  assert.doesNotMatch(note[2], /건축물정보 높이/); // a source no building used is not listed
+  assert.match(note[2], /높이 미확인 4동/);
+  assert.equal(isEstimate({ height_source: 'map_estimate' }), true);
+  assert.equal(isEstimate({ height_source: 'ledger' }), false);
+  assert.ok(note.some((l) => l.includes('추정')) && note.at(-1) === '측량 결과가 아닙니다.');
+  assert.match(aroundNote({ terrain_sources: [], counts: {} })[0], /평지/);
+});
+
 test('the idea board: text from a message, reordering, links and notes', async () => {
   const {
     ideaText, moveIdea, dropIdea, sameOrder, ideaPapers, linkPapers, pickedNotes, ideasInPlay, MAX_IDEA_TEXT, MAX_IDEA_PAPERS,
@@ -587,4 +648,54 @@ test('the idea board: text from a message, reordering, links and notes', async (
   assert.deepEqual(pickedNotes(['m1', 'n1', 'n2'], board), [{ id: 'n1', text: '북측은 낮게' }]);
   assert.equal(ideasInPlay(board), 1);
   assert.equal(ideasInPlay(null), 0);
+});
+
+test('the surroundings legend lists only the ground kinds and building kinds that are drawn', async () => {
+  const { aroundLegend } = await import('../../webui/app/board-model.js');
+  // no 1:5,000 areas here (마포): the grid is all 대지, so no 도로·인도·수계 chips
+  const plain = aroundLegend({ terrain: { classes: 'gggg' }, buildings: [{ height_source: 'ledger' }], counts: {} });
+  assert.deepEqual(plain.map(([k]) => k), ['g']);
+  const full = aroundLegend({
+    terrain: { classes: 'grsw' }, buildings: [{ height_source: 'map_estimate' }], counts: { unknown: 2 },
+  });
+  assert.deepEqual(full.map(([k]) => k), ['g', 'r', 's', 'w', 'guess', 'unknown']);
+  assert.deepEqual(aroundLegend({ terrain: null, buildings: [], counts: {} }), [['g', '대지']]); // flat
+  assert.deepEqual(aroundLegend(null), []);
+});
+
+test('the source note starts folded on a narrow table', async () => {
+  const { noteStartsOpen, NOTE_OPEN_WIDTH } = await import('../../webui/app/board-model.js');
+  assert.equal(NOTE_OPEN_WIDTH, 900);
+  assert.equal(noteStartsOpen(818), false); // the board pane beside both side panels
+  assert.equal(noteStartsOpen(900), true);
+  assert.equal(noteStartsOpen(1400), true);
+  assert.equal(noteStartsOpen(undefined), false);
+});
+
+test('a block on the board stands on the ground under it only while the surroundings are shown', async () => {
+  const { DraftingTable } = await import('../../webui/app/table.js');
+  const { massBase, blockCorners } = await import('../../webui/app/board-model.js');
+  // ground falling 1 m per 5 m eastward over ±10 m
+  const terrain = { min: -10, n: 5, step: 5, z: Array.from({ length: 25 }, (_, k) => -(-10 + (k % 5) * 5) / 5) };
+  const t = Object.create(DraftingTable.prototype);
+  const frame = { x: 0, y: 0, angle: 0 };
+  const block = { u: 4, v: 0, w: 4, d: 4, floors: 3 };
+  Object.assign(t, { aroundOn: false, around: { terrain } });
+  assert.equal(t.blockBase(frame, block), 0); // surroundings off: on the table
+  t.aroundOn = true;
+  assert.equal(t.blockBase(frame, block), massBase(blockCorners(frame, block), terrain));
+  assert.equal(t.blockBase(frame, block), -1.2); // its east edge at x = 6
+  t.around = null;
+  assert.equal(t.blockBase(frame, block), 0);
+});
+
+test('a click on a building around the site says where its height and outline came from', async () => {
+  const { buildingInfo } = await import('../../webui/app/board-model.js');
+  const hall = buildingInfo({ name: '서울특별시 청사', height: 53.5, floors: 13, height_source: 'ledger',
+    match: { source: 'map', dong: '신관', ratio: 0.99 } });
+  assert.equal(hall, '서울특별시 청사 · 53.5m · 13층 · 건축물대장 높이 · 대장 신관 ↔ 1:5,000 수치지형도 외곽선, 면적비 0.99');
+  const annex = buildingInfo({ name: '', height: 20, height_source: 'ledger', match: { source: 'vworld', dong: '별관', ratio: 1 }, display_only: true });
+  assert.match(annex, /^이름 없는 건물 · 20\.0m · .*브이월드\(화면 전용\) 외곽선, 면적비 1\.00 · 파일로 내보내지 않음$/);
+  assert.match(buildingInfo({ name: 'x', height: 9.9, height_source: 'estimate', match: null }), /대장과 짝지은 외곽선 아님/);
+  assert.equal(buildingInfo(null), '');
 });

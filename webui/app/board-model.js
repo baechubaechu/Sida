@@ -782,6 +782,163 @@ export function pickPhotoFiles(files) {
   return { files: taken, skipped: all.length - taken.length };
 }
 
+// ------------------------------------------------------------------ the site's surroundings
+// GET .../site/context (docs/board-api.md): the ground as heights on a grid around the site
+// (rows south to north, z = 0 at the site's middle), what the ground is at each point, nearby
+// buildings and the contour lines the screen draws at an interval the designer picks.
+
+export const CONTOUR_STEPS = [1, 2, 5];
+export const GROUND_COLORS = { g: 0xd9d1bf, r: 0xb3b3b0, s: 0xe6e1d6, w: 0x9cc7d9 };
+export const GROUND_NAMES = { g: '대지', r: '도로', s: '인도', w: '수계' };
+
+// The note on where the surroundings come from starts folded on a narrow table (under this many
+// px wide), so it does not cover the drawing; the designer can open it.
+export const NOTE_OPEN_WIDTH = 900;
+export function noteStartsOpen(width) {
+  return Number(width) >= NOTE_OPEN_WIDTH;
+}
+
+// The legend under the surroundings: only the ground kinds the grid has and the building kinds
+// that are drawn ([kind, name]; kind is a ground letter, 'guess' or 'unknown'). Without a ground
+// grid the ground is drawn flat as 대지.
+export function aroundLegend(context) {
+  if (!context) return [];
+  const classes = context.terrain?.classes;
+  const ground = Object.entries(GROUND_NAMES).filter(([k]) => (classes ? classes.includes(k) : k === 'g'));
+  const c = context.counts || {};
+  const guess = (context.buildings || []).some((b) => ESTIMATED.has(b.height_source));
+  return [...ground, ...(guess ? [['guess', '추정 높이']] : []),
+    ...(c.unknown || context.unknown_buildings?.length ? [['unknown', '높이 미확인(바닥선)']] : [])];
+}
+
+// The point at grid column i, row j of the ground.
+export function groundPoint(terrain, i, j) {
+  return [terrain.min + i * terrain.step, terrain.min + j * terrain.step, terrain.z[j * terrain.n + i]];
+}
+
+// Where a block of a mass stands (z of its floor), the same as board_export.mass_base(outline,
+// ground) and with its argument order: the lowest ground under the footprint, sampled along
+// the edges every half grid step and at every grid point inside; 0 without the ground or for a
+// footprint entirely off it. `terrain` is the context's grid {min, step, n, z}.
+export function massBase(outline, terrain) {
+  if (!terrain || !outline?.length) return 0;
+  const { min, step, n, z } = terrain;
+  let low = Infinity;
+  function sample(x, y) {
+    const u = (x - min) / step, v = (y - min) / step;
+    if (u < 0 || v < 0 || u > n - 1 || v > n - 1) return;
+    const i = Math.min(Math.floor(u), n - 2), j = Math.min(Math.floor(v), n - 2);
+    const a = u - i, b = v - j, k = j * n + i;
+    const south = (1 - a) * z[k] + a * z[k + 1];
+    const north = (1 - a) * z[k + n] + a * z[k + n + 1];
+    low = Math.min(low, (1 - b) * south + b * north);
+  }
+  const edges = outline.map((p, i) => [p, outline[(i + 1) % outline.length]]);
+  for (const [[x, y], [ex, ey]] of edges) {
+    const count = Math.max(1, Math.ceil(2 * Math.hypot(ex - x, ey - y) / step));
+    for (let s = 0; s < count; s++) sample(x + (ex - x) * s / count, y + (ey - y) * s / count);
+  }
+  const gridRange = axis => {
+    const coords = outline.map(point => (point[axis] - min) / step);
+    return [Math.max(0, Math.ceil(Math.min(...coords))), Math.min(n - 1, Math.floor(Math.max(...coords)))];
+  };
+  const [west, east] = gridRange(0), [south, north] = gridRange(1);
+  for (let j = south; j <= north; j++) {
+    for (let i = west; i <= east; i++) {
+      const x = min + i * step, y = min + j * step;
+      let inside = false;
+      for (const [[ax, ay], [bx, by]] of edges) {
+        if ((ay > y) !== (by > y) && x < ax + (y - ay) * (bx - ax) / (by - ay)) inside = !inside;
+      }
+      if (inside) low = Math.min(low, z[j * n + i]);
+    }
+  }
+  return Number.isFinite(low) ? Number(low.toFixed(2)) : 0;
+}
+
+// Contour lines through the ground grid every `interval` m of height (marching squares): one
+// entry per height, {z, index, segments: [[x1, y1, x2, y2], ...]}; every fifth height is an
+// index contour. The very top height (which only touches the grid) is skipped.
+export function contourLines(terrain, interval) {
+  if (!terrain || !terrain.n || !(interval > 0)) return [];
+  const { n, z } = terrain;
+  let lo = Infinity, hi = -Infinity;
+  for (const v of z) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  const out = [];
+  for (let level = Math.ceil(lo / interval) * interval; level < hi; level += interval) {
+    const segments = [];
+    const cut = (i1, j1, i2, j2) => {
+      const a = z[j1 * n + i1], b = z[j2 * n + i2];
+      const t = (level - a) / (b - a);
+      return [terrain.min + (i1 + (i2 - i1) * t) * terrain.step, terrain.min + (j1 + (j2 - j1) * t) * terrain.step];
+    };
+    for (let j = 0; j < n - 1; j += 1) {
+      for (let i = 0; i < n - 1; i += 1) {
+        const corners = [[i, j], [i + 1, j], [i + 1, j + 1], [i, j + 1]];
+        const above = corners.map(([ci, cj]) => z[cj * n + ci] >= level);
+        if (above.every(Boolean) || !above.some(Boolean)) continue;
+        const points = [];
+        for (let k = 0; k < 4; k += 1) {
+          const [a, b] = [corners[k], corners[(k + 1) % 4]];
+          if (above[k] !== above[(k + 1) % 4]) points.push(cut(a[0], a[1], b[0], b[1]));
+        }
+        for (let k = 0; k + 1 < points.length; k += 2) segments.push([...points[k], ...points[k + 1]]);
+      }
+    }
+    const rounded = Math.round(level * 1000) / 1000;
+    if (segments.length) out.push({ z: rounded, index: Math.abs(Math.round(rounded / (interval * 5)) * interval * 5 - rounded) < 1e-6, segments });
+  }
+  return out;
+}
+
+export const HEIGHT_SOURCES = {
+  ledger: '건축물대장 높이', file: '건물통합정보 높이', vworld: '건축물정보 높이',
+  estimate: '층수×층고 추정', api_estimate: '추정(브이월드 API 층수)', map_estimate: '추정(수치지형도 층수)',
+};
+const ESTIMATED = new Set(['estimate', 'api_estimate', 'map_estimate']);
+export const OUTLINE_SOURCES = { file: '건물통합정보', vworld: '브이월드(화면 전용)', map: '1:5,000 수치지형도' };
+
+// One line about a building around the site, for a click on it: its name, height and where the
+// height came from, and which 건축물대장 동 sits on which outline (with the area ratio).
+export function buildingInfo(b) {
+  if (!b) return '';
+  const parts = [b.name || '이름 없는 건물', `${Number(b.height).toFixed(1)}m`];
+  if (b.floors) parts.push(`${b.floors}층`);
+  parts.push(HEIGHT_SOURCES[b.height_source] || b.height_source);
+  const m = b.match;
+  if (m) {
+    const ratio = m.ratio == null ? '' : `, 면적비 ${Number(m.ratio).toFixed(2)}`;
+    parts.push(`대장 ${m.dong || '동'} ↔ ${OUTLINE_SOURCES[m.source] || m.source} 외곽선${ratio}`);
+  } else {
+    parts.push('대장과 짝지은 외곽선 아님');
+  }
+  if (b.display_only) parts.push('파일로 내보내지 않음');
+  return parts.join(' · ');
+}
+
+// Whether a building's height is an estimate (drawn in its own colour, said so in the note).
+export function isEstimate(building) {
+  return ESTIMATED.has(building?.height_source);
+}
+
+// What the note under the surroundings says: where each part comes from (with the data's date),
+// how many buildings got their height which way, and the warning that it is not a survey.
+export function aroundNote(context) {
+  if (!context) return [];
+  const c = context.counts || {};
+  const terrain = (context.terrain_sources || []).map((s) => `${s.name}${s.date ? ` (기준 ${s.date})` : ''}`);
+  const lines = [
+    terrain.length ? `지형: ${terrain.join(', ')}` : '지형: 이 지역 지형 자료가 없어 평지로 그렸습니다',
+    `건물: ${context.building_source?.name || '브이월드 건축물정보'}${context.building_source?.date ? ` (기준 ${context.building_source.date})` : ''}`,
+    `건물 높이: ${Object.entries(HEIGHT_SOURCES).filter(([k]) => c[k]).map(([k, name]) => `${name} ${c[k]}동`).join(', ') || '없음'}`
+      + (c.unknown ? ` · 높이 미확인 ${c.unknown}동은 바닥선만` : ''),
+    '필지·도로 필지: 브이월드 연속지적도 (화면 표시용, 저장하지 않음)',
+  ];
+  if (c.estimate || c.api_estimate || c.map_estimate) lines.push('추정 높이는 층수 × 층고(주거 2.9m, 업무·상업 3.8m, 그 밖 3.3m)로, 실제 높이가 아닙니다.');
+  if (context.disclaimer) lines.push(context.disclaimer);
+  return lines;
+}
+
 // ------------------------------------------------------------------ the idea board
 // The designer's main ideas, in their order (board.ideas, saved by the server; 2026-11-05).
 // The AI reads them and never changes them; an idea set aside (`off`) is not sent to it.

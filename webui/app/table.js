@@ -20,6 +20,7 @@ import {
   snapTape,
   massIds, createHistory, recordStep, undoStep, redoStep, changedFields, planDrawing,
   photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE,
+  CONTOUR_STEPS, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, noteStartsOpen, buildingInfo,
 } from './board-model.js';
 
 const SNAP = 7; // metres: a tracing sheet this close to its place on the site clicks into register
@@ -80,6 +81,13 @@ export class DraftingTable {
     this.drawn = new Map(); // paper id → what its element last showed
     this.pins = new Map(); // paper id → its pin element (3D)
     this.toldFold = false;
+    this.around = null; // the site's surroundings (GET .../site/context), fetched when first shown
+    this.aroundOn = false;
+    this.aroundBusy = false;
+    this.aroundRequest = null;
+    this.aroundNoteOpen = null; // the source note: open or folded (decided by the width when first shown)
+    this.aroundLow = 0;
+    this.contourStep = 1;
     this.root = document.createElement('div');
     this.root.className = 'table';
     this.root.tabIndex = 0;
@@ -101,6 +109,7 @@ export class DraftingTable {
       <div class="table-ui ui-zoom"></div>
       <p class="table-ui ui-help">왼쪽 끌기: 선택 상자(→ 안에 든 것, ← 걸친 것, Shift 더하기, Ctrl 빼기) · 건물 클릭: 그 동만 고르기(끌면 옮김, 검볼, Delete 지우기) · 스케치업 도구는 명령으로: rect pushpull move copy rotate scale eraser dist (제도판에서 글자를 치면 명령창으로) · Ctrl+C/V 복사·붙여넣기, Ctrl+A 모든 동 · 고른 이름표 끌기: 종이 옮기기 · 휠: 커서 기준 확대 · 우클릭 끌기: 돌리기 · Shift+우클릭·가운데 버튼 끌기: 이동 · Ctrl+Z: 되돌리기 · 사진: 파일을 끌어다 놓거나 붙여넣기(photo)</p>
       <p class="table-ui ui-hint" role="status" hidden></p>
+      <section class="table-ui around-note" aria-label="주변 3D 자료 출처" hidden></section>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
       <section class="table-ui peek" aria-label="종이 내용" hidden></section>
       <section class="table-ui scheme-form" aria-label="매스안 입력" hidden></section>
@@ -127,6 +136,7 @@ export class DraftingTable {
       history: this.root.querySelector('.ui-history'),
       detail: this.root.querySelector('.card-detail'),
       number: this.root.querySelector('.tool-number'),
+      aroundNote: this.root.querySelector('.around-note'),
     };
     this.setupScene();
     this.listen();
@@ -136,6 +146,7 @@ export class DraftingTable {
   // ------------------------------------------------------------------ mounting
 
   destroy() {
+    this.aroundRequest = null;
     this.ui.number.close();
     window.removeEventListener('keydown', this.onWindowKey);
     window.removeEventListener('paste', this.onPaste);
@@ -149,7 +160,15 @@ export class DraftingTable {
 
   setBoard(view) {
     if (this.gesture) { this.pending = view; return; }
+    const siteChanged = JSON.stringify(this.site?.plan) !== JSON.stringify(view.site?.plan);
     this.site = view.site || null;
+    if (siteChanged) {
+      this.aroundRequest = null;
+      this.aroundBusy = false;
+      this.aroundOn = false;
+      this.around = null;
+      this.drawAround();
+    }
     this.figures = view.figures || {};
     this.tray = view.tray || [];
     this.papers = (view.papers || []).map((p) => ({ ...p }));
@@ -174,7 +193,7 @@ export class DraftingTable {
       if (!this.find(this.detailId)) this.closeDetail();
       else if (!writing) this.drawDetail();
     }
-    if (moved || !this.lotDrawn) this.drawSite();
+    if (siteChanged || !this.lotDrawn) this.drawSite();
     if (moved && this.boardSeen) this.fit(); // a newly saved site: bring it into view
     this.boardSeen = true;
     this.syncPapers();
@@ -274,7 +293,8 @@ export class DraftingTable {
     Object.assign(sun.shadow.camera, { left: -160, right: 160, top: 160, bottom: -160, near: 10, far: 600 });
     scene.add(sun, sun.target);
     // The table keeps its own colour; a separate catcher only darkens where shadows fall.
-    scene.add(new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), new THREE.MeshBasicMaterial({ color: this.colors.table })));
+    const desk = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), new THREE.MeshBasicMaterial({ color: this.colors.table }));
+    scene.add(desk);
     const catcher = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1200), new THREE.ShadowMaterial({ opacity: 0.22 }));
     catcher.position.z = 0.01;
     catcher.receiveShadow = true;
@@ -292,8 +312,9 @@ export class DraftingTable {
     const masses = new THREE.Group();
     const traces = new THREE.Group();
     const draft = new THREE.Group(); // what a tool is drawing: a rectangle, the tape measure
-    scene.add(lot, masses, traces, draft);
-    this.gl = { renderer, cssRenderer, scene, cssScene, camera, grid, catcher, horizon, lot, masses, traces, draft, labels: [], objects: new Map(), raycaster: new THREE.Raycaster() };
+    const around = new THREE.Group(); // the site's surroundings: ground, nearby buildings, contours
+    scene.add(lot, masses, traces, draft, around);
+    this.gl = { renderer, cssRenderer, scene, cssScene, camera, desk, grid, catcher, horizon, lot, masses, traces, draft, around, labels: [], objects: new Map(), raycaster: new THREE.Raycaster() };
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(this.root);
   }
@@ -331,14 +352,21 @@ export class DraftingTable {
 
   render() {
     if (!this.gl || !this.root.isConnected || !this.root.clientWidth) return;
-    const { renderer, cssRenderer, scene, cssScene, camera, grid, catcher, horizon, lot, masses, traces, labels, objects } = this.gl;
+    const { renderer, cssRenderer, scene, cssScene, camera, desk, grid, catcher, horizon, lot, masses, traces, around, labels, objects } = this.gl;
     const v = this.view;
     this.aimCamera(camera, v);
     const rise = riseFor(v.tilt);
     masses.scale.z = rise;
+    // The surroundings rise with the masses; the table top goes below the lowest ground under them.
+    const shown = Boolean(this.aroundOn && this.around);
+    around.visible = shown;
+    around.scale.z = rise;
+    desk.position.z = shown ? Math.min(0, this.aroundLow) * rise - 0.5 : 0;
+    catcher.position.z = desk.position.z + 0.01;
     // Lying flat for an elevation the ground fades away and only the buildings stand, on a ground line.
     const ground = groundFor(v.tilt);
     grid.material.opacity = ground;
+    grid.visible = !shown;
     catcher.material.opacity = 0.22 * ground;
     lot.visible = ground > 0.5;
     horizon.visible = ground < 1;
@@ -458,6 +486,7 @@ export class DraftingTable {
   faceAxis(b, face) {
     const frame = this.site?.plan?.frame || { x: 0, y: 0, angle: 0 };
     const [mx, my] = blockCorners(frame, { ...b, w: 0, d: 0 })[0];
+    const z0 = this.blockBase(frame, b); // the block stands on the ground under it (massBase)
     let dir = [0, 0, riseFor(this.view.tilt)];
     if (face !== 'top') {
       const t = frame.angle + ((b.a || 0) * Math.PI) / 180 + (face[0] === 'd' ? Math.PI / 2 : 0);
@@ -467,8 +496,8 @@ export class DraftingTable {
     const { camera } = this.gl;
     const r = this.root.getBoundingClientRect();
     const at = (x, y, z) => { const p = new THREE.Vector3(x, y, z).project(camera); return [((p.x + 1) / 2) * r.width, ((1 - p.y) / 2) * r.height]; };
-    const [ax, ay] = at(mx, my, 0);
-    const [bx, by] = at(mx + dir[0], my + dir[1], dir[2]);
+    const [ax, ay] = at(mx, my, z0);
+    const [bx, by] = at(mx + dir[0], my + dir[1], z0 + dir[2]);
     return [bx - ax, by - ay];
   }
 
@@ -567,10 +596,12 @@ export class DraftingTable {
     const preview = this.tray.find(p => p.id === this.preview && p.kind === 'mass');
     if (preview) papers.push(preview);
     for (const paper of papers) for (const b of paper.blocks) {
-      const base = blockCorners(frame, b).map(([x, y]) => ({ x, y, z: 0 }));
+      const outline = blockCorners(frame, b);
+      const z = this.blockBase(frame, b);
+      const base = outline.map(([x, y]) => ({ x, y, z }));
       ring(base);
       if (riseFor(this.view.tilt) > .01) {
-        const top = base.map(p => ({ ...p, z: b.floors * (paper.floor_height || 4.2) }));
+        const top = base.map(p => ({ ...p, z: z + b.floors * (paper.floor_height || 4.2) }));
         ring(top); base.forEach((p, i) => edge(p, top[i]));
       }
     }
@@ -759,6 +790,142 @@ export class DraftingTable {
     }
   }
 
+  // ------------------------------------------------------------------ the site's surroundings
+
+  // Show or hide the ground and buildings around the site; the first time they are fetched.
+  async toggleAround() {
+    if (this.aroundBusy) return;
+    if (this.aroundOn) { this.aroundOn = false; this.drawAround(); this.drawMasses(); this.drawControls(); return; }
+    if (!this.site?.plan) { this.say('먼저 대지를 조회하세요. 대지 경계가 있어야 주변을 놓을 수 있습니다.'); return; }
+    if (!this.around && this.hooks.context) {
+      const request = Symbol();
+      this.aroundRequest = request;
+      this.aroundBusy = true;
+      this.drawControls();
+      try {
+        const context = await this.hooks.context(200);
+        if (request !== this.aroundRequest) return;
+        this.around = context;
+      } catch (error) {
+        if (request !== this.aroundRequest) return;
+        this.say(`주변 지형·건물을 불러오지 못했습니다. ${error.message}`);
+      }
+      this.aroundBusy = false;
+    }
+    this.aroundOn = Boolean(this.around);
+    this.drawAround();
+    this.drawMasses();
+    this.drawControls();
+    // Lean the table and step back so the whole neighbourhood is in view around the site.
+    if (this.aroundOn) {
+      this.animateTo({ ...(viewFor('3d', this.view) || {}), x: 0, y: 0, span: Math.max(this.view.span, 1.6 * this.around.radius) });
+    }
+  }
+
+  // The ground coloured by what it is, the contour lines, and each building standing on it with
+  // its foundation down to the lowest ground under it; buildings of unknown height as a line only.
+  drawAround() {
+    if (!this.gl) return;
+    const { around } = this.gl;
+    around.traverse((o) => o.geometry?.dispose());
+    around.clear();
+    const data = this.aroundOn ? this.around : null;
+    const note = this.ui.aroundNote;
+    note.hidden = !data;
+    this.aroundLow = 0;
+    if (!data) { this.invalidate(); return; }
+    const t = data.terrain;
+    if (t) {
+      // A plane with one vertex per ground point (three.js lays its rows from the top, north),
+      // lifted to the heights and coloured by what the ground is.
+      const { n } = t;
+      const span = (n - 1) * t.step;
+      const geom = new THREE.PlaneGeometry(span, span, n - 1, n - 1);
+      const pos = geom.getAttribute('position');
+      const col = pos.clone();
+      const c = new THREE.Color();
+      for (let r = 0; r < n; r += 1) {
+        const j = n - 1 - r;
+        for (let i = 0; i < n; i += 1) {
+          const k = j * n + i;
+          const v = r * n + i;
+          pos.setXYZ(v, t.min + i * t.step, t.min + j * t.step, t.z[k]);
+          c.setHex(GROUND_COLORS[t.classes?.[k]] ?? GROUND_COLORS.g);
+          col.setXYZ(v, c.r, c.g, c.b);
+          this.aroundLow = Math.min(this.aroundLow, t.z[k]);
+        }
+      }
+      geom.setAttribute('color', col);
+      geom.computeVertexNormals();
+      const ground = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ vertexColors: true }));
+      ground.receiveShadow = true;
+      around.add(ground);
+      for (const line of contourLines(t, this.contourStep)) {
+        const pts = line.segments.flatMap(([x1, y1, x2, y2]) => [new THREE.Vector3(x1, y1, line.z + 0.05), new THREE.Vector3(x2, y2, line.z + 0.05)]);
+        around.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts),
+          new THREE.LineBasicMaterial({ color: line.index ? 0x7d6b4a : 0xb7a988 })));
+      }
+    }
+    const lineOf = (points, material) => new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(points.map(([x, y, z]) => new THREE.Vector3(x, y, z))), material);
+    const touch = new THREE.LineBasicMaterial({ color: 0x5f646b });
+    const edgeInk = new THREE.LineBasicMaterial({ color: 0x9aa0a6 });
+    for (const b of data.buildings || []) {
+      // Walls from the bottom of the foundation to the top, and a flat roof.
+      const ring = b.outline;
+      const material = new THREE.MeshLambertMaterial({
+        color: isEstimate(b) ? 0xe8d6b0 : 0xedede9, transparent: b.on_site, opacity: b.on_site ? 0.35 : 1,
+      });
+      const walls = [];
+      ring.forEach(([x1, y1], k) => {
+        const [x2, y2] = ring[(k + 1) % ring.length];
+        const a = new THREE.Vector3(x1, y1, b.base), bb = new THREE.Vector3(x2, y2, b.base);
+        const at = new THREE.Vector3(x1, y1, b.top), bt = new THREE.Vector3(x2, y2, b.top);
+        walls.push(a, bb, bt, a, bt, at);
+      });
+      const wallGeom = new THREE.BufferGeometry().setFromPoints(walls);
+      wallGeom.computeVertexNormals();
+      const roof = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape(ring.map(([x, y]) => new THREE.Vector2(x, y)))), material);
+      roof.position.z = b.top;
+      for (const part of [new THREE.Mesh(wallGeom, material), roof]) {
+        part.userData.building = b; // a click on it tells where its height and outline came from
+        part.castShadow = !b.on_site;
+        part.receiveShadow = true;
+        around.add(part);
+      }
+      const corners = ring.flatMap(([x, y]) => [new THREE.Vector3(x, y, b.base), new THREE.Vector3(x, y, b.top)]);
+      around.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(corners), edgeInk));
+      around.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(ring.map(([x, y]) => new THREE.Vector3(x, y, b.top + 0.02))), edgeInk));
+      if (b.ground_line) around.add(lineOf(b.ground_line, touch));
+    }
+    const unknown = new THREE.LineBasicMaterial({ color: 0xc8742f });
+    for (const b of data.unknown_buildings || []) if (b.ground_line) around.add(lineOf(b.ground_line, unknown));
+    this.drawAroundNote();
+    this.invalidate();
+  }
+
+  // The legend and, unless folded, where each part comes from; a button folds or opens it.
+  drawAroundNote() {
+    const data = this.aroundOn ? this.around : null;
+    const note = this.ui.aroundNote;
+    if (!data) return;
+    if (this.aroundNoteOpen === null) this.aroundNoteOpen = noteStartsOpen(this.root.getBoundingClientRect().width);
+    const open = this.aroundNoteOpen;
+    const hex = (k) => `#${GROUND_COLORS[k].toString(16).padStart(6, '0')}`;
+    const legend = aroundLegend(data).map(([k, name]) => (GROUND_COLORS[k] === undefined
+      ? `<span><i class="${k}"></i>${name}</span>` : `<span><i style="background:${hex(k)}"></i>${name}</span>`)).join('');
+    note.classList.toggle('folded', !open);
+    note.innerHTML = `<button type="button" class="note-fold" data-ui="around-note" aria-expanded="${open}">${open ? '자료 출처 접기' : '자료 출처 보기'}</button>
+      <p class="legend">${legend}</p>
+      ${open ? aroundNote(data).map((line) => `<p>${escape(line)}</p>`).join('') : ''}`;
+  }
+
+  // How high a block stands: on the lowest ground under it while the surroundings are shown
+  // (the same rule as the export), else on the table (0).
+  blockBase(frame, b) {
+    return massBase(blockCorners(frame, b), this.aroundOn ? this.around?.terrain : null);
+  }
+
   // The active scheme stands solid; the others (and an AI scheme being previewed) as outlines.
   drawMasses() {
     if (!this.gl) return;
@@ -773,13 +940,14 @@ export class DraftingTable {
     const build = (paper, faint, tint) => {
       for (const [index, b] of (paper.blocks || []).entries()) {
         const h = b.floors * (paper.floor_height || 4.2);
+        const base = this.blockBase(frame, b);
         const geom = new THREE.BoxGeometry(b.w, b.d, h);
         // A click or a selection box on a building picks that block (not an AI scheme in preview).
         const own = tint ? {} : { paper: paper.id, index };
         const picked = !tint && this.picked.includes(blockKey(paper.id, index));
         if (!faint) {
           const box = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ color: picked ? pick.clone().lerp(new THREE.Color(this.colors.mass), 0.55) : this.colors.mass }));
-          box.position.set(b.u, b.v, h / 2);
+          box.position.set(b.u, b.v, base + h / 2);
           box.rotation.z = ((b.a || 0) * Math.PI) / 180;
           box.castShadow = true;
           box.userData = own;
@@ -787,7 +955,7 @@ export class DraftingTable {
         }
         const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geom),
           new THREE.LineBasicMaterial({ color: picked ? pick : tint || ink, transparent: faint && !picked, opacity: faint && !picked ? (tint ? 0.9 : 0.35) : 1 }));
-        edges.position.set(b.u, b.v, h / 2 + 0.05);
+        edges.position.set(b.u, b.v, base + h / 2 + 0.05);
         edges.rotation.z = ((b.a || 0) * Math.PI) / 180;
         edges.userData = own;
         g.masses.add(edges);
@@ -797,7 +965,7 @@ export class DraftingTable {
           tag.textContent = `${b.floors}F`;
           const obj = new THREE.CSS3DObject(tag);
           const [cx, cy] = blockCorners(frame, { ...b, w: 0, d: 0 })[0];
-          obj.position.set(cx, cy, 0.2);
+          obj.position.set(cx, cy, base + 0.2);
           obj.scale.setScalar(PX);
           g.cssScene.add(obj);
           g.labels.push(obj);
@@ -1446,6 +1614,8 @@ export class DraftingTable {
       <button type="button" data-ui="scheme-new" title="숫자로 매스안 만들기">＋ 매스안</button>
       <button type="button" data-ui="trace" title="트레이싱지 덮기 (명령: trace)">트레이싱지 덮기</button>
       <button type="button" data-ui="photo" title="사진 올리기 (명령: photo) — 사진 파일을 제도판에 끌어다 놓거나 붙여넣어도 됩니다">사진 올리기</button>
+      <button type="button" data-ui="around" aria-pressed="${this.aroundOn}" ${this.site?.plan && !this.aroundBusy ? '' : 'disabled'} title="대지 주변 200m의 지형과 건물을 3D로 보기 (공공 자료로 만든 참고용 모형)">${this.aroundBusy ? '주변 불러오는 중…' : '주변 3D'}</button>
+      ${this.aroundOn && this.around?.terrain ? `<label class="check">등고선 <select data-ui="contour-step" aria-label="등고선 간격">${CONTOUR_STEPS.map((s) => `<option value="${s}" ${s === this.contourStep ? 'selected' : ''}>${s}m</option>`).join('')}</select></label>` : ''}
       <button type="button" data-ui="delete" ${this.selected.some((id) => this.papers.some((p) => p.id === id && p.kind !== 'site')) ? '' : 'disabled'} title="삭제 (Delete)">삭제</button>
       <span class="sep"></span>
       <button type="button" data-ui="tray" aria-pressed="${this.trayOpen}">AI 섹션${this.tray.length ? ` <b>${this.tray.length}</b>` : ''}</button>`;
@@ -1646,6 +1816,7 @@ export class DraftingTable {
     root.addEventListener('input', (e) => this.onInput(e));
     root.addEventListener('change', (e) => {
       if (e.target.dataset.ui === 'ghost') { this.ghost = e.target.checked; this.drawMasses(); }
+      if (e.target.dataset.ui === 'contour-step') { this.contourStep = Number(e.target.value) || 1; this.drawAround(); }
       if (e.target === this.photoInput && this.photoInput.files.length) this.addPhotos([...this.photoInput.files]);
       if (e.target.dataset.detailTitle) this.saveTitle(e.target.dataset.detailTitle, e.target.value);
     });
@@ -1736,6 +1907,8 @@ export class DraftingTable {
       case 'redo': this.travel('redo'); break;
       case 'trace': this.layTracing(); break;
       case 'photo': this.pickPhotos(); break;
+      case 'around': this.toggleAround(); break;
+      case 'around-note': this.aroundNoteOpen = !this.aroundNoteOpen; this.drawAroundNote(); break;
       case 'delete': this.removeSelected(); break;
       case 'tray': this.trayOpen = !this.trayOpen; this.drawTray(); this.drawControls(); break;
       case 'north': this.animateTo({ turn: 0 }); break;
@@ -1873,7 +2046,20 @@ export class DraftingTable {
       this.gesture = { kind: 'move', g0, ids: new Set(next), id: paperId, shift: e.shiftKey, from: new Map(this.papers.map((q) => [q.id, { x: q.x, y: q.y, overlaid: q.overlaid }])), moved: false, x: e.clientX, y: e.clientY };
       return;
     }
+    const info = this.tool === 'select' && !e.shiftKey && this.aroundBuildingAt(e.clientX, e.clientY);
+    if (info) this.say(buildingInfo(info));
     this.gesture = box;
+  }
+
+  // The building around the site under the pointer (while the surroundings are shown), or null.
+  aroundBuildingAt(clientX, clientY) {
+    if (!this.gl || !this.aroundOn) return null;
+    const { camera, around, raycaster } = this.gl;
+    const r = this.root.getBoundingClientRect();
+    around.updateMatrixWorld(true);
+    raycaster.setFromCamera(new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1), camera);
+    const hit = raycaster.intersectObjects(around.children.filter((o) => o.userData.building), false)[0];
+    return hit?.object.userData.building || null;
   }
 
   onMove(e) {

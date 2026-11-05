@@ -40,6 +40,7 @@ frame: `u` along the long side of its largest parcel, `v` across it, from that p
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 import threading
@@ -47,7 +48,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from sida.i18n import agent_name
+from sida.errors import SidaError
+from sida.i18n import agent_name, t
 from sida.storage import atomic_write_text
 
 BOARD_FILE = "board.json"
@@ -116,17 +118,36 @@ def _empty() -> dict:
     return {"rev": 0, "papers": [_site_paper()], "tray": [], "pins": [], "ideas": []}
 
 
+log = logging.getLogger(__name__)
+
+
+def read_board(project_path: Path) -> dict | None:
+    """
+    The saved table for a prompt (the Conductor's and the experts' reading of it): None when
+    there is none, and None with a warning in the log when it cannot be read, so a damaged
+    board.json never stops a conversation or an expert run. Edits keep using load_board,
+    which refuses to replace a board it cannot read.
+    """
+    if not board_path(project_path).exists():
+        return None
+    try:
+        return load_board(project_path)
+    except SidaError as exc:
+        log.warning("%s (read without the drawing table)", exc.message)
+        return None
+
+
 def load_board(project_path: Path) -> dict:
-    """The saved table; a new or unreadable one is the site paper alone (rev 0)."""
+    """Start an empty table only when there is no saved board."""
     path = board_path(project_path)
-    if not path.exists():
-        return _empty()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except FileNotFoundError:
         return _empty()
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise SidaError(t("board_read_failed", path=path)) from exc
     if not isinstance(data, dict) or not isinstance(data.get("papers"), list):
-        return _empty()
+        raise SidaError(t("board_read_failed", path=path))
     papers = [p for p in data["papers"] if isinstance(p, dict) and p.get("kind") in KINDS]
     if not any(p.get("id") == SITE_ID for p in papers):
         papers.insert(0, _site_paper())
@@ -813,9 +834,7 @@ def ideas_block(board: dict | None) -> str:
 
 def expert_context(project_path: Path, selection: Selection | None) -> str:
     """The idea board and the selected papers, for an expert's prompt ("" for neither)."""
-    table = selection.board if selection is not None else (
-        load_board(project_path) if board_path(project_path).exists() else None
-    )
+    table = selection.board if selection is not None else read_board(project_path)
     return "\n\n".join(part for part in (ideas_block(table), expert_block(selection)) if part)
 
 
