@@ -896,6 +896,25 @@ export const HEIGHT_SOURCES = {
   estimate: '층수×층고 추정', api_estimate: '추정(브이월드 API 층수)', map_estimate: '추정(수치지형도 층수)',
 };
 const ESTIMATED = new Set(['estimate', 'api_estimate', 'map_estimate']);
+export const OUTLINE_SOURCES = { file: '건물통합정보', vworld: '브이월드(화면 전용)', map: '1:5,000 수치지형도' };
+
+// One line about a building around the site, for a click on it: its name, height and where the
+// height came from, and which 건축물대장 동 sits on which outline (with the area ratio).
+export function buildingInfo(b) {
+  if (!b) return '';
+  const parts = [b.name || '이름 없는 건물', `${Number(b.height).toFixed(1)}m`];
+  if (b.floors) parts.push(`${b.floors}층`);
+  parts.push(HEIGHT_SOURCES[b.height_source] || b.height_source);
+  const m = b.match;
+  if (m) {
+    const ratio = m.ratio == null ? '' : `, 면적비 ${Number(m.ratio).toFixed(2)}`;
+    parts.push(`대장 ${m.dong || '동'} ↔ ${OUTLINE_SOURCES[m.source] || m.source} 외곽선${ratio}`);
+  } else {
+    parts.push('대장과 짝지은 외곽선 아님');
+  }
+  if (b.display_only) parts.push('파일로 내보내지 않음');
+  return parts.join(' · ');
+}
 
 // Whether a building's height is an estimate (drawn in its own colour, said so in the note).
 export function isEstimate(building) {

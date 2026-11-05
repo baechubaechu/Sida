@@ -316,27 +316,57 @@ def _number(value) -> float:
         return 0.0
 
 
-def _match(records: list[dict], props: dict, area: float) -> dict | None:
-    """The 건축물대장 표제부 row for a building outline on that parcel, or None."""
-    usable = [r for r in records if (r.get("height_m") or 0) > 0 or (r.get("floors_above") or 0) > 0]
-    if not usable:
-        return None
-    dong = str(props.get("dong_nm") or "").strip()
-    if dong:
-        same = [r for r in usable if r.get("dong", "").strip() == dong]
-        if len(same) == 1:
-            return same[0]
-    if len(usable) == 1:
-        return usable[0]
-    sized = [r for r in usable if r.get("building_area_m2")]
-    if sized:
-        best = min(sized, key=lambda r: abs(r["building_area_m2"] - area))
-        if abs(best["building_area_m2"] - area) / max(area, 1.0) < 0.35:
-            return best
-    return None
+AREA_MATCH = (0.7, 1.3)  # outline area / 건축면적 for a 대장 동 to take an outline
+AREA_NAMED = (0.5, 2.0)  # the same, when the outline also carries the 동's name (or is the only pair)
+
+
+def _usable(row: dict) -> bool:
+    return (row.get("height_m") or 0) > 0 or (row.get("floors_above") or 0) > 0
+
+
+def _named(row: dict, props: dict) -> bool:
+    dong, name = str(row.get("dong") or "").strip(), str(row.get("name") or "").strip()
+    return bool((dong and dong == str(props.get("dong_nm") or "").strip())
+                or (name and name == str(props.get("bld_nm") or "").strip()))
+
+
+def assign_ledger(rows: list[dict], outlines: list[tuple[int, float, dict]]
+                  ) -> tuple[dict[int, tuple[dict, float | None]], list[dict]]:
+    """
+    One parcel's 건축물대장 표제부 동 put on its building outlines one to one: each 동, the largest
+    first, takes the outline whose area is closest to its 건축면적 within ±30% (within half to
+    double when the outline carries the 동's name, or when the parcel has one 동 and one outline).
+    `outlines` are (key, area m², properties). Returns ({key: (row, area ratio)}, the 동 left
+    without an outline). An outline left over gets no 대장 row: never the parcel's tallest record.
+    """
+    usable = sorted((r for r in rows if _usable(r)), key=lambda r: -(r.get("building_area_m2") or 0))
+    free = {key: (area, props) for key, area, props in outlines}
+    single = len(usable) == 1 and len(outlines) == 1
+    taken: dict[int, tuple[dict, float | None]] = {}
+    left: list[dict] = []
+    for row in usable:
+        arch = row.get("building_area_m2") or 0
+        if arch > 0:
+            near = []
+            for key, (area, props) in free.items():
+                lo, hi = AREA_NAMED if (single or _named(row, props)) else AREA_MATCH
+                if lo <= area / arch <= hi:
+                    near.append(key)
+            named = [k for k in near if _named(row, free[k][1])]
+            pick = min(named or near, key=lambda k: abs(free[k][0] / arch - 1), default=None)
+        else:  # no 건축면적: only by name, or when it is the parcel's only pair
+            named = [k for k in free if _named(row, free[k][1])]
+            pick = max(named, key=lambda k: free[k][0]) if named else (next(iter(free)) if single and free else None)
+        if pick is None:
+            left.append(row)
+            continue
+        taken[pick] = (row, round(free[pick][0] / arch, 2) if arch > 0 else None)
+        del free[pick]
+    return taken, left
 
 
 ESTIMATES = ("estimate", "api_estimate", "map_estimate")  # height sources that are floors × a storey height
+NEAR_PARCEL = 60.0  # m from a parcel's file outline, where no parcel shape is known (export)
 OVERLAP = 0.5  # share of a building's outline a 1:5,000 building must cover to lend its floors
 
 
@@ -458,7 +488,71 @@ def surroundings(
               "unknown": 0, "inner": len(inner)}
     map_rings = [(r, float(m["floors"]), m.get("use", "")) for m in mapped or [] for r in _rings(
         {"type": "Polygon", "coordinates": [m["ring"]]}, frame)]
-    for i, (ring, props, area, middle) in enumerate(found):
+
+    # Each parcel's 대장 동 on its outlines, one to one; a 동 without an outline in the file takes
+    # one from the 1:5,000 map (a downloaded file: it can be exported), else from VWorld (screen only).
+    matched: dict[int, tuple[dict, float | None]] = {}
+    extra: list[dict] = []  # outlines found for 동 the file lacks: {ring, row, ratio, source, pnu}
+    used_maps: set[int] = set()
+    vworld_rings: list | None = None
+    for pnu in wanted:
+        keys = [i for i, p in pnus.items() if p == pnu]
+        taken, left = assign_ledger(records.get(pnu, []), [(i, found[i][2], found[i][1]) for i in keys])
+        matched.update(taken)
+        near = [found[i][3] for i in keys]
+        parcel = [r for rings, lot_pnu, _j in lots if lot_pnu == pnu for r in rings]
+
+        def here(ring, parcel=parcel, near=near):
+            m = ring.mean(axis=0)
+            if parcel:
+                return any(_inside(m, r) for r in parcel)
+            return any(np.hypot(*(m - n)) <= NEAR_PARCEL for n in near)
+
+        for row in left:
+            arch = row.get("building_area_m2") or 0
+            if arch <= 0:
+                continue
+            fits = [(abs(abs(_area(r)) / arch - 1), k, r) for k, (r, _f, _u) in enumerate(map_rings)
+                    if k not in used_maps and AREA_MATCH[0] <= abs(_area(r)) / arch <= AREA_MATCH[1] and here(r)]
+            source = "map"
+            if not fits and not for_export:
+                if vworld_rings is None:
+                    vworld_rings = []
+                    for layer in ("LT_C_SPBD", "LT_C_BLDGINFO"):
+                        try:
+                            vworld_rings += [r for f in landapi.features_in_box(layer, *box, http_get=http_get)
+                                             for r in _rings(f["shape"], frame)]
+                        except landapi.LandApiError as exc:
+                            notes.append(f"{layer}:{exc.kind}")
+                fits = [(abs(abs(_area(r)) / arch - 1), -1, r) for r in vworld_rings
+                        if AREA_MATCH[0] <= abs(_area(r)) / arch <= AREA_MATCH[1] and here(r)]
+                source = "vworld"
+            if fits:
+                _d, k, ring = min(fits, key=lambda f: f[0])
+                if k >= 0:
+                    used_maps.add(k)
+                extra.append({"ring": ring, "row": row, "ratio": round(abs(_area(ring)) / arch, 2),
+                              "source": source, "pnu": pnu})
+    # File outlines that lie mostly inside an outline found above are pieces of that building.
+    covered = {i for i in pnus if i not in matched
+               and any(overlap_share(found[i][0], e["ring"]) > OVERLAP for e in extra)}
+    # A leftover file record carrying the name of a 대장 동 placed on another outline repeats that
+    # building: its own height and floors are not used again.
+    placed = {str(r.get("name") or "").strip() for r, _ratio in matched.values()} | {
+        str(e["row"].get("name") or "").strip() for e in extra}
+    placed.discard("")
+    repeats = {i for i in pnus if i not in matched and str(found[i][1].get("bld_nm") or "").strip() in placed}
+
+    first_extra = len(found)
+    for e in extra:  # stood up like the file's buildings, on the outline found for them
+        ring = e["ring"]
+        found.append((ring, {"bld_nm": e["row"].get("name") or "", "dong_nm": e["row"].get("dong") or "",
+                             "use": e["row"].get("purpose") or ""}, abs(_area(ring)), ring.mean(axis=0)))
+        matched[len(found) - 1] = (e["row"], e["ratio"])
+        pnus[len(found) - 1] = e["pnu"]
+    outline_from = {first_extra + n: e["source"] for n, e in enumerate(extra)}
+
+    for i, (ring, props, _size, middle) in enumerate(found):
         ccw = ring if _area(ring) > 0 else ring[::-1]
         edge = _densify(np.vstack([ccw, ccw[:1]]), DRAPE_GAP)
         under = ground_at(edge[:, 0], edge[:, 1])
@@ -468,21 +562,25 @@ def surroundings(
         outline = [[round(float(x), 2), round(float(y), 2)] for x, y in ccw]
         touch = [[round(float(x), 2), round(float(y), 2), round(float(z) + 0.02, 2)] for (x, y), z in zip(edge, under, strict=True)]
         name = str(props.get("bld_nm") or "").strip()
-        if i in inner:
+        if i in inner or i in covered:
             left_out.append({"outline": outline, "base": round(base, 2), "name": name})
             continue
-        row = _match(records.get(pnus[i] or "", []), props, area)
+        row, ratio = matched.get(i, (None, None))
+        if i in repeats:
+            props = {**props, "height": None, "grnd_flr": None}
         use = (row or {}).get("purpose", "") or str(props.get("use") or "")
         floors = (row or {}).get("floors_above") or int(_number(props.get("grnd_flr"))) or int(
             next((fl for rings, fl in floors_spbd if fl > 0 and any(_inside(middle, r) for r in rings)), 0)
         )
+        match = {"source": outline_from.get(i, file_source), "dong": str(row.get("dong") or row.get("name") or ""),
+                 "ratio": ratio} if row else None
         if row and (row.get("height_m") or 0) > 0:
             height, source = float(row["height_m"]), "ledger"
         elif _number(props.get("height")) > 0:
             height, source = _number(props.get("height")), file_source
         elif floors:
             height, source = floors * storey_height(use), "estimate"
-        elif packed and not for_export and (asked := vworld_floors(middle)):
+        elif packed and not for_export and i not in repeats and (asked := vworld_floors(middle)):
             floors = asked
             height, source = floors * storey_height(use), "api_estimate"
             # What the file export uses instead: VWorld's floors stay on the screen (제19조)
@@ -507,6 +605,8 @@ def surroundings(
             **({"offline": offline} if source == "api_estimate" else {}),
             "floors": floors or None, "use": use, "name": name,
             "on_site": bool(site_rings) and any(_inside(middle, r) for r in site_rings),
+            "match": match,  # the 대장 동 on this outline, where the outline came from, area ratio
+            **({"display_only": True} if outline_from.get(i) == "vworld" else {}),
         })
     lots_out = []
     for rings, _pnu, jibun in lots:
@@ -606,6 +706,8 @@ def export_layers(around: dict) -> list[dict]:
         groups = {"측정 높이": [], "추정 높이": []}
         unknown = [{"points": b["ground_line"], "closed": False} for b in around.get("unknown_buildings") or [] if b.get("ground_line")]
         for b in around.get("buildings") or []:
+            if b.get("display_only"):  # an outline from VWorld: for the screen only (이용약관 제19조)
+                continue
             height, source = b["height"], b["height_source"]
             if source == "api_estimate":  # VWorld's floors are for the screen only: fall back without them
                 if not b.get("offline"):

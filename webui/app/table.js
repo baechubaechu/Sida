@@ -20,7 +20,7 @@ import {
   snapTape,
   massIds, createHistory, recordStep, undoStep, redoStep, changedFields, planDrawing,
   photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE,
-  CONTOUR_STEPS, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, noteStartsOpen,
+  CONTOUR_STEPS, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, noteStartsOpen, buildingInfo,
 } from './board-model.js';
 
 const SNAP = 7; // metres: a tracing sheet this close to its place on the site clicks into register
@@ -888,6 +888,7 @@ export class DraftingTable {
       const roof = new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape(ring.map(([x, y]) => new THREE.Vector2(x, y)))), material);
       roof.position.z = b.top;
       for (const part of [new THREE.Mesh(wallGeom, material), roof]) {
+        part.userData.building = b; // a click on it tells where its height and outline came from
         part.castShadow = !b.on_site;
         part.receiveShadow = true;
         around.add(part);
@@ -2045,7 +2046,20 @@ export class DraftingTable {
       this.gesture = { kind: 'move', g0, ids: new Set(next), id: paperId, shift: e.shiftKey, from: new Map(this.papers.map((q) => [q.id, { x: q.x, y: q.y, overlaid: q.overlaid }])), moved: false, x: e.clientX, y: e.clientY };
       return;
     }
+    const info = this.tool === 'select' && !e.shiftKey && this.aroundBuildingAt(e.clientX, e.clientY);
+    if (info) this.say(buildingInfo(info));
     this.gesture = box;
+  }
+
+  // The building around the site under the pointer (while the surroundings are shown), or null.
+  aroundBuildingAt(clientX, clientY) {
+    if (!this.gl || !this.aroundOn) return null;
+    const { camera, around, raycaster } = this.gl;
+    const r = this.root.getBoundingClientRect();
+    around.updateMatrixWorld(true);
+    raycaster.setFromCamera(new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1), camera);
+    const hit = raycaster.intersectObjects(around.children.filter((o) => o.userData.building), false)[0];
+    return hit?.object.userData.building || null;
   }
 
   onMove(e) {

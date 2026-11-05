@@ -688,3 +688,14 @@ test('a block on the board stands on the ground under it only while the surround
   t.around = null;
   assert.equal(t.blockBase(frame, block), 0);
 });
+
+test('a click on a building around the site says where its height and outline came from', async () => {
+  const { buildingInfo } = await import('../../webui/app/board-model.js');
+  const hall = buildingInfo({ name: '서울특별시 청사', height: 53.5, floors: 13, height_source: 'ledger',
+    match: { source: 'map', dong: '신관', ratio: 0.99 } });
+  assert.equal(hall, '서울특별시 청사 · 53.5m · 13층 · 건축물대장 높이 · 대장 신관 ↔ 1:5,000 수치지형도 외곽선, 면적비 0.99');
+  const annex = buildingInfo({ name: '', height: 20, height_source: 'ledger', match: { source: 'vworld', dong: '별관', ratio: 1 }, display_only: true });
+  assert.match(annex, /^이름 없는 건물 · 20\.0m · .*브이월드\(화면 전용\) 외곽선, 면적비 1\.00 · 파일로 내보내지 않음$/);
+  assert.match(buildingInfo({ name: 'x', height: 9.9, height_source: 'estimate', match: null }), /대장과 짝지은 외곽선 아님/);
+  assert.equal(buildingInfo(null), '');
+});

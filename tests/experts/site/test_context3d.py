@@ -485,3 +485,93 @@ def test_an_export_after_the_screen_reuses_its_result_without_asking_the_ledger_
     context3d.build(plan_for_site(), 200, folder=pack, ledger=counting, for_export=True)
     assert len(asked) > n  # without a screen result the export asks for itself
     context3d._cache.clear()
+
+
+def _matching_case(pack, monkeypatch):
+    """
+    The two cases found in 중구, with made-up coordinates (1:5,000 map coordinates do not go
+    into the repository): like 서울시청, a parcel whose 신관 (대장 13층·53.5m·건축면적 2,500㎡
+    here) is missing from the building file, which has a 1,600㎡ outline and a small piece of it,
+    while the 1:5,000 map has the 신관's outline; like 센터플레이스, a parcel whose file has only a
+    324㎡ outline carrying the tower's name and height (대장 23층·97.6m·1,677㎡) while the map has
+    the 1,681㎡ outline; and a parcel whose 동 is only in VWorld (screen only).
+    """
+    hall, tower, only = "1111010100100110000", "1111010100100120000", "1111010100100130000"
+    conn = terrain_pack.create(pack / f"b{terrain_pack.SUFFIX}", {"name": "b", "kind": "buildings", "source": "GIS건물통합정보"})
+    terrain_pack.add_building(conn, square(-75, -20, 20)[:-1], {"pnu": hall, "height": 35.8, "floors": 6, "use": "업무시설"})
+    terrain_pack.add_building(conn, square(-45, 20, 5)[:-1], {"pnu": hall})  # a piece inside the 신관
+    terrain_pack.add_building(conn, square(75, 10, 9)[:-1], {"pnu": tower, "height": 97.6, "floors": 23, "name": "센터플레이스"})
+    terrain_pack.add_building(conn, square(25, 140, 3)[:-1], {"pnu": only})  # a shed
+    conn.commit()
+    conn.close()
+    conn = terrain_pack.create(pack / f"m{terrain_pack.SUFFIX}", {"name": "m", "kind": "areas", "source": "1:5,000"})
+    terrain_pack.add_map_building(conn, square(-50, 15, 25)[:-1], 11, "업무시설")  # the 신관
+    terrain_pack.add_map_building(conn, square(50, -5, 20.5)[:-1], 23, "근린생활시설")  # the tower
+    conn.commit()
+    conn.close()
+    layers = {
+        "LT_C_SPBD": [feature(square(0, 120, 15), buld_nm="별관", gro_flo_co="5")],
+        "LT_C_BLDGINFO": [],
+        "LP_PA_CBND_BUBUN": [feature(square(-60, 0, 45), pnu=hall, jibun="31 대"),
+                             feature(square(60, 0, 40), pnu=tower, jibun="155 대"),
+                             feature(square(5, 125, 30), pnu=only, jibun="7 대")],
+    }
+
+    def http_get(url, params):
+        found = layers[params["data"]]
+        return {"response": {"status": "OK" if found else "NOT_FOUND", "page": {"total": "1"},
+                             "result": {"featureCollection": {"features": found}}}}
+
+    monkeypatch.setattr(landapi, "_http_get", http_get)
+    monkeypatch.setattr(landapi, "vworld_credentials", lambda: ("key", "domain"))
+    rows = {
+        hall: [{"dong": "신관", "name": "서울특별시 청사", "purpose": "업무시설", "building_area_m2": 2500.0,
+                "floors_above": 13, "height_m": 53.5},
+               {"dong": "", "name": "", "purpose": "업무시설", "building_area_m2": 0.0, "floors_above": 7, "height_m": 0.0}],
+        tower: [{"dong": "", "name": "센터플레이스", "purpose": "업무시설", "building_area_m2": 1677.0,
+                 "floors_above": 23, "height_m": 97.6}],
+        only: [{"dong": "별관", "name": "", "purpose": "업무시설", "building_area_m2": 900.0, "floors_above": 5, "height_m": 20.0}],
+    }
+    return lambda pnu: rows.get(pnu, [])
+
+
+def test_each_ledger_dong_takes_the_outline_closest_to_its_building_area(pack, monkeypatch):
+    look = _matching_case(pack, monkeypatch)
+    out = context3d.build(plan_for_site(), 200, folder=pack, ledger=look, use_cache=False)
+    by_height = {b["height"]: b for b in out["buildings"]}
+    new = by_height[53.5]  # 서울시청 신관: on the 1:5,000 map's outline, 13층
+    assert new["floors"] == 13 and new["match"] == {"source": "map", "dong": "신관", "ratio": 1.0}
+    assert abs(context3d._area(np.asarray(new["outline"]))) == pytest.approx(2500, rel=0.01)
+    assert by_height[35.8]["height_source"] == "file" and by_height[35.8]["match"] is None  # 1,600㎡: not the 신관
+    assert any(abs(context3d._area(np.asarray(b["outline"]))) == pytest.approx(100, rel=0.05) for b in out["left_out"])
+
+    tower = by_height[97.6]  # 센터플레이스: 23층 on the ~1,681㎡ outline, not the small one
+    assert tower["floors"] == 23 and tower["match"]["source"] == "map" and tower["match"]["ratio"] == 1.0
+    assert abs(context3d._area(np.asarray(tower["outline"]))) == pytest.approx(1681, rel=0.01)
+    assert sorted(b["name"] for b in out["unknown_buildings"]) == ["", "센터플레이스"]  # the shed; the small one repeats the tower
+    assert sum(b["height"] == 97.6 for b in out["buildings"]) == 1
+
+    annex = by_height[20.0]  # only VWorld has its outline: drawn, but never written to a file
+    assert annex["display_only"] and annex["match"]["source"] == "vworld"
+    solids = [s["height"] for layer in context3d.export_layers(out) for s in layer.get("solids", [])]
+    assert not any(abs(h - 20.0 - (annex["ground"] - annex["base"])) < 0.01 for h in solids)
+    assert len(solids) == len([b for b in out["buildings"] if not b.get("display_only") and b["height_source"] != "api_estimate"]) + sum(
+        1 for b in out["buildings"] if b["height_source"] == "api_estimate" and b.get("offline"))
+
+
+def test_the_export_finds_the_map_outlines_and_leaves_the_vworld_one_out(pack, monkeypatch):
+    look = _matching_case(pack, monkeypatch)
+    out = context3d.build(plan_for_site(), 200, folder=pack, ledger=look, use_cache=False, for_export=True)
+    heights = sorted(b["height"] for b in out["buildings"] if b["height_source"] == "ledger")
+    assert 53.5 in heights and 97.6 in heights and 20.0 not in heights  # no VWorld outline without the screen
+
+
+def test_assign_ledger_is_one_to_one_and_never_gives_a_leftover_the_tallest_record():
+    rows = [{"dong": "A", "building_area_m2": 1000.0, "floors_above": 20, "height_m": 80.0},
+            {"dong": "B", "building_area_m2": 300.0, "floors_above": 3, "height_m": 12.0}]
+    taken, left = context3d.assign_ledger(rows, [(1, 980.0, {}), (2, 310.0, {}), (3, 760.0, {})])
+    assert taken[1][0]["dong"] == "A" and taken[2][0]["dong"] == "B" and 3 not in taken and left == []
+    taken, left = context3d.assign_ledger(rows[:1], [(1, 320.0, {})])  # one 동, one outline, 3 times apart
+    assert taken == {} and left == rows[:1]
+    taken, _left = context3d.assign_ledger(rows[:1], [(1, 600.0, {"dong_nm": "A"})])  # named: half to double
+    assert taken[1][1] == 0.6
