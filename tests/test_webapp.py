@@ -208,10 +208,16 @@ def test_main_screen_is_served_at_root_with_its_assets(client):
     assert client.get("/app/nope.js").status_code == 404
 
 
+def screen_script() -> str:
+    """Every script of the main screen (webui/app/*.js, not the vendored libraries) as one text:
+    the screen is split into files by part (docs/web-ui.md), and these tests read it whole."""
+    return "\n".join(path.read_text(encoding="utf-8") for path in sorted(webapp.APP_DIR.glob("*.js")))
+
+
 def test_main_screen_calls_only_existing_api_paths(client):
     # Every /api/... path the screen fetches must be a route on this server, so a renamed
     # route breaks this test instead of the screen. `${...}` parts are path parameters.
-    script = (webapp.APP_DIR / "app.js").read_text(encoding="utf-8")
+    script = screen_script()
     segment = r"/(?:[a-z_-]+|\$\{[^}]+\})"
     called = set(re.findall(rf"['`](/api(?:{segment})+)", script))
     called |= {
@@ -248,8 +254,9 @@ def test_main_screen_files_hold_no_keys_or_placeholder_urls():
 def test_main_screen_talks_to_the_conductor_only_through_the_command_line():
     # 2026-11-01: the left Conductor panel is gone. The workspace is the drafting table and the
     # right-hand panel; questions go through the command line, and the talk list opens above it.
-    script = (webapp.APP_DIR / "app.js").read_text(encoding="utf-8")
-    workspace = script[script.index("function workspaceView()"):script.index("function render(")]
+    script = screen_script()
+    drawing = (webapp.APP_DIR / "render.js").read_text(encoding="utf-8")
+    workspace = drawing[drawing.index("function workspaceView()"):drawing.index("function render(")]
     assert 'class="conductor' not in workspace
     assert "talkList(" not in script
     assert "${commandBar()}" in workspace and "talksCard()" in script
@@ -257,7 +264,7 @@ def test_main_screen_talks_to_the_conductor_only_through_the_command_line():
 
 
 def test_main_screen_new_project_fields_are_brief_fields():
-    script = (webapp.APP_DIR / "app.js").read_text(encoding="utf-8")
+    script = screen_script()
     fields = re.search(r"for \(const key of \[([^\]]+)\]\)", script).group(1)
     assert {f.strip(" '") for f in fields.split(",")} <= set(BRIEF_FIELD_KEYS)
 
