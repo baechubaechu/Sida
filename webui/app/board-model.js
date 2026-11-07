@@ -1038,3 +1038,12 @@ export function siteRings(plan) {
 export function hideBuildings(hidden, ids) {
   return [...new Set([...(hidden || []), ...(ids || []).filter((id) => typeof id === 'string' && id)])].slice(0, MAX_HIDDEN);
 }
+
+// How the viewer likes the VWorld map (vworld-view.js keeps it for the page, not the project):
+// white: buildings as a white model, plain: the ground without the aerial photo. Anything
+// unreadable is the default (the photos on).
+export function readLook(stored) {
+  let v = null;
+  try { v = JSON.parse(stored); } catch { v = null; }
+  return { white: v?.white === true, plain: v?.plain === true };
+}

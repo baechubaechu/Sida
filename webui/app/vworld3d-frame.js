@@ -6,7 +6,10 @@
 (function () {
   'use strict';
   const MASS = '#f08a24'; // orange: stands out from VWorld's glass and concrete
-  const state = { hidden: new Set(), masses: [], onHidden: null, version: 0, ready: false, failed: '' };
+  const state = { hidden: new Set(), masses: [], onHidden: null, version: 0, ready: false, failed: '',
+    look: { white: false, plain: false } };
+  const WHITE = '#e9e9e6'; // buildings as a white model: VWorld's photo textures replaced by one colour
+  const GROUND = '#cfd3cf'; // the ground without the aerial photo
   // where the map starts: the site's middle, from the board (after #), seen from the south
   const start = new URLSearchParams(location.hash.slice(1));
   const site = { lon: Number(start.get('lon')) || 126.978, lat: Number(start.get('lat')) || 37.566 };
@@ -54,14 +57,18 @@
       for (const p of viewer.scene.primitives._primitives || []) {
         if (!(p instanceof Cesium.Cesium3DTileset) || seen.has(p)) continue;
         seen.add(p);
+        if (state.look.white) p.colorBlendMode = Cesium.Cesium3DTileColorBlendMode.REPLACE;
         p.tileVisible.addEventListener((tile) => {
           const c = tile.content;
           if (!c || c._sidaVersion === state.version || !c.featuresLength) return;
           c._sidaVersion = state.version;
+          // the colour goes per building, not as a tileset style: a style would show hidden ones again
+          const color = state.look.white ? Cesium.Color.fromCssColorString(WHITE) : Cesium.Color.WHITE;
           for (let i = 0; i < c.featuresLength; i += 1) {
             const f = c.getFeature(i);
             const id = modelId(f);
             f.show = !(id && state.hidden.has(id));
+            f.color = color;
           }
         });
       }
@@ -77,6 +84,22 @@
     state.version += 1;
     ws3d.viewer.scene.requestRender();
     if (state.onHidden) state.onHidden([...state.hidden], byClick);
+  }
+
+  // How VWorld's map looks: buildings as a white model (photo textures replaced) and the ground
+  // without the aerial photo. Only the drawing changes; nothing of VWorld's data is changed or kept.
+  function setLook(look) {
+    const viewer = ws3d.viewer;
+    state.look = { white: Boolean(look.white), plain: Boolean(look.plain) };
+    for (const t of viewer.scene.primitives._primitives || []) {
+      if (t instanceof Cesium.Cesium3DTileset) {
+        t.colorBlendMode = state.look.white ? Cesium.Cesium3DTileColorBlendMode.REPLACE : Cesium.Cesium3DTileColorBlendMode.HIGHLIGHT;
+      }
+    }
+    for (let i = 0; i < viewer.imageryLayers.length; i += 1) viewer.imageryLayers.get(i).show = !state.look.plain;
+    viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString(GROUND);
+    state.version += 1; // recolour the tiles in view
+    viewer.scene.requestRender();
   }
 
   function drawMasses(polygons) {
@@ -147,8 +170,9 @@
     ready,
     failed: () => state.failed,
     // the site, its masses and the buildings hidden so far; the camera looks at the site from the south
-    async show({ center, polygons, hidden, onHidden }) {
+    async show({ center, polygons, hidden, onHidden, appearance }) {
       if (!(await ready)) return false;
+      if (appearance) setLook(appearance);
       state.onHidden = onHidden || null;
       state.hidden = new Set(hidden || []);
       state.version += 1;
@@ -166,5 +190,6 @@
       return ids;
     },
     hidden: () => [...state.hidden],
+    setLook(look) { if (state.ready) setLook(look); },
   };
 })();

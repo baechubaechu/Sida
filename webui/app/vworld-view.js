@@ -3,7 +3,14 @@
 // (vworld3d.html) and never kept or exported; the designer can click a building to hide it (the
 // site's old building, say), and the board keeps which ones by VWorld's model id
 // (PUT .../board/hidden). The board's own Three.js view and the export are unchanged.
-import { massPolygons, siteRings } from './board-model.js';
+import { massPolygons, siteRings, readLook } from './board-model.js';
+
+// How this viewer likes the map (흰 모형, 바닥 사진 끄기): kept for this page (closing and opening
+// the view keeps it), not in the project. The screen keeps nothing in browser storage
+// (tests/test_webapp.py), so a reload starts with the photos on.
+let pageLook = readLook(null);
+function storedLook() { return pageLook; }
+function storeLook(look) { pageLook = readLook(JSON.stringify(look)); }
 
 export class VWorldView {
   // hooks: { saveHidden(ids) -> Promise, close() }
@@ -17,6 +24,8 @@ export class VWorldView {
         <button type="button" data-vworld="close">제도판으로</button>
         <button type="button" data-vworld="site">대지 위 건물 숨기기</button>
         <button type="button" data-vworld="show-all">숨긴 건물 모두 보이기</button>
+        <button type="button" data-vworld="white" aria-pressed="false" title="건물의 사진을 빼고 흰 모형으로">흰 모형</button>
+        <button type="button" data-vworld="plain" aria-pressed="false" title="바닥 항공사진 대신 회색 바닥">바닥 사진 끄기</button>
         <span class="vworld-note" role="status"></span>
       </div>
       <p class="vworld-credit">브이월드 3D 지도(국토교통부)를 실시간으로 보여 줍니다. 저장하거나 내보내지 않습니다. 건물을 누르면 숨겨집니다.</p>`;
@@ -26,6 +35,20 @@ export class VWorldView {
     this.host.addEventListener('click', (e) => this.onClick(e));
     this.plan = null;
     this.script = '';
+    this.look = storedLook();
+    this.drawLook();
+  }
+
+  drawLook() {
+    this.host.querySelector('[data-vworld="white"]').setAttribute('aria-pressed', String(this.look.white));
+    this.host.querySelector('[data-vworld="plain"]').setAttribute('aria-pressed', String(this.look.plain));
+  }
+
+  toggleLook(key) {
+    this.look = { ...this.look, [key]: !this.look[key] };
+    storeLook(this.look);
+    this.drawLook();
+    this.frame.contentWindow.sidaVWorld?.setLook(this.look);
   }
 
   get open() { return !this.host.hidden; }
@@ -51,7 +74,7 @@ export class VWorldView {
     const page = this.frame.contentWindow.sidaVWorld;
     this.say('브이월드 3D 지도를 여는 중…');
     const ok = page && await page.show({
-      center: plan.origin, polygons: massPolygons(paper, plan), hidden,
+      center: plan.origin, polygons: massPolygons(paper, plan), hidden, appearance: this.look,
       onHidden: (ids, byClick) => this.saved(ids, byClick),
     });
     if (!ok) { this.say(page?.failed() || '브이월드 3D 지도를 열지 못했습니다.'); return; }
@@ -86,6 +109,7 @@ export class VWorldView {
     const what = e.target.closest('[data-vworld]')?.dataset.vworld;
     if (what === 'close') this.hooks.close();
     else if (what === 'site') this.hideSite();
+    else if (what === 'white' || what === 'plain') this.toggleLook(what);
     else if (what === 'show-all') { this.frame.contentWindow.sidaVWorld?.showAll(); this.say('숨긴 건물을 모두 다시 보입니다.'); }
   }
 }

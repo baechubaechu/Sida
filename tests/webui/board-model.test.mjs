@@ -725,3 +725,12 @@ test('the board masses go on the VWorld 3D map as lon/lat polygons standing on t
   assert.deepEqual(hideBuildings(['a'], ['b', 'a', '', null]), ['a', 'b']);
   assert.equal(hideBuildings([], Array.from({ length: 400 }, (_, i) => `m${i}`)).length, MAX_HIDDEN);
 });
+
+test('the VWorld map look (white model, no ground photo) is read back safely', async () => {
+  const { readLook } = await import('../../webui/app/board-model.js');
+  assert.deepEqual(readLook(JSON.stringify({ white: true, plain: false })), { white: true, plain: false });
+  assert.deepEqual(readLook(JSON.stringify({ white: true, plain: true })), { white: true, plain: true });
+  assert.deepEqual(readLook(null), { white: false, plain: false }); // nothing stored: photos on
+  assert.deepEqual(readLook('not json'), { white: false, plain: false });
+  assert.deepEqual(readLook(JSON.stringify({ white: 'yes', plain: 1 })), { white: false, plain: false }); // only true counts
+});
