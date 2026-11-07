@@ -12,7 +12,7 @@
 | `mass` | `title`, `blocks`(동 목록: `u`, `v` 위치(아래 "대지 좌표"), `w`·`d` 가로·세로 m, `floors` 층수 1~200, 선택 `a` 회전(도, 대지의 u축에서 반시계, -180~180, 돌린 동에만 저장), 1~20개), `floor_height`(기본 4.2m) | 설계자 |
 | `note` | `text`(4000자까지) | 설계자 |
 | `tracing` | `title`, `strokes`(펜 획: `[[x, y], ...]` 목록), `overlaid`(대지 위에 덮였는지) | 설계자 |
-| `photo` | `title`, `file`(서버가 정한 파일 이름 `photo-xxxxxxxx.jpg` 등, 바꿀 수 없음) | 설계자. `POST /photos`로 파일을 올려서만 생김(아래 "사진") |
+| `photo` | `title`, `file`(서버가 정한 파일 이름 `photo-xxxxxxxx.jpg`·`.pdf` 등, 바꿀 수 없음), PDF면 `page`(보여 줄 페이지, 1부터, 기본 1) | 설계자. `POST /photos`로 파일을 올려서만 생김(아래 "사진") |
 | `expert` | `agent`, `title`(전문가 이름), `text`(결과 문서 앞 12줄), `about`(실행할 때 고른 종이 id) | 서버. 전문가 실행이 끝나면 AI 섹션에. 옮기기만 됨 |
 
 `pins`는 다음 단계(종이에 핀 꽂기)에서 씁니다. 지금은 빈 목록입니다.
@@ -26,7 +26,7 @@
 | `GET` | | `{rev, papers, tray, pins, ideas, hidden, site, figures}`. 아직 저장한 적 없으면 대지 종이 하나와 `rev: 0`. `site`와 `figures`는 화면이 그리라고 매번 계산하는 값이고 `board.json`에 저장되지 않습니다(아래) |
 | `POST /papers` | 종이(`kind`는 `mass`·`note`·`tracing`, `id`는 없으면 서버가 만듦) | `201 {paper, rev}` |
 | `POST /photos` | `multipart/form-data`: `file`(사진 파일), 선택 `title`, `x`, `y`, `w`, `h` | `201 {paper, rev}`. 아래 "사진" |
-| `GET /photos/{id}` | | 그 사진 종이의 파일(`image/png`·`image/jpeg`·`image/gif`·`image/webp`). 사진 종이가 아니거나 제도판에 없으면 `404` |
+| `GET /photos/{id}` | | 그 사진 종이의 파일(`image/png`·`image/jpeg`·`image/gif`·`image/webp`·`application/pdf`). 사진 종이가 아니거나 제도판에 없으면 `404` |
 | `PATCH /papers/{id}` | 바꿀 필드만. `id`·`kind`·`file`은 무시 | `{paper, rev}`. 대지 종이와 전문가 결과 종이는 `x`·`y`·`w`·`h`·`folded`만 |
 | `DELETE /papers/{id}` | | `{rev}`. 대지 종이는 `400` |
 | `POST /tray/{id}/place` | 없음, 또는 놓을 자리 `{x, y, w, h}` | `{paper, rev}`. AI 섹션의 종이를 제도판으로 옮김. AI 섹션에 없는 id는 `404` |
@@ -56,11 +56,12 @@
 
 대지 사진, 손 스케치, 참고 이미지를 제도판에 종이로 올립니다(2026-11-02, 11/9 발표용).
 
-- `POST /photos`는 PNG·JPEG·GIF·WebP만 받습니다. 형식은 파일 첫 바이트로 판단하고, 브라우저가 보낸 `Content-Type`은 믿지 않습니다. 20MB까지이고, 빈 파일·다른 형식(PDF, 아이폰 HEIC 등)·너무 큰 파일은 `400`, `file`이 없으면 `422`입니다. 화면은 HEIC처럼 서버가 받지 않는 형식이나 큰 사진을 브라우저에서 긴 변 2560px JPEG로 줄여 올립니다.
+- `POST /photos`는 PNG·JPEG·GIF·WebP와 PDF만 받습니다. 형식은 파일 첫 바이트로 판단하고, 브라우저가 보낸 `Content-Type`은 믿지 않습니다. 20MB까지이고, 빈 파일·다른 형식(아이폰 HEIC 등)·너무 큰 파일은 `400`, `file`이 없으면 `422`입니다. 화면은 HEIC처럼 서버가 받지 않는 형식이나 큰 사진을 브라우저에서 긴 변 2560px JPEG로 줄여 올립니다.
+- PDF(2026-11-07): CAD에서 내보낸 도면처럼 선으로 된 자료를 그대로 올립니다. 종이는 PDF의 한 페이지(`page`, 기본 1)를 보여 주고, 화면이 PDF에서 보이는 크기에 맞춰 다시 그려서 종이를 키우거나 확대해도 선이 흐려지지 않습니다. `PATCH /papers/{id}`에 `page`(1~9999 정수)로 페이지를 바꿉니다. 그림 파일(PNG·JPEG 등)은 `page`가 없고, 보내도 무시합니다.
 - 파일은 프로젝트 폴더 `board_photos/<종이 id>.<확장자>`에 저장되고, 종이에는 파일 이름만 남습니다. `w`, `h`는 화면이 사진 비율에 맞춰 줍니다(긴 변 300px).
-- 사진 종이는 다른 종이처럼 옮기고 접고 `title`과 크기(`w`, `h`)를 바꿉니다. 파일은 바뀌지 않습니다.
+- 사진 종이는 다른 종이처럼 옮기고 접고 `title`과 크기(`w`, `h`)를 바꿉니다. 파일은 바뀌지 않습니다. 화면에서는 종이 모서리를 끌어 크기를 바꿉니다(사진·PDF는 비율 유지).
 - 사진 종이를 지워도 파일은 하루 동안 남아서, 되돌리기가 `POST /papers`에 지운 종이 그대로(`kind: "photo"`, 같은 `file`)를 보내 다시 놓을 수 있습니다. 새 사진은 이 경로로 만들 수 없습니다(파일이 없거나 이미 제도판에 있는 파일이면 `400`). 하루가 지난 안 쓰는 파일은 다음 사진을 올릴 때 지워집니다.
-- AI에게는 사진의 이름만 갑니다. 그림 자체는 보내지 않고, Conductor와 전문가에게 "무엇이 찍혔는지는 설계자에게 물으라"고 알려 줍니다.
+- AI에게는 사진의 이름만 갑니다(PDF는 이름과 페이지 번호). 그림 자체는 보내지 않고, Conductor와 전문가에게 "무엇이 찍혔는지는 설계자에게 물으라"고 알려 줍니다.
 
 ## 아이디어 보드
 

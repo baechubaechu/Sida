@@ -18,7 +18,7 @@ scheme comes as a copy, `based_on` the original) and expert results. The designe
 ones they like onto the table (`place_paper`) and throws the rest away.
 
 A photo (kind "photo") is uploaded as a file with `add_photo` and kept in board_photos/; the
-paper names the file. Taking the paper off the table leaves the file for a day, so an undo can
+paper names the file. A PDF is a photo paper too, showing one `page` of it. Taking the paper off the table leaves the file for a day, so an undo can
 lay it back (`add_paper` with that file); `add_photo` clears files nobody has used since.
 
 Papers the designer selects travel with a message as `context` (paper ids). How much of
@@ -85,8 +85,13 @@ SELECTED_PREFIX = "[selected on the table] "
 # as files next to board.json; the paper holds only the file name.
 PHOTO_DIR = "board_photos"
 MAX_PHOTO_BYTES = 20 * 1024 * 1024
-PHOTO_FILE = re.compile(r"photo-[0-9a-f]{8}\.(?:png|jpg|gif|webp)")
-PHOTO_MEDIA = {"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}
+PHOTO_FILE = re.compile(r"photo-[0-9a-f]{8}\.(?:png|jpg|gif|webp|pdf)")
+PHOTO_MEDIA = {
+    "png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp", "pdf": "application/pdf",
+}
+# A PDF (a drawing exported from CAD) lies on the table as one of its pages, which the screen
+# draws from the PDF itself at the size it is shown, so its lines stay sharp however large.
+MAX_PDF_PAGE = 9999
 ORPHAN_SECONDS = 24 * 3600  # a removed photo's file is kept this long, so the screen can undo
 # The idea board: the designer's main ideas, in their order.
 MAX_IDEAS = 40
@@ -265,13 +270,15 @@ def photo_kind(data: bytes) -> str | None:
         return "gif"
     if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
         return "webp"
+    if data.startswith(b"%PDF-"):
+        return "pdf"
     return None
 
 
 def add_photo(project_path: Path, data: bytes, fields: dict | None = None) -> dict:
     """
     Lay an uploaded photo on the table. `fields` may give title, x, y, w, h (the screen sizes
-    the paper to the picture). Only PNG, JPEG, GIF and WebP, at most MAX_PHOTO_BYTES.
+    the paper to the picture). Only PNG, JPEG, GIF, WebP and PDF, at most MAX_PHOTO_BYTES.
     Returns {paper, rev}. Raises ValueError.
     """
     if not data:
@@ -280,8 +287,8 @@ def add_photo(project_path: Path, data: bytes, fields: dict | None = None) -> di
         raise ValueError(f"a photo may be at most {MAX_PHOTO_BYTES // (1024 * 1024)} MB")
     ext = photo_kind(data)
     if ext is None:
-        raise ValueError("a photo must be a PNG, JPEG, GIF or WebP image")
-    fields = {k: v for k, v in (fields or {}).items() if k in {"title", *PLACEMENT} and v is not None}
+        raise ValueError("a photo must be a PNG, JPEG, GIF or WebP image, or a PDF")
+    fields = {k: v for k, v in (fields or {}).items() if k in {"title", "page", *PLACEMENT} and v is not None}
     with _lock:
         board = load_board(project_path)
         if len(board["papers"]) >= MAX_PAPERS:
@@ -662,6 +669,11 @@ def clean_paper(data: dict) -> dict:
             raise ValueError("a photo paper needs its uploaded file")
         paper["title"] = title
         paper["file"] = file
+        if file.endswith(".pdf"):  # which page of the PDF the paper shows, from 1
+            page = _number(data.get("page", 1), "page", low=0, high=MAX_PDF_PAGE)
+            if page != int(page):
+                raise ValueError("page must be a whole number")
+            paper["page"] = int(page)
     return paper
 
 
@@ -789,6 +801,11 @@ def paper_text(paper: dict, site: dict | None) -> str:
             "The drawing itself cannot be read as text; ask the designer what it shows."
         )
     if kind == "photo":
+        if str(paper.get("file") or "").endswith(".pdf"):
+            return (
+                f"{head}: page {paper.get('page', 1)} of a PDF (a drawing or document) the designer put on "
+                "the table. The page itself is not sent; ask the designer what it shows if it matters."
+            )
         return (
             f"{head}: a photo the designer put on the table. The image itself is not sent; "
             "ask the designer what it shows if it matters."

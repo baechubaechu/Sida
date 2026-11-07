@@ -235,7 +235,7 @@ def test_main_screen_calls_only_existing_api_paths(client):
 
 def test_main_screen_files_hold_no_keys_or_placeholder_urls():
     for path in webapp.APP_DIR.rglob("*"):
-        if not path.is_file():
+        if not path.is_file() or path.suffix == ".bcmap":  # pdf.js's binary character maps
             continue
         text = path.read_text(encoding="utf-8")
         assert "figma.com/api/mcp/asset" not in text
@@ -1248,8 +1248,13 @@ def test_board_api_uploads_a_photo_and_serves_it_back(client, project):
     assert client.get(f"{base}/photos/nope").status_code == 404
 
     # The type is read from the bytes, not from what the browser said.
-    r = client.post(f"{base}/photos", files={"file": ("x.jpg", b"%PDF-1.7", "image/jpeg")})
+    r = client.post(f"{base}/photos", files={"file": ("x.jpg", b"PK\x03\x04", "image/jpeg")})
     assert r.status_code == 400 and "PNG, JPEG, GIF or WebP" in r.json()["detail"]
+    pdf = client.post(f"{base}/photos", files={"file": ("plan.png", b"%PDF-1.7\n", "image/png")}).json()["paper"]
+    assert pdf["file"].endswith(".pdf") and pdf["page"] == 1
+    got = client.get(f"{base}/photos/{pdf['id']}")
+    assert got.headers["content-type"] == "application/pdf" and "attachment" not in got.headers.get("content-disposition", "")
+    assert client.patch(f"{base}/papers/{pdf['id']}", json={"page": 2}).json()["paper"]["page"] == 2
     assert client.post(f"{base}/photos", files={"file": ("x.png", b"", "image/png")}).status_code == 400
     assert client.post(f"{base}/photos", data={"title": "no file"}).status_code == 422
     assert client.post("/api/projects/nope/board/photos", files={"file": ("x.jpg", jpeg, "image/jpeg")}).status_code == 404
