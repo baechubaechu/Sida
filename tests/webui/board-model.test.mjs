@@ -590,10 +590,9 @@ test('a removed photo can be undone (the server keeps its file)', () => {
 });
 
 test('contour lines cut the ground grid at every interval, every fifth is an index line', async () => {
-  const { contourLines, groundPoint, aroundNote, isEstimate } = await import('../../webui/app/board-model.js');
+  const { contourLines, aroundNote, isEstimate } = await import('../../webui/app/board-model.js');
   // a 3 × 3 grid rising 1 m per 10 m to the north: z = 0, 1, 2 by row
   const terrain = { min: -10, step: 10, n: 3, z: [0, 0, 0, 1, 1, 1, 2, 2, 2] };
-  assert.deepEqual(groundPoint(terrain, 2, 1), [10, 0, 1]);
   const lines = contourLines(terrain, 0.5);
   assert.deepEqual(lines.map((l) => l.z), [0.5, 1, 1.5]);
   for (const s of lines.find((l) => l.z === 0.5).segments) { close(s[1], -5); close(s[3], -5); }

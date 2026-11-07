@@ -119,7 +119,6 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 .pane-head { display: flex; justify-content: space-between; align-items: start; gap: 8px; padding: 21px 20px 18px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .pane-head h2 { margin: 0; font-size: 18px; letter-spacing: -.4px; }
 .pane-head p { margin: 6px 0 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-.pane-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 .ghost { border: 0; background: none; color: var(--muted); font-size: 20px; line-height: 1; padding: 4px 8px; border-radius: 6px; }
 .ghost:hover { background: var(--selected); color: var(--brand); }
 .settings-button { font-size: 17px; }
@@ -195,7 +194,6 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 .expert-chip { display: inline-block; padding: 2px 9px; border-radius: 999px; background: var(--selected); color: var(--brand); font-size: 12px; font-weight: 600; }
 .doc-row { display: grid; gap: 14px; margin-bottom: 14px; }
 @container (min-width: 620px) { .doc-row.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@container (min-width: 820px) { .doc-row.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .doc-section { min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; font-size: 14px; line-height: 1.65; }
 .doc-section h2 { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
 .doc-row.top .doc-section { border-color: #c9d6e2; background: #f6f9fc; }
@@ -250,7 +248,6 @@ button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 .form-error:empty { display: none; }
 .form-error { margin-top: 18px; }
 .warn-dot { color: #b7791f; font-size: 10px; margin-left: 6px; }
-.intro-line { margin-top: 24px; }
 .composer-hint { color: var(--muted); font-size: 12px; padding: 5px 0; }
 .event-note { margin-top: 18px; padding: 8px 12px; border-left: 3px solid var(--line); background: var(--surface-subtle); border-radius: 4px; font-size: 13px; color: var(--muted); }
 .event-note.success { border-left-color: #2f7d4f; }
@@ -726,7 +723,6 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
   .studio.experts-collapsed { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto; padding: 8px 8px 0; }
   .pane-tabs { grid-row: 3; }
   .studio > .board, .studio > .experts, .studio > .expert-page { display: none !important; grid-row: 1; grid-column: 1; margin: 0; }
-  .studio.pane-board > .board, .studio.pane-side > .experts, .studio.pane-side > .expert-page { display: flex !important; }
   .panel-toggles [data-action="toggle-experts-panel"], .pane-head [data-action="collapse-experts"] { display: none; }
   .pane-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; margin: 8px -8px 0; border-top: 1px solid var(--line); background: var(--surface); padding-bottom: env(safe-area-inset-bottom, 0px); }
   .pane-tabs button { padding: 12px 0; color: var(--muted); font-size: 14px; }
@@ -747,7 +743,7 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
   .sidebar .brand { margin: 0; font-size: 27px; line-height: 38px; }
   .sidebar .nav-main { display: flex; align-items: center; margin: 0 0 0 auto; gap: 6px; }
   .sidebar .nav-main > .nav-link { font-size: 13px; width: auto; min-height: 38px; padding: 8px 10px; margin: 0; }
-  .sidebar .recent, .sidebar .nav-label, .sidebar .project-nav, .sidebar .history-link { display: none; }
+  .sidebar .recent, .sidebar .nav-label { display: none; }
   .sidebar .sidebar-bottom { margin: 0; padding: 8px 10px; width: auto; min-height: 38px; }
   .home { padding-top: 32px; }
   .home h1 { font-size: 29px; line-height: 42px; }
@@ -910,7 +906,6 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
   .studio.with-table.conductor-open { grid-template-columns: minmax(0, 1fr); }
   .studio-splitter { display: none; }
   .studio > .conductor-panel { display: none; grid-row: 1; grid-column: 1; margin: 0; }
-  .studio.pane-conductor > .conductor-panel:not([hidden]) { display: flex; }
   .studio > .board, .studio > .experts, .studio > .expert-page { grid-column: 1; }
 }
 

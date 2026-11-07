@@ -348,10 +348,6 @@ def set_option(
     return ordinance_options(facts)
 
 
-def set_option_dismissed(project_path: Path, option_id: str, dismissed: bool) -> dict:
-    """Hide or restore one related article for this project. Returns the new options view."""
-    return set_option(project_path, option_id, dismissed=dismissed)
-
 
 def refresh(
     project_path: Path, query: str, candidates: list[dict], *, http_get=None, progress=None
@@ -558,18 +554,6 @@ def summarize(parcels: list[dict]) -> dict:
         "zoning_updated": updated[-1] if updated else "",
     }
 
-
-def parse_selection(text: str, count: int) -> list[int] | None:
-    """'1,3' → [0, 2] (zero-based, in the order typed, no repeats). None if anything is invalid."""
-    picks: list[int] = []
-    for part in re.split(r"[,\s]+", text.strip()):
-        if not part:
-            continue
-        if not part.isdigit() or not 1 <= int(part) <= count:
-            return None
-        if int(part) - 1 not in picks:
-            picks.append(int(part) - 1)
-    return picks or None
 
 
 # ---------------------------------------------------------------------------
