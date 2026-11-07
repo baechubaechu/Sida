@@ -18,6 +18,7 @@ from sida import (  # noqa: E402
     hardware,
     i18n,
     providers,
+    relay,
     runtime,
     settings,
     storage,
@@ -47,6 +48,7 @@ def pytest_collection_modifyitems(items):
 
 REAL_HTTP_GET = landapi._http_get  # the autouse fixture below replaces it for every test
 REAL_LAW_HTTP_GET = lawapi._http_get
+REAL_DATAGO_HTTP_GET = datago._http_get
 LAW_FIXTURES = ROOT / "tests" / "fixtures" / "lawapi"
 DATAGO_FIXTURES = ROOT / "tests" / "fixtures" / "datago"
 
@@ -222,6 +224,9 @@ def isolated_settings(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_GO_KR_API_KEY", "test-key")
     monkeypatch.setattr(datago, "_http_get", _no_network)
     lawapi.clear_cache()
+    # The Sida relay is off (the keys above are used directly). Tests that use it set both values.
+    monkeypatch.delenv(relay.ENV_NAME, raising=False)
+    monkeypatch.delenv(relay.TOKEN_ENV, raising=False)
     # No real nvidia-smi calls: tests that need a GPU patch query_nvidia_smi themselves.
     monkeypatch.setattr(hardware, "query_nvidia_smi", lambda: None)
     settings_dir = tmp_path / "settings"

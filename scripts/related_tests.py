@@ -9,7 +9,7 @@ uncommitted and new files). Each one maps to tests:
 - a test file runs itself;
 - sida/<path>/<name>.py runs tests/<path>/test_<name>.py and every test file that imports it;
   a JSON API module (webapp.py, *_api.py, experts/*/api.py) also runs tests/test_webapp.py;
-- agents/*.md runs tests/test_agent_prompts.py; collector/ runs tests/collector/;
+- agents/*.md runs tests/test_agent_prompts.py; collector/ runs tests/collector/; relay/ runs tests/relay/;
 - tests/conftest.py, tests/fixtures/, pyproject.toml and config.yaml run everything.
 
 Tests that reach a changed module only through another module are not picked: CI runs the
@@ -94,6 +94,8 @@ def pick_tests(changed: list[str], root: Path = ROOT) -> list[str]:
             picked.add("tests/test_agent_prompts.py")
         elif name.startswith("collector/"):
             picked.add("tests/collector")
+        elif name.startswith("relay/"):
+            picked.add("tests/relay")
     return sorted(picked)
 
 

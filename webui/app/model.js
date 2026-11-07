@@ -38,6 +38,9 @@ export const DATA_KEYS = [
   { id: 'vworld_domain', label: '브이월드 등록 도메인', secret: false },
   { id: 'data_go_kr', label: '공공데이터포털 키', secret: true },
   { id: 'law', label: '법제처 인증값(OC)', secret: true },
+  // Used for the three above when this PC has no key of its own.
+  { id: 'relay_url', label: 'Sida 자료 서버 주소 (키가 없을 때)', secret: false },
+  { id: 'relay_token', label: 'Sida 자료 서버 키 (sida_…)', secret: true },
 ];
 
 // The keys to save: [id, value] for each one typed in (a shown value only when it changed).

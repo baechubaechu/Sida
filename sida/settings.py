@@ -16,7 +16,7 @@ from typing import Any
 import requests
 from dotenv import dotenv_values
 
-from sida import chatgpt_auth, hardware, runtime, telemetry
+from sida import chatgpt_auth, hardware, relay, runtime, telemetry
 from sida.config import ROOT, local_config_path
 from sida.experts.regulation.rag import key_missing, rag_settings
 
@@ -44,6 +44,9 @@ KEYS: dict[str, dict[str, Any]] = {
     "vworld_domain": {"env": "VWORLD_DOMAIN", "secret": False},
     "data_go_kr": {"env": "DATA_GO_KR_API_KEY", "secret": True},
     "law": {"env": "LAW_OPEN_API_OC", "secret": True},
+    # The Sida relay for the government APIs above when this PC has no key of its own (sida/relay.py).
+    "relay_url": {"env": relay.ENV_NAME, "secret": False},
+    "relay_token": {"env": relay.TOKEN_ENV, "secret": True},  # this person's access key (sida_…)
 }
 
 
@@ -224,6 +227,12 @@ def set_key(key_id: str, value: str) -> dict:
     value = (value or "").strip().strip('"').strip("'")
     if not value or any(c in value for c in "\r\n"):
         raise ValueError("value must be one non-empty line")
+    if key_id == "relay_url":
+        value = value.rstrip("/")
+        if not relay.valid_url(value):
+            raise ValueError("relay_url must be an https address")
+    if key_id == "relay_token" and not relay.valid_token(value):
+        raise ValueError("relay_token must be the sida_… key given by the team")
     check = verify_key(key_id, value)
     if check is not None and not check[0]:
         raise ValueError(f"{key_id} key rejected: {check[1]}")

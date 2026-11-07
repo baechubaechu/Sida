@@ -6,7 +6,8 @@ turn into a message:
   no_key | invalid_key | over_limit | network | bad_response
 
 Keys come from .env: VWORLD_API_KEY and VWORLD_DOMAIN (the service URL registered with
-the key). Tests pass `http_get` to avoid the network.
+the key). Without a key, calls go through the Sida relay when one is set (sida/relay.py), with
+no key. Tests pass `http_get` to avoid the network.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from typing import Any
 
 import requests
 
+from sida import relay
 from sida.config import ROOT
 
 ENV_PATH = ROOT / ".env"
@@ -49,12 +51,32 @@ def vworld_credentials() -> tuple[str, str]:
     return key, os.environ.get("VWORLD_DOMAIN", "").strip()
 
 
+def _vworld_call() -> tuple[str, dict]:
+    """
+    (base URL, key parameters) of a VWorld call: with this PC's own key, VWorld itself with the
+    key and domain; without one, the Sida relay with no key (the relay adds its own). Raises
+    LandApiError('no_key') when there is neither.
+    """
+    try:
+        key, domain = vworld_credentials()
+    except LandApiError:
+        base = relay.base_url()
+        if not base:
+            raise
+        return f"{base}/relay/vworld", {}
+    return VWORLD_URL, {"key": key, "domain": domain}
+
+
 def _http_get(url: str, params: dict) -> Any:
     """GET JSON with retries. Error text never includes the request URL (it carries the key)."""
     last = "request failed"
     for attempt in range(ATTEMPTS):
         try:
-            response = requests.get(url, params=params, timeout=TIMEOUT)
+            response = requests.get(url, params=params, timeout=TIMEOUT, headers=relay.headers(url))
+            if response.status_code == 429:  # the relay's limit for this person's access key
+                raise LandApiError("over_limit", "HTTP 429")
+            if response.status_code in (401, 403):  # the relay refused the access key
+                raise LandApiError("invalid_key", "Sida 자료 서버 키")
             if response.status_code >= 500:
                 last = f"HTTP {response.status_code}"
             elif response.status_code != 200:
@@ -83,9 +105,9 @@ def _raise_for_code(code: str, message: str) -> None:
 
 
 def _search(query: str, category: str, size: int, http_get: HttpGet | None) -> list[dict]:
-    key, _domain = vworld_credentials()
+    base, auth = _vworld_call()
     data = (http_get or _http_get)(
-        f"{VWORLD_URL}/req/search",
+        f"{base}/req/search",
         {
             "service": "search",
             "request": "search",
@@ -97,7 +119,7 @@ def _search(query: str, category: str, size: int, http_get: HttpGet | None) -> l
             "type": "address",
             "category": category,
             "format": "json",
-            "key": key,
+            **({"key": auth["key"]} if auth else {}),
         },
     )
     response = (data or {}).get("response") or {}
@@ -221,13 +243,12 @@ def _feature_list(
     geometry: bool = False,
 ) -> list[dict]:
     """Features of a VWorld data-API layer, every page. Without `geometry`, no shapes are sent."""
-    key, domain = vworld_credentials()
+    base, auth = _vworld_call()
     params = {
         "service": "data",
         "request": "GetFeature",
         "data": layer,
-        "key": key,
-        "domain": domain,
+        **auth,
         "format": "json",
         "crs": "EPSG:4326",
         "geometry": "true" if geometry else "false",
@@ -241,7 +262,7 @@ def _feature_list(
     features: list[dict] = []
     page = 1
     while True:
-        data = (http_get or _http_get)(f"{VWORLD_URL}/req/data", {**params, "page": page})
+        data = (http_get or _http_get)(f"{base}/req/data", {**params, "page": page})
         response = (data or {}).get("response") or {}
         status = str(response.get("status") or "")
         if status == "NOT_FOUND":
@@ -361,10 +382,10 @@ def parcel_by_pnu(pnu: str, *, http_get: HttpGet | None = None) -> dict | None:
 
 
 def _ned(operation: str, root_key: str, pnu: str, http_get: HttpGet | None) -> list[dict]:
-    key, domain = vworld_credentials()
+    base, auth = _vworld_call()
     data = (http_get or _http_get)(
-        f"{VWORLD_URL}/ned/data/{operation}",
-        {"key": key, "domain": domain, "pnu": pnu, "format": "json", "numOfRows": 100, "pageNo": 1},
+        f"{base}/ned/data/{operation}",
+        {**auth, "pnu": pnu, "format": "json", "numOfRows": 100, "pageNo": 1},
     )
     body = (data or {}).get(root_key)
     if body is None:
@@ -579,13 +600,23 @@ def map_layers() -> dict:
     What a map screen needs to show the background and the 지적 lines, and the script address of
     VWorld's WebGL 3D map (`webgl3d`), with the key filled in.
     The key is visible to the browser; fine while the web UI runs on the designer's own PC.
-    Raises LandApiError('no_key') without a key.
+    Without a key but with the Sida relay, the images come through the relay with this person's
+    access key (not a government key) as a parameter, and
+    `webgl3d` is None: VWorld's 3D script takes the key in the browser and checks the page's
+    address against it, so it can't go through the relay. `relay` says which way it is.
+    Raises LandApiError('no_key') with neither.
     """
-    key, _domain = vworld_credentials()
+    base, auth = _vworld_call()
+    key = auth.get("key", "")
+    # Through the relay the browser loads the images itself, so the access key rides along.
+    token = "" if key else relay.token()
+    tiles = (WMTS_BASE.replace("{key}", key) if key
+             else f"{base}/req/wmts/1.0.0/Base/{{z}}/{{y}}/{{x}}.png?{relay.TOKEN_PARAM}={token}")
     return {
-        "base": {"url": WMTS_BASE.replace("{key}", key), "attribution": "VWorld"},
+        "relay": not key,
+        "base": {"url": tiles, "attribution": "VWorld"},
         "cadastral": {
-            "url": WMS_URL,
+            "url": WMS_URL if key else f"{base}/req/wms",
             "params": {
                 "service": "WMS",
                 "request": "GetMap",
@@ -594,11 +625,11 @@ def map_layers() -> dict:
                 "styles": "lp_pa_cbnd_bubun",
                 "format": "image/png",
                 "transparent": "true",
-                "key": key,
+                **({"key": key} if key else {relay.TOKEN_PARAM: token}),
             },
             "crs": "EPSG:3857",
             "min_zoom": CADASTRAL_MIN_ZOOM,
             "opacity": 0.5,
         },
-        "webgl3d": {"script": WEBGL3D_SCRIPT.replace("{key}", key), "version": "3.0"},
+        "webgl3d": {"script": WEBGL3D_SCRIPT.replace("{key}", key), "version": "3.0"} if key else None,
     }

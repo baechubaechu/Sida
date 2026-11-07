@@ -108,3 +108,25 @@ def test_errors_carry_their_own_messages(fake_datago):
     assert isinstance(caught.value, LandApiError) and caught.value.kind == "invalid_key"
     assert "공공데이터포털" in t(caught.value.MESSAGE_PREFIX + caught.value.kind, detail="x")
     assert "브이월드" in t(LandApiError.MESSAGE_PREFIX + "invalid_key", detail="x")
+
+
+def test_without_a_key_calls_go_through_the_sida_relay(fake_datago, monkeypatch):
+    monkeypatch.delenv("DATA_GO_KR_API_KEY")
+    monkeypatch.setenv("SIDA_RELAY_URL", "https://sida-kr.duckdns.org")
+    monkeypatch.setenv("SIDA_RELAY_TOKEN", "sida_test-access-key-0001")
+    assert datago.search_uses("단독주택")[0]["name"] == "단독주택"
+    url, params = fake_datago.calls[0]
+    assert url == "https://sida-kr.duckdns.org/relay/datago/arLandUseInfoService/DTsearchLunCd"
+    assert "serviceKey" not in params
+
+
+def test_the_relay_daily_limit_is_over_limit(monkeypatch):
+    from tests.conftest import REAL_DATAGO_HTTP_GET
+
+    class Reply:
+        status_code, content = 429, b""
+
+    monkeypatch.setattr(datago.requests, "get", lambda url, params, timeout, headers: Reply())
+    with pytest.raises(LandApiError) as err:
+        REAL_DATAGO_HTTP_GET("https://sida-kr.duckdns.org/relay/datago/x", {})
+    assert err.value.kind == "over_limit"

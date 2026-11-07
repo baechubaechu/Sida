@@ -17,6 +17,7 @@ def test_other_files_map_by_folder_and_shared_test_setup_runs_everything():
     assert pick_tests(["tests/test_board.py", "docs/web-ui.md"]) == ["tests/test_board.py"]
     assert pick_tests(["agents/11_site_reader.md"]) == ["tests/test_agent_prompts.py"]
     assert pick_tests(["collector/app.py"]) == ["tests/collector"]
+    assert pick_tests(["relay/app.py"]) == ["tests/relay"]
     assert "tests/experts/site/test_build_terrain_pack.py" in pick_tests(["scripts/build_terrain_pack.py"])
     assert pick_tests(["sida/board.py", "tests/conftest.py"]) == ["tests"]
     assert pick_tests(["tests/test_removed_in_this_branch.py", "README.md"]) == []

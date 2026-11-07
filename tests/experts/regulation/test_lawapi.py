@@ -105,7 +105,7 @@ def test_no_key_and_rejections(fake_law, monkeypatch):
 def test_http_get_error_never_carries_the_oc(monkeypatch):
     monkeypatch.setattr(lawapi.time, "sleep", lambda *_: None)
 
-    def down(url, params, timeout):
+    def down(url, params, timeout, headers=None):
         raise requests.ConnectionError(f"{url}?OC={params['OC']}")
 
     monkeypatch.setattr(lawapi.requests, "get", down)
@@ -235,3 +235,33 @@ def test_regulation_checker_without_anything_to_search_says_so(
     assert fake_law.calls == [] and "RETRIEVED KNOWLEDGE (regulation)" not in prompt
     err = capsys.readouterr().err
     assert "[rag]" in err and "대지를 조회" in err  # points at the site lookup
+
+
+def test_without_an_oc_calls_go_through_the_sida_relay(monkeypatch):
+    monkeypatch.delenv("LAW_OPEN_API_OC")
+    assert not lawapi.available()
+    monkeypatch.setenv("SIDA_RELAY_URL", "https://sida-kr.duckdns.org")
+    monkeypatch.setenv("SIDA_RELAY_TOKEN", "sida_test-access-key-0001")
+    assert lawapi.available()
+    seen = []
+
+    def http_get(url, params):
+        seen.append((url, params))
+        return body("articles_stairs.json") if "aiSearch" in params.values() else '{"OrdinSearch": {}}'
+
+    assert lawapi.ai_search("직통계단 설치 기준", http_get=http_get)
+    lawapi.search_ordinances("서울특별시 도시계획 조례", http_get=http_get)
+    assert [url for url, _ in seen] == ["https://sida-kr.duckdns.org/relay/law/DRF/lawSearch.do"] * 2
+    assert all("OC" not in params for _, params in seen)
+    # with the relay, statute search on is not a missing key
+    assert not rag.key_missing({"enabled": True, "provider": next(iter(rag.LAW_PROVIDERS))})
+
+
+def test_the_relay_daily_limit_is_over_limit(monkeypatch):
+    class Reply:
+        status_code, text = 429, ""
+
+    monkeypatch.setattr(lawapi.requests, "get", lambda url, params, timeout, headers: Reply())
+    with pytest.raises(LawApiError) as info:
+        REAL_LAW_HTTP_GET("https://sida-kr.duckdns.org/relay/law/DRF/lawSearch.do", {})
+    assert info.value.kind == "over_limit"

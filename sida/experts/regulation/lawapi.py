@@ -6,8 +6,9 @@ text) or annex titles the service ranks as relevant. `search_ordinances` lists �
 name and `ordinance_articles` returns one ordinance's articles. No printing, no project
 knowledge.
 
-Raises LawApiError with a `kind`: no_key | denied | network | bad_response.
-The OC value comes from .env (LAW_OPEN_API_OC). Tests pass `http_get`.
+Raises LawApiError with a `kind`: no_key | denied | over_limit | network | bad_response.
+The OC value comes from .env (LAW_OPEN_API_OC); without it, calls go through the Sida relay
+when one is set (sida/relay.py). Tests pass `http_get`.
 
 Notes from real calls (2026-10):
 - Works on short questions ("직통계단 설치 기준"). A long project description returns
@@ -30,6 +31,7 @@ from collections.abc import Callable
 
 import requests
 
+from sida import relay
 from sida.config import ROOT
 
 ENV_PATH = ROOT / ".env"
@@ -66,14 +68,41 @@ def law_oc() -> str:
     return oc
 
 
+def _law_call(url: str) -> tuple[str, dict]:
+    """
+    (URL, key parameters) of a call to SEARCH_URL or SERVICE_URL: law.go.kr with this PC's OC,
+    else the same path on the Sida relay with no OC. Raises LawApiError('no_key') with neither.
+    """
+    try:
+        return url, {"OC": law_oc()}
+    except LawApiError:
+        base = relay.base_url()
+        if not base:
+            raise
+        return f"{base}/relay/law/DRF/{url.rsplit('/', 1)[1]}", {}
+
+
+def available() -> bool:
+    """True when 법제처 calls can be made: this PC's OC, or the Sida relay."""
+    try:
+        _law_call(SEARCH_URL)
+    except LawApiError:
+        return False
+    return True
+
+
 def _http_get(url: str, params: dict) -> str:
     """GET text with one retry. Error text never includes the request URL (it carries the OC)."""
     last = "request failed"
     for attempt in range(ATTEMPTS):
         try:
-            response = requests.get(url, params=params, timeout=TIMEOUT)
+            response = requests.get(url, params=params, timeout=TIMEOUT, headers=relay.headers(url))
             if response.status_code == 200:
                 return response.text
+            if response.status_code == 429:  # the relay's limit for this person's access key
+                raise LawApiError("over_limit", "HTTP 429")
+            if response.status_code in (401, 403) and relay.headers(url):  # the relay refused the access key
+                raise LawApiError("denied", "Sida 자료 서버 키")
             last = f"HTTP {response.status_code}"
         except requests.RequestException as exc:
             last = type(exc).__name__
@@ -167,13 +196,13 @@ def ai_search(
     query = " ".join((query or "").split())[:MAX_QUERY_CHARS]
     if not query:
         return []
-    oc = law_oc()
+    url, auth = _law_call(SEARCH_URL)
     key = (query, scope, display)
     if key in _cache:
         return [dict(item) for item in _cache[key]]
     body = (http_get or _http_get)(
-        SEARCH_URL,
-        {"OC": oc, "target": "aiSearch", "type": "JSON", "search": scope, "query": query, "display": display},
+        url,
+        {**auth, "target": "aiSearch", "type": "JSON", "search": scope, "query": query, "display": display},
     )
     items = _parse(body, scope)
     _cache[key] = [dict(item) for item in items]
@@ -222,9 +251,10 @@ def search_ordinances(query: str, *, display: int = 100, http_get: HttpGet | Non
     query = " ".join((query or "").split())[:MAX_QUERY_CHARS]
     if not query:
         return []
+    url, auth = _law_call(SEARCH_URL)
     root = _get_json(
-        SEARCH_URL,
-        {"OC": law_oc(), "target": "ordin", "type": "JSON", "query": query, "display": display},
+        url,
+        {**auth, "target": "ordin", "type": "JSON", "query": query, "display": display},
         "OrdinSearch",
         http_get,
     )
@@ -247,9 +277,10 @@ def ordinance_articles(mst: str, *, http_get: HttpGet | None = None) -> dict:
     One ordinance: {"name", "org", "effective", "articles": [{"label", "title", "text"}],
     "annexes": [{"label", "title", "url", "format"}]}. Annex bodies are files, not text.
     """
+    url, auth = _law_call(SERVICE_URL)
     root = _get_json(
-        SERVICE_URL,
-        {"OC": law_oc(), "target": "ordin", "type": "JSON", "MST": str(mst)},
+        url,
+        {**auth, "target": "ordin", "type": "JSON", "MST": str(mst)},
         "LawService",
         http_get,
     )

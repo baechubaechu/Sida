@@ -231,6 +231,7 @@ ruff check .
 | `tests/` | 테스트(녹화한 정부 API 응답은 `tests/fixtures/`) |
 | `scripts/` | 테스트용 정부 API 응답을 다시 녹화하는 스크립트 |
 | `collector/` | 팀 VPS의 사용 기록 수집 서버(앱 패키지와 별개) |
+| `relay/` | 국내 서버의 정부 API 중계(키 없는 PC용, 앱 패키지와 별개) |
 | `assets/` | 로고 |
 
 프로젝트 데이터는 저장소가 아니라 `~/Sida/projects`에 저장됩니다.

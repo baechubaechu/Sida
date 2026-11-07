@@ -10,6 +10,7 @@ from sida.experts.site.landapi import LandApiError
 from tests.conftest import REAL_HTTP_GET, land_fixture
 
 PNU = "4141010500106890014"
+TOKEN = "sida_test-access-key-0001"
 
 
 def test_search_returns_parcels_with_pnu(fake_vworld):
@@ -100,7 +101,7 @@ def test_http_get_retries_timeouts_then_succeeds(monkeypatch):
     monkeypatch.setattr(landapi.time, "sleep", lambda *_: None)
     replies = [requests.Timeout("slow"), _Reply(503), _Reply(200, {"ok": 1})]
 
-    def fake_get(url, params, timeout):
+    def fake_get(url, params, timeout, headers=None):
         item = replies.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -114,7 +115,7 @@ def test_http_get_retries_timeouts_then_succeeds(monkeypatch):
 def test_http_get_gives_up_without_leaking_the_key(monkeypatch):
     monkeypatch.setattr(landapi.time, "sleep", lambda *_: None)
 
-    def always_down(url, params, timeout):
+    def always_down(url, params, timeout, headers=None):
         raise requests.ConnectionError(f"failed for {url}?key={params['key']}")
 
     monkeypatch.setattr(landapi.requests, "get", always_down)
@@ -123,7 +124,7 @@ def test_http_get_gives_up_without_leaking_the_key(monkeypatch):
     assert info.value.kind == "network"
     assert "SECRET-KEY" not in str(info.value) and "SECRET-KEY" not in info.value.detail
 
-    monkeypatch.setattr(landapi.requests, "get", lambda url, params, timeout: _Reply(200, None))
+    monkeypatch.setattr(landapi.requests, "get", lambda url, params, timeout, headers=None: _Reply(200, None))
     with pytest.raises(LandApiError) as info:
         REAL_HTTP_GET("https://api.vworld.kr/x", {"key": "k"})
     assert info.value.kind == "bad_response"
@@ -378,3 +379,74 @@ def test_parcel_at_finds_the_parcel_under_a_map_point(fake_vworld):
     for lon, lat in ((0, 0), (37.37, 126.94), (140.0, 37.0)):  # outside Korea, or lat/lon swapped
         with pytest.raises(ValueError):
             landapi.parcel_at(lon, lat)
+
+
+def test_without_a_key_calls_go_through_the_sida_relay_with_no_key(fake_vworld, monkeypatch):
+    monkeypatch.delenv("VWORLD_API_KEY")
+    monkeypatch.setenv("SIDA_RELAY_URL", "https://sida-kr.duckdns.org/")
+    monkeypatch.setenv("SIDA_RELAY_TOKEN", TOKEN)
+    assert landapi.search_parcels("경기도 군포시 금정동 689")[0]["pnu"] == PNU
+    assert landapi.land_use(PNU)
+    landapi.parcel_by_pnu(PNU)
+    urls = [url for url, _params in fake_vworld.calls]
+    assert urls[0] == "https://sida-kr.duckdns.org/relay/vworld/req/search"
+    assert "https://sida-kr.duckdns.org/relay/vworld/ned/data/getLandUseAttr" in urls
+    assert "https://sida-kr.duckdns.org/relay/vworld/req/data" in urls
+    assert all(url.startswith("https://sida-kr.duckdns.org/relay/vworld/") for url in urls)
+    assert not any({"key", "domain"} & set(params) for _url, params in fake_vworld.calls)
+
+
+def test_an_own_key_is_used_directly_even_with_a_relay(fake_vworld, monkeypatch):
+    monkeypatch.setenv("SIDA_RELAY_URL", "https://sida-kr.duckdns.org")
+    monkeypatch.setenv("SIDA_RELAY_TOKEN", TOKEN)
+    landapi.search_parcels("경기도 군포시 금정동 689")
+    url, params = fake_vworld.calls[0]
+    assert url == "https://api.vworld.kr/req/search" and params["key"] == "test-key"
+
+
+def test_map_layers_through_the_relay_carry_no_key_and_no_3d_map(monkeypatch):
+    monkeypatch.delenv("VWORLD_API_KEY")
+    monkeypatch.setenv("SIDA_RELAY_URL", "https://sida-kr.duckdns.org")
+    monkeypatch.setenv("SIDA_RELAY_TOKEN", TOKEN)
+    layers = landapi.map_layers()
+    assert layers["relay"] is True and layers["webgl3d"] is None
+    # the browser loads these itself, so the access key (not a government key) rides along
+    assert layers["base"]["url"] == f"https://sida-kr.duckdns.org/relay/vworld/req/wmts/1.0.0/Base/{{z}}/{{y}}/{{x}}.png?sida_token={TOKEN}"
+    assert layers["cadastral"]["url"] == "https://sida-kr.duckdns.org/relay/vworld/req/wms"
+    assert "key" not in layers["cadastral"]["params"] and layers["cadastral"]["params"]["sida_token"] == TOKEN
+    assert "test-key" not in str(layers)
+
+
+def test_the_relay_daily_limit_is_over_limit(monkeypatch):
+    monkeypatch.setattr(landapi.requests, "get", lambda url, params, timeout, headers=None: _Reply(429))
+    with pytest.raises(LandApiError) as info:
+        REAL_HTTP_GET("https://sida-kr.duckdns.org/relay/vworld/req/search", {})
+    assert info.value.kind == "over_limit"
+
+
+def test_relay_calls_carry_the_access_key_and_a_refused_key_is_invalid_key(monkeypatch):
+    monkeypatch.setenv("SIDA_RELAY_URL", "https://sida-kr.duckdns.org")
+    monkeypatch.setenv("SIDA_RELAY_TOKEN", TOKEN)
+    sent = []
+
+    def fake_get(url, params, timeout, headers=None):
+        sent.append(headers)
+        return _Reply(200, {"ok": 1})
+
+    monkeypatch.setattr(landapi.requests, "get", fake_get)
+    REAL_HTTP_GET("https://sida-kr.duckdns.org/relay/vworld/req/search", {})
+    REAL_HTTP_GET("https://api.vworld.kr/req/search", {"key": "k"})
+    assert sent == [{"Authorization": f"Bearer {TOKEN}"}, {}]  # VWorld itself never sees it
+
+    monkeypatch.setattr(landapi.requests, "get", lambda url, params, timeout, headers=None: _Reply(401))
+    with pytest.raises(LandApiError) as info:
+        REAL_HTTP_GET("https://sida-kr.duckdns.org/relay/vworld/req/search", {})
+    assert info.value.kind == "invalid_key"
+
+
+def test_a_relay_address_without_an_access_key_is_no_key(fake_vworld, monkeypatch):
+    monkeypatch.delenv("VWORLD_API_KEY")
+    monkeypatch.setenv("SIDA_RELAY_URL", "https://sida-kr.duckdns.org")
+    with pytest.raises(LandApiError) as info:
+        landapi.search_parcels("금정동 689")
+    assert info.value.kind == "no_key" and fake_vworld.calls == []

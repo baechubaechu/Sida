@@ -58,7 +58,7 @@
 
 | 용도 | 메서드·경로 | 요청 | 응답 |
 |---|---|---|---|
-| 지도 이미지 주소 | `GET /api/site/map` | 없음 | `{base: {url, attribution}, cadastral: {url, params, crs, min_zoom, opacity}}` |
+| 지도 이미지 주소 | `GET /api/site/map` | 없음 | `{relay, base: {url, attribution}, cadastral: {url, params, crs, min_zoom, opacity}, webgl3d}`. 이 PC에 브이월드 키가 없어 Sida 자료 서버를 거치면 `relay: true`, 주소에 정부 키 대신 접속 키(`sida_token`)가 붙고 `webgl3d`는 `null`(3D 지도는 브라우저에 키가 있어야 열림) |
 | 지도 클릭으로 필지 찾기 | `GET /api/site/parcel-at?lon=126.945978&lat=37.37025` | 클릭한 지점 | `{lon, lat, candidates: [필지]}` (0개 또는 1개) |
 | 고른 필지들의 경계 | `GET /api/site/shapes?pnu=…&pnu=…` | 필지 번호(최대 50개) | `{shapes: [{pnu, shape}]}` |
 
