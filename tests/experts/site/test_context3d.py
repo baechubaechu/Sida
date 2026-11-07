@@ -64,7 +64,7 @@ def test_pack_query_returns_only_what_touches_the_box(pack):
     assert found["sources"][0]["source_date"] == "2026-10-01"
     assert [a["kind"] for a in found["areas"]] == ["water", "sidewalk"]
     assert terrain_pack.query(west, south, east, north, folder=pack / "none") == {
-        "contours": [], "spots": [], "areas": [], "buildings": [], "map_buildings": [], "sources": []}
+        "contours": [], "spots": [], "areas": [], "buildings": [], "map_buildings": [], "road_points": [], "sources": []}
     with pytest.raises(ValueError):
         terrain_pack.add_area(None, "lake", [])
 
@@ -590,3 +590,41 @@ def test_assign_ledger_is_one_to_one_and_never_gives_a_leftover_the_tallest_reco
     assert taken == {} and left == rows[:1]
     taken, _left = context3d.assign_ledger(rows[:1], [(1, 600.0, {"dong_nm": "A"})])  # named: half to double
     assert taken[1][1] == 0.6
+
+
+def test_road_heights_win_over_contours_near_roads_and_leave_the_rest(pack):
+    # the pack's ground rises from 13 m (y = -50) to 17 m (y = 50); a road along y = -52 (on the grid,
+    # 2 m and 4 m) runs 1.5 m above the 13 m contour beside it
+    conn = terrain_pack.create(pack / f"r{terrain_pack.SUFFIX}", {"name": "r", "kind": "roads", "source": "정밀도로지도"})
+    for x in range(-40, 41):
+        terrain_pack.add_road_point(conn, *lonlat(x, -52), 14.5)
+    conn.commit()
+    conn.close()
+    found = terrain_pack.query(*lonlat(-200, -200), *lonlat(200, 200), folder=pack)
+    assert len(found["road_points"]) == 81 and found["road_points"][0][2] == 14.5
+    assert {s["name"] for s in found["sources"]} == {"test", "r"}  # a pack with road points only counts
+
+    frame = context3d.Frame({"lon": LON0, "lat": LAT0})
+    g = context3d.ground(frame, 200, folder=pack)
+    at = lambda x, y: float(context3d.sample(g["grid"], g["half"], g["step"], [x], [y])[0]) + g["ground_elev"]  # noqa: E731
+    assert at(0, -52) == pytest.approx(14.5, abs=0.05)  # the road, not the 13 m contour beside it
+    assert at(-36, -52) == pytest.approx(14.5, abs=0.05)
+    assert at(152, -52) == pytest.approx(13.0, abs=0.2)  # far from the road the contour holds
+    # the contour lines written to the files are drawn from this ground, on the same 5 m interval
+    assert g["contours"] and all(c["elev"] % context3d.CONTOUR_EVERY == 0 for c in g["contours"])
+    for c in g["contours"][:3]:
+        x, y = c["points"][len(c["points"]) // 2]
+        assert at(x, y) == pytest.approx(c["elev"], abs=0.05)
+
+
+def test_without_road_points_the_ground_and_its_contours_are_as_before(pack):
+    frame = context3d.Frame({"lon": LON0, "lat": LAT0})
+    g = context3d.ground(frame, 200, folder=pack)
+    assert sorted({c["elev"] for c in g["contours"]}) == [10.0, 13.0, 17.0, 20.0]  # the pack's own lines
+
+
+def test_contour_points_away_from_roads_are_kept():
+    roads = np.array([[0.0, 0.0], [1.0, 0.0]])
+    fixed = [(0.0, 5.0, 1.0), (0.0, context3d.ROAD_TRUST, 1.0), (0.0, 2.5 * context3d.ROAD_TRUST, 1.0)]
+    kept = context3d.away_from_roads(fixed, roads)
+    assert kept == [(0.0, 2.5 * context3d.ROAD_TRUST, 1.0)]  # within ROAD_TRUST dropped, well beyond kept

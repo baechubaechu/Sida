@@ -46,8 +46,10 @@ MAX_RADIUS = 500.0
 SOLVE_STEP = 2.0  # m, the grid the ground is computed on
 VIEW_STEP = 4.0  # m, the grid the screen gets
 MARGIN = 60.0  # m read beyond the radius so the edge of the ground is not guessed
+CONTOUR_EVERY = 5.0  # m: the 1:5,000 contour interval (and of the lines drawn from the ground)
 INDEX_EVERY = 25.0  # m: index (계곡선) contours on a 5 m interval
 DRAPE_GAP = 2.0  # m between the points of a building's line on the ground
+ROAD_TRUST = 8.0  # m: contour and spot heights this close to a 정밀도로지도 road point give way to it
 # Storey heights for an estimate from the number of floors (m), by the 건축물대장 main use.
 STOREY = (
     (("주택", "아파트", "다세대", "연립", "다가구", "기숙사"), 2.9),
@@ -178,11 +180,94 @@ def _densify(line: np.ndarray, gap: float) -> np.ndarray:
     return np.vstack(out)
 
 
+def grid_contours(grid: np.ndarray, half: float, step: float, interval: float) -> list[tuple[float, np.ndarray]]:
+    """
+    Contour lines through a height grid every `interval` m (marching squares, the pieces joined
+    into lines): [(elevation, points (k × 2) in the grid's metres)].
+    """
+    lo, hi = float(grid.min()), float(grid.max())
+    quads = np.stack([grid[:-1, :-1], grid[:-1, 1:], grid[1:, 1:], grid[1:, :-1]])
+    cell_lo, cell_hi = quads.min(axis=0), quads.max(axis=0)
+    out = []
+    level = math.ceil(lo / interval) * interval
+    while level < hi:
+        pieces = []
+        above = grid >= level
+        for i, j in np.argwhere((cell_lo < level) & (cell_hi >= level)):  # only the cells the level crosses
+            corners = ((i, j), (i, j + 1), (i + 1, j + 1), (i + 1, j))
+            flags = [above[c] for c in corners]
+            if all(flags) or not any(flags):
+                continue
+            cuts = []
+            for k in range(4):
+                a, b = corners[k], corners[(k + 1) % 4]
+                if above[a] != above[b]:
+                    a, b = sorted(((int(a[0]), int(a[1])), (int(b[0]), int(b[1]))))  # one cut per edge
+                    za, zb = grid[a], grid[b]
+                    s = (level - za) / (zb - za)
+                    y = -half + (a[0] + (b[0] - a[0]) * s) * step
+                    x = -half + (a[1] + (b[1] - a[1]) * s) * step
+                    cuts.append((round(x, 3), round(y, 3)))
+            for k in range(0, len(cuts) - 1, 2):
+                pieces.append((cuts[k], cuts[k + 1]))
+        for line in _join(pieces):
+            out.append((float(level), np.asarray(line, dtype=float)))
+        level += interval
+    return out
+
+
+def _join(pieces: list[tuple[tuple, tuple]]) -> list[list[tuple]]:
+    """Line pieces (two end points each) joined end to end into lines."""
+    ends: dict[tuple, list[int]] = {}
+    for k, (a, b) in enumerate(pieces):
+        ends.setdefault(a, []).append(k)
+        ends.setdefault(b, []).append(k)
+    used = [False] * len(pieces)
+    lines = []
+    for start in range(len(pieces)):
+        if used[start]:
+            continue
+        used[start] = True
+        line = list(pieces[start])
+        for forward in (True, False):
+            while True:
+                tip = line[-1] if forward else line[0]
+                nxt = next((k for k in ends.get(tip, ()) if not used[k]), None)
+                if nxt is None:
+                    break
+                used[nxt] = True
+                a, b = pieces[nxt]
+                other = b if a == tip else a
+                if forward:
+                    line.append(other)
+                else:
+                    line.insert(0, other)
+        lines.append(line)
+    return lines
+
+
+def away_from_roads(fixed: list[tuple[float, float, float]], road_xy: np.ndarray) -> list[tuple[float, float, float]]:
+    """The contour and spot points away from the road points: by cells of ROAD_TRUST / 2, so a
+    point within ROAD_TRUST m of a road point is always dropped and one beyond about 2 × ROAD_TRUST
+    is always kept."""
+    cell = ROAD_TRUST / 2
+    roads = {(int(math.floor(x / cell)), int(math.floor(y / cell))) for x, y in road_xy}
+    reach = range(-2, 3)
+
+    def near(x, y):
+        cx, cy = int(math.floor(x / cell)), int(math.floor(y / cell))
+        return any((cx + dx, cy + dy) in roads for dx in reach for dy in reach)
+
+    return [p for p in fixed if not near(p[0], p[1])]
+
+
 def ground(frame: Frame, radius: float, *, folder: Path | None = None) -> dict:
     """
     The ground around the site from the terrain packs: {"grid" (SOLVE_STEP, relative to the
     site's middle), "half", "step", "ground_elev" (m above sea level at the middle), "contours",
     "sources", "areas" [(kind, local ring)]}. {"grid": None, ...} when no pack covers the site.
+    Road heights from the 정밀도로지도 (±0.25 m) are held where there are some; contour and spot
+    heights within ROAD_TRUST m of them (±1.67 m on 1:5,000) give way, so the two do not fight.
     """
     half = radius + MARGIN
     found = terrain_pack.query(*frame.box(half), folder=folder)
@@ -197,6 +282,12 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None) -> dict:
         spots = np.asarray(found["spots"], dtype=float)
         for (x, y), z in zip(frame.local(spots[:, :2]), spots[:, 2], strict=True):
             fixed.append((x, y, z))
+    roads_used = bool(found.get("road_points"))
+    if roads_used:
+        roads = np.asarray(found["road_points"], dtype=float)
+        road_xy = frame.local(roads[:, :2])
+        fixed = away_from_roads(fixed, road_xy)
+        fixed += [(x, y, z) for (x, y), z in zip(road_xy, roads[:, 2], strict=True)]
     areas = [(a["kind"], frame.local(a["ring"])) for a in found["areas"]]
     grid = solve_ground(fixed, half, SOLVE_STEP)
     if grid is None:
@@ -204,6 +295,8 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None) -> dict:
                 "sources": found["sources"], "areas": areas, "buildings": found["buildings"],
                 "map_buildings": found["map_buildings"]}
     elev0 = float(sample(grid, half, SOLVE_STEP, [0.0], [0.0])[0])
+    if roads_used:  # the 1:5,000 lines no longer lie on the ground near the roads: draw them from it
+        lines = grid_contours(grid, half, SOLVE_STEP, CONTOUR_EVERY)
     contours = []
     for elev, pts in lines:
         for run in clip_line(pts, radius):
@@ -766,7 +859,7 @@ def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = N
     def source(s):
         return {"name": s.get("source", ""), "date": s.get("source_date", ""), "pack": s.get("name", "")}
 
-    terrain_sources = [source(s) for s in g["sources"] if s.get("kind", "contours") in ("contours", "areas")]
+    terrain_sources = [source(s) for s in g["sources"] if s.get("kind", "contours") in ("contours", "areas", "roads")]
     building_packs = [source(s) for s in g["sources"] if s.get("kind") == "buildings"]
     building_source = (building_packs[0] if packed and building_packs
                        else {"name": "브이월드 건축물정보·도로명주소 건물 (실시간, 저장하지 않음)", "date": "", "pack": ""})
