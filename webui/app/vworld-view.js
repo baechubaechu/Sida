@@ -68,6 +68,8 @@ export class VWorldView {
     this.history = startHistory([]);
     this.picked = '';
     window.addEventListener('message', (e) => this.onMessage(e));
+    // a drag of the map that ends over the board: the map can't listen here (another origin)
+    window.addEventListener('mouseup', () => { if (this.open) this.ask('mouseUp'); });
     this.drawBar();
   }
 

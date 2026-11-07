@@ -201,6 +201,9 @@ def test_the_3d_page_needs_an_access_key_and_carries_the_3d_key(client, store, u
     assert f'window.SIDA_VWORLD_SCRIPT = "{script}";' in page
     # the address is set before the page's own script loads VWorld's, and the rest is the app's page
     assert page.index("SIDA_VWORLD_SCRIPT =") < page.index("window.SIDA_VWORLD_SCRIPT ||")
+    # framed by the app on another origin, VWorld's viewer would reach for parent.window.ws3d and
+    # stop; the page keeps the real parent and gives VWorld itself before VWorld's script loads
+    assert page.index("window.SIDA_BOARD = window.parent") < page.index("window.parent = window") < page.index("document.write")
     assert '<script src="./vworld3d-frame.js"></script>' in page and token not in page
     assert r.headers["cache-control"] == "no-store"
     assert r.headers["referrer-policy"] == "origin"  # VWorld never sees the access key in the address

@@ -68,8 +68,11 @@
     return local ? url.origin : '';
   }
 
+  // The board's window (vworld3d.html keeps it: VWorld may be given this page as its parent).
+  const host = window.SIDA_BOARD || window.parent;
+
   function tell(message) {
-    if (board && window.parent !== window) window.parent.postMessage({ sida: TAG, ...message }, board);
+    if (board && host !== window) host.postMessage({ sida: TAG, ...message }, board);
   }
 
   // Keys pressed while the map has the focus go to the board, which decides (board-model.js
@@ -247,11 +250,19 @@
     async findSite(rings, center) { return state.ready ? buildingsOn(rings, center) : []; },
     hidden: () => [...state.hidden],
     setLook(look) { if (state.ready) setLook(look); },
+    // the mouse let go outside the map (on the board): end a drag of the map, as VWorld does
+    // itself when it may listen on the board's window
+    mouseUp() {
+      const control = state.ready ? ws3d.viewer.scene.screenSpaceCameraController : null;
+      if (!control?._aggregator || !Cesium.CameraEventAggregator) return;
+      control._aggregator.destroy();
+      control._aggregator = new Cesium.CameraEventAggregator(ws3d.viewer.scene.canvas);
+    },
   };
 
   window.addEventListener('message', async (e) => {
     const m = e.data;
-    if (!board || e.source !== window.parent || e.origin !== board) return;
+    if (!board || e.source !== host || e.origin !== board) return;
     if (!m || m.sida !== TAG || typeof m.method !== 'string' || !Object.hasOwn(api, m.method)) return;
     try {
       const result = await api[m.method](...(Array.isArray(m.args) ? m.args : []));

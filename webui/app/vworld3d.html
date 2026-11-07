@@ -9,6 +9,13 @@
     // be in the page from the start. Its address, key included, comes either from the Sida data
     // server, which serves this page with window.SIDA_VWORLD_SCRIPT set (relay/app.py), or from the
     // board (vworld-view.js) after # (never sent to a server, never written in a file).
+    // Inside a frame, VWorld's viewer puts itself on the parent window (parent.window.ws3d) and
+    // listens for mouseup there. A parent on another origin (the app, when the data server serves
+    // this page) refuses that, and VWorld stops starting up. So the page keeps the real parent for
+    // the board's messages (SIDA_BOARD) and, only then, lets VWorld take this page as its parent;
+    // the board passes its mouseup on instead (vworld-view.js).
+    window.SIDA_BOARD = window.parent;
+    try { void window.parent.document; } catch (e) { window.parent = window; }
     (function () {
       var src = window.SIDA_VWORLD_SCRIPT || new URLSearchParams(location.hash.slice(1)).get('script') || '';
       if (/^https:\/\/map\.vworld\.kr\/js\/webglMapInit\.js\.do\?[\w=&.-]+$/.test(src)) {
