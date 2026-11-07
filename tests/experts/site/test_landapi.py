@@ -404,12 +404,14 @@ def test_an_own_key_is_used_directly_even_with_a_relay(fake_vworld, monkeypatch)
     assert url == "https://api.vworld.kr/req/search" and params["key"] == "test-key"
 
 
-def test_map_layers_through_the_relay_carry_no_key_and_no_3d_map(monkeypatch):
+def test_map_layers_through_the_relay_carry_no_key_and_the_relays_3d_page(monkeypatch):
     monkeypatch.delenv("VWORLD_API_KEY")
     monkeypatch.setenv("SIDA_RELAY_URL", "https://sida-kr.duckdns.org")
     monkeypatch.setenv("SIDA_RELAY_TOKEN", TOKEN)
     layers = landapi.map_layers()
-    assert layers["relay"] is True and layers["webgl3d"] is None
+    assert layers["relay"] is True
+    # VWorld's 3D map needs a key in the browser: the relay serves the 3D page with its own in it
+    assert layers["webgl3d"] == {"page": f"https://sida-kr.duckdns.org/relay/vworld3d?sida_token={TOKEN}", "version": "3.0"}
     # the browser loads these itself, so the access key (not a government key) rides along
     assert layers["base"]["url"] == f"https://sida-kr.duckdns.org/relay/vworld/req/wmts/1.0.0/Base/{{z}}/{{y}}/{{x}}.png?sida_token={TOKEN}"
     assert layers["cadastral"]["url"] == "https://sida-kr.duckdns.org/relay/vworld/req/wms"

@@ -3,6 +3,7 @@ WORKDIR /srv
 COPY requirements.txt /srv/
 RUN pip install --no-cache-dir -r requirements.txt && mkdir /data && chown nobody /data
 COPY __init__.py app.py tokens.py admin.py /srv/relay/
+COPY static /srv/relay/static/
 ENV SIDA_RELAY_DB=/data/relay.db
 VOLUME /data
 EXPOSE 8000

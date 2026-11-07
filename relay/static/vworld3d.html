@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>브이월드 3D</title>
+  <style>html, body, #map { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #dfe3e6; }</style>
+  <script>
+    // VWorld's WebGL 3D map (3.0) writes its own scripts into the page while it loads, so it must
+    // be in the page from the start. Its address, key included, comes either from the Sida data
+    // server, which serves this page with window.SIDA_VWORLD_SCRIPT set (relay/app.py), or from the
+    // board (vworld-view.js) after # (never sent to a server, never written in a file).
+    (function () {
+      var src = window.SIDA_VWORLD_SCRIPT || new URLSearchParams(location.hash.slice(1)).get('script') || '';
+      if (/^https:\/\/map\.vworld\.kr\/js\/webglMapInit\.js\.do\?[\w=&.-]+$/.test(src)) {
+        document.write('<script src="' + src + '"><\/script>');
+      }
+    })();
+  </script>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="./vworld3d-frame.js"></script>
+</body>
+</html>

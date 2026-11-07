@@ -161,7 +161,8 @@ def test_usage_is_counted_per_key_and_service_without_queries(client, store, ups
 
 def test_a_service_without_a_server_key_says_so(store, upstream, token):
     bare = TestClient(relay.create_app(relay.Keys(vworld="vw-server-key"), store, fetch=upstream))
-    assert bare.get("/relay/health").json() == {"ok": True, "services": {"vworld": True, "datago": False, "law": False}}
+    assert bare.get("/relay/health").json() == {"ok": True, "services": {"vworld": True, "datago": False, "law": False,
+                                                                         "vworld3d": True}}  # the VWorld key serves 3D too
     assert call(bare, "/relay/law/DRF/lawSearch.do", {"target": "aiSearch"}, token).status_code == 503
     assert upstream.calls == []
 
@@ -174,6 +175,58 @@ def test_overlong_parameters_are_refused(client, upstream, token):
 def test_keys_come_from_the_environment():
     keys = relay.Keys.from_env({"VWORLD_API_KEY": " k ", "VWORLD_DOMAIN": "https://d", "LAW_OPEN_API_OC": "oc"})
     assert keys == relay.Keys(vworld="k", vworld_domain="https://d", datago="", law="oc")
+    assert keys.webgl3d == "k"  # without a key of its own, the 3D map uses the server's VWorld key
+    keys = relay.Keys.from_env({"VWORLD_API_KEY": "kkkkkk", "VWORLD_3D_API_KEY": " k3d-key "})
+    assert (keys.vworld, keys.webgl3d) == ("kkkkkk", "k3d-key")
+    assert "k3d-key" not in keys.secrets()  # the 3D key is in viewers' browsers anyway
+
+
+STATIC_COPIES = ("vworld3d.html", "vworld3d-frame.js")
+
+
+@pytest.mark.parametrize("name", STATIC_COPIES)
+def test_the_relay_serves_the_same_3d_page_as_the_app(name):
+    # the relay's image is built from relay/ only, so it keeps copies of the app's 3D page
+    app_file = relay.STATIC.parents[1] / "webui" / "app" / name
+    assert (relay.STATIC / name).read_bytes() == app_file.read_bytes(), f"copy webui/app/{name} to relay/static/"
+
+
+def test_the_3d_page_needs_an_access_key_and_carries_the_3d_key(client, store, upstream, token):
+    assert client.get("/relay/vworld3d").status_code == 401
+    assert client.get("/relay/vworld3d", params={"sida_token": "sida_made-up"}).status_code == 401
+    r = client.get("/relay/vworld3d", params={"sida_token": token})
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+    page = r.text
+    script = "https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey=vw-server-key"
+    assert f'window.SIDA_VWORLD_SCRIPT = "{script}";' in page
+    # the address is set before the page's own script loads VWorld's, and the rest is the app's page
+    assert page.index("SIDA_VWORLD_SCRIPT =") < page.index("window.SIDA_VWORLD_SCRIPT ||")
+    assert '<script src="./vworld3d-frame.js"></script>' in page and token not in page
+    assert r.headers["cache-control"] == "no-store"
+    assert r.headers["referrer-policy"] == "origin"  # VWorld never sees the access key in the address
+    assert r.headers["content-security-policy"] == "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*"
+    assert upstream.calls == [] and store.usage() == []  # not an API call: VWorld's viewer loads the map
+    store.revoke(store.find(token).id)
+    assert client.get("/relay/vworld3d", params={"sida_token": token}).status_code == 403
+
+
+def test_the_3d_page_uses_the_3d_key_and_needs_one(store, upstream, token):
+    own = TestClient(relay.create_app(relay.Keys(vworld="vw-server-key", vworld3d="vw-3d-key"), store, fetch=upstream))
+    page = own.get("/relay/vworld3d", params={"sida_token": token}).text
+    assert "apiKey=vw-3d-key" in page and "vw-server-key" not in page
+    bare = TestClient(relay.create_app(relay.Keys(datago="dg"), store, fetch=upstream))
+    assert bare.get("/relay/vworld3d", params={"sida_token": token}).status_code == 503
+
+
+def test_the_3d_key_is_written_into_the_page_safely():
+    page = relay.webgl3d_page('k"</script><script>alert(1)//')
+    assert "</script><script>alert" not in page and "\\u003c/script>" in page
+
+
+def test_the_3d_page_script_needs_no_key(client):
+    r = client.get("/relay/vworld3d-frame.js")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/javascript")
+    assert r.content == (relay.STATIC / "vworld3d-frame.js").read_bytes()
 
 
 def test_a_key_request_is_collected_by_the_app_once_after_approval(client, store, upstream):

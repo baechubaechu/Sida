@@ -19,6 +19,12 @@ back as it came (status, content type, body).
   how to reach them). The admin approves it with relay/admin.py, and the app collects the key
   with the request's claim code (POST /relay/requests/claim). Each sending address can ask a few
   times an hour.
+- VWorld's WebGL 3D map can't be relayed: the browser loads VWorld's script with a key, and
+  VWorld checks the key against the page's address. So this server serves the app's 3D page
+  itself (GET /relay/vworld3d, a copy of webui/app/vworld3d.html in relay/static/) with the 3D
+  script address filled in. The app shows it in a frame and drives it by postMessage. The 3D key
+  is then in the viewer's browser, as with any web map; it is a key of its own
+  (VWORLD_3D_API_KEY) where one is set, and only the Sida app's own pages may frame the page.
 
 Run: uvicorn relay.app:from_env --factory (see relay/README.md).
 """
@@ -33,6 +39,7 @@ import time
 from collections import defaultdict, deque
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import requests
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -69,6 +76,12 @@ _DATAGO_PATHS = {
 _LAW_PATHS = {"lawSearch.do", "lawService.do"}
 _LAW_TARGETS = {"aiSearch", "ordin"}
 
+# The app's VWorld 3D page and its script (copies of webui/app/, kept identical by a test).
+STATIC = Path(__file__).parent / "static"
+WEBGL3D_SCRIPT = "https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey={key}"
+# Who may show the 3D page in a frame: the Sida app on its own PC (any port), and this server.
+WEBGL3D_FRAME_ANCESTORS = "'self' http://localhost:* http://127.0.0.1:*"
+
 
 @dataclass(frozen=True)
 class Keys:
@@ -76,6 +89,7 @@ class Keys:
     vworld_domain: str = ""  # the service address the VWorld key was issued for
     datago: str = ""
     law: str = ""
+    vworld3d: str = ""  # a key of its own for the 3D map, which ends up in viewers' browsers
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> Keys:
@@ -85,10 +99,26 @@ class Keys:
             vworld_domain=env.get("VWORLD_DOMAIN", "").strip(),
             datago=env.get("DATA_GO_KR_API_KEY", "").strip(),
             law=env.get("LAW_OPEN_API_OC", "").strip(),
+            vworld3d=env.get("VWORLD_3D_API_KEY", "").strip(),
         )
+
+    @property
+    def webgl3d(self) -> str:
+        """The key the 3D page carries: the 3D map's own, or else the server's VWorld key."""
+        return self.vworld3d or self.vworld
 
     def secrets(self) -> list[str]:
         return [k for k in (self.vworld, self.datago, self.law) if len(k) >= 6]
+
+
+def webgl3d_page(key: str) -> str:
+    """The app's 3D page with VWorld's script address (and so the 3D key) filled in."""
+    page = (STATIC / "vworld3d.html").read_text(encoding="utf-8")
+    script = json.dumps(WEBGL3D_SCRIPT.replace("{key}", key)).replace("<", "\\u003c")
+    fill = f"<script>window.SIDA_VWORLD_SCRIPT = {script};</script>\n  "
+    head = "<script>"
+    at = page.index(head)  # before the page's own script, which loads VWorld's
+    return page[:at] + fill + page[at:]
 
 
 @dataclass
@@ -216,7 +246,25 @@ def create_app(
     @app.get("/relay/health")
     def health() -> dict:
         return {"ok": True, "services": {"vworld": bool(keys.vworld), "datago": bool(keys.datago),
-                                         "law": bool(keys.law)}}
+                                         "law": bool(keys.law), "vworld3d": bool(keys.webgl3d)}}
+
+    @app.get("/relay/vworld3d")
+    def vworld3d_page(request: Request) -> Response:
+        # Opened as a frame's address, so the access key comes as a parameter (like map images).
+        # Not counted as an API call: VWorld's own viewer loads the map from here on.
+        need(keys.webgl3d)
+        access_key(request, image=True)
+        return Response(content=webgl3d_page(keys.webgl3d), media_type="text/html; charset=utf-8", headers={
+            "Cache-Control": "no-store",
+            # VWorld sees only this server's address, never the access key in this page's address
+            "Referrer-Policy": "origin",
+            "Content-Security-Policy": f"frame-ancestors {WEBGL3D_FRAME_ANCESTORS}",
+        })
+
+    @app.get("/relay/vworld3d-frame.js")
+    def vworld3d_script() -> Response:
+        return Response(content=(STATIC / "vworld3d-frame.js").read_bytes(),
+                        media_type="text/javascript; charset=utf-8", headers={"Cache-Control": "no-cache"})
 
     def private(answer: dict, status: int = 200) -> Response:
         return Response(content=json.dumps(answer), status_code=status, media_type="application/json",
