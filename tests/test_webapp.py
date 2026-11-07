@@ -1538,3 +1538,43 @@ def test_model_base_follows_the_saved_range_or_the_one_asked_for(client, project
     assert client.get(f"{base}/model-base/files", params={"shape": "hexagon"}).status_code == 400
     assert client.get(f"{base}/model-base/files", params={"size": "huge"}).status_code == 400
     assert client.get(f"{base}/model-base", params={"size": "huge"}).status_code == 400
+
+
+def test_a_model_board_is_fitted_planned_cut_and_remembered(client, project, fake_vworld):
+    from sida import board
+    from sida.experts.site import landapi, site_facts, terrain_pack
+
+    base = f"/api/projects/{project.name}/site"
+    parcel = landapi.search_parcels("경기도 군포시 금정동 689")[:1]
+    site_facts.save_facts(project.path, site_facts.build_facts("금정동 689-14", parcel))
+    origin = board.site_plan(site_facts.board_summary(site_facts.load_facts(project.path))["parcels"])["origin"]
+    conn = terrain_pack.create(terrain_pack.TERRAIN_DIR / f"t{terrain_pack.SUFFIX}", {"name": "t", "source": "s"})
+    for dy, elev in ((-0.004, 35.0), (0.0, 40.0), (0.004, 45.0)):  # rising northward
+        terrain_pack.add_contour(conn, elev, [[origin["lon"] - 0.01, origin["lat"] + dy], [origin["lon"] + 0.01, origin["lat"] + dy]])
+    conn.commit()
+    conn.close()
+    client.put(f"{base}/context/range", json={"size": "small", "shape": "rect"})  # 200 × 133 m
+
+    fit = client.get(f"{base}/model-base/fit", params={"board": "A2", "thickness": 3}).json()
+    assert (fit["scale"], fit["frame_m"], fit["board_mm"]) == (300, [178.2, 126.0], [594.0, 420.0])
+    assert client.get(f"{base}/model-base/settings").json()["board"] == "W600x900"  # nothing kept yet: the defaults
+
+    body = {"board": "A2", "scale": 300, "thickness_mm": 3, "center": fit["center"]}
+    plan = client.post(f"{base}/model-base/plan", json=body).json()
+    assert (plan["scale"], plan["frame_m"], plan["board_mm"], plan["interval"]) == (300, [178.2, 126.0], [594.0, 420.0], 0.9)
+    assert plan["layers"] >= 1 and plan["sheets"] >= plan["layers"] and plan["total_height_mm"] >= 3
+    assert len(plan["frame"]) == 4 and plan["steps"]
+    kept = client.get(f"{base}/model-base/settings").json()
+    assert (kept["board"], kept["scale"], kept["center"]) == ("A2", 300, fit["center"])
+
+    r = client.post(f"{base}/model-base/files", json=body)
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    told = dict(kv.split("=", 1) for kv in r.headers["X-Model-Base"].split(";"))
+    assert (told["scale"], told["board_mm"], told["in_place"]) == ("300", "594.0x420.0", "True")
+
+    r = client.post(f"{base}/model-base/plan", json={**body, "scale": 500})  # 297 × 210 m on 200 × 133 m
+    assert r.status_code == 400 and "m 벗어납니다" in r.json()["detail"]
+    assert client.post(f"{base}/model-base/plan", json={**body, "board": "A9"}).status_code == 400
+    assert client.get(f"{base}/model-base/fit", params={"board": "A0", "thickness": 99}).status_code == 400
+    client.put(f"{base}/context/range", json={"size": "small", "shape": "square"})
+    assert client.get(f"{base}/model-base/settings").json()["board"] == "A2"  # a new range keeps the board settings

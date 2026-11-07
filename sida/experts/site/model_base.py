@@ -20,12 +20,13 @@ from shapely.geometry import Point, Polygon, box
 from shapely.ops import unary_union
 
 from sida.experts.site import context3d
+from sida.model_base import board
 from sida.model_base.buildings import Building, buildings_from_context
 from sida.model_base.nesting import nest
 from sida.model_base.output import files, zip_files
 from sida.model_base.pieces import contour_interval, slice_terrain
 from sida.model_base.terraces import terrace_view
-from sida.model_base.terrain import Terrain, terrain_from_grid
+from sida.model_base.terrain import Terrain, terrain_from_grid, terrain_in_frame
 
 CACHE_SECONDS = 600
 MIN_INTERVAL, MAX_INTERVAL = 0.2, 20.0  # m
@@ -129,3 +130,140 @@ def cut_files(plan: dict, *, radius: float, scale: int, thickness_mm: float, she
         "size": next((name for name, r in context3d.SIZES.items() if r == float(radius)), None),
     }
     return zip_files(files(model, layout)), summary
+
+
+# ---------------------------------------------------------------------------
+# A model board laid on the surroundings (sida/model_base/board.py)
+# ---------------------------------------------------------------------------
+
+DEFAULT_SETTINGS = {"board": "W600x900", "width_mm": None, "height_mm": None, "orient": "landscape",
+                    "scale": 500, "thickness_mm": 3.0, "center": None, "bed": None, "save_material": False}
+_grounds: dict[tuple, tuple[float, dict]] = {}
+_cuts: dict[tuple, tuple[float, tuple]] = {}  # the last board cuts: the files reuse what the plan made
+
+
+def settings(raw: dict | None) -> dict:
+    """Board settings as given (missing ones from DEFAULT_SETTINGS), checked: {board, width_mm,
+    height_mm (a custom board's sides), orient, scale, thickness_mm, center [x, y] m or None (the
+    site's middle), bed [w, h] mm or None (the board's size), save_material}. Raises ValueError."""
+    s = {**DEFAULT_SETTINGS, **{k: v for k, v in (raw or {}).items() if k in DEFAULT_SETTINGS and v is not None}}
+    s["board"], s["orient"] = str(s["board"]), str(s["orient"])
+    custom = (s["width_mm"], s["height_mm"]) if s["board"] == board.CUSTOM else None
+    board.board_size(s["board"], s["orient"], custom)
+    s["scale"] = board.check_scale(s["scale"])
+    s["thickness_mm"] = board.check_thickness(s["thickness_mm"])
+    if s["center"] is not None:
+        s["center"] = [float(v) for v in s["center"]]
+        if len(s["center"]) != 2:
+            raise ValueError("center is [x, y] in metres")
+    if s["bed"] is not None:
+        s["bed"] = [float(v) for v in s["bed"]]
+        if len(s["bed"]) != 2 or not all(board.MIN_BOARD_MM <= v <= board.MAX_BOARD_MM for v in s["bed"]):
+            raise ValueError(f"bed is [w, h], {board.MIN_BOARD_MM:g}–{board.MAX_BOARD_MM:g} mm")
+    s["save_material"] = bool(s["save_material"])
+    if s["board"] != board.CUSTOM:
+        s["width_mm"] = s["height_mm"] = None
+    return s
+
+
+def _board_mm(s: dict) -> tuple[float, float]:
+    custom = (s["width_mm"], s["height_mm"]) if s["board"] == board.CUSTOM else None
+    return board.board_size(s["board"], s["orient"], custom)
+
+
+def _range_poly(radius: float, shape: str, orient: str) -> Polygon:
+    return range_outline(radius, shape, orient) or box(-radius, -radius, radius, radius)
+
+
+def _ground(plan: dict, radius: float, folder: Path | None) -> dict:
+    origin = plan["origin"]
+    key = (origin["lon"], origin["lat"], float(radius), str(folder))
+    hit = _grounds.get(key)
+    if hit and time.time() - hit[0] < CACHE_SECONDS:
+        return hit[1]
+    g = context3d.ground(context3d.Frame(origin), radius, folder=folder)
+    if g["grid"] is None:
+        raise NoTerrain("no terrain pack covers this site")
+    _grounds[key] = (time.time(), g)
+    return g
+
+
+def fit_board(plan: dict, *, radius: float, shape: str = context3d.DEFAULT_SHAPE,
+              range_orient: str = context3d.DEFAULT_ORIENT, board_name: str = "W600x900",
+              orient: str = "landscape", custom: tuple[float, float] | None = None) -> dict:
+    """The standard scale at which the board covers as much of the range as it can, holding the
+    site, and where it sits (board.fit): {"scale", "center", "frame_m", "board_mm"}. Raises
+    ValueError (board.NoFit when no standard scale does)."""
+    if not (plan or {}).get("origin"):
+        raise ValueError("the site has no boundary to stand on")
+    size = board.board_size(board_name, orient, custom)
+    out = board.fit(size, _range_poly(float(radius), shape, range_orient), _site(plan))
+    return {**out, "board_mm": list(size)}
+
+
+def _board_terrain(plan: dict, s: dict, radius: float, shape: str, range_orient: str,
+                   folder: Path | None) -> tuple[Terrain, list[float], tuple[float, float], tuple[float, float]]:
+    if not (plan or {}).get("origin"):
+        raise ValueError("the site has no boundary to stand on")
+    size = _board_mm(s)
+    frame_m = board.frame_size(size, s["scale"])
+    site = _site(plan)
+    if s["center"] is not None:
+        center = s["center"]
+    elif site is not None:
+        x0, y0, x1, y1 = site.bounds
+        center = [(x0 + x1) / 2, (y0 + y1) / 2]
+    else:
+        center = [0.0, 0.0]
+    board.check_frame(center, frame_m, _range_poly(float(radius), shape, range_orient))
+    g = _ground(plan, radius, folder)
+    terrain = terrain_in_frame(g["grid"], g["half"], g["step"], center=center, width_m=frame_m[0],
+                               depth_m=frame_m[1], base_elev=g["ground_elev"], site=site, areas=g["areas"])
+    return terrain, [round(v, 2) for v in center], frame_m, size
+
+
+def board_cut(plan: dict, raw: dict | None, *, radius: float, shape: str = context3d.DEFAULT_SHAPE,
+              range_orient: str = context3d.DEFAULT_ORIENT, folder: Path | None = None,
+              around: dict | None = None) -> tuple[board.BoardCut, dict, Terrain]:
+    """The board cut (board.cut) for these settings over the site's range, its summary and the
+    ground under it. Raises board.FrameOutside when the board reaches past the range, ValueError
+    for bad settings, NoTerrain without a terrain pack."""
+    s = settings(raw)
+    terrain, center, frame_m, size = _board_terrain(plan, s, radius, shape, range_orient, folder)
+    rings = tuple(tuple(map(tuple, r)) for p in plan.get("parcels") or [] for r in p.get("rings") or [])
+    key = (plan["origin"]["lon"], plan["origin"]["lat"], float(radius), shape, range_orient, str(folder), rings,
+           repr(sorted({**s, "center": center}.items())))
+    hit = _cuts.get(key)
+    if hit and time.time() - hit[0] < CACHE_SECONDS:
+        return hit[1]
+    if around is None:
+        around = context3d.build(plan, radius, folder=folder, for_export=True, shape=shape, orient=range_orient)
+    made = board.cut(terrain, scale=s["scale"], thickness_mm=s["thickness_mm"], board_mm=size,
+                     buildings=_buildings(around, for_files=True), bed_mm=tuple(s["bed"]) if s["bed"] else None,
+                     save_material=s["save_material"])
+    summary = {
+        **made.summary(), "scale": s["scale"], "thickness_mm": s["thickness_mm"], "board": s["board"],
+        "orient": s["orient"], "board_mm": list(size), "frame_m": [round(v, 2) for v in frame_m], "center": center,
+        "buildings_left_out": not made.model.buildings and bool(around.get("buildings")),
+    }
+    _cuts.clear()  # one at a time: a cut holds every piece
+    _cuts[key] = (time.time(), (made, summary, terrain))
+    return made, summary, terrain
+
+
+def board_plan(plan: dict, raw: dict | None, **range_kw) -> dict:
+    """The board for drawing: the summary, the frame's outline and each layer's ground (table
+    metres, terraces.terrace_view steps)."""
+    made, summary, terrain = board_cut(plan, raw, **range_kw)
+    x0, y0 = terrain.origin
+    w, h = summary["frame_m"]
+    view = terrace_view(terrain, made.model.interval_m)
+    frame = [[round(x0, 2), round(y0, 2)], [round(x0 + w, 2), round(y0, 2)],
+             [round(x0 + w, 2), round(y0 + h, 2)], [round(x0, 2), round(y0 + h, 2)]]
+    return {**summary, "frame": frame, "steps": view["steps"], "base_elev": view["base_elev"]}
+
+
+def board_files(plan: dict, raw: dict | None, **range_kw) -> tuple[bytes, dict]:
+    """A zip of the board's laser files and its summary."""
+    made, summary, _ = board_cut(plan, raw, **range_kw)
+    return zip_files(files(made.model, made.layout)), summary

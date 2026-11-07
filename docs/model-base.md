@@ -80,3 +80,20 @@ python scripts/model_base_terrain.py --sheet 600x400 --thickness 3 --scale 500 -
 ## 배열 방식
 
 조각을 격자로 바꿔, 외곽이 차지하는 크기가 큰 조각부터 여러 방향으로 돌려 가며 판의 가장 아래·왼쪽 빈자리에 넣습니다(모든 자리를 FFT 상관으로 한 번에 검사).
+판 수가 많아도 빠르게, 결과는 그대로 둔 채 계산을 줄입니다. 판마다 FFT를 조각을 놓을 때만 다시 하고, 조각의 FFT는 한 번만 만듭니다(같은 모양 조각, 예를 들어 한 건물의 여러 장도 한 번). 빈칸이 조각보다 적은 판과, 조각 크기의 창 어디에도 빈칸이 모자란 방향은 건너뜁니다. 같은 모양 조각은 앞 조각이 들어간 판부터 찾습니다. 무교동 45 크게(반경 300 m) 기준, 같은 배열에 판 배치 시간이 80초에서 11초로 줄었습니다.
+
+## 모형 판에 맞춰 자르기 (`sida/model_base/board.py`)
+
+모형 판(A0 1189×841, A1 841×594, A2 594×420, 우드락 600×900, 900×1800, 직접 입력 100–3000 mm)과 축척, 판 두께(3·5 mm 등)를 고르면 판이 덮는 땅(판 mm × 축척 / 1000 m, "판 범위")이 정해집니다. 판 범위는 불러온 3D 범위 안에 있어야 합니다. 판은 가로(긴 변 동서)·세로로 놓고, 가운데(m, 제도판 좌표)를 옮길 수 있습니다(기본은 대지 가운데).
+
+- **범위에 맞추기**(`fit`): 표준 축척(1:100, 200, 250, 300, 400, 500, 600, 750, 1000, 1200, 1500, 2000) 가운데 판 범위가 3D 범위 안에 들어가면서 범위를 가장 넓게 덮고 대지를 다 담는 축척을 고릅니다.
+- **자르기**: 등고선 한 층을 판 크기 판 한 장에서 **제자리로** 자릅니다(배열 없음). 그래서 판을 그대로 쌓으면 됩니다. 각 층에는 다음 층 자리, 대지 경계, 도로·보도·물 경계, 그 층에 서는 건물 자리가 새겨집니다. 건물 조각만 판 크기 판에 따로 배열합니다. "재료 아끼기"(`save_material`)를 켜면 바닥판 위 층도 배열해 판 수를 줄입니다(판에 안 들어갈 만큼 큰 조각은 제자리). 레이저 작업대가 판보다 작으면(`bed`) 예전처럼 모듈로 나눠 작업대 크기 판에 배열합니다.
+
+| 경로 | 요청 | 응답 |
+|---|---|---|
+| `GET .../site/model-base/fit?board=&thickness=&orient=&width=&height=` | 판(`custom`이면 `width`·`height` mm), 두께, 판 방향 | `{scale, center, frame_m, board_mm}`. 표준 축척으로 맞출 수 없으면 `400` |
+| `POST .../site/model-base/plan` | `{board, width_mm?, height_mm?, orient, scale, thickness_mm, center?, bed?, save_material}` | 요약 `{scale, frame_m, board_mm, interval, layers, sheets, pieces, buildings, total_height_mm, in_place, center, ...}`, 판 외곽 `frame`과 층마다의 땅 `steps`(제도판 m). 판이 3D 범위를 벗어나면 몇 m 벗어나는지 적은 `400` |
+| `POST .../site/model-base/files` | 같은 본문 | 레이저 파일 zip, 요약은 `X-Model-Base` 헤더 |
+| `GET .../site/model-base/settings` | | 마지막으로 쓴 판 설정(없으면 기본값: 우드락 600×900, 1:500, 3 mm) |
+
+판 설정은 프로젝트 폴더의 `site_context.json` `model`에 범위와 함께 저장됩니다. 3D 범위는 저장된 범위(`.../site/context/range`)를 씁니다. 예전 `GET .../site/model-base`, `.../model-base/files`도 그대로 동작합니다.

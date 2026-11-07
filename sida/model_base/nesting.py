@@ -11,6 +11,15 @@ piece's cells).
 A laser job cuts in two passes, inner cuts then outer cuts, so pieces nest only one deep: a
 piece without holes may sit in another piece's hole, but a piece with holes never goes inside
 a hole and never has a piece with holes inside its own.
+
+What makes this quick on many sheets (the result is the same as trying every sheet afresh): a
+sheet's transform is kept until a piece is laid on it, a piece's own transforms are made once for
+all sheets (and once for all pieces of the same shape, such as a building's stacked sheets), a
+sheet with fewer free cells than the piece has is passed over without a look, so is an
+orientation for which no window of the piece's size on the sheet has enough free cells (counted
+from the sheet's summed-area table), and a piece the
+same shape as the one before starts on the sheet that one went on (sheets only fill up, so the
+earlier ones have no room for it).
 """
 
 from __future__ import annotations
@@ -119,42 +128,83 @@ def nest(pieces: list[Piece], sheet_w: float, sheet_h: float, *, gap: float = 2.
     def empty_sheet():
         occ = np.ones((rows, cols), dtype=bool)
         occ[edge:rows - edge, edge:cols - edge] = False
-        return {"material": occ, "holed": occ.copy()}  # cut material; outlines of pieces with holes, filled
+        # cut material; outlines of pieces with holes, filled; their transforms (None: to be made
+        # again after a piece was laid); the free cells left
+        return {"material": occ, "holed": occ.copy(), "material_f": None, "holed_f": None, "sat": None,
+                "free": int((~occ).sum())}
 
-    def free_spots(grid_f, cells):
+    def room_somewhere(grids, cells, count) -> bool:
+        """Whether some window the size of `cells` has at least `count` free cells: if not, the
+        piece fits nowhere on the sheet in this orientation."""
+        if grids["sat"] is None:
+            sat = np.zeros((rows + 1, cols + 1), dtype=np.int32)
+            sat[1:, 1:] = grids["material"].cumsum(axis=0, dtype=np.int32).cumsum(axis=1, dtype=np.int32)
+            grids["sat"] = sat
+        s = grids["sat"]
         h, w = cells.shape
+        taken = s[h:, w:] - s[:-h, w:] - s[h:, :-w] + s[:-h, :-w]
+        return bool((taken <= h * w - count).any())
+
+    def transform(grids, key):
+        if grids[f"{key}_f"] is None:
+            grids[f"{key}_f"] = np.fft.rfft2(grids[key].astype(np.float64))
+        return grids[f"{key}_f"]
+
+    def kernel_f(cells):
         kernel = np.zeros((rows, cols))
-        kernel[:h, :w] = cells
-        hits = np.fft.irfft2(grid_f * np.conj(np.fft.rfft2(kernel)), s=(rows, cols))
+        kernel[:cells.shape[0], :cells.shape[1]] = cells
+        return np.conj(np.fft.rfft2(kernel))
+
+    def free_spots(grid_f, cells, cells_f):
+        h, w = cells.shape
+        hits = np.fft.irfft2(grid_f * cells_f, s=(rows, cols))
         return hits[: rows - h + 1, : cols - w + 1] < 0.5
 
     sheets: list[dict] = []
     placements: list[Placement] = []
     grow = gap / 2 + res
+    shapes: dict[bytes, dict] = {}  # per piece shape: its variants, transforms and the last sheet it went on
     for piece in sorted(pieces, key=lambda p: -p.shape.convex_hull.area):  # the most room-taking first
-        variants = _variants(piece, rotations, res, grow)
+        same = shapes.setdefault(piece.shape.wkb + bytes([piece.holed]), {})
+        if "variants" not in same:
+            same["variants"] = [v for v in _variants(piece, rotations, res, grow)
+                                if v[2].shape[0] <= rows and v[2].shape[1] <= cols]
+            same["made"], same["sheet"] = {}, 0
+            same["counts"] = [int(v[2].sum()) for v in same["variants"]]
+        variants, counts = same["variants"], same["counts"]
+        need = min(counts, default=0)
+        made: dict[int, tuple] = same["made"]  # the transforms, made the first time a sheet needs them
+
+        def transforms(i, v, made=made, holed=piece.holed):
+            if i not in made:
+                made[i] = (kernel_f(v[2]), kernel_f(v[3]) if holed else None)
+            return made[i]
+
         placed = False
-        for n in range(len(sheets) + 1):
+        for n in range(same["sheet"], len(sheets) + 1):
             if n == len(sheets):
                 sheets.append(empty_sheet())
             grids = sheets[n]
-            material_f = np.fft.rfft2(grids["material"].astype(np.float64))
-            holed_f = np.fft.rfft2(grids["holed"].astype(np.float64)) if piece.holed else None
             best = None
-            for angle, (ox, oy), cells, filled in variants:
-                h, w = cells.shape
-                if h > rows or w > cols:
-                    continue
-                free = free_spots(material_f, cells)
-                if piece.holed:  # not inside a hole, and no piece with holes inside its own
-                    free &= free_spots(holed_f, filled)
-                if not free.any():
-                    continue
-                r = int(np.argmax(free.any(axis=1)))  # lowest row with room
-                c = int(np.argmax(free[r]))
-                score = (r + h, c)
-                if best is None or score < best[0]:
-                    best = (score, r, c, angle, ox, oy, cells, filled)
+            if variants and grids["free"] >= need:
+                material_f = transform(grids, "material")
+                holed_f = transform(grids, "holed") if piece.holed else None
+                for i, v in enumerate(variants):
+                    angle, (ox, oy), cells, filled = v
+                    h, w = cells.shape
+                    if not room_somewhere(grids, cells, counts[i]):
+                        continue
+                    cells_f, filled_f = transforms(i, v)
+                    free = free_spots(material_f, cells, cells_f)
+                    if piece.holed:  # not inside a hole, and no piece with holes inside its own
+                        free &= free_spots(holed_f, filled, filled_f)
+                    if not free.any():
+                        continue
+                    r = int(np.argmax(free.any(axis=1)))  # lowest row with room
+                    c = int(np.argmax(free[r]))
+                    score = (r + h, c)
+                    if best is None or score < best[0]:
+                        best = (score, r, c, angle, ox, oy, cells, filled)
             if best is None:
                 if n == len(sheets) - 1 and not grids["material"][edge:rows - edge, edge:cols - edge].any():
                     sheets.pop()
@@ -162,10 +212,15 @@ def nest(pieces: list[Piece], sheet_w: float, sheet_h: float, *, gap: float = 2.
                 continue
             _, r, c, angle, ox, oy, cells, filled = best
             h, w = cells.shape
+            before = int(grids["material"][r:r + h, c:c + w].sum())
             grids["material"][r:r + h, c:c + w] |= cells
+            grids["free"] -= int(grids["material"][r:r + h, c:c + w].sum()) - before
+            grids["material_f"] = grids["sat"] = None
             if piece.holed:
                 grids["holed"][r:r + h, c:c + w] |= filled
+                grids["holed_f"] = None
             placements.append(Placement(piece=piece, sheet=n, angle=angle, dx=c * res + ox, dy=r * res + oy))
+            same["sheet"] = n
             placed = True
             break
         assert placed

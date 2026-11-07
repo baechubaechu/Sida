@@ -53,6 +53,19 @@ def load(project_dir: Path) -> dict:
         return _out(context3d.DEFAULT_SIZE, context3d.DEFAULT_SHAPE, context3d.DEFAULT_ORIENT)
 
 
+MODEL = "model"  # the last model board settings (sida/experts/site/model_base.settings), as given
+
+
+def model(project_dir: Path) -> dict:
+    """The model board settings kept for the project ({} when none)."""
+    saved = read(project_dir).get(MODEL)
+    return saved if isinstance(saved, dict) else {}
+
+
+def save_model(project_dir: Path, settings: dict) -> None:
+    write(project_dir, {**read(project_dir), MODEL: settings})
+
+
 def save(project_dir: Path, size: str, shape: str, orient: str = context3d.DEFAULT_ORIENT) -> dict:
     """Keep this range for the project. Returns {"size", "shape", "orient", "radius"}. Raises
     ValueError."""

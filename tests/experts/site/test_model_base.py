@@ -91,3 +91,43 @@ def test_a_rectangle_range_makes_an_oblong_model(pack):  # noqa: F811
                                       folder=pack, around=around(pack_buildings=True), shape="rect")
     assert (summary["shape"], summary["orient"]) == ("rect", "landscape")
     assert summary["size_mm"] == [120.0, 80.0]
+
+
+def test_a_board_is_cut_from_the_ground_under_its_frame(pack):  # noqa: F811
+    raw = {"board": "custom", "width_mm": 300, "height_mm": 200, "scale": 500, "thickness_mm": 3}
+    view = model_base.board_plan(plan_for_site(), raw, radius=100, folder=pack, around=around(pack_buildings=True))
+    assert (view["scale"], view["frame_m"], view["board_mm"], view["in_place"]) == (500, [150.0, 100.0], [300.0, 200.0], True)
+    assert view["frame"] == [[-75.0, -50.0], [75.0, -50.0], [75.0, 50.0], [-75.0, 50.0]]
+    assert view["center"] == [0.0, 0.0] and view["layers"] == len(view["steps"])
+    assert view["buildings"] == 0  # the building north of the site (y 50–66 m) lies past the board's edge
+    assert all(abs(x) <= 75.01 and abs(y) <= 50.01 for s in view["steps"] for poly in s["polygons"] for x, y in poly["outline"])
+    data, summary = model_base.board_files(plan_for_site(), raw, radius=100, folder=pack, around=around(pack_buildings=True))
+    names = zipfile.ZipFile(io.BytesIO(data)).namelist()
+    assert summary["sheets"] == view["sheets"] and f"sheet-{summary['sheets']}.svg" in names
+    moved = model_base.board_plan(plan_for_site(), {**raw, "center": [20, 10]}, radius=100, folder=pack,
+                                  around=around(pack_buildings=True))
+    assert moved["frame"][0] == [-55.0, -40.0] and moved["center"] == [20.0, 10.0]
+    assert moved["buildings"] == 1  # the board moved north takes it in
+
+
+def test_a_board_past_the_range_is_refused_and_fit_finds_one_inside(pack):  # noqa: F811
+    from sida.model_base import board
+
+    with pytest.raises(board.FrameOutside) as caught:  # 300 × 200 m on a ±100 m range
+        model_base.board_plan(plan_for_site(), {"board": "custom", "width_mm": 300, "height_mm": 200, "scale": 1000},
+                              radius=100, folder=pack, around=around(pack_buildings=True))
+    assert caught.value.overflow_m == pytest.approx(50)  # the east and west edges 50 m out
+    got = model_base.fit_board(plan_for_site(), radius=100, board_name="A2")
+    assert got == {"scale": 300, "center": [0.0, 0.0], "frame_m": [178.2, 126.0], "board_mm": [594.0, 420.0]}
+    assert model_base.fit_board(plan_for_site(), radius=100, shape="rect", range_orient="portrait",
+                                board_name="A2", orient="portrait")["scale"] == 300  # 126 × 178.2 m in 133 × 200 m
+
+
+def test_board_settings_take_defaults_and_refuse_bad_values():
+    s = model_base.settings({"board": "A1", "scale": 600})
+    assert (s["board"], s["scale"], s["thickness_mm"], s["orient"], s["center"], s["save_material"]) == ("A1", 600, 3.0, "landscape", None, False)
+    assert model_base.settings(None) == model_base.DEFAULT_SETTINGS
+    for bad in ({"board": "A9"}, {"scale": 0}, {"thickness_mm": 40}, {"orient": "up"}, {"center": [1]},
+                {"bed": [10, 10]}, {"board": "custom", "width_mm": 20, "height_mm": 300}):
+        with pytest.raises(ValueError):
+            model_base.settings(bad)
