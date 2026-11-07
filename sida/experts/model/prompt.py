@@ -1,13 +1,13 @@
 """
-The model maker's facts: what Sida's code works out for each board, so the expert chooses
-among numbers and never makes one up.
+The site model's facts for the representation planner: what Sida's code works out for each
+board, so the expert chooses among numbers and never makes one up.
 
 For the project's site and its saved 3D range: the site's area and size, the range, the
 ground's relief in it, and for each board (sida/model_base/board.BOARDS) and thickness
 (THICKNESSES) the scale at which the board covers as much of the range as it can (board.fit,
 in the orientation that covers more), the ground it then covers, the layers it takes (each a
-sheet, cut in place) and how big the site reads on it. Without a site or a terrain pack the
-block says what is missing.
+sheet, cut in place) and how big the site reads on it. Given only once the site is looked up
+and a 3D range is saved (`ready`); without a terrain pack the block says so.
 """
 
 from __future__ import annotations
@@ -79,6 +79,13 @@ def options(plan: dict, picked: dict, *, folder=None) -> list[dict]:
                 "site_cm": [round((x1 - x0) * 100 / best["scale"], 1), round((y1 - y0) * 100 / best["scale"], 1)],
             })
     return out
+
+
+def ready(project_dir) -> bool:
+    """A site looked up and a 3D range saved for it (site_context.json)."""
+    from sida.experts.site import context_range
+
+    return _site_plan(project_dir)[0] is not None and "size" in context_range.read(project_dir)
 
 
 def board_facts(run: ExpertRun) -> PromptBlock:

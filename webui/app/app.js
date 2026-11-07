@@ -4,7 +4,7 @@ import {
   phaseLabel, visibleExperts, STATUS_LABELS, PROVIDER_LABELS, MODE_LABELS, STATE_UPDATE_LABELS,
   escapeHtml as escape, findProjects, relativeDate, projectSummary, chatItems, eventNotice,
   expertStatus, renderMarkdown, chatTitle, latestChat, chatLabel, DATA_KEYS, keyChanges, relayKeyView,
-  parseRoute, projectPath as projectUrl, expertPath, dateTime, arrangeDocument, itemTag, renderInline, parseRecommendation, stripRecommendation,
+  parseRoute, projectPath as projectUrl, expertPath, dateTime, arrangeDocument, itemTag, renderInline, parseRecommendation, stripRecommendation, expertPageTabs, MODEL_EXPERT,
   questionAnswer, stateChangeView, sitePath, sitePageFor, needsSiteFirst, siteHeadline, areaText, zoneScope, missingText, SITE_PART_LABELS,
   UNKNOWN, restrictionGroups, buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
   ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
@@ -334,7 +334,7 @@ function tableHooks(name) {
     carry: (at) => carryPapers(at),
     stow: (ids) => stowPapers(name, ids),
     ask: () => askAbout(),
-    openExpert: (agent) => { location.hash = expertUrl(name, agent); },
+    openExpert: (agent, tab) => { location.hash = tab ? expertPath(name, agent, tab) : expertUrl(name, agent); },
     experts: () => ui.session?.experts || [],
   };
 }
@@ -1163,22 +1163,22 @@ function siteNote(name, agent) {
 function docTab(name, agent, expert) {
   const loading = !ui.module && !ui.moduleMissing && expert.done;
   if (!ui.module) {
-    return `${siteNote(name, agent)}<div class="expert-note">${loading ? '불러오는 중입니다.' : '아직 실행 전입니다. 오른쪽에서 실행하면 결과가 여기에 나옵니다.'}</div>${modelMakerBlock(agent)}`;
+    return `${siteNote(name, agent)}<div class="expert-note">${loading ? '불러오는 중입니다.' : '아직 실행 전입니다. 오른쪽에서 실행하면 결과가 여기에 나옵니다.'}</div>`;
   }
   const reads = expert.inputs?.length
     ? `<p class="reads">읽은 전문가 ${expert.inputs.map((id) => expertLink(name, id)).join('')}</p>` : '';
-  const content = agent === 'model_maker' ? stripRecommendation(ui.module.content) : ui.module.content;
-  return `${proposalBlock(agent)}${siteNote(name, agent)}${modelMakerBlock(agent)}${reads}${arrangedDoc(name, agent, content)}`;
+  const content = agent === MODEL_EXPERT ? stripRecommendation(ui.module.content) : ui.module.content;
+  return `${proposalBlock(agent)}${siteNote(name, agent)}${reads}${arrangedDoc(name, agent, content)}`;
 }
 
-// On the model maker's page: the model board panel (placeModelMaker), with 추천대로 놓기 when the
-// document recommends a board.
-function modelMakerBlock(agent) {
-  if (agent !== 'model_maker') return '';
+// The representation planner's 모형 tab: the model board panel (placeModelMaker), with
+// 추천대로 놓기 when the latest result recommends a board.
+function modelTab() {
   const rec = parseRecommendation(ui.module?.content);
   const label = rec ? `추천대로 놓기 (${rec.board.replace(/^W/, '우드락 ')} · 1:${rec.scale} · ${rec.thickness} mm)` : '';
+  const note = rec ? '' : '<p class="muted">표현 계획자를 실행하면 결과의 모형 추천을 여기서 바로 놓을 수 있습니다.</p>';
   return `<section class="doc-section model-maker-section" aria-label="모형 판">
-    <h2>모형 판</h2>${rec ? `<button class="primary-small" data-action="model-apply">${escape(label)}</button>` : ''}
+    ${rec ? `<button class="primary-small" data-action="model-apply">${escape(label)}</button>` : note}
     <div id="model-maker-slot" class="model-maker-slot"><p class="muted">모형 판을 여는 중입니다.</p></div></section>`;
 }
 
@@ -1275,14 +1275,18 @@ function expertPage(name, agent) {
     return `<section class="expert-page"><header class="expert-head"><div><h1>전문가를 찾을 수 없습니다</h1></div>
       <a class="icon-button" href="${projectUrl(name)}" aria-label="전문가 화면 닫기">×</a></header></section>`;
   }
-  const tab = currentRoute.tab === 'chat' && !expert.chat ? 'doc' : currentRoute.tab;
+  const extra = expertPageTabs(agent);
+  const known = currentRoute.tab !== 'model' || extra.some((t) => t.id === 'model');
+  const tab = (currentRoute.tab === 'chat' && !expert.chat) || !known ? 'doc' : currentRoute.tab;
   const status = expertStatus(expert, ui.job);
   const tabs = [
     ['doc', '결과', expertUrl(name, agent)],
     ...(expert.chat ? [['chat', `분석 채팅${expert.chats?.length ? ` ${expert.chats.length}` : ''}`, expertPath(name, agent, 'chat')]] : []),
     ['versions', `이전 버전${ui.versions?.length ? ` ${ui.versions.length}` : ''}`, expertPath(name, agent, 'versions')],
+    ...extra.map((t) => [t.id, t.label, expertPath(name, agent, t.id)]),
   ];
-  const body = tab === 'chat' ? chatTab(name, agent, expert) : tab === 'versions' ? versionsTab(name, agent) : docTab(name, agent, expert);
+  const body = tab === 'chat' ? chatTab(name, agent, expert) : tab === 'versions' ? versionsTab(name, agent)
+    : tab === 'model' ? modelTab() : docTab(name, agent, expert);
   return `<section class="expert-page" aria-label="${escape(expert.name)}">
     <header class="expert-head"><div>
       <h1>${escape(expert.name)}</h1>

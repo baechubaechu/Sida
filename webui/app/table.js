@@ -812,14 +812,14 @@ export class DraftingTable {
 
   // ------------------------------------------------------------------ the site's surroundings
 
-  // 모형 바닥: the model maker's page (the model board panel and its advice); 계단식: the ground
-  // stepped as the kept board settings would cut it.
+  // 모형 바닥: the representation planner's 모형 tab (the model board panel and its advice);
+  // 계단식: the ground stepped as the kept board settings would cut it.
   modelMenu() {
-    return `<button type="button" data-ui="model-panel" title="모형 제작가: 모형 판 크기·축척을 정해 레이저 커팅 파일 받기">모형 바닥</button>
+    return `<button type="button" data-ui="model-panel" title="표현 계획자의 모형 탭: 모형 판 크기·축척을 정해 레이저 커팅 파일 받기">모형 바닥</button>
       <button type="button" data-ui="model-stepped" aria-pressed="${this.steppedOn}" title="저장한 모형 판 설정(축척 × 두께) 간격으로 계단식 지형 보기">계단식</button>`;
   }
 
-  openModel() { this.hooks.openExpert?.('model_maker'); }
+  openModel() { this.hooks.openExpert?.('representation_planner', 'model'); }
 
   async toggleStepped() {
     let interval = this.stepInterval || 1.5;

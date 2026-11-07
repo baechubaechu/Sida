@@ -33,11 +33,11 @@ def test_paths_reference_known_experts(mock_config):
     assert paths["review_prep"][0] == "design_critic"
 
 
-HELD = {"concept_framer", "spatial_reviewer", "systems_advisor", "model_maker"}
+HELD = {"concept_framer", "spatial_reviewer", "systems_advisor"}
 
 
-def test_seven_core_and_four_held_experts_and_paths_use_core_only(mock_config):
-    # 10/10 meeting: 7 core experts, 3 on hold; the model maker (2026-11-08) is held too
+def test_seven_core_and_three_held_experts_and_paths_use_core_only(mock_config):
+    # 10/10 meeting: 7 core experts, 3 on hold
     agents = sida_config.get_agents(mock_config)
     tiers = {a["id"]: sida_config.agent_tier(a) for a in agents}
     assert {i for i, t in tiers.items() if t == "held"} == HELD

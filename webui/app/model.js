@@ -321,7 +321,16 @@ export function sitePageFor(event, name, site) {
   return sitePath(name, site?.available ? 'facts' : 'find');
 }
 
-const EXPERT_TABS = ['chat', 'versions'];
+const EXPERT_TABS = ['chat', 'versions', 'model'];
+
+// Tabs an expert's page has besides 결과, 분석 채팅 and 이전 버전: the representation planner's
+// 모형 holds the model board panel (model-maker.js) for the laser-cut site model.
+export const EXPERT_PAGE_TABS = { representation_planner: [{ id: 'model', label: '모형' }] };
+export const MODEL_EXPERT = 'representation_planner';
+
+export function expertPageTabs(agentId) {
+  return EXPERT_PAGE_TABS[agentId] || [];
+}
 const SITE_TABS = ['ordinance', 'uses', 'find'];
 
 export function parseRoute(hash) {
@@ -379,8 +388,7 @@ export const SECTION_LABELS = {
   'Diagram Sequence': '다이어그램 순서', 'Supporting Drawings': '보조 도면', 'Other Media': '그 밖의 자료',
   'One-line Summary': '한 줄 요약', 'Problem Statement': '문제', 'System Summary': '시스템 요약',
   'Key Outputs': '핵심 자료', 'Portfolio Section Structure': '포트폴리오 구성', 'Anticipated Questions': '예상 질문',
-  'Site & Range': '대지와 범위', 'Recommended Board': '추천하는 판', Alternatives: '다른 선택',
-  'Layers & Material': '층과 재료', 'Assembly Order': '조립 순서',
+  'Physical Model': '모형',
 };
 
 // Words the prompts ask experts to tag items with, shown as badges (tone = status-badge class).
@@ -469,13 +477,7 @@ export const EXPERT_LAYOUTS = {
     { section: 'Essential Diagrams', kind: 'cards', top: true },
     { section: 'Diagram Sequence', kind: 'steps' },
     { columns: ['Supporting Drawings', 'Other Media'], kind: 'list' },
-  ],
-  model_maker: [
-    { section: 'Recommended Board', kind: 'cards', top: true },
-    { section: 'Site & Range', kind: 'list' },
-    { columns: ['Alternatives', 'Layers & Material'], kind: 'cards' },
-    { section: 'Assembly Order', kind: 'steps' },
-    { section: 'Unconfirmed', kind: 'checklist' },
+    { section: 'Physical Model', kind: 'list' },
   ],
   presentation_editor: [
     { section: 'One-line Summary', kind: 'lead' },
@@ -820,9 +822,9 @@ export function keepNewDraft(draft, field, value) {
   return { ...(draft || {}), [field]: String(value ?? '') };
 }
 
-// ------------------------------------------------------------------ the model maker's recommendation
-// The model maker ends its document with a ```json block {board, scale, orient, thickness}, so
-// the screen can lay the board out as recommended (추천대로 놓기).
+// ------------------------------------------------------------------ the site model's recommendation
+// The representation planner ends its document with a ```json block {board, scale, orient,
+// thickness} when it recommends a model board, so the 모형 tab can lay it out (추천대로 놓기).
 
 const BOARD_KEYS = ['A0', 'A1', 'A2', 'W600x900', 'W900x1800'];
 const FENCE = /```\s*json\s*\n([\s\S]*?)```/gi;
@@ -835,7 +837,7 @@ function boardKey(name) {
   return BOARD_KEYS.find((k) => k.toLowerCase() === key.toLowerCase()) || '';
 }
 
-// The recommendation in a model maker document, read leniently (a fenced or bare object, "1:600"
+// The recommendation in a representation planner document, read leniently (a fenced or bare object, "1:600"
 // for the scale, "3mm" for the thickness, "가로"/"세로" for the orientation), or null.
 export function parseRecommendation(markdown) {
   const text = String(markdown || '');

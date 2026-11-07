@@ -33,3 +33,6 @@ def test_representation_planner_leads_with_diagrams():
     assert not {"Drawings", "Renders / Visuals", "Model / Prototype"} & set(sections)
     prompt = (ROOT / "agents" / "61_representation_planner.md").read_text(encoding="utf-8")
     assert "Diagrams first" in prompt and "One diagram, one claim" in prompt
+    # the laser-cut site model comes last, from Sida's board numbers only, with a JSON block to place it
+    assert sections[-2:] == ["Physical Model", "Handoff"]
+    assert "come only from the Board Options" in prompt and '"board": "W600x900"' in prompt
