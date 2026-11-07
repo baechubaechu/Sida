@@ -78,3 +78,16 @@ def test_a_round_range_makes_a_round_model(pack):  # noqa: F811
     assert summary["shape"] == "circle" and summary["radius"] == 60 and summary["size"] is None
     with pytest.raises(ValueError):
         model_base.stepped(plan_for_site(), 1.0, 100, folder=pack, around=around(pack_buildings=False), shape="hexagon")
+
+
+def test_a_rectangle_range_makes_an_oblong_model(pack):  # noqa: F811
+    view = model_base.stepped(plan_for_site(), 1.0, 90, folder=pack, around=around(pack_buildings=False),
+                              shape="rect", orient="portrait")
+    assert (view["shape"], view["orient"]) == ("rect", "portrait")
+    outline = [p for poly in view["steps"][0]["polygons"] for p in poly["outline"]]
+    assert max(abs(x) for x, _ in outline) == pytest.approx(60, abs=0.5)  # 2/3 of 90 m east–west
+    assert max(abs(y) for _, y in outline) == pytest.approx(90, abs=0.5)
+    _, summary = model_base.cut_files(plan_for_site(), radius=60, scale=1000, thickness_mm=2, sheet=(300, 200),
+                                      folder=pack, around=around(pack_buildings=True), shape="rect")
+    assert (summary["shape"], summary["orient"]) == ("rect", "landscape")
+    assert summary["size_mm"] == [120.0, 80.0]

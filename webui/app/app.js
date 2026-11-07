@@ -13,7 +13,7 @@ import {
 import {
   keepSelected, pickedNames, massIds, canCompare, COMPARE_QUESTION, addQuestion,
   ideaText, moveIdea, dropIdea, sameOrder, ideaPapers, linkPapers, pickedNotes, ideasInPlay, MAX_IDEA_TEXT, MAX_IDEA_PAPERS,
-  floatState, floatPlace, floatAnchor, ideaShape, modelBaseQuery, readModelSummary,
+  floatState, floatPlace, floatAnchor, ideaShape, modelBaseQuery, readModelSummary, rangeQuery,
 } from './board-model.js';
 import {
   COMMANDS, GROUP_LABELS, readLine, suggest, pickOption, addHistory, remember, HISTORY_LINES,
@@ -303,12 +303,12 @@ function tableHooks(name) {
     }, true),
     photoUrl: (id) => `${projectApi(name)}/board/photos/${encodeURIComponent(id)}`,
     // The site's surroundings in 3D (ground, nearby buildings): GET .../site/context.
-    // range {size, shape}: as asked; none: the project's saved range.
-    context: (range) => api(`${projectApi(name)}/site/context${range ? `?size=${encodeURIComponent(range.size)}&shape=${encodeURIComponent(range.shape)}` : ''}`),
+    // range {size, shape, orient}: as asked; none: the project's saved range.
+    context: (range) => api(`${projectApi(name)}/site/context${range ? `?${rangeQuery(range)}` : ''}`),
     range: () => api(`${projectApi(name)}/site/context/range`),
     saveRange: (range) => api(`${projectApi(name)}/site/context/range`, { method: 'PUT', body: range }),
     // The model base: the stepped ground (GET .../site/model-base) and its laser files (a zip).
-    modelBase: (interval, range) => api(`${projectApi(name)}/site/model-base?interval=${encodeURIComponent(interval)}${range ? `&size=${encodeURIComponent(range.size)}&shape=${encodeURIComponent(range.shape)}` : ''}`),
+    modelBase: (interval, range) => api(`${projectApi(name)}/site/model-base?interval=${encodeURIComponent(interval)}${range ? `&${rangeQuery(range)}` : ''}`),
     modelFiles: (settings, range) => downloadModelBase(name, settings, range),
     place: (id, placement) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}/place`, { method: 'POST', body: placement }), true),
     discard: (id) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}`, { method: 'DELETE' }), true),

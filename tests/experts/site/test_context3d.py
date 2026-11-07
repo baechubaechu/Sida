@@ -650,12 +650,43 @@ def test_a_round_range_leaves_out_what_lies_in_the_square_corners(pack, monkeypa
         context3d.build(plan_for_site(), 200, folder=pack, shape="hexagon")
 
 
+def test_a_rectangle_range_is_two_thirds_as_deep_and_turns_with_its_orientation(pack, monkeypatch):
+    fake_vworld_layers(monkeypatch)
+    conn = terrain_pack.create(pack / f"b{terrain_pack.SUFFIX}", {"name": "b", "kind": "buildings", "source": "GIS건물통합정보"})
+    terrain_pack.add_building(conn, square(0, 170, 8)[:-1], {"floors": 3, "use": "공장", "name": "북쪽"})  # 170 m north
+    terrain_pack.add_building(conn, square(170, 0, 8)[:-1], {"floors": 3, "use": "공장", "name": "동쪽"})  # 170 m east
+    conn.commit()
+    conn.close()
+    names = lambda out: {b["name"] for b in out["buildings"]} | {b["name"] for b in out["unknown_buildings"]}  # noqa: E731
+    wide = context3d.build(plan_for_site(), 200, folder=pack, ledger=ledger, use_cache=False, shape="rect")
+    tall = context3d.build(plan_for_site(), 200, folder=pack, ledger=ledger, use_cache=False, shape="rect", orient="portrait")
+    assert (wide["shape"], wide["orient"], tall["orient"]) == ("rect", "landscape", "portrait")
+    assert names(wide) >= {"동쪽"} and "북쪽" not in names(wide)  # ±200 m east–west, ±133 m north–south
+    assert names(tall) >= {"북쪽"} and "동쪽" not in names(tall)
+    assert all(abs(x) <= 200.01 and abs(y) <= 200 * 2 / 3 + 0.01 for c in wide["contours"] for x, y in c["points"])
+    t = wide["terrain"]
+    row = lambda j: t["classes"][j * t["n"]:(j + 1) * t["n"]]  # noqa: E731
+    assert set(row(0)) == {"x"} and "x" not in row(t["n"] // 2)  # the south edge of the square grid is outside
+    surface = context3d.ground_surface(wide)
+    assert surface["nx"] == t["n"] and surface["ny"] < t["n"] and len(surface["z"]) == surface["nx"] * surface["ny"]
+    assert -200 * 2 / 3 - 1e-6 <= surface["min_y"] and "clip_radius" not in surface
+    assert context3d.ground_surface(tall)["nx"] < t["n"]
+    assert context3d.half_sides(300, context3d.range_key("rect", "portrait")) == (200.0, 300.0)
+    with pytest.raises(ValueError):
+        context3d.build(plan_for_site(), 200, folder=pack, shape="rect", orient="diagonal")
+
+
 def test_the_range_choice_is_read_back_or_the_default(tmp_path):
     from sida.experts.site import context_range
 
-    assert context_range.load(tmp_path) == {"size": "medium", "shape": "square", "radius": 200.0}
-    assert context_range.save(tmp_path, "large", "circle") == {"size": "large", "shape": "circle", "radius": 300.0}
+    assert context_range.load(tmp_path) == {"size": "medium", "shape": "square", "orient": "landscape", "radius": 200.0}
+    assert context_range.save(tmp_path, "large", "circle") == {"size": "large", "shape": "circle", "orient": "landscape", "radius": 300.0}
     assert context_range.load(tmp_path)["shape"] == "circle"
+    context_range.write(tmp_path, {**context_range.read(tmp_path), "model": {"board": "A1"}})
+    assert context_range.save(tmp_path, "small", "rect", "portrait")["orient"] == "portrait"
+    assert context_range.read(tmp_path)["model"] == {"board": "A1"}  # other keys in the file are kept
+    with pytest.raises(ValueError):
+        context_range.save(tmp_path, "small", "rect", "diagonal")
     (tmp_path / context_range.FILE).write_text("not json")
     assert context_range.load(tmp_path)["size"] == "medium"  # an unreadable file is the default
     with pytest.raises(ValueError):

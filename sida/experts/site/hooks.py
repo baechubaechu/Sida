@@ -41,7 +41,8 @@ def board_export_layers(project_dir) -> list[dict]:
         return []
     picked = context_range.load(project_dir)
     try:
-        return context3d.export_layers(context3d.build(plan, picked["radius"], shape=picked["shape"], for_export=True))
+        return context3d.export_layers(context3d.build(plan, picked["radius"], shape=picked["shape"], orient=picked["orient"],
+                                       for_export=True))
     except (landapi.LandApiError, ValueError):
         return []
 
@@ -58,7 +59,8 @@ def board_ground(project_dir) -> dict | None:
         return None
     picked = context_range.load(project_dir)
     try:
-        around = context3d.build(plan, picked["radius"], shape=picked["shape"], for_export=True)
+        around = context3d.build(plan, picked["radius"], shape=picked["shape"], orient=picked["orient"],
+                                       for_export=True)
     except (landapi.LandApiError, ValueError):
         return None
     return context3d.ground_surface(around)

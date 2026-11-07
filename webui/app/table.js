@@ -22,7 +22,7 @@ import {
   massIds, createHistory, recordStep, undoStep, redoStep, changedFields, planDrawing,
   photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE, MAX_PHOTO_BYTES,
   isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, resizable, resizedPaper,
-  CONTOUR_STEPS, RANGE_SIZES, RANGE_SHAPES, OUTSIDE, terrainFaces,
+  CONTOUR_STEPS, RANGE_SIZES, RANGE_SHAPES, RANGE_ORIENTS, DEFAULT_RANGE, parseRange, OUTSIDE, terrainFaces,
   MODEL_SCALES, MODEL_DEFAULTS, stepInterval, readSheet, modelSummaryText, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, noteStartsOpen, buildingInfo,
 } from './board-model.js';
 
@@ -93,7 +93,7 @@ export class DraftingTable {
     this.aroundBusy = false;
     this.aroundRequest = null;
     this.aroundNoteOpen = null; // the source note: open or folded (decided by the width when first shown)
-    this.aroundRange = null; // {size, shape}: the project's range for the surroundings, read once
+    this.aroundRange = null; // {size, shape, orient}: the project's range for the surroundings, read once
     this.model = { ...MODEL_DEFAULTS }; // the model base: scale, sheet thickness (mm), sheet WxH (mm), hollow rim (mm)
     this.modelOpen = false;
     this.modelBusy = false;
@@ -884,19 +884,21 @@ export class DraftingTable {
     this.drawControls();
   }
 
-  // 범위 and 모양 for the surroundings, beside the 주변 3D button.
+  // 범위, 모양 and (for a rectangle) 방향 for the surroundings, beside the 주변 3D button.
   rangeSelects() {
     this.readRange();
-    const r = this.aroundRange || { size: 'medium', shape: 'square' };
+    const r = this.aroundRange || DEFAULT_RANGE;
     const off = this.aroundBusy ? 'disabled' : '';
-    return `<label class="check">범위 <select data-ui="around-size" aria-label="주변 범위" ${off}>${RANGE_SIZES.map((s) => `<option value="${s.key}" ${s.key === r.size ? 'selected' : ''}>${s.label}</option>`).join('')}</select></label>
-      <label class="check">모양 <select data-ui="around-shape" aria-label="주변 모양" ${off}>${RANGE_SHAPES.map((s) => `<option value="${s.key}" ${s.key === r.shape ? 'selected' : ''}>${s.label}</option>`).join('')}</select></label>
+    const pick = (ui, label, items, value) => `<label class="check">${label} <select data-ui="${ui}" aria-label="주변 ${label}" ${off}>${items.map((s) => `<option value="${s.key}" ${s.key === value ? 'selected' : ''}>${s.label}</option>`).join('')}</select></label>`;
+    return `${pick('around-size', '범위', RANGE_SIZES, r.size)}
+      ${pick('around-shape', '모양', RANGE_SHAPES, r.shape)}
+      ${r.shape === 'rect' ? pick('around-orient', '방향', RANGE_ORIENTS, r.orient) : ''}
       ${this.modelMenu()}`;
   }
 
-  // A new range (size, shape): kept for the project, and the surroundings made again if shown.
+  // A new range (size, shape, orient): kept for the project, and the surroundings made again if shown.
   async changeRange(change) {
-    const range = { ...(this.aroundRange || { size: 'medium', shape: 'square' }), ...change };
+    const range = { ...(this.aroundRange || DEFAULT_RANGE), ...change };
     this.aroundRange = range;
     try {
       if (this.hooks.saveRange) await this.hooks.saveRange(range);
@@ -920,7 +922,7 @@ export class DraftingTable {
     this.aroundRangeAsked = true;
     try {
       const range = await this.hooks.range();
-      if (!this.aroundRange) this.aroundRange = { size: range.size, shape: range.shape };
+      if (!this.aroundRange) this.aroundRange = parseRange(range);
       this.drawControls();
     } catch { /* the defaults stay */ }
   }
@@ -939,7 +941,7 @@ export class DraftingTable {
         const context = await this.hooks.context(this.aroundRange);
         if (request !== this.aroundRequest) return;
         this.around = context;
-        this.aroundRange = { size: context.size || 'medium', shape: context.shape || 'square' };
+        this.aroundRange = parseRange(context);
       } catch (error) {
         if (request !== this.aroundRequest) return;
         this.say(`주변 지형·건물을 불러오지 못했습니다. ${error.message}`);
@@ -991,7 +993,7 @@ export class DraftingTable {
         }
       }
       geom.setAttribute('color', col);
-      if (t.classes?.includes(OUTSIDE)) geom.setIndex(terrainFaces(t)); // a round range: the cells inside
+      if (t.classes?.includes(OUTSIDE)) geom.setIndex(terrainFaces(t)); // a round or oblong range: the cells inside
       geom.computeVertexNormals();
       const ground = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ vertexColors: true }));
       ground.receiveShadow = true;
@@ -2111,6 +2113,7 @@ export class DraftingTable {
       if (e.target.dataset.ui === 'contour-step') { this.contourStep = Number(e.target.value) || 1; this.drawAround(); }
       if (e.target.dataset.ui === 'around-size') this.changeRange({ size: e.target.value });
       if (e.target.dataset.ui === 'around-shape') this.changeRange({ shape: e.target.value });
+      if (e.target.dataset.ui === 'around-orient') this.changeRange({ orient: e.target.value });
       if (e.target.dataset.ui?.startsWith('model-')) this.modelSetting(e.target.dataset.ui.slice(6), e.target.value);
       if (e.target === this.photoInput && this.photoInput.files.length) this.addPhotos([...this.photoInput.files]);
       if (e.target.dataset.detailTitle) this.saveTitle(e.target.dataset.detailTitle, e.target.value);

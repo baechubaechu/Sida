@@ -1473,9 +1473,9 @@ def test_site_context_range_is_kept_per_project_and_shapes_the_surroundings(clie
     assert (body["size"], body["shape"], body["radius"]) == ("medium", "square", 200.0)
     assert "x" not in body["terrain"]["classes"]
 
-    assert client.get(f"{url}/range").json() == {"size": "medium", "shape": "square", "radius": 200.0}
+    assert client.get(f"{url}/range").json() == {"size": "medium", "shape": "square", "orient": "landscape", "radius": 200.0}
     saved = client.put(f"{url}/range", json={"size": "small", "shape": "circle"}).json()
-    assert saved == {"size": "small", "shape": "circle", "radius": 100.0}
+    assert saved == {"size": "small", "shape": "circle", "orient": "landscape", "radius": 100.0}
     assert client.get(f"{url}/range").json() == saved
     assert (project.path / "site_context.json").exists() and not (project.path / "board.json").exists()
     context3d._cache.clear()
@@ -1487,8 +1487,19 @@ def test_site_context_range_is_kept_per_project_and_shapes_the_surroundings(clie
     body = client.get(url, params={"size": "large", "shape": "square"}).json()  # asked for, not saved
     assert (body["radius"], body["shape"]) == (300.0, "square")
     assert client.get(url, params={"radius": 150}).json()["radius"] == 150.0  # the old way still works
-    for bad in ({"size": "huge", "shape": "square"}, {"size": "small", "shape": "hexagon"}, {}):
+    context3d._cache.clear()
+    wide = client.put(f"{url}/range", json={"size": "small", "shape": "rect", "orient": "portrait"}).json()
+    assert (wide["shape"], wide["orient"]) == ("rect", "portrait")
+    body = client.get(url).json()
+    assert (body["shape"], body["orient"]) == ("rect", "portrait")
+    t = body["terrain"]
+    mid = (t["n"] // 2) * t["n"]
+    assert t["classes"][mid] == "x" and t["classes"][mid + t["n"] // 2] != "x"  # portrait: the west edge is outside
+    assert client.get(url, params={"shape": "rect", "orient": "landscape"}).json()["orient"] == "landscape"
+    for bad in ({"size": "huge", "shape": "square"}, {"size": "small", "shape": "hexagon"}, {},
+                {"size": "small", "shape": "rect", "orient": "diagonal"}):
         assert client.put(f"{url}/range", json=bad).status_code == 400
+    assert client.get(url, params={"shape": "rect", "orient": "diagonal"}).status_code == 400
     assert client.get(url, params={"shape": "hexagon"}).status_code == 400
     assert client.get(url, params={"size": "huge"}).status_code == 400
     assert client.put("/api/projects/nope/site/context/range", json={"size": "small", "shape": "circle"}).status_code == 404
@@ -1519,6 +1530,11 @@ def test_model_base_follows_the_saved_range_or_the_one_asked_for(client, project
                                                         "size": "medium", "shape": "square"})
     told = dict(kv.split("=", 1) for kv in r.headers["X-Model-Base"].split(";"))
     assert (told["shape"], told["size"]) == ("square", "medium")
+    r = client.get(f"{base}/model-base/files", params={"scale": 1000, "thickness": 2, "sheet": "300x200",
+                                                        "size": "small", "shape": "rect", "orient": "portrait"})
+    told = dict(kv.split("=", 1) for kv in r.headers["X-Model-Base"].split(";"))
+    assert (told["shape"], told["orient"]) == ("rect", "portrait")
+    assert client.get(f"{base}/model-base", params={"shape": "rect", "orient": "diagonal"}).status_code == 400
     assert client.get(f"{base}/model-base/files", params={"shape": "hexagon"}).status_code == 400
     assert client.get(f"{base}/model-base/files", params={"size": "huge"}).status_code == 400
     assert client.get(f"{base}/model-base", params={"size": "huge"}).status_code == 400

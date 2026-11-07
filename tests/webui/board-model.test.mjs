@@ -882,7 +882,17 @@ test('a round range leaves the ground cells outside it out of the mesh and the c
   assert.ok(segs(round).length < segs(square).length);
   assert.ok(segs(round).every(([x1, y1, x2, y2]) => !(x1 > 0 && y1 > 0 && x2 > 0 && y2 > 0))); // none in the cut cell
   assert.deepEqual(RANGE_SIZES.map((s) => [s.key, s.radius]), [['small', 100], ['medium', 200], ['large', 300]]);
-  assert.deepEqual(RANGE_SHAPES.map((s) => s.key), ['square', 'circle']);
+  assert.deepEqual(RANGE_SHAPES.map((s) => s.key), ['square', 'circle', 'rect']);
+});
+
+test('the range: query and what the server sends back', async () => {
+  const { rangeQuery, parseRange, RANGE_ORIENTS } = await import('../../webui/app/board-model.js');
+  assert.equal(rangeQuery({ size: 'small', shape: 'circle', orient: 'portrait' }), 'size=small&shape=circle'); // orient only for a rectangle
+  assert.equal(rangeQuery({ size: 'large', shape: 'rect', orient: 'portrait' }), 'size=large&shape=rect&orient=portrait');
+  assert.equal(rangeQuery(null), '');
+  assert.deepEqual(parseRange({ size: 'large', shape: 'rect', orient: 'portrait', radius: 300 }), { size: 'large', shape: 'rect', orient: 'portrait' });
+  assert.deepEqual(parseRange({}), { size: 'medium', shape: 'square', orient: 'landscape' });
+  assert.deepEqual(RANGE_ORIENTS.map((o) => o.label), ['가로', '세로']);
 });
 
 test('the model base: step height, sheet size, the files request and the summary line', async () => {
@@ -900,6 +910,7 @@ test('the model base: step height, sheet size, the files request and the summary
   assert.equal(s.sheets, '2');
   assert.equal(modelSummaryText(s), '판 2장 · 조각 31개 · 층 4개 · 400×400 mm (작게, 원)');
   assert.match(modelSummaryText({ ...s, size: 'None', radius: '150.0', shape: 'square', buildings_left_out: 'True' }), /반경 150m, 정사각형\) · 실시간 건물은/);
+  assert.match(modelSummaryText({ ...s, shape: 'rect', orient: 'portrait' }), /\(작게, 직사각형 세로\)/);
   assert.equal(modelSummaryText({}), '');
 });
 

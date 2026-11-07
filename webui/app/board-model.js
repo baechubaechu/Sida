@@ -919,13 +919,35 @@ export function massBase(outline, terrain) {
 // entry per height, {z, index, segments: [[x1, y1, x2, y2], ...]}; every fifth height is an
 // index contour. The very top height (which only touches the grid) is skipped.
 // The range the surroundings are made in (GET/PUT .../site/context/range): the size as a radius
-// (a square is ±radius) and the shape. A round range marks the ground outside it OUTSIDE.
+// (a square is ±radius), the shape and, for a rectangle, its orientation (long side east–west or
+// north–south; the short side is 2/3 of the long one). A round or oblong range marks the ground
+// outside it OUTSIDE.
 export const RANGE_SIZES = [
   { key: 'small', label: '작게 · 반경 100m', radius: 100 },
   { key: 'medium', label: '중간 · 반경 200m', radius: 200 },
   { key: 'large', label: '크게 · 반경 300m', radius: 300 },
 ];
-export const RANGE_SHAPES = [{ key: 'square', label: '정사각형' }, { key: 'circle', label: '원' }];
+export const RANGE_SHAPES = [{ key: 'square', label: '정사각형' }, { key: 'circle', label: '원' }, { key: 'rect', label: '직사각형' }];
+export const RANGE_ORIENTS = [{ key: 'landscape', label: '가로' }, { key: 'portrait', label: '세로' }];
+export const DEFAULT_RANGE = { size: 'medium', shape: 'square', orient: 'landscape' };
+
+// The range as the server takes it in a query (size, shape, and orient for a rectangle).
+export function rangeQuery(range) {
+  const q = new URLSearchParams();
+  if (range?.size) q.set('size', range.size);
+  if (range?.shape) q.set('shape', range.shape);
+  if (range?.shape === 'rect' && range.orient) q.set('orient', range.orient);
+  return q.toString();
+}
+
+// A range read from the server (GET .../context/range or the surroundings), with the defaults.
+export function parseRange(r) {
+  return {
+    size: r?.size || DEFAULT_RANGE.size,
+    shape: r?.shape || DEFAULT_RANGE.shape,
+    orient: r?.orient === 'portrait' ? 'portrait' : 'landscape',
+  };
+}
 export const OUTSIDE = 'x';
 
 // Whether the ground cell from point (i, j) to (i + 1, j + 1) is drawn: none of its corners outside.
@@ -1287,8 +1309,7 @@ export function modelBaseQuery(settings, range) {
     scale: String(s.scale), thickness: String(s.thickness), sheet: sheet ? `${sheet[0]}x${sheet[1]}` : String(s.sheet),
     hollow: String(s.hollow || 0),
   });
-  if (range?.size) q.set('size', range.size);
-  if (range?.shape) q.set('shape', range.shape);
+  for (const [k, v] of new URLSearchParams(rangeQuery(range))) q.set(k, v);
   return q.toString();
 }
 
@@ -1305,7 +1326,7 @@ export function readModelSummary(header) {
 export function modelSummaryText(summary) {
   if (!summary || !summary.sheets) return '';
   const size = (summary.size_mm || '').split('x').map((v) => Math.round(Number(v))).filter(Boolean);
-  const shape = summary.shape === 'circle' ? '원' : '정사각형';
+  const shape = summary.shape === 'circle' ? '원' : summary.shape === 'rect' ? `직사각형 ${summary.orient === 'portrait' ? '세로' : '가로'}` : '정사각형';
   const name = { small: '작게', medium: '중간', large: '크게' }[summary.size] || `반경 ${Math.round(Number(summary.radius) || 0)}m`;
   return `판 ${summary.sheets}장 · 조각 ${summary.pieces}개 · 층 ${summary.layers}개`
     + (size.length === 2 ? ` · ${size[0]}×${size[1]} mm` : '') + ` (${name}, ${shape})`
