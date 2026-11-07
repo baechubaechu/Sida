@@ -373,7 +373,9 @@ async function toggleVWorld(name, on = !ui.vworld) {
     return;
   }
   if (!ui.mapLayers.webgl3d) {
-    toast('브이월드 3D 지도를 열 수 없습니다. 설정에서 브이월드 키나 Sida 자료 서버 키를 확인하세요.', 'info');
+    toast(ui.mapLayers.relay
+      ? '브이월드 3D 지도가 아직 Sida 자료 서버에 준비되지 않았습니다. 이 PC에 브이월드 키를 넣으면 바로 열 수 있습니다.'
+      : '브이월드 3D 지도를 열 수 없습니다. 설정에서 브이월드 키나 Sida 자료 서버 키를 확인하세요.', 'info');
     return;
   }
   if (!vworldView) {

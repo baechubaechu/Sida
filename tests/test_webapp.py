@@ -701,10 +701,14 @@ def test_map_layers_through_the_sida_relay_have_no_key_and_the_relays_3d_page(cl
     monkeypatch.delenv("VWORLD_API_KEY")
     monkeypatch.setenv("SIDA_RELAY_URL", "https://sida-kr.duckdns.org")
     monkeypatch.setenv("SIDA_RELAY_TOKEN", "sida_test-access-key-0001")
+    fake_vworld.overrides["health"] = {"ok": True, "services": {"vworld": True, "vworld3d": True}}
     layers = client.get("/api/site/map").json()
     assert layers["relay"] is True
     assert layers["webgl3d"] == {"page": "https://sida-kr.duckdns.org/relay/vworld3d?sida_token=sida_test-access-key-0001",
                                  "version": "3.0"}
+    # a relay without a 3D key of its own: no 3D map (the screen says so)
+    fake_vworld.overrides["health"] = {"ok": True, "services": {"vworld": True, "vworld3d": False}}
+    assert client.get("/api/site/map").json()["webgl3d"] is None
     assert layers["base"]["url"].startswith("https://sida-kr.duckdns.org/relay/vworld/")
     assert "test-key" not in str(layers)
 

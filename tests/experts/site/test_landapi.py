@@ -408,15 +408,40 @@ def test_map_layers_through_the_relay_carry_no_key_and_the_relays_3d_page(monkey
     monkeypatch.delenv("VWORLD_API_KEY")
     monkeypatch.setenv("SIDA_RELAY_URL", "https://sida-kr.duckdns.org")
     monkeypatch.setenv("SIDA_RELAY_TOKEN", TOKEN)
+    asked = []
+    health = {"ok": True, "services": {"vworld": True, "vworld3d": True}}
+    monkeypatch.setattr(landapi, "_http_get", lambda url, params: asked.append(url) or health)
     layers = landapi.map_layers()
     assert layers["relay"] is True
     # VWorld's 3D map needs a key in the browser: the relay serves the 3D page with its own in it
     assert layers["webgl3d"] == {"page": f"https://sida-kr.duckdns.org/relay/vworld3d?sida_token={TOKEN}", "version": "3.0"}
+    assert asked == ["https://sida-kr.duckdns.org/relay/health"]  # whether the relay has a 3D key
     # the browser loads these itself, so the access key (not a government key) rides along
     assert layers["base"]["url"] == f"https://sida-kr.duckdns.org/relay/vworld/req/wmts/1.0.0/Base/{{z}}/{{y}}/{{x}}.png?sida_token={TOKEN}"
     assert layers["cadastral"]["url"] == "https://sida-kr.duckdns.org/relay/vworld/req/wms"
     assert "key" not in layers["cadastral"]["params"] and layers["cadastral"]["params"]["sida_token"] == TOKEN
     assert "test-key" not in str(layers)
+
+
+@pytest.mark.parametrize("answer", [
+    {"ok": True, "services": {"vworld": True, "vworld3d": False}},
+    {"ok": True, "services": {"vworld": True}},  # a relay from before the 3D page
+    LandApiError("network", "ConnectionError"),
+], ids=["no-3d-key", "old-relay", "unreachable"])
+def test_map_layers_through_a_relay_without_a_3d_key_have_no_3d_map(monkeypatch, answer):
+    monkeypatch.delenv("VWORLD_API_KEY")
+    monkeypatch.setenv("SIDA_RELAY_URL", "https://sida-kr.duckdns.org")
+    monkeypatch.setenv("SIDA_RELAY_TOKEN", TOKEN)
+
+    def http_get(url, params):
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(landapi, "_http_get", http_get)
+    layers = landapi.map_layers()
+    assert layers["relay"] is True and layers["webgl3d"] is None
+    assert layers["base"]["url"].startswith("https://sida-kr.duckdns.org/relay/vworld/")  # the 2D map still works
 
 
 def test_the_relay_daily_limit_is_over_limit(monkeypatch):

@@ -58,7 +58,7 @@
 
 | 용도 | 메서드·경로 | 요청 | 응답 |
 |---|---|---|---|
-| 지도 이미지 주소 | `GET /api/site/map` | 없음 | `{relay, base: {url, attribution}, cadastral: {url, params, crs, min_zoom, opacity}, webgl3d}`. 이 PC에 브이월드 키가 없어 Sida 자료 서버를 거치면 `relay: true`, 주소에 정부 키 대신 접속 키(`sida_token`)가 붙고 `webgl3d`는 자료 서버의 3D 페이지(`{page: "…/relay/vworld3d?sida_token=…", version}`, 서버가 3D 키를 채워 줌). 이 PC의 키가 있으면 `webgl3d`는 `{page: "/app/vworld3d.html", script, version}` |
+| 지도 이미지 주소 | `GET /api/site/map` | 없음 | `{relay, base: {url, attribution}, cadastral: {url, params, crs, min_zoom, opacity}, webgl3d}`. 이 PC에 브이월드 키가 없어 Sida 자료 서버를 거치면 `relay: true`, 주소에 정부 키 대신 접속 키(`sida_token`)가 붙고 `webgl3d`는 자료 서버의 3D 페이지(`{page: "…/relay/vworld3d?sida_token=…", version}`, 서버가 3D 전용 키를 채워 줌). 자료 서버에 3D 전용 키가 없으면(`/relay/health`의 `vworld3d`) `webgl3d`는 `null`이고 화면이 그렇게 알림. 이 PC의 키가 있으면 `webgl3d`는 `{page: "/app/vworld3d.html", script, version}` |
 | 지도 클릭으로 필지 찾기 | `GET /api/site/parcel-at?lon=126.945978&lat=37.37025` | 클릭한 지점 | `{lon, lat, candidates: [필지]}` (0개 또는 1개) |
 | 고른 필지들의 경계 | `GET /api/site/shapes?pnu=…&pnu=…` | 필지 번호(최대 50개) | `{shapes: [{pnu, shape}]}` |
 

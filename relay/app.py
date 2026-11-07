@@ -23,8 +23,9 @@ back as it came (status, content type, body).
   VWorld checks the key against the page's address. So this server serves the app's 3D page
   itself (GET /relay/vworld3d, a copy of webui/app/vworld3d.html in relay/static/) with the 3D
   script address filled in. The app shows it in a frame and drives it by postMessage. The 3D key
-  is then in the viewer's browser, as with any web map; it is a key of its own
-  (VWORLD_3D_API_KEY) where one is set, and only the Sida app's own pages may frame the page.
+  is then in the viewer's browser, as with any web map, so it is a key of its own with only the
+  3D map on it (VWORLD_3D_API_KEY; no 3D page without it), and only the Sida app's own pages may
+  frame the page.
 
 Run: uvicorn relay.app:from_env --factory (see relay/README.md).
 """
@@ -89,7 +90,9 @@ class Keys:
     vworld_domain: str = ""  # the service address the VWorld key was issued for
     datago: str = ""
     law: str = ""
-    vworld3d: str = ""  # a key of its own for the 3D map, which ends up in viewers' browsers
+    # The 3D map's own key (only VWorld's 3D map API on it), which ends up in viewers' browsers.
+    # Never the server's other VWorld key: without this one there is no 3D page.
+    vworld3d: str = ""
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> Keys:
@@ -101,11 +104,6 @@ class Keys:
             law=env.get("LAW_OPEN_API_OC", "").strip(),
             vworld3d=env.get("VWORLD_3D_API_KEY", "").strip(),
         )
-
-    @property
-    def webgl3d(self) -> str:
-        """The key the 3D page carries: the 3D map's own, or else the server's VWorld key."""
-        return self.vworld3d or self.vworld
 
     def secrets(self) -> list[str]:
         return [k for k in (self.vworld, self.datago, self.law) if len(k) >= 6]
@@ -246,15 +244,16 @@ def create_app(
     @app.get("/relay/health")
     def health() -> dict:
         return {"ok": True, "services": {"vworld": bool(keys.vworld), "datago": bool(keys.datago),
-                                         "law": bool(keys.law), "vworld3d": bool(keys.webgl3d)}}
+                                         "law": bool(keys.law), "vworld3d": bool(keys.vworld3d)}}
 
     @app.get("/relay/vworld3d")
     def vworld3d_page(request: Request) -> Response:
         # Opened as a frame's address, so the access key comes as a parameter (like map images).
         # Not counted as an API call: VWorld's own viewer loads the map from here on.
-        need(keys.webgl3d)
+        if not keys.vworld3d:
+            raise HTTPException(status_code=503, detail="3D map is not set up on the relay")
         access_key(request, image=True)
-        return Response(content=webgl3d_page(keys.webgl3d), media_type="text/html; charset=utf-8", headers={
+        return Response(content=webgl3d_page(keys.vworld3d), media_type="text/html; charset=utf-8", headers={
             "Cache-Control": "no-store",
             # VWorld sees only this server's address, never the access key in this page's address
             "Referrer-Policy": "origin",

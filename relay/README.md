@@ -52,7 +52,7 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
 | 경로 | 보내는 곳 |
 |---|---|
 | `GET /relay/health` | `{"ok": true, "services": {"vworld", "datago", "law", "vworld3d"}}` 서버에 키가 있는지 (접속 키 필요 없음) |
-| `GET /relay/vworld3d?sida_token=…` | 앱의 브이월드 3D 페이지(`static/vworld3d.html`)에 서버의 3D 스크립트 주소를 채워 돌려줌. 앱이 틀(iframe)로 엶. 하루 호출 수에 세지 않음 |
+| `GET /relay/vworld3d?sida_token=…` | 앱의 브이월드 3D 페이지(`static/vworld3d.html`)에 서버의 3D 스크립트 주소(`VWORLD_3D_API_KEY`)를 채워 돌려줌. 앱이 틀(iframe)로 엶. 하루 호출 수에 세지 않음. 3D 키가 없으면 503 |
 | `GET /relay/vworld3d-frame.js` | 위 페이지의 스크립트 (접속 키 필요 없음) |
 | `POST /relay/requests` `{name, contact}` | 키 요청. `201 {id, claim, state: "pending"}` (접속 키 필요 없음) |
 | `POST /relay/requests/claim` `{claim}` | 요청 상태 `{id, state}`. 승인 직후 한 번만 `key`가 붙음. 모르는 코드는 404 |
@@ -72,7 +72,8 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
 - 키가 없는 PC의 앱은 `https://sida-kr.duckdns.org/relay/vworld3d?sida_token=…`을 틀(iframe)로 열고, 제도판과 `postMessage`로만 주고받습니다(`webui/app/vworld3d-frame.js`). 3D 타일은 사용자 PC가 브이월드에서 바로 받습니다(서버를 거치지 않음).
 - 브이월드에는 이 서버 주소가 페이지 주소로 보입니다(`Referrer-Policy: origin`이라 접속 키는 넘어가지 않음). 그래서 도메인을 엄격히 보는 **운영키로 바꿔도** 그대로 됩니다.
 - 이 페이지를 틀로 넣을 수 있는 곳은 이 PC의 Sida 앱(`http://localhost`, `http://127.0.0.1`)뿐입니다(`Content-Security-Policy: frame-ancestors`).
-- 3D 키는 보는 사람의 브라우저에 들어갑니다(웹 지도는 다 그렇습니다). 서버의 다른 조회에 쓰는 키와 나눠 두려면 3D 지도만 고른 브이월드 키를 따로 받아 `relay.env`에 `VWORLD_3D_API_KEY=`로 넣습니다. 없으면 `VWORLD_API_KEY`를 씁니다.
+- 3D 키는 보는 사람의 브라우저에 들어갑니다(웹 지도는 다 그렇고, 개발자 도구로 볼 수 있습니다). 그래서 **3D 지도 API만 고른 브이월드 키를 따로** 받아(서비스 URL `https://sida-kr.duckdns.org`) `relay.env`에 `VWORLD_3D_API_KEY=`로 넣습니다. 서버의 다른 조회에 쓰는 `VWORLD_API_KEY`는 절대 브라우저로 가지 않습니다. `VWORLD_3D_API_KEY`가 없으면 3D 페이지는 `503`이고 `/relay/health`의 `vworld3d`가 `false`라, 앱은 3D 지도 대신 "아직 Sida 자료 서버에 준비되지 않았습니다" 안내를 띄웁니다.
+- 3D 키가 새어 나가면 브이월드에서 그 키만 폐기하고 새로 받아 `relay.env`를 바꾼 뒤 `docker compose up -d relay`로 다시 켭니다. 개발키는 도메인 확인이 느슨해 다른 곳에서도 쓰일 수 있고, 운영키는 도메인을 엄격히 봅니다.
 - 페이지와 스크립트는 `webui/app/`의 것을 `relay/static/`에 복사해 둡니다(서버 이미지는 `relay/`만으로 만들기 때문). 둘이 다르면 테스트가 실패하니, `webui/app/vworld3d.html`이나 `vworld3d-frame.js`를 고치면 `relay/static/`에도 복사합니다.
 
 ## 앱에서 이 서버로 안 되는 것
@@ -92,7 +93,7 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
    VWORLD_DOMAIN=https://sida-kr.duckdns.org
    DATA_GO_KR_API_KEY=...
    LAW_OPEN_API_OC=...
-   # 선택: 3D 지도 전용 브이월드 키 (없으면 VWORLD_API_KEY)
+   # 3D 지도 API만 고른 브이월드 키 (서비스 URL https://sida-kr.duckdns.org). 없으면 3D 지도는 꺼짐
    VWORLD_3D_API_KEY=...
    ```
 

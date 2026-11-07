@@ -11,7 +11,7 @@ from relay import app as relay
 from relay.tokens import KST, TokenStore
 
 KEYS = relay.Keys(vworld="vw-server-key", vworld_domain="https://sida-kr.duckdns.org",
-                  datago="dg-server-key", law="law-server-oc")
+                  datago="dg-server-key", law="law-server-oc", vworld3d="vw-3d-key")
 
 
 class FakeUpstream:
@@ -162,7 +162,7 @@ def test_usage_is_counted_per_key_and_service_without_queries(client, store, ups
 def test_a_service_without_a_server_key_says_so(store, upstream, token):
     bare = TestClient(relay.create_app(relay.Keys(vworld="vw-server-key"), store, fetch=upstream))
     assert bare.get("/relay/health").json() == {"ok": True, "services": {"vworld": True, "datago": False, "law": False,
-                                                                         "vworld3d": True}}  # the VWorld key serves 3D too
+                                                                         "vworld3d": False}}  # not the VWorld key
     assert call(bare, "/relay/law/DRF/lawSearch.do", {"target": "aiSearch"}, token).status_code == 503
     assert upstream.calls == []
 
@@ -175,9 +175,9 @@ def test_overlong_parameters_are_refused(client, upstream, token):
 def test_keys_come_from_the_environment():
     keys = relay.Keys.from_env({"VWORLD_API_KEY": " k ", "VWORLD_DOMAIN": "https://d", "LAW_OPEN_API_OC": "oc"})
     assert keys == relay.Keys(vworld="k", vworld_domain="https://d", datago="", law="oc")
-    assert keys.webgl3d == "k"  # without a key of its own, the 3D map uses the server's VWorld key
+    assert keys.vworld3d == ""  # never the server's VWorld key: that one stays on the server
     keys = relay.Keys.from_env({"VWORLD_API_KEY": "kkkkkk", "VWORLD_3D_API_KEY": " k3d-key "})
-    assert (keys.vworld, keys.webgl3d) == ("kkkkkk", "k3d-key")
+    assert (keys.vworld, keys.vworld3d) == ("kkkkkk", "k3d-key")
     assert "k3d-key" not in keys.secrets()  # the 3D key is in viewers' browsers anyway
 
 
@@ -197,8 +197,8 @@ def test_the_3d_page_needs_an_access_key_and_carries_the_3d_key(client, store, u
     r = client.get("/relay/vworld3d", params={"sida_token": token})
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
     page = r.text
-    script = "https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey=vw-server-key"
-    assert f'window.SIDA_VWORLD_SCRIPT = "{script}";' in page
+    script = "https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey=vw-3d-key"
+    assert f'window.SIDA_VWORLD_SCRIPT = "{script}";' in page and "vw-server-key" not in page
     # the address is set before the page's own script loads VWorld's, and the rest is the app's page
     assert page.index("SIDA_VWORLD_SCRIPT =") < page.index("window.SIDA_VWORLD_SCRIPT ||")
     # framed by the app on another origin, VWorld's viewer would reach for parent.window.ws3d and
@@ -213,12 +213,13 @@ def test_the_3d_page_needs_an_access_key_and_carries_the_3d_key(client, store, u
     assert client.get("/relay/vworld3d", params={"sida_token": token}).status_code == 403
 
 
-def test_the_3d_page_uses_the_3d_key_and_needs_one(store, upstream, token):
-    own = TestClient(relay.create_app(relay.Keys(vworld="vw-server-key", vworld3d="vw-3d-key"), store, fetch=upstream))
-    page = own.get("/relay/vworld3d", params={"sida_token": token}).text
-    assert "apiKey=vw-3d-key" in page and "vw-server-key" not in page
-    bare = TestClient(relay.create_app(relay.Keys(datago="dg"), store, fetch=upstream))
-    assert bare.get("/relay/vworld3d", params={"sida_token": token}).status_code == 503
+def test_without_a_3d_key_there_is_no_3d_page(store, upstream, token):
+    # the server's VWorld key (search, data ...) never goes into a browser
+    no3d = TestClient(relay.create_app(relay.Keys(vworld="vw-server-key"), store, fetch=upstream))
+    r = no3d.get("/relay/vworld3d", params={"sida_token": token})
+    assert r.status_code == 503 and "vw-server-key" not in r.text
+    assert r.json()["detail"] == "3D map is not set up on the relay"
+    assert no3d.get("/relay/health").json()["services"]["vworld3d"] is False
 
 
 def test_the_3d_key_is_written_into_the_page_safely():
