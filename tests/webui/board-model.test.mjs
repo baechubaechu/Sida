@@ -729,11 +729,49 @@ test('the board masses go on the VWorld 3D map as lon/lat polygons standing on t
 
 test('the VWorld map look (white model, no ground photo) is read back safely', async () => {
   const { readLook } = await import('../../webui/app/board-model.js');
-  assert.deepEqual(readLook(JSON.stringify({ white: true, plain: false })), { white: true, plain: false });
-  assert.deepEqual(readLook(JSON.stringify({ white: true, plain: true })), { white: true, plain: true });
-  assert.deepEqual(readLook(null), { white: false, plain: false }); // nothing stored: photos on
-  assert.deepEqual(readLook('not json'), { white: false, plain: false });
-  assert.deepEqual(readLook(JSON.stringify({ white: 'yes', plain: 1 })), { white: false, plain: false }); // only true counts
+  assert.deepEqual(readLook(JSON.stringify({ white: true, plain: false })), { white: true, plain: false, noNames: false });
+  assert.deepEqual(readLook(JSON.stringify({ white: true, plain: true, noNames: true })), { white: true, plain: true, noNames: true });
+  assert.deepEqual(readLook(null), { white: false, plain: false, noNames: false }); // nothing stored: photos and names on
+  assert.deepEqual(readLook('not json'), { white: false, plain: false, noNames: false });
+  assert.deepEqual(readLook(JSON.stringify({ white: 'yes', plain: 1, noNames: 'y' })), { white: false, plain: false, noNames: false }); // only true counts
+});
+
+test('hiding VWorld buildings goes step by step, with undo and redo', async () => {
+  const { startHistory, commitHistory, undoHistory, redoHistory, hideBuildings, MAX_HIDE_STEPS } = await import('../../webui/app/board-model.js');
+  let h = startHistory(['old']);
+  h = commitHistory(h, hideBuildings(h.present, ['a'])); // a click, confirmed
+  h = commitHistory(h, hideBuildings(h.present, ['b', 'c'])); // 대지 위 건물 숨기기
+  assert.deepEqual(h.present, ['old', 'a', 'b', 'c']);
+  assert.equal(commitHistory(h, ['old', 'a', 'b', 'c']), h); // the same list is no step
+  h = commitHistory(h, []); // 숨긴 건물 모두 보이기
+  h = undoHistory(h);
+  assert.deepEqual(h.present, ['old', 'a', 'b', 'c']); // Ctrl+Z brings them back as they were
+  h = undoHistory(undoHistory(h));
+  assert.deepEqual(h.present, ['old']); // back to what the project had
+  assert.equal(undoHistory(h), h); // nothing more to undo
+  h = redoHistory(h);
+  assert.deepEqual(h.present, ['old', 'a']);
+  h = commitHistory(h, hideBuildings(h.present, ['d'])); // a new step drops what was undone
+  assert.equal(redoHistory(h), h);
+  assert.deepEqual(h.present, ['old', 'a', 'd']);
+  let long = startHistory([]);
+  for (let i = 0; i < MAX_HIDE_STEPS + 10; i += 1) long = commitHistory(long, [...long.present, `m${i}`]);
+  assert.equal(long.past.length, MAX_HIDE_STEPS);
+});
+
+test('keys on the VWorld map: Delete hides the picked building, Esc cancels, Ctrl+Z undoes', async () => {
+  const { hideKey } = await import('../../webui/app/board-model.js');
+  assert.equal(hideKey({ key: 'Delete' }, true), 'hide');
+  assert.equal(hideKey({ key: 'Backspace' }, true), 'hide');
+  assert.equal(hideKey({ key: 'Delete' }, false), ''); // nothing picked: the key is not ours
+  assert.equal(hideKey({ key: 'Escape' }, true), 'cancel');
+  assert.equal(hideKey({ key: 'Escape' }, false), '');
+  assert.equal(hideKey({ key: 'z', ctrl: true }, false), 'undo');
+  assert.equal(hideKey({ key: 'Z', meta: true }, false), 'undo');
+  assert.equal(hideKey({ key: 'Z', ctrl: true, shift: true }, false), 'redo');
+  assert.equal(hideKey({ key: 'y', ctrl: true }, false), 'redo');
+  assert.equal(hideKey({ key: 'c', ctrl: true }, true), '');
+  assert.equal(hideKey({ key: 'a' }, true), '');
 });
 
 test('a corner drag resizes a paper about its opposite corner, within the limits', () => {

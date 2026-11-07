@@ -1099,10 +1099,44 @@ export function hideBuildings(hidden, ids) {
 }
 
 // How the viewer likes the VWorld map (vworld-view.js keeps it for the page, not the project):
-// white: buildings as a white model, plain: the ground without the aerial photo. Anything
-// unreadable is the default (the photos on).
+// white: buildings as a white model, plain: the ground without the aerial photo, noNames:
+// VWorld's name labels off. Anything unreadable is the default (photos and names on).
 export function readLook(stored) {
   let v = null;
   try { v = JSON.parse(stored); } catch { v = null; }
-  return { white: v?.white === true, plain: v?.plain === true };
+  return { white: v?.white === true, plain: v?.plain === true, noNames: v?.noNames === true };
+}
+
+// The hiding steps on the VWorld map, for Ctrl+Z and Ctrl+Shift+Z: the hidden lists before
+// (past), now (present) and undone (future). A new step clears what was undone; the same list
+// again is no step. At most MAX_HIDE_STEPS steps back.
+export const MAX_HIDE_STEPS = 50;
+export function startHistory(present) {
+  return { past: [], present: [...(present || [])], future: [] };
+}
+export function commitHistory(h, next) {
+  if (sameOrder(h.present, next)) return h;
+  return { past: [...h.past, h.present].slice(-MAX_HIDE_STEPS), present: [...next], future: [] };
+}
+export function undoHistory(h) {
+  if (!h.past.length) return h;
+  return { past: h.past.slice(0, -1), present: h.past.at(-1), future: [h.present, ...h.future] };
+}
+export function redoHistory(h) {
+  if (!h.future.length) return h;
+  return { past: [...h.past, h.present], present: h.future[0], future: h.future.slice(1) };
+}
+
+// What a key does on the VWorld map: 'hide' (Delete or Backspace with a building picked),
+// 'cancel' (Esc with one picked), 'undo' (Ctrl+Z / ⌘Z), 'redo' (Ctrl+Shift+Z, Ctrl+Y), or ''.
+export function hideKey({ key, ctrl, meta, shift }, picked) {
+  const k = String(key || '').toLowerCase();
+  if (ctrl || meta) {
+    if (k === 'z') return shift ? 'redo' : 'undo';
+    if (k === 'y') return 'redo';
+    return '';
+  }
+  if (picked && (k === 'delete' || k === 'backspace')) return 'hide';
+  if (picked && k === 'escape') return 'cancel';
+  return '';
 }
