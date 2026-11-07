@@ -50,7 +50,8 @@ addopts = "-q --tb=short"
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-exclude = [".venv"]
+# extend-exclude keeps ruff's own list (venv, site-packages, node_modules); _logs is local scratch
+extend-exclude = ["_logs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]

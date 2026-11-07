@@ -37,6 +37,7 @@ node --test tests/webui/model.test.mjs tests/webui/board-model.test.mjs tests/we
 - 고치는 중에는 **바꾼 부분의 테스트만** 돌린다: `pytest -q tests/test_<모듈>.py`, 한 테스트만 볼 때는 `-k 이름`. 커밋 전에 `python scripts/related_tests.py`로 이 브랜치가 바꾼 파일 전체의 관련 테스트를 한 번 돌린다.
 - **전체 테스트는 한 작업에 한 번까지만**, 공통 테스트 설정(`tests/conftest.py`, `pyproject.toml`)을 바꿨거나 여러 모듈에 걸친 변경일 때 `pytest -n auto`로 돌린다. 그 밖의 전체 검사는 CI에 맡긴다.
 - 출력은 짧게 둔다(`pyproject.toml`이 `-q --tb=short`를 기본으로 넣는다). 실패를 볼 때는 `-x`(첫 실패에서 멈춤)나 `--lf`(지난번 실패만 다시)를 쓰고, 통과한 테스트 목록을 출력하지 않는다(`-v` 금지).
+- `parametrize`에 bytes나 긴 문자열을 넣으면 `ids=[...]`를 붙인다. 붙이지 않으면 pytest 버전에 따라 값 전체가 테스트 이름이 되어(20MB 값 → 80MB 이름) Windows에서 실행이 몇 분씩 걸린다. `tests/conftest.py`가 300자 넘는 테스트 이름을 막는다.
 - 느린 테스트(1초 이상)를 만들지 않는다. 기다림(`time.sleep`)은 바꿔치기하고, 큰 계산은 작은 입력으로 시험한다. 확인: `pytest --durations=10`.
 
 ## 테스트 규칙 (안전장치)
