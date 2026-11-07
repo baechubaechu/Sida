@@ -13,7 +13,7 @@ import {
 import {
   keepSelected, pickedNames, massIds, canCompare, COMPARE_QUESTION, addQuestion,
   ideaText, moveIdea, dropIdea, sameOrder, ideaPapers, linkPapers, pickedNotes, ideasInPlay, MAX_IDEA_TEXT, MAX_IDEA_PAPERS,
-  floatState, floatPlace, floatAnchor, ideaShape, modelBaseQuery, readModelSummary, rangeQuery,
+  floatState, floatPlace, floatAnchor, ideaShape, readModelSummary, rangeQuery,
 } from './board-model.js';
 import {
   COMMANDS, GROUP_LABELS, readLine, suggest, pickOption, addHistory, remember, HISTORY_LINES,
@@ -309,7 +309,11 @@ function tableHooks(name) {
     saveRange: (range) => api(`${projectApi(name)}/site/context/range`, { method: 'PUT', body: range }),
     // The model base: the stepped ground (GET .../site/model-base) and its laser files (a zip).
     modelBase: (interval, range) => api(`${projectApi(name)}/site/model-base?interval=${encodeURIComponent(interval)}${range ? `&${rangeQuery(range)}` : ''}`),
-    modelFiles: (settings, range) => downloadModelBase(name, settings, range),
+    // The model board (모형 판): the kept settings, fitting it to the range, its plan and laser files.
+    modelSettings: () => api(`${projectApi(name)}/site/model-base/settings`),
+    modelFit: (p) => api(`${projectApi(name)}/site/model-base/fit?${new URLSearchParams(Object.entries(p).filter(([, v]) => v != null && v !== ''))}`),
+    modelPlan: (body) => api(`${projectApi(name)}/site/model-base/plan`, { method: 'POST', body }),
+    modelBoardFiles: (body) => downloadModelBoard(name, body),
     place: (id, placement) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}/place`, { method: 'POST', body: placement }), true),
     discard: (id) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}`, { method: 'DELETE' }), true),
     select: (ids) => { ui.selected = ids; render(false); },
@@ -2499,10 +2503,12 @@ async function downloadBoard(name, format) {
 
 // The laser files for a site model: the zip goes to the designer's downloads; the server's summary
 // (X-Model-Base) comes back for the table to show. A 400 (too big, no terrain) comes as its message.
-async function downloadModelBase(name, settings, range) {
+async function downloadModelBoard(name, body) {
   let response;
   try {
-    response = await fetch(`${projectApi(name)}/site/model-base/files?${modelBaseQuery(settings, range)}`);
+    response = await fetch(`${projectApi(name)}/site/model-base/files`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
   } catch {
     throw new Error('Sida 서버에 연결할 수 없습니다.');
   }
@@ -2514,7 +2520,7 @@ async function downloadModelBase(name, settings, range) {
   const summary = readModelSummary(response.headers.get('X-Model-Base'));
   const link = document.createElement('a');
   link.href = URL.createObjectURL(await response.blob());
-  link.download = `${currentProjectLabel(name)}_모형바닥_1-${settings.scale}_${settings.thickness}mm.zip`;
+  link.download = `${currentProjectLabel(name)}_모형판_1-${body.scale}_${body.thickness_mm}mm.zip`;
   link.hidden = true;
   document.body.append(link);
   link.click();

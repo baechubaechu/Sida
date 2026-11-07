@@ -1026,13 +1026,20 @@ body.moving-float, body.moving-float * { cursor: grabbing !important; user-selec
 .vworld-credit { position: absolute; left: 12px; bottom: 34px; margin: 0; padding: 3px 8px; border-radius: 6px; background: rgb(255 255 255 / .85); font-size: 11px; color: var(--muted); max-width: calc(100% - 24px); }
 
 /* 모형 바닥 (laser files for a site model), in the table's toolbar beside the 주변 3D range. */
-.model-menu { margin-top: 4px; }
-.model-menu > summary { cursor: pointer; padding: 4px 8px; border-radius: 6px; font-size: 12px; }
-.model-menu[open] > summary { background: var(--surface-2, #f1f1ef); }
-.model-form { display: grid; gap: 6px; padding: 8px; font-size: 12px; min-width: 180px; }
-.model-form label { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.model-form input { width: 64px; }
-.model-form input[data-ui="model-sheet"] { width: 84px; }
-.model-form small, .model-step { color: var(--muted); margin: 0; }
-.model-note { margin: 0; color: var(--text, inherit); }
+.model-panel { position: absolute; top: 56px; right: 12px; z-index: 6; width: min(492px, calc(100% - 24px));
+  max-height: calc(100% - 72px); overflow: auto; background: var(--surface, #fff); border: 1px solid var(--line, #d8d8d4);
+  border-radius: 10px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.16); font-size: 12px; }
+.model-panel-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line, #e4e4e0); }
+.model-panel-head button { border: 0; background: none; font-size: 16px; cursor: pointer; }
+.model-panel-body { padding: 10px 12px 12px; }
+.model-maker { display: grid; gap: 8px; }
+.model-maker .mm-map { width: 100%; height: auto; border: 1px solid var(--line, #d8d8d4); border-radius: 6px; cursor: grab; touch-action: none; background: #f4f2ec; }
+.model-maker .mm-form { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.model-maker .mm-form label { display: flex; align-items: center; gap: 4px; }
+.model-maker .mm-form input[type="number"] { width: 72px; }
+.model-maker .mm-form small, .model-maker .mm-note { color: var(--muted); }
+.model-maker .mm-info { margin: 0; font-variant-numeric: tabular-nums; }
+.model-maker .mm-info.mm-bad { color: #d1242f; }
+.model-maker .mm-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.model-maker .mm-note { margin: 0; }
 

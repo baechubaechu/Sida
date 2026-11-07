@@ -23,7 +23,7 @@ import {
   photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE, MAX_PHOTO_BYTES,
   isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, resizable, resizedPaper,
   CONTOUR_STEPS, RANGE_SIZES, RANGE_SHAPES, RANGE_ORIENTS, DEFAULT_RANGE, parseRange, OUTSIDE, terrainFaces,
-  MODEL_SCALES, MODEL_DEFAULTS, stepInterval, readSheet, modelSummaryText, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, noteStartsOpen, buildingInfo,
+  GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, noteStartsOpen, buildingInfo,
 } from './board-model.js';
 
 const SNAP = 7; // metres: a tracing sheet this close to its place on the site clicks into register
@@ -94,10 +94,8 @@ export class DraftingTable {
     this.aroundRequest = null;
     this.aroundNoteOpen = null; // the source note: open or folded (decided by the width when first shown)
     this.aroundRange = null; // {size, shape, orient}: the project's range for the surroundings, read once
-    this.model = { ...MODEL_DEFAULTS }; // the model base: scale, sheet thickness (mm), sheet WxH (mm), hollow rim (mm)
-    this.modelOpen = false;
-    this.modelBusy = false;
-    this.modelNote = '';
+    this.modelOpen = false; // the 모형 판 panel (model-maker.js), made when first opened
+    this.maker = null;
     this.stepped = null; // the stepped ground (GET .../site/model-base) for the 계단식 보기
     this.steppedOn = false;
     this.aroundLow = 0;
@@ -124,6 +122,7 @@ export class DraftingTable {
       <p class="table-ui ui-help">왼쪽 끌기: 선택 상자(→ 안에 든 것, ← 걸친 것, Shift 더하기, Ctrl 빼기) · 건물 클릭: 그 동만 고르기(끌면 옮김, 검볼, Delete 지우기) · 스케치업 도구는 명령으로: rect pushpull move copy rotate scale eraser dist (제도판에서 글자를 치면 명령창으로) · Ctrl+C/V 복사·붙여넣기, Ctrl+A 모든 동 · 고른 이름표 끌기: 종이 옮기기 · 휠: 커서 기준 확대 · 우클릭 끌기: 돌리기 · Shift+우클릭·가운데 버튼 끌기: 이동 · Ctrl+Z: 되돌리기 · 사진·PDF: 파일을 끌어다 놓거나 붙여넣기(photo) · 종이 모서리 끌기: 크기 조절</p>
       <p class="table-ui ui-hint" role="status" hidden></p>
       <section class="table-ui around-note" aria-label="주변 3D 자료 출처" hidden></section>
+      <section class="table-ui model-panel" aria-label="모형 판" hidden></section>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
       <section class="table-ui peek" aria-label="종이 내용" hidden></section>
       <section class="table-ui scheme-form" aria-label="매스안 입력" hidden></section>
@@ -816,71 +815,59 @@ export class DraftingTable {
 
   // ------------------------------------------------------------------ the site's surroundings
 
-  // 모형 바닥: the settings for the laser files, the stepped view and the download.
+  // 모형 바닥: the button that opens the 모형 판 panel (model-maker.js) over the table.
   modelMenu() {
-    const m = this.model;
-    const off = this.modelBusy ? 'disabled' : '';
-    return `<details class="model-menu" ${this.modelOpen ? 'open' : ''}><summary data-ui="model-menu">모형 바닥</summary>
-      <div class="model-form">
-        <label>축척 <select data-ui="model-scale">${MODEL_SCALES.map((s) => `<option value="${s}" ${s === m.scale ? 'selected' : ''}>1:${s}</option>`).join('')}</select></label>
-        <label>판 두께 <input data-ui="model-thickness" type="number" min="0.5" max="20" step="0.5" value="${m.thickness}"> mm</label>
-        <label>판 크기 <input data-ui="model-sheet" value="${escape(m.sheet)}" placeholder="600x400"> mm</label>
-        <label>속 비우기 <input data-ui="model-hollow" type="number" min="0" max="50" step="1" value="${m.hollow}"> mm <small>0이면 끔</small></label>
-        <p class="model-step">계단 간격 ${stepInterval(m.scale, m.thickness)} m (축척 × 판 두께)</p>
-        <button type="button" data-ui="model-stepped" aria-pressed="${this.steppedOn}" ${off}>계단식 보기</button>
-        <button type="button" data-ui="model-files" ${off}>${this.modelBusy ? '만드는 중…' : '레이저 파일 받기'}</button>
-        ${this.modelNote ? `<p class="model-note" role="status">${escape(this.modelNote)}</p>` : ''}
-      </div></details>`;
+    return `<button type="button" data-ui="model-panel" aria-pressed="${this.modelOpen}" title="모형 판 크기·축척을 정해 레이저 커팅 파일 받기">모형 바닥</button>`;
   }
 
-  modelSetting(key, value) {
-    if (key === 'scale') this.model.scale = Number(value) || MODEL_DEFAULTS.scale;
-    if (key === 'thickness') this.model.thickness = Math.min(20, Math.max(0.5, Number(value) || MODEL_DEFAULTS.thickness));
-    if (key === 'sheet') this.model.sheet = String(value || MODEL_DEFAULTS.sheet);
-    if (key === 'hollow') this.model.hollow = Math.min(50, Math.max(0, Number(value) || 0));
-    this.modelNote = key === 'sheet' && !readSheet(this.model.sheet) ? '판 크기는 가로x세로 mm로 적어 주세요 (각 50~3000).' : '';
-    if (this.steppedOn && (key === 'scale' || key === 'thickness')) this.loadStepped();
-    else this.drawControls();
+  async toggleModel() {
+    this.modelOpen = !this.modelOpen;
+    const panel = this.root.querySelector('.model-panel');
+    panel.hidden = !this.modelOpen;
+    this.drawControls();
+    if (!this.modelOpen) return;
+    if (!this.maker) {
+      const { ModelMaker } = await import('./model-maker.js');
+      panel.innerHTML = '<div class="model-panel-head"><strong>모형 판</strong><button type="button" data-ui="model-panel" aria-label="닫기">×</button></div><div class="model-panel-body"></div>';
+      this.maker = new ModelMaker(panel.querySelector('.model-panel-body'), {
+        around: async () => { if (!this.aroundOn) await this.toggleAround(); return this.around; },
+        site: () => this.site,
+        range: () => (this.hooks.range ? this.hooks.range() : Promise.resolve(this.aroundRange || DEFAULT_RANGE)),
+        settings: () => this.hooks.modelSettings(),
+        fit: (params) => this.hooks.modelFit(params),
+        plan: (body) => this.hooks.modelPlan(body),
+        files: (body) => this.hooks.modelBoardFiles(body),
+        stepped: (interval) => this.showStepped(interval),
+      });
+    }
+    await this.maker.open();
   }
 
-  // 계단식 보기: the stepped ground in place of the smooth one (the surroundings are shown with it).
-  async toggleStepped() {
-    if (this.steppedOn) { this.steppedOn = false; this.drawAround(); this.drawControls(); return; }
+  // 계단식 보기 at this step height (m): the stepped ground in place of the smooth one; asked
+  // again for the same height, the smooth ground comes back. True when the steps are shown.
+  async showStepped(interval) {
+    if (this.steppedOn && this.stepInterval === interval) {
+      this.steppedOn = false;
+      this.drawAround();
+      this.drawControls();
+      return false;
+    }
     if (!this.aroundOn) await this.toggleAround();
-    if (!this.aroundOn) return;
+    if (!this.aroundOn || !this.hooks.modelBase) return false;
+    this.stepInterval = interval;
     await this.loadStepped();
+    return this.steppedOn;
   }
 
   async loadStepped() {
     if (!this.hooks.modelBase) return;
-    this.modelBusy = true;
-    this.drawControls();
     try {
-      this.stepped = await this.hooks.modelBase(stepInterval(this.model.scale, this.model.thickness), this.aroundRange);
+      this.stepped = await this.hooks.modelBase(this.stepInterval || 1.5, this.aroundRange);
       this.steppedOn = true;
-      this.modelNote = `계단 ${this.stepped.steps.length}단 · ${stepInterval(this.model.scale, this.model.thickness)} m 간격`;
     } catch (error) {
-      this.modelNote = error.message;
+      this.say(error.message);
     }
-    this.modelBusy = false;
     this.drawAround();
-    this.drawControls();
-  }
-
-  // 레이저 파일 받기: the zip for this range, and its summary.
-  async downloadModel() {
-    if (!this.hooks.modelFiles) return;
-    if (!readSheet(this.model.sheet)) { this.modelNote = '판 크기는 가로x세로 mm로 적어 주세요 (각 50~3000).'; this.drawControls(); return; }
-    this.modelBusy = true;
-    this.modelNote = '';
-    this.drawControls();
-    try {
-      const summary = await this.hooks.modelFiles(this.model, this.aroundRange);
-      this.modelNote = `받았습니다: ${modelSummaryText(summary)}`;
-    } catch (error) {
-      this.modelNote = error.message;
-    }
-    this.modelBusy = false;
     this.drawControls();
   }
 
@@ -914,6 +901,7 @@ export class DraftingTable {
     if (shown) await this.toggleAround();
     else this.drawControls();
     if (shown && stepped) await this.loadStepped();
+    if (this.modelOpen && this.maker) await this.maker.open(); // the board on the new range
   }
 
   // The project's range, read once (for the selects before the surroundings are fetched).
@@ -2114,7 +2102,6 @@ export class DraftingTable {
       if (e.target.dataset.ui === 'around-size') this.changeRange({ size: e.target.value });
       if (e.target.dataset.ui === 'around-shape') this.changeRange({ shape: e.target.value });
       if (e.target.dataset.ui === 'around-orient') this.changeRange({ orient: e.target.value });
-      if (e.target.dataset.ui?.startsWith('model-')) this.modelSetting(e.target.dataset.ui.slice(6), e.target.value);
       if (e.target === this.photoInput && this.photoInput.files.length) this.addPhotos([...this.photoInput.files]);
       if (e.target.dataset.detailTitle) this.saveTitle(e.target.dataset.detailTitle, e.target.value);
     });
@@ -2209,9 +2196,7 @@ export class DraftingTable {
       case 'trace': this.layTracing(); break;
       case 'photo': this.pickPhotos(); break;
       case 'around': this.toggleAround(); break;
-      case 'model-menu': this.modelOpen = !t.closest('details')?.open; break;
-      case 'model-stepped': this.toggleStepped(); break;
-      case 'model-files': this.downloadModel(); break;
+      case 'model-panel': this.toggleModel(); break;
       case 'around-note': this.aroundNoteOpen = !this.aroundNoteOpen; this.drawAroundNote(); break;
       case 'delete': this.removeSelected(); break;
       case 'tray': this.trayOpen = !this.trayOpen; this.drawTray(); this.drawControls(); break;
