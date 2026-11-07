@@ -8,13 +8,15 @@
 
 | 메서드·경로 | 요청 | 응답 |
 |---|---|---|
-| `GET /api/projects/{name}/site/context?radius=200` | `radius`: 대지 가운데에서 m, 50~500(기본 200) | 아래 표. 대지 사실이 없으면 `404`, 반경이 범위 밖이거나 대지 경계가 없으면 `400`, 브이월드 오류는 대지 API와 같은 코드(`503` 키, `429` 한도, `502` 연결) |
+| `GET /api/projects/{name}/site/context?size=medium&shape=square` | `size`: `small`(반경 100m)·`medium`(200m)·`large`(300m), `shape`: `square`(±반경 정사각형)·`circle`(반경 원). 안 주면 프로젝트에 저장한 범위(없으면 `medium`·`square`). 예전 `radius`(m, 50~500)도 `size` 대신 받음 | 아래 표. 대지 사실이 없으면 `404`, 범위·모양·반경이 잘못됐거나 대지 경계가 없으면 `400`, 브이월드 오류는 대지 API와 같은 코드(`503` 키, `429` 한도, `502` 연결) |
+| `GET /api/projects/{name}/site/context/range` | | `{size, shape, radius}`: 이 프로젝트에 저장한 범위(없으면 기본값) |
+| `PUT /api/projects/{name}/site/context/range` | `{size, shape}` | `{size, shape, radius}`. 프로젝트 폴더의 `site_context.json`에 저장(제도판 `board.json`이 아님). 모르는 값은 `400`, 없는 프로젝트는 `404`. 내보내기(`대지 주변` 레이어, 매스 높이)도 이 범위로 만듦 |
 
 | 키 | 내용 |
 |---|---|
-| `origin`, `radius` | 원점(위경도), 반경 |
+| `origin`, `radius`, `size`, `shape` | 원점(위경도), 반경(m), 범위 이름(반경이 그 값일 때, 아니면 `null`), 모양 |
 | `ground_elev` | 대지 가운데 지반의 해발 높이(m). 지형 묶음이 없으면 `null` |
-| `terrain` | `{min, step, n, z, classes}`: `step`(4m) 간격 n×n 격자의 높이(남쪽 줄부터, 대지 가운데 기준)와 점마다 지면 종류 한 글자(`g` 대지, `r` 도로, `s` 인도, `w` 수계). 지형 묶음이 없으면 `null`(평지로 그림) |
+| `terrain` | `{min, step, n, z, classes}`: `step`(4m) 간격 n×n 격자의 높이(남쪽 줄부터, 대지 가운데 기준)와 점마다 지면 종류 한 글자(`g` 대지, `r` 도로, `s` 인도, `w` 수계, `x` 원 밖: 높이는 남기고 화면은 그 칸을 그리지 않음). 지형 묶음이 없으면 `null`(평지로 그림) |
 | `contours` | 원본 등고선(5m 간격) `{elev, z, index, points}`. `index`는 25m마다의 계곡선 |
 | `buildings` | `{outline(반시계), base(기초 바닥), ground(외곽선 아래 지반의 중앙값), foundation, top, height(지반에서), height_source, floors, use, name, on_site, ground_line(지형을 따라가는 접지선 [x,y,z])}` |
 | `unknown_buildings` | 높이도 층수도 없는 건물: `{outline, base, ground_line, name}`. 상자로 세우지 않고 바닥선만 |
@@ -24,7 +26,7 @@
 | `counts`, `notes` | 높이 원천별 건물 수, 일부 조회가 실패한 이유(`ledger:no_key` 등) |
 | `terrain_sources`, `building_source`, `disclaimer` | 출처 이름과 기준일, 면책 문구 |
 
-같은 대지·반경은 10분 동안 서버 메모리에서 다시 씁니다. 브이월드 응답은 저장하지 않습니다(이용약관 제19조⑥).
+원 범위에서는 건물·필지·지면 영역을 가운데가 원 안에 있는 것만 남기고, 등고선도 원으로 자릅니다. 내보내기의 지형은 원 안 칸만 담은 메시(3dm, DXF)입니다. 같은 대지·반경·모양은 10분 동안 서버 메모리에서 다시 씁니다. 브이월드 응답은 저장하지 않습니다(이용약관 제19조⑥).
 
 ## 높이를 정하는 순서
 

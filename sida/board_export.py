@@ -14,7 +14,8 @@ labels as text dots. Both are in metres.
 Another domain can add layers (for example buildings around the site) with a hook
 `board_export_layers(project_dir) -> list[layer]` in its hooks.py, in the same layer form.
 A layer may also hold `surfaces`: height grids (the ground around a site), written as a NURBS
-surface through the grid in 3dm and as a MESH in DXF.
+surface through the grid in 3dm and as a MESH in DXF. A grid with `clip_radius` (a round range)
+is written as a mesh of only the cells within that distance of the origin, in both.
 
 A domain that knows the ground around the site gives it with `board_ground(project_dir) ->
 surface | None` (the surface form above). Each block of a mass then stands on the lowest ground
@@ -58,7 +59,7 @@ _BAD_NAME = re.compile(r'[<>/\\":;?*|=,`{}\[\]]+|::')
 
 def layer(name: str, color, *, parent: str = "", visible: bool = True) -> dict:
     """An empty layer: curves [{points [[x,y,z]], closed}], solids [{outline [[x,y]] counter-
-    clockwise, base, height}], surfaces [{min_x, min_y, step, nx, ny, z}] (heights row by row
+    clockwise, base, height}], surfaces [{min_x, min_y, step, nx, ny, z, clip_radius?}] (heights row by row
     from the south-west corner) and labels [{at [x,y,z], text}]. Optional: `short` (its name
     under the parent group in Rhino) and `linetype` (a DXF linetype such as DASHED)."""
     return {
@@ -274,6 +275,22 @@ def _grid_points(surface: dict) -> list[list[tuple]]:
     ]
 
 
+def grid_cells(surface: dict) -> list[tuple[int, int, int, int]]:
+    """The grid's cells as quads of point indexes (row by row from the south-west, as _grid_points
+    lists them); with `clip_radius`, only the cells whose four corners lie within it."""
+    nx, ny, step = surface["nx"], surface["ny"], surface["step"]
+    clip = surface.get("clip_radius")
+
+    def kept(i, j):
+        if clip is None:
+            return True
+        return all(math.hypot(surface["min_x"] + a * step, surface["min_y"] + b * step) <= clip + 1e-9
+                   for a, b in ((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)))
+
+    return [(j * nx + i, j * nx + i + 1, (j + 1) * nx + i + 1, (j + 1) * nx + i)
+            for j in range(ny - 1) for i in range(nx - 1) if kept(i, j)]
+
+
 def to_dxf(scene: dict) -> bytes:
     """The scene as an AutoCAD 2013 DXF in metres (UTF-8)."""
     import ezdxf
@@ -307,14 +324,10 @@ def to_dxf(scene: dict) -> bytes:
                 data.faces = faces
         for surface in item.get("surfaces") or []:
             rows = _grid_points(surface)
-            nx = surface["nx"]
             mesh = msp.add_mesh(dxfattribs=attribs)
             with mesh.edit_data() as data:
                 data.vertices = [p for row in rows for p in row]
-                data.faces = [
-                    (j * nx + i, j * nx + i + 1, (j + 1) * nx + i + 1, (j + 1) * nx + i)
-                    for j in range(len(rows) - 1) for i in range(nx - 1)
-                ]
+                data.faces = grid_cells(surface)
         for label in item["labels"]:
             msp.add_text(
                 label["text"], height=1.2, dxfattribs={**attribs, "style": style.dxf.name}
@@ -370,6 +383,11 @@ def to_3dm(scene: dict) -> bytes:
                 body.Translate(r.Vector3d(0, 0, solid["base"]))
             model.Objects.AddExtrusion(body, attributes)
         for surface in scene_layer.get("surfaces") or []:
+            if surface.get("clip_radius") is not None:  # a round ground: a mesh of the cells inside
+                mesh = _mesh(r, surface)
+                if mesh is not None:
+                    model.Objects.AddMesh(mesh, attributes)
+                continue
             body = _nurbs(r, surface)
             if body is not None:
                 model.Objects.AddSurface(body, attributes)
@@ -383,6 +401,22 @@ def to_3dm(scene: dict) -> bytes:
         return Path(path).read_bytes()
     finally:
         os.unlink(path)
+
+
+def _mesh(r, surface: dict):
+    """A mesh of the grid's cells within its clip radius (the points of the others left unused)."""
+    cells = grid_cells(surface)
+    if not cells:
+        return None
+    mesh = r.Mesh()
+    for row in _grid_points(surface):
+        for x, y, z in row:
+            mesh.Vertices.Add(x, y, z)
+    for a, b, c, d in cells:
+        mesh.Faces.AddFace(a, b, c, d)
+    mesh.Normals.ComputeNormals()
+    mesh.Compact()
+    return mesh
 
 
 def _nurbs(r, surface: dict):

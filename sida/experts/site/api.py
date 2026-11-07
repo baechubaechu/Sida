@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel
 
 from sida import board, telemetry, workspace
-from sida.experts.site import context3d, datago, landapi, model_base, site_facts
+from sida.experts.site import context3d, context_range, datago, landapi, model_base, site_facts
 from sida.i18n import t
 from sida.model_base.nesting import DoesNotFit
 from sida.project import load_project
@@ -159,18 +159,44 @@ def _project_router(load_config, core) -> APIRouter:
         return site_facts.site_view(facts)
 
     @router.get("/context")
-    def get_context(name: str, radius: float = context3d.DEFAULT_RADIUS) -> dict:
+    def get_context(name: str, radius: float | None = None, size: str | None = None, shape: str | None = None) -> dict:
+        """The surroundings: `size` (small, medium, large) and `shape` (square, circle), each the
+        project's saved range when not given; an old `radius` (m) still works in place of size."""
         path = core(workspace.find_project, load_config(), name)
         facts = site_facts.load_facts(path)
         if facts is None:
             raise HTTPException(status_code=404, detail=t("web_site_none"))
+        saved = context_range.load(path)
+        shape = shape or saved["shape"]
+        if size is not None or radius is None:
+            try:
+                context_range.check(size or saved["size"], shape)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=t("web_site_context_range")) from exc
+            radius = context3d.SIZES[size or saved["size"]]
+        elif shape not in context3d.SHAPES:
+            raise HTTPException(status_code=400, detail=t("web_site_context_range"))
         if not 50 <= radius <= context3d.MAX_RADIUS:
             raise HTTPException(status_code=400, detail=t("web_site_context_radius", max=int(context3d.MAX_RADIUS)))
         plan = board.site_plan(site_facts.board_summary(facts)["parcels"])
         if plan is None:
             raise HTTPException(status_code=400, detail=t("web_site_context_no_plan"))
-        out = _land(context3d.build, plan, radius)
+        out = _land(context3d.build, plan, radius, shape=shape)
         return {**out, "disclaimer": t("site_context_disclaimer")}
+
+    @router.get("/context/range")
+    def get_context_range(name: str) -> dict:
+        """The range the surroundings are made in for this project (the default when none was picked)."""
+        return context_range.load(core(workspace.find_project, load_config(), name))
+
+    @router.put("/context/range")
+    def put_context_range(name: str, body: dict) -> dict:
+        """Keep the range the surroundings are made in for this project: {size, shape}."""
+        path = core(workspace.find_project, load_config(), name)
+        try:
+            return context_range.save(path, str(body.get("size")), str(body.get("shape")))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=t("web_site_context_range")) from exc
 
     def _site_plan(name: str) -> tuple:
         path = core(workspace.find_project, load_config(), name)

@@ -918,6 +918,40 @@ export function massBase(outline, terrain) {
 // Contour lines through the ground grid every `interval` m of height (marching squares): one
 // entry per height, {z, index, segments: [[x1, y1, x2, y2], ...]}; every fifth height is an
 // index contour. The very top height (which only touches the grid) is skipped.
+// The range the surroundings are made in (GET/PUT .../site/context/range): the size as a radius
+// (a square is ±radius) and the shape. A round range marks the ground outside it OUTSIDE.
+export const RANGE_SIZES = [
+  { key: 'small', label: '작게 · 반경 100m', radius: 100 },
+  { key: 'medium', label: '중간 · 반경 200m', radius: 200 },
+  { key: 'large', label: '크게 · 반경 300m', radius: 300 },
+];
+export const RANGE_SHAPES = [{ key: 'square', label: '정사각형' }, { key: 'circle', label: '원' }];
+export const OUTSIDE = 'x';
+
+// Whether the ground cell from point (i, j) to (i + 1, j + 1) is drawn: none of its corners outside.
+export function cellOpen(terrain, i, j) {
+  const c = terrain?.classes;
+  if (!c) return true;
+  const n = terrain.n;
+  return c[j * n + i] !== OUTSIDE && c[j * n + i + 1] !== OUTSIDE && c[(j + 1) * n + i] !== OUTSIDE && c[(j + 1) * n + i + 1] !== OUTSIDE;
+}
+
+// The triangles of the ground mesh (three.js PlaneGeometry's vertex order: rows from the top,
+// north) without the cells that have a corner outside the range.
+export function terrainFaces(terrain) {
+  const n = terrain.n;
+  const out = [];
+  for (let iy = 0; iy < n - 1; iy += 1) {
+    const j = n - 2 - iy; // the cell's southern row of points
+    for (let ix = 0; ix < n - 1; ix += 1) {
+      if (!cellOpen(terrain, ix, j)) continue;
+      const a = ix + n * iy, b = ix + n * (iy + 1), c = ix + 1 + n * (iy + 1), d = ix + 1 + n * iy;
+      out.push(a, b, d, b, c, d);
+    }
+  }
+  return out;
+}
+
 export function contourLines(terrain, interval) {
   if (!terrain || !terrain.n || !(interval > 0)) return [];
   const { n, z } = terrain;
@@ -933,6 +967,7 @@ export function contourLines(terrain, interval) {
     };
     for (let j = 0; j < n - 1; j += 1) {
       for (let i = 0; i < n - 1; i += 1) {
+        if (!cellOpen(terrain, i, j)) continue;
         const corners = [[i, j], [i + 1, j], [i + 1, j + 1], [i, j + 1]];
         const above = corners.map(([ci, cj]) => z[cj * n + ci] >= level);
         if (above.every(Boolean) || !above.some(Boolean)) continue;

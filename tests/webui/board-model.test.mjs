@@ -863,3 +863,24 @@ test('a PDF is taken as it is and its page is drawn as sharp as it is seen', () 
   assert.ok(pdfNeedsRedraw({ width: 1000 }, { width: 1200 })); // it would blur
   assert.ok(pdfNeedsRedraw({ width: 1000 }, { width: 300 })); // much smaller: free the memory
 });
+
+test('a round range leaves the ground cells outside it out of the mesh and the contour lines', async () => {
+  const { contourLines, terrainFaces, cellOpen, RANGE_SIZES, RANGE_SHAPES, OUTSIDE } = await import('../../webui/app/board-model.js');
+  // 3 × 3 points rising northward; the north-east corner point is outside the circle
+  const z = [0, 0, 0, 1, 1, 1, 2, 2, 2];
+  const square = { min: -10, step: 10, n: 3, z, classes: 'ggggggggg' };
+  const round = { ...square, classes: `gggggggg${OUTSIDE}` };
+  assert.equal(terrainFaces(square).length, 4 * 6); // 4 cells, 2 triangles each
+  assert.equal(terrainFaces(round).length, 3 * 6); // the north-east cell is left out
+  assert.equal(cellOpen(round, 1, 1), false);
+  assert.equal(cellOpen(round, 0, 1), true);
+  assert.equal(cellOpen({ ...square, classes: undefined }, 1, 1), true);
+  // PlaneGeometry's vertex order: row 0 is the north row (j = n - 1)
+  const top = terrainFaces(square).slice(0, 6);
+  assert.deepEqual(top, [0, 3, 1, 3, 4, 1]);
+  const segs = (t) => contourLines(t, 0.5).flatMap((l) => l.segments);
+  assert.ok(segs(round).length < segs(square).length);
+  assert.ok(segs(round).every(([x1, y1, x2, y2]) => !(x1 > 0 && y1 > 0 && x2 > 0 && y2 > 0))); // none in the cut cell
+  assert.deepEqual(RANGE_SIZES.map((s) => [s.key, s.radius]), [['small', 100], ['medium', 200], ['large', 300]]);
+  assert.deepEqual(RANGE_SHAPES.map((s) => s.key), ['square', 'circle']);
+});

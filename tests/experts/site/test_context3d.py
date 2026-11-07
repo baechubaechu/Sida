@@ -459,10 +459,10 @@ def test_the_ground_hook_gives_the_terrain_grid_or_nothing(tmp_path, pack, monke
     monkeypatch.setattr(hooks.site_facts, "board_summary", lambda facts: {"parcels": [{}]})
     plan = plan_for_site()
     monkeypatch.setattr("sida.board.site_plan", lambda parcels: plan)
-    monkeypatch.setattr(context3d, "build", lambda plan, **kwargs: out)
+    monkeypatch.setattr(context3d, "build", lambda plan, *args, **kwargs: out)
     ground = hooks.board_ground(tmp_path)
     assert ground["nx"] == out["terrain"]["n"] and ground["min_x"] == out["terrain"]["min"] and ground["z"] == out["terrain"]["z"]
-    monkeypatch.setattr(context3d, "build", lambda plan, **kwargs: {**out, "terrain": None})
+    monkeypatch.setattr(context3d, "build", lambda plan, *args, **kwargs: {**out, "terrain": None})
     assert hooks.board_ground(tmp_path) is None  # no terrain pack over the site
 
 
@@ -628,3 +628,35 @@ def test_contour_points_away_from_roads_are_kept():
     fixed = [(0.0, 5.0, 1.0), (0.0, context3d.ROAD_TRUST, 1.0), (0.0, 2.5 * context3d.ROAD_TRUST, 1.0)]
     kept = context3d.away_from_roads(fixed, roads)
     assert kept == [(0.0, 2.5 * context3d.ROAD_TRUST, 1.0)]  # within ROAD_TRUST dropped, well beyond kept
+
+
+def test_a_round_range_leaves_out_what_lies_in_the_square_corners(pack, monkeypatch):
+    fake_vworld_layers(monkeypatch)
+    conn = terrain_pack.create(pack / f"b{terrain_pack.SUFFIX}", {"name": "b", "kind": "buildings", "source": "GIS건물통합정보"})
+    terrain_pack.add_building(conn, square(170, 170, 8)[:-1], {"floors": 3, "use": "공장", "name": "모퉁이"})  # 240 m out
+    terrain_pack.add_building(conn, square(0, 120, 8)[:-1], {"floors": 3, "use": "공장", "name": "안쪽"})
+    conn.commit()
+    conn.close()
+    names = lambda out: {b["name"] for b in out["buildings"]} | {b["name"] for b in out["unknown_buildings"]}  # noqa: E731
+    square_out = context3d.build(plan_for_site(), 200, folder=pack, ledger=ledger, use_cache=False)
+    round_out = context3d.build(plan_for_site(), 200, folder=pack, ledger=ledger, use_cache=False, shape="circle")
+    assert {"모퉁이", "안쪽"} <= names(square_out)
+    assert "안쪽" in names(round_out) and "모퉁이" not in names(round_out)
+    assert round_out["shape"] == "circle" and round_out["size"] == "medium" and square_out["shape"] == "square"
+    assert all(math.hypot(*p) <= 200.6 for c in round_out["contours"] for p in c["points"])  # clipped to the circle
+    surface = context3d.ground_surface(round_out)
+    assert surface["clip_radius"] == 200.0 and "clip_radius" not in context3d.ground_surface(square_out)
+    with pytest.raises(ValueError):
+        context3d.build(plan_for_site(), 200, folder=pack, shape="hexagon")
+
+
+def test_the_range_choice_is_read_back_or_the_default(tmp_path):
+    from sida.experts.site import context_range
+
+    assert context_range.load(tmp_path) == {"size": "medium", "shape": "square", "radius": 200.0}
+    assert context_range.save(tmp_path, "large", "circle") == {"size": "large", "shape": "circle", "radius": 300.0}
+    assert context_range.load(tmp_path)["shape"] == "circle"
+    (tmp_path / context_range.FILE).write_text("not json")
+    assert context_range.load(tmp_path)["size"] == "medium"  # an unreadable file is the default
+    with pytest.raises(ValueError):
+        context_range.save(tmp_path, "huge", "square")

@@ -300,7 +300,10 @@ function tableHooks(name) {
     }, true),
     photoUrl: (id) => `${projectApi(name)}/board/photos/${encodeURIComponent(id)}`,
     // The site's surroundings in 3D (ground, nearby buildings): GET .../site/context.
-    context: (radius) => api(`${projectApi(name)}/site/context?radius=${encodeURIComponent(radius)}`),
+    // range {size, shape}: as asked; none: the project's saved range.
+    context: (range) => api(`${projectApi(name)}/site/context${range ? `?size=${encodeURIComponent(range.size)}&shape=${encodeURIComponent(range.shape)}` : ''}`),
+    range: () => api(`${projectApi(name)}/site/context/range`),
+    saveRange: (range) => api(`${projectApi(name)}/site/context/range`, { method: 'PUT', body: range }),
     place: (id, placement) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}/place`, { method: 'POST', body: placement }), true),
     discard: (id) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}`, { method: 'DELETE' }), true),
     select: (ids) => { ui.selected = ids; render(false); },

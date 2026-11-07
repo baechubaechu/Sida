@@ -22,7 +22,7 @@ import {
   massIds, createHistory, recordStep, undoStep, redoStep, changedFields, planDrawing,
   photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE, MAX_PHOTO_BYTES,
   isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, resizable, resizedPaper,
-  CONTOUR_STEPS, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, noteStartsOpen, buildingInfo,
+  CONTOUR_STEPS, RANGE_SIZES, RANGE_SHAPES, OUTSIDE, terrainFaces, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, noteStartsOpen, buildingInfo,
 } from './board-model.js';
 
 const SNAP = 7; // metres: a tracing sheet this close to its place on the site clicks into register
@@ -92,6 +92,7 @@ export class DraftingTable {
     this.aroundBusy = false;
     this.aroundRequest = null;
     this.aroundNoteOpen = null; // the source note: open or folded (decided by the width when first shown)
+    this.aroundRange = null; // {size, shape}: the project's range for the surroundings, read once
     this.aroundLow = 0;
     this.contourStep = 1;
     this.root = document.createElement('div');
@@ -808,6 +809,42 @@ export class DraftingTable {
 
   // ------------------------------------------------------------------ the site's surroundings
 
+  // 범위 and 모양 for the surroundings, beside the 주변 3D button.
+  rangeSelects() {
+    this.readRange();
+    const r = this.aroundRange || { size: 'medium', shape: 'square' };
+    const off = this.aroundBusy ? 'disabled' : '';
+    return `<label class="check">범위 <select data-ui="around-size" aria-label="주변 범위" ${off}>${RANGE_SIZES.map((s) => `<option value="${s.key}" ${s.key === r.size ? 'selected' : ''}>${s.label}</option>`).join('')}</select></label>
+      <label class="check">모양 <select data-ui="around-shape" aria-label="주변 모양" ${off}>${RANGE_SHAPES.map((s) => `<option value="${s.key}" ${s.key === r.shape ? 'selected' : ''}>${s.label}</option>`).join('')}</select></label>`;
+  }
+
+  // A new range (size, shape): kept for the project, and the surroundings made again if shown.
+  async changeRange(change) {
+    const range = { ...(this.aroundRange || { size: 'medium', shape: 'square' }), ...change };
+    this.aroundRange = range;
+    try {
+      if (this.hooks.saveRange) await this.hooks.saveRange(range);
+    } catch (error) {
+      this.say(`범위를 저장하지 못했습니다. ${error.message}`);
+    }
+    const shown = this.aroundOn;
+    this.around = null;
+    this.aroundOn = false;
+    if (shown) await this.toggleAround();
+    else this.drawControls();
+  }
+
+  // The project's range, read once (for the selects before the surroundings are fetched).
+  async readRange() {
+    if (this.aroundRange || this.aroundRangeAsked || !this.hooks.range) return;
+    this.aroundRangeAsked = true;
+    try {
+      const range = await this.hooks.range();
+      if (!this.aroundRange) this.aroundRange = { size: range.size, shape: range.shape };
+      this.drawControls();
+    } catch { /* the defaults stay */ }
+  }
+
   // Show or hide the ground and buildings around the site; the first time they are fetched.
   async toggleAround() {
     if (this.aroundBusy) return;
@@ -819,9 +856,10 @@ export class DraftingTable {
       this.aroundBusy = true;
       this.drawControls();
       try {
-        const context = await this.hooks.context(200);
+        const context = await this.hooks.context(this.aroundRange);
         if (request !== this.aroundRequest) return;
         this.around = context;
+        this.aroundRange = { size: context.size || 'medium', shape: context.shape || 'square' };
       } catch (error) {
         if (request !== this.aroundRequest) return;
         this.say(`주변 지형·건물을 불러오지 못했습니다. ${error.message}`);
@@ -872,6 +910,7 @@ export class DraftingTable {
         }
       }
       geom.setAttribute('color', col);
+      if (t.classes?.includes(OUTSIDE)) geom.setIndex(terrainFaces(t)); // a round range: the cells inside
       geom.computeVertexNormals();
       const ground = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ vertexColors: true }));
       ground.receiveShadow = true;
@@ -1766,7 +1805,8 @@ export class DraftingTable {
       <button type="button" data-ui="scheme-new" title="숫자로 매스안 만들기">＋ 매스안</button>
       <button type="button" data-ui="trace" title="트레이싱지 덮기 (명령: trace)">트레이싱지 덮기</button>
       <button type="button" data-ui="photo" title="사진·PDF 올리기 (명령: photo) — 사진이나 PDF 도면을 제도판에 끌어다 놓거나 붙여넣어도 됩니다">사진·PDF 올리기</button>
-      <button type="button" data-ui="around" aria-pressed="${this.aroundOn}" ${this.site?.plan && !this.aroundBusy ? '' : 'disabled'} title="대지 주변 200m의 지형과 건물을 3D로 보기 (공공 자료로 만든 참고용 모형)">${this.aroundBusy ? '주변 불러오는 중…' : '주변 3D'}</button>
+      <button type="button" data-ui="around" aria-pressed="${this.aroundOn}" ${this.site?.plan && !this.aroundBusy ? '' : 'disabled'} title="대지 주변(옆에서 고른 범위·모양)의 지형과 건물을 3D로 보기 (공공 자료로 만든 참고용 모형)">${this.aroundBusy ? '주변 불러오는 중…' : '주변 3D'}</button>
+      ${this.site?.plan ? this.rangeSelects() : ''}
       ${this.aroundOn && this.around?.terrain ? `<label class="check">등고선 <select data-ui="contour-step" aria-label="등고선 간격">${CONTOUR_STEPS.map((s) => `<option value="${s}" ${s === this.contourStep ? 'selected' : ''}>${s}m</option>`).join('')}</select></label>` : ''}
       <button type="button" data-ui="delete" ${this.selected.some((id) => this.papers.some((p) => p.id === id && p.kind !== 'site')) ? '' : 'disabled'} title="삭제 (Delete)">삭제</button>
       <span class="sep"></span>
@@ -1969,6 +2009,8 @@ export class DraftingTable {
     root.addEventListener('change', (e) => {
       if (e.target.dataset.ui === 'ghost') { this.ghost = e.target.checked; this.drawMasses(); }
       if (e.target.dataset.ui === 'contour-step') { this.contourStep = Number(e.target.value) || 1; this.drawAround(); }
+      if (e.target.dataset.ui === 'around-size') this.changeRange({ size: e.target.value });
+      if (e.target.dataset.ui === 'around-shape') this.changeRange({ shape: e.target.value });
       if (e.target === this.photoInput && this.photoInput.files.length) this.addPhotos([...this.photoInput.files]);
       if (e.target.dataset.detailTitle) this.saveTitle(e.target.dataset.detailTitle, e.target.value);
     });

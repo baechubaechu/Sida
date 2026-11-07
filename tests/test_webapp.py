@@ -1446,3 +1446,41 @@ def test_hidden_3d_buildings_are_kept_per_project_and_only_as_ids(client, projec
     assert client.put(url, json={"ids": [f"m{i}" for i in range(301)]}).status_code == 400
     assert client.put("/api/projects/nope/board/hidden", json={"ids": []}).status_code == 404
 
+
+
+def test_site_context_range_is_kept_per_project_and_shapes_the_surroundings(client, project, fake_vworld):
+    from sida import board
+    from sida.experts.site import context3d, landapi, site_facts, terrain_pack
+
+    url = f"/api/projects/{project.name}/site/context"
+    parcel = landapi.search_parcels("경기도 군포시 금정동 689")[:1]
+    site_facts.save_facts(project.path, site_facts.build_facts("금정동 689-14", parcel))
+    origin = board.site_plan(site_facts.board_summary(site_facts.load_facts(project.path))["parcels"])["origin"]
+    conn = terrain_pack.create(terrain_pack.TERRAIN_DIR / f"t{terrain_pack.SUFFIX}", {"name": "t", "source": "s"})
+    terrain_pack.add_contour(conn, 40.0, [[origin["lon"] - 0.01, origin["lat"]], [origin["lon"] + 0.01, origin["lat"]]])
+    conn.commit()
+    conn.close()
+
+    body = client.get(url).json()  # nothing saved: medium (200 m) and square, as before
+    assert (body["size"], body["shape"], body["radius"]) == ("medium", "square", 200.0)
+    assert "x" not in body["terrain"]["classes"]
+
+    assert client.get(f"{url}/range").json() == {"size": "medium", "shape": "square", "radius": 200.0}
+    saved = client.put(f"{url}/range", json={"size": "small", "shape": "circle"}).json()
+    assert saved == {"size": "small", "shape": "circle", "radius": 100.0}
+    assert client.get(f"{url}/range").json() == saved
+    assert (project.path / "site_context.json").exists() and not (project.path / "board.json").exists()
+    context3d._cache.clear()
+    body = client.get(url).json()  # the saved range
+    assert (body["size"], body["shape"], body["radius"]) == ("small", "circle", 100.0)
+    t = body["terrain"]
+    corner, middle = t["classes"][0], t["classes"][(t["n"] // 2) * t["n"] + t["n"] // 2]
+    assert corner == "x" and middle != "x"  # the square's corner lies outside the circle
+    body = client.get(url, params={"size": "large", "shape": "square"}).json()  # asked for, not saved
+    assert (body["radius"], body["shape"]) == (300.0, "square")
+    assert client.get(url, params={"radius": 150}).json()["radius"] == 150.0  # the old way still works
+    for bad in ({"size": "huge", "shape": "square"}, {"size": "small", "shape": "hexagon"}, {}):
+        assert client.put(f"{url}/range", json=bad).status_code == 400
+    assert client.get(url, params={"shape": "hexagon"}).status_code == 400
+    assert client.get(url, params={"size": "huge"}).status_code == 400
+    assert client.put("/api/projects/nope/site/context/range", json={"size": "small", "shape": "circle"}).status_code == 404
