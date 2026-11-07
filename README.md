@@ -135,8 +135,8 @@ python webapp.py            # http://127.0.0.1:8765 (--port, --no-browser)
 
 The browser opens the project list (create / open / sample). Inside a project you talk with the
 Conductor, and experts run when needed. The screens call the JSON API under `/api`; see
-`docs/session-api.md`, `docs/board-api.md`, `docs/settings-api.md`, `docs/chatgpt-login.md`, `docs/site-ordinance.md`, `docs/law-search-api.md`
-and `docs/state-editing.md`.
+`docs/session-api.md`, `docs/board-api.md`, `docs/settings-api.md`, `docs/chatgpt-login.md`, `docs/site-ordinance.md`, `docs/site-context.md`,
+`docs/model-base.md`, `docs/law-search-api.md` and `docs/state-editing.md`.
 
 Projects are saved under the user home folder (easy to open in File Explorer):
 

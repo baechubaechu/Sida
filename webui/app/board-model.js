@@ -870,11 +870,6 @@ export function aroundLegend(context) {
     ...(c.unknown || context.unknown_buildings?.length ? [['unknown', '높이 미확인(바닥선)']] : [])];
 }
 
-// The point at grid column i, row j of the ground.
-export function groundPoint(terrain, i, j) {
-  return [terrain.min + i * terrain.step, terrain.min + j * terrain.step, terrain.z[j * terrain.n + i]];
-}
-
 // Where a block of a mass stands (z of its floor), the same as board_export.mass_base(outline,
 // ground) and with its argument order: the lowest ground under the footprint, sampled along
 // the edges every half grid step and at every grid point inside; 0 without the ground or for a

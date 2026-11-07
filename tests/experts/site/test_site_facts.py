@@ -216,14 +216,6 @@ def test_save_load_round_trip_and_bad_file(tmp_path, one):
     assert site_facts.load_facts(tmp_path) is None
 
 
-def test_parse_selection():
-    assert site_facts.parse_selection("1", 3) == [0]
-    assert site_facts.parse_selection("2, 1,2", 3) == [1, 0]
-    assert site_facts.parse_selection("1 3", 3) == [0, 2]
-    for bad in ("", "0", "4", "a", "1,x"):
-        assert site_facts.parse_selection(bad, 3) is None
-
-
 # --- experts receive the block -----------------------------------------------------
 
 
@@ -402,7 +394,7 @@ def test_dismissed_options_are_marked_and_left_out_of_the_expert_block(project, 
     site_facts.save_facts(project.path, site_facts.attach_ordinance(one))
     assert "제52조(건폐율의 완화)" in site_facts.ordinance_block(site_facts.load_facts(project.path))
 
-    view = site_facts.set_option_dismissed(project.path, "제52조", True)
+    view = site_facts.set_option(project.path, "제52조", dismissed=True)
     item = next(i for g in view["groups"] for i in g["items"] if i["id"] == "제52조")
     assert item["dismissed"] is True and item["text"]  # still listed, with its text
     saved = site_facts.load_facts(project.path)
@@ -410,14 +402,14 @@ def test_dismissed_options_are_marked_and_left_out_of_the_expert_block(project, 
     assert "제52조(건폐율의 완화)" not in site_facts.ordinance_block(saved)  # not even its title
     assert "제55조" in site_facts.ordinance_block(saved)  # the others are untouched
 
-    site_facts.set_option_dismissed(project.path, "제52조", True)  # twice is the same as once
+    site_facts.set_option(project.path, "제52조", dismissed=True)  # twice is the same as once
     assert site_facts.load_facts(project.path)["ordinance"]["dismissed"] == ["제52조"]
-    view = site_facts.set_option_dismissed(project.path, "제52조", False)
+    view = site_facts.set_option(project.path, "제52조", dismissed=False)
     assert not any(i["dismissed"] for g in view["groups"] for i in g["items"])
     with pytest.raises(ValueError):
-        site_facts.set_option_dismissed(project.path, "제49조", True)  # a base article cannot be hidden
+        site_facts.set_option(project.path, "제49조", dismissed=True)  # a base article cannot be hidden
     with pytest.raises(ValueError):
-        site_facts.set_option_dismissed(project.path, "제999조", True)
+        site_facts.set_option(project.path, "제999조", dismissed=True)
 
 
 def test_experts_get_the_full_text_only_of_options_the_designer_picked(project, one, fake_ordinance):
