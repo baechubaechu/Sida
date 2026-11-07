@@ -207,6 +207,10 @@ test('only typed keys are saved, and the shown VWorld domain only when it change
     [['vworld', 'new-key'], ['vworld_domain', '127.0.0.1'], ['law', 'oc']],
   );
   assert.deepEqual(keyChanges({ vworld_domain: '  ' }, status), []);
+  // the Sida data server address is shown in full like the domain: saved only when it changed
+  const relayed = { relay_url: { set: true, value: 'https://sida-kr.duckdns.org' } };
+  assert.deepEqual(keyChanges({ relay_url: 'https://sida-kr.duckdns.org' }, relayed), []);
+  assert.deepEqual(keyChanges({ relay_url: 'https://other.example' }, relayed), [['relay_url', 'https://other.example']]);
 });
 
 test('addresses open an expert on its result, analysis chat or earlier result', () => {

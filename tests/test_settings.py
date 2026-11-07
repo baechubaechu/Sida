@@ -100,6 +100,22 @@ def test_vworld_domain_is_shown_in_full(client, env_keys):
     assert key == {"env": "VWORLD_DOMAIN", "set": True, "value": "http://localhost:8765"}
 
 
+def test_the_sida_relay_address_must_be_https_and_is_shown_in_full(client, env_keys):
+    assert client.put("/api/settings/keys/relay_url", json={"value": "http://sida-kr.duckdns.org"}).status_code == 400
+    assert client.put("/api/settings/keys/relay_url", json={"value": "https://sida-kr.duckdns.org/"}).status_code == 200
+    key = client.get("/api/settings").json()["keys"]["relay_url"]
+    assert key == {"env": "SIDA_RELAY_URL", "set": True, "value": "https://sida-kr.duckdns.org"}
+    assert os.environ["SIDA_RELAY_URL"] == "https://sida-kr.duckdns.org"  # used at once, no restart
+
+
+def test_the_sida_access_key_is_a_hidden_sida_key(client, env_keys):
+    assert client.put("/api/settings/keys/relay_token", json={"value": "not-a-sida-key"}).status_code == 400
+    assert client.put("/api/settings/keys/relay_token", json={"value": "sida_abcdefghij1234"}).status_code == 200
+    key = client.get("/api/settings").json()["keys"]["relay_token"]
+    assert key == {"env": "SIDA_RELAY_TOKEN", "set": True, "hint": "…1234"}
+    assert "sida_abcdefghij1234" not in client.get("/api/settings").text
+
+
 def test_openrouter_key_is_checked_before_saving(client, env_keys, monkeypatch):
     monkeypatch.setattr(settings, "_check_key", lambda url, key: (False, "unauthorized (401)"))
     r = client.put("/api/settings/keys/openrouter", json={"value": "sk-or-v1-wrongwrongwrong"})

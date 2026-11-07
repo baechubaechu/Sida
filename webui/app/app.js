@@ -363,6 +363,11 @@ async function toggleVWorld(name, on = !ui.vworld) {
     toast(`브이월드 3D 지도를 열 수 없습니다. ${error.message}`, 'error');
     return;
   }
+  if (!ui.mapLayers.webgl3d) {
+    // Through the Sida data server there is no key in the browser, and VWorld's 3D map needs one.
+    toast('브이월드 3D 지도는 이 PC의 브이월드 키가 있어야 열립니다. 설정에서 브이월드 키를 넣어 주세요.', 'info');
+    return;
+  }
   if (!vworldView) {
     vworldView = new VWorldView({
       saveHidden: async (ids) => {
@@ -3207,7 +3212,7 @@ function renderSettings() {
   const keyStatus = s.keys?.openrouter;
   const dataKeys = DATA_KEYS.map(({ id, label, secret }) => {
     const status = s.keys?.[id];
-    const hint = secret ? (status?.set ? `저장됨 ${status.hint || ''}` : '넣지 않음') : '예: localhost';
+    const hint = secret ? (status?.set ? `저장됨 ${status.hint || ''}` : '넣지 않음') : (id === 'relay_url' ? '예: https://sida-kr.duckdns.org' : '예: localhost');
     return `<label for="set-key-${id}">${escape(label)}</label>
       <input id="set-key-${id}" data-key="${id}" type="${secret ? 'password' : 'text'}" autocomplete="off" placeholder="${escape(hint)}" value="${escape(d.keys[id])}">`;
   }).join('');

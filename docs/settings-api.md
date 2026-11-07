@@ -28,7 +28,7 @@
 | `rag_enabled` | 법령 검색(법제처) 켜짐 여부 |
 | `state_update` | 전문가 결과를 설계 상태에 반영하는 방식. `ask`(승인 받기), `auto`(바로 반영), `off`(안 함) |
 | `gpu` | 감지한 GPU `{name, vram_gb, recommended_profile}`. NVIDIA가 아니거나 없으면 `null`. `recommended_profile`이 `null`이면 클라우드를 권합니다 |
-| `keys` | 키마다 `{env, set, hint}`. `vworld_domain`만 비밀값이 아니라 `hint` 대신 `value`가 옵니다 |
+| `keys` | 키마다 `{env, set, hint}`. `vworld_domain`과 `relay_url`은 비밀값이 아니라 `hint` 대신 `value`가 옵니다 |
 | `warnings` | `openrouter_key_missing`(클라우드를 쓰는데 OpenRouter 키 없음), `rag_key_missing`(법령 검색을 켰는데 법제처 인증값 없음), `chatgpt_signed_out`(Conductor나 전문가가 ChatGPT 구독인데 로그인 안 됨) |
 | `chatgpt` | ChatGPT 구독 로그인 상태와 Conductor·전문가 모델 `{signed_in, email, plan_usage, registered, model, worker_model}`. [chatgpt-login.md](chatgpt-login.md) |
 | `options` | 화면의 선택지: `modes`, `providers`, `conductor_providers`, `worker_providers`(역할별, `chatgpt` 포함), `local_profiles`, `state_update` |
@@ -58,6 +58,8 @@
 | `vworld_domain` | `VWORLD_DOMAIN` | 브이월드 키를 받을 때 등록한 주소(보통 `http://localhost:8765`) |
 | `data_go_kr` | `DATA_GO_KR_API_KEY` | 건축물대장, 행위제한, 근거 조문 |
 | `law` | `LAW_OPEN_API_OC` | 법령 검색, 조례 |
+| `relay_url` | `SIDA_RELAY_URL` | Sida 자료 서버 주소. 위 세 정부 키 중 이 PC에 없는 것은 이 서버를 거쳐 부릅니다(`relay/README.md`). `https://`만 받고(이 PC 시험용 `http://localhost`는 예외), 아니면 `400` |
+| `relay_token` | `SIDA_RELAY_TOKEN` | Sida 자료 서버 접속 키(`sida_…`, 사람마다 팀이 발급). 주소와 키가 둘 다 있어야 서버를 거칩니다. 모양이 다르면 `400` |
 
 - OpenRouter와 OpenAI 키는 저장하기 전에 그 서비스에 확인합니다. 거부되면 `400`이고 저장하지 않습니다. 확인한 키는 응답의 `verified`가 `true`입니다.
 - 정부 키(브이월드, 공공데이터포털, 법제처)는 확인하지 않고 그대로 저장합니다(`verified: false`). 키가 틀리면 대지 조회나 법령 검색에서 오류 안내가 나옵니다.

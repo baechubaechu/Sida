@@ -695,6 +695,16 @@ def test_map_layers_give_the_browser_tile_addresses_without_the_domain(client, f
     assert client.get("/api/site/map").status_code == 503
 
 
+def test_map_layers_through_the_sida_relay_have_no_key_and_no_3d_map(client, fake_vworld, monkeypatch):
+    monkeypatch.delenv("VWORLD_API_KEY")
+    monkeypatch.setenv("SIDA_RELAY_URL", "https://sida-kr.duckdns.org")
+    monkeypatch.setenv("SIDA_RELAY_TOKEN", "sida_test-access-key-0001")
+    layers = client.get("/api/site/map").json()
+    assert layers["relay"] is True and layers["webgl3d"] is None
+    assert layers["base"]["url"].startswith("https://sida-kr.duckdns.org/relay/vworld/")
+    assert "test-key" not in str(layers)
+
+
 def test_map_api_reports_bad_requests(client, fake_vworld):
     from sida.experts.site.landapi import LandApiError
 

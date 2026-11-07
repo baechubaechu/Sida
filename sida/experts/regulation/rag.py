@@ -403,16 +403,12 @@ def last_retrieval_warning() -> str | None:
 
 
 def key_missing(settings: dict) -> bool:
-    """RAG is on with the 법제처 provider but LAW_OPEN_API_OC is not set."""
+    """RAG is on with the 법제처 provider but neither LAW_OPEN_API_OC nor the Sida relay is set."""
     if not settings["enabled"] or settings["provider"] not in LAW_PROVIDERS:
         return False
     from sida.experts.regulation import lawapi
 
-    try:
-        lawapi.law_oc()
-    except lawapi.LawApiError:
-        return True
-    return False
+    return not lawapi.available()
 
 
 # ---------------------------------------------------------------------------

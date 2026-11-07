@@ -856,6 +856,7 @@ ORDINANCE_ERRORS = {
     "no_articles": "조례는 찾았으나 건폐율·용적률 조문을 가려내지 못함",
     "no_key": "법제처 인증값(LAW_OPEN_API_OC) 없음",
     "denied": "법제처가 요청을 거부함",
+    "over_limit": "Sida 자료 서버의 오늘 법제처 호출 한도를 넘음",
     "network": "법제처 연결 실패",
     "bad_response": "법제처 응답이 예상과 다름",
 }

@@ -8,7 +8,7 @@
 
 Errors are DataGoError, a LandApiError (from landapi) with the same kinds: no_key | invalid_key |
 over_limit | network | bad_response. The key is DATA_GO_KR_API_KEY (the decoded key) in
-.env. Behaviour checked by real calls on 2026-10-16 (tests/fixtures/datago/):
+.env; without it, calls go through the Sida relay when one is set (sida/relay.py). Behaviour checked by real calls on 2026-10-16 (tests/fixtures/datago/):
 
 - The 토지이음 services answer XML only, encoded in EUC-KR, whatever is asked for. Without
   an Accept header (and no type parameter) they refuse with returnReasonCode 04.
@@ -25,6 +25,7 @@ from typing import Any
 
 import requests
 
+from sida import relay
 from sida.config import ROOT
 from sida.experts.site.landapi import LandApiError
 
@@ -58,14 +59,30 @@ def credentials() -> str:
     return key
 
 
+def _data_call() -> tuple[str, dict]:
+    """(base URL, key parameters): data.go.kr with this PC's key, else the Sida relay with none.
+    Raises DataGoError('no_key') when there is neither."""
+    try:
+        return DATA_URL, {"serviceKey": credentials()}
+    except DataGoError:
+        base = relay.base_url()
+        if not base:
+            raise
+        return f"{base}/relay/datago", {}
+
+
 def _http_get(url: str, params: dict) -> tuple[int, bytes]:
     """(HTTP status, body) with retries on 5xx and network errors. Errors never carry the URL."""
     last = "request failed"
     for attempt in range(ATTEMPTS):
         try:
             response = requests.get(
-                url, params=params, timeout=TIMEOUT, headers={"Accept": "application/xml"}
+                url, params=params, timeout=TIMEOUT, headers={"Accept": "application/xml", **relay.headers(url)}
             )
+            if response.status_code == 429:  # the relay's limit for this person's access key
+                raise DataGoError("over_limit", "HTTP 429")
+            if response.status_code in (401, 403) and relay.headers(url):  # the relay refused the access key
+                raise DataGoError("invalid_key", "Sida 자료 서버 키")
             if response.status_code < 500:
                 return response.status_code, response.content
             last = f"HTTP {response.status_code}"
@@ -92,7 +109,8 @@ def _service_error(code: str, message: str) -> DataGoError:
 
 
 def _get(path: str, params: dict) -> tuple[int, str]:
-    status, body = _http_get(f"{DATA_URL}/{path}", {"serviceKey": credentials(), **params})
+    base, auth = _data_call()
+    status, body = _http_get(f"{base}/{path}", {**auth, **params})
     return status, _text(body)
 
 
