@@ -1,8 +1,12 @@
 """The drafting table (제도판): sheets of paper laid around the site, saved in the project.
 
 Independent of HTTP and of the screen. The table is stored as board.json in the project
-folder: {"rev", "papers", "tray", "pins", "ideas"}. The designer adds, moves and edits papers one
+folder: {"rev", "papers", "tray", "pins", "ideas", "hidden"}. The designer adds, moves and edits papers one
 at a time (the screen and the AI write to the same file, so nobody saves it whole).
+
+`hidden` (2026-11-07) lists the buildings of the VWorld 3D map the designer hid around the site
+(their model ids, so the site's own old building can be taken away from under a scheme). Only the
+screen reads it; it is not geometry and does not go to the AI or into the export.
 
 The idea board (`ideas`, 2026-11-05) is the designer's ordered list of main ideas, kept beside
 the table. Only the designer writes it; every Conductor call and expert run reads the ideas
@@ -86,6 +90,8 @@ PHOTO_MEDIA = {"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "web
 ORPHAN_SECONDS = 24 * 3600  # a removed photo's file is kept this long, so the screen can undo
 # The idea board: the designer's main ideas, in their order.
 MAX_IDEAS = 40
+MAX_HIDDEN = 300  # hidden VWorld 3D buildings kept per project
+MAX_HIDDEN_ID = 80
 MAX_IDEA_TEXT = 600
 MAX_IDEA_PAPERS = 8
 TALK_ID = re.compile(r"\d{2,4}")  # the Conductor talk ids of sida/talks.py
@@ -115,7 +121,7 @@ def _site_paper() -> dict:
 
 
 def _empty() -> dict:
-    return {"rev": 0, "papers": [_site_paper()], "tray": [], "pins": [], "ideas": []}
+    return {"rev": 0, "papers": [_site_paper()], "tray": [], "pins": [], "ideas": [], "hidden": []}
 
 
 log = logging.getLogger(__name__)
@@ -159,7 +165,10 @@ def load_board(project_path: Path) -> dict:
     there = {p.get("id") for p in papers + tray}
     for idea in ideas:  # a linked paper taken off the table (or dropped from the AI section) goes
         idea["papers"] = [i for i in idea.get("papers") or [] if i in there]
-    return {"rev": int(data.get("rev") or 0), "papers": papers, "tray": tray, "pins": pins, "ideas": ideas}
+    hidden = data.get("hidden") if isinstance(data.get("hidden"), list) else []
+    hidden = [h for h in hidden if isinstance(h, str) and h]
+    return {"rev": int(data.get("rev") or 0), "papers": papers, "tray": tray, "pins": pins, "ideas": ideas,
+            "hidden": hidden}
 
 
 def _save(project_path: Path, board: dict) -> dict:
@@ -517,6 +526,23 @@ def delete_idea(project_path: Path, idea_id: str) -> dict:
         board["ideas"].remove(_find_idea(board, idea_id))
         board = _save(project_path, board)
     return {"rev": board["rev"]}
+
+
+def set_hidden(project_path: Path, ids: list) -> dict:
+    """
+    The VWorld 3D buildings hidden around the site (their model ids, in the order hidden; the same
+    id once). Replaces the list; [] shows them all again. Returns {hidden, rev}. Raises ValueError.
+    """
+    if not isinstance(ids, list) or not all(isinstance(i, str) and 0 < len(i.strip()) <= MAX_HIDDEN_ID for i in ids):
+        raise ValueError(f"ids must be a list of building ids (1–{MAX_HIDDEN_ID} characters)")
+    ids = list(dict.fromkeys(i.strip() for i in ids))
+    if len(ids) > MAX_HIDDEN:
+        raise ValueError(f"at most {MAX_HIDDEN} hidden buildings")
+    with _lock:
+        board = load_board(project_path)
+        board["hidden"] = ids
+        board = _save(project_path, board)
+    return {"hidden": board["hidden"], "rev": board["rev"]}
 
 
 def order_ideas(project_path: Path, ids: list) -> dict:

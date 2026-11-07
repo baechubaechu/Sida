@@ -999,3 +999,51 @@ export function pickedNotes(ids, board) {
 export function ideasInPlay(board) {
   return (board?.ideas || []).filter((i) => !i.off).length;
 }
+
+// ------------------------------------------------------------------ the VWorld 3D map
+// The board's masses shown inside VWorld's own WebGL 3D map (vworld-view.js), over VWorld's 3D
+// buildings. VWorld's buildings are only shown there, never kept; what is kept is the list of
+// buildings the designer hid, by VWorld's model id (board.hidden, PUT .../board/hidden).
+
+export const EARTH_RADIUS = 6378137; // m: board.EARTH_RADIUS, the projection board.site_plan uses
+export const MAX_HIDDEN = 300; // board.MAX_HIDDEN
+
+// Board metres (x east, y north from the site's middle) back to [lon, lat] (board.site_plan).
+export function toLonLat(origin, x, y) {
+  const k = Math.PI / 180;
+  const east = EARTH_RADIUS * k * Math.cos(origin.lat * k);
+  const north = EARTH_RADIUS * k;
+  return [origin.lon + x / east, origin.lat + y / north];
+}
+
+// What a massing scheme stands as on the map: one polygon per block, its footprint corners as
+// [lon, lat] and its height (floors × the scheme's floor height), standing on the ground there.
+export function massPolygons(paper, plan) {
+  if (!paper || !plan?.origin) return [];
+  const storey = paper.floor_height || 4.2;
+  return (paper.blocks || []).map((b) => ({
+    ring: blockCorners(plan.frame, b).map(([x, y]) => toLonLat(plan.origin, x, y)),
+    height: Math.round(b.floors * storey * 100) / 100,
+    floors: b.floors,
+  }));
+}
+
+// The site's parcel boundaries as [lon, lat] rings (to find VWorld's buildings standing on it).
+export function siteRings(plan) {
+  if (!plan?.origin) return [];
+  return (plan.parcels || []).flatMap((p) => p.rings || []).map((ring) => ring.map(([x, y]) => toLonLat(plan.origin, x, y)));
+}
+
+// The hidden list after hiding these buildings (each once, in the order hidden, at most MAX_HIDDEN).
+export function hideBuildings(hidden, ids) {
+  return [...new Set([...(hidden || []), ...(ids || []).filter((id) => typeof id === 'string' && id)])].slice(0, MAX_HIDDEN);
+}
+
+// How the viewer likes the VWorld map (vworld-view.js keeps it for the page, not the project):
+// white: buildings as a white model, plain: the ground without the aerial photo. Anything
+// unreadable is the default (the photos on).
+export function readLook(stored) {
+  let v = null;
+  try { v = JSON.parse(stored); } catch { v = null; }
+  return { white: v?.white === true, plain: v?.plain === true };
+}

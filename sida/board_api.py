@@ -87,6 +87,11 @@ def create_router(load_config, core) -> APIRouter:
     def delete_idea(name: str, idea_id: str) -> dict:
         return call(board.delete_idea, call(project, name), idea_id)
 
+    # The VWorld 3D map's buildings hidden around the site (model ids; the screen only).
+    @router.put("/hidden")
+    def set_hidden(name: str, body: dict) -> dict:
+        return call(board.set_hidden, call(project, name), body.get("ids"))
+
     @router.get("/export")
     def export(name: str, format: str = "dxf", active: str = "") -> Response:
         path = call(project, name)
