@@ -10,7 +10,10 @@ screen reads it; it is not geometry and does not go to the AI or into the export
 
 The idea board (`ideas`, 2026-11-05) is the designer's ordered list of main ideas, kept beside
 the table. Only the designer writes it; every Conductor call and expert run reads the ideas
-that are not set aside (`ideas_block`), and nothing the AI does changes them.
+that are not set aside (`ideas_block`), and nothing the AI does changes them. A paper dragged off
+the table into the idea board (2026-11-07 지훈: "카드를 그 동그라미로 아이디어 보드에 넣는다") is held
+inside its idea (`paper`) and is no longer on the table; `place_idea` lays it back (an idea
+without a paper goes back as a note).
 
 What the AI makes never lands on the table itself (2026-10-26 지훈 결정). It goes to the AI
 section, `tray`: massing schemes and notes the Conductor proposes (a change to the designer's
@@ -167,7 +170,11 @@ def load_board(project_path: Path) -> dict:
     pins = data.get("pins") if isinstance(data.get("pins"), list) else []
     ideas = data.get("ideas") if isinstance(data.get("ideas"), list) else []
     ideas = [i for i in ideas if isinstance(i, dict) and i.get("id") and isinstance(i.get("text"), str)]
-    there = {p.get("id") for p in papers + tray}
+    for idea in ideas:
+        if "paper" in idea and not (isinstance(idea["paper"], dict) and idea["paper"].get("kind") in KINDS):
+            del idea["paper"]
+    ideas = [i for i in ideas if i["text"].strip() or "paper" in i]
+    there = {p.get("id") for p in papers + tray + [i["paper"] for i in ideas if "paper" in i]}
     for idea in ideas:  # a linked paper taken off the table (or dropped from the AI section) goes
         idea["papers"] = [i for i in idea.get("papers") or [] if i in there]
     hidden = data.get("hidden") if isinstance(data.get("hidden"), list) else []
@@ -189,8 +196,13 @@ def _find(board: dict, paper_id: str, where: str = "papers") -> dict:
     raise PaperNotFound(paper_id)
 
 
+def held_papers(board: dict) -> list[dict]:
+    """The papers held in the idea board (off the table, inside their ideas)."""
+    return [i["paper"] for i in board.get("ideas") or [] if isinstance(i.get("paper"), dict)]
+
+
 def _taken(board: dict, paper_id: str) -> bool:
-    return any(p.get("id") == paper_id for p in board["papers"] + board["tray"])
+    return any(p.get("id") == paper_id for p in board["papers"] + board["tray"] + held_papers(board))
 
 
 def add_paper(project_path: Path, data: dict) -> dict:
@@ -317,7 +329,7 @@ def _prune_photos(folder: Path, board: dict) -> None:
         return
     import time
 
-    used = {p.get("file") for p in board["papers"]}
+    used = {p.get("file") for p in board["papers"] + held_papers(board)}
     old = time.time() - ORPHAN_SECONDS
     for path in folder.iterdir():
         if PHOTO_FILE.fullmatch(path.name) and path.name not in used:
@@ -329,8 +341,9 @@ def _prune_photos(folder: Path, board: dict) -> None:
 
 
 def photo_file(project_path: Path, paper_id: str) -> tuple[Path, str]:
-    """The file of a photo on the table and its media type. Raises PaperNotFound."""
-    paper = _find(load_board(project_path), paper_id)
+    """The file of a photo on the table (or held in the idea board) and its media type. Raises PaperNotFound."""
+    board = load_board(project_path)
+    paper = next((p for p in held_papers(board) if p.get("id") == paper_id), None) or _find(board, paper_id)
     file = str(paper.get("file") or "")
     path = photo_dir(project_path) / file
     if paper.get("kind") != "photo" or not PHOTO_FILE.fullmatch(file) or not path.is_file():
@@ -467,9 +480,13 @@ def _find_idea(board: dict, idea_id: str) -> dict:
 
 
 def clean_idea(data: dict, board: dict) -> dict:
-    """An idea as saved: {id, text, papers, talk, off, created_at}. Raises ValueError."""
+    """
+    An idea as saved: {id, text, papers, talk, off, created_at} and `paper` when it holds a paper
+    taken off the table (its text may then be empty). Raises ValueError.
+    """
     text = _text(data.get("text"), "text", MAX_IDEA_TEXT).strip()
-    if not text:
+    held = data.get("paper")
+    if not text and not isinstance(held, dict):
         raise ValueError("an idea needs text")
     papers = data.get("papers") or []
     if not isinstance(papers, list) or not all(isinstance(i, str) for i in papers):
@@ -489,6 +506,8 @@ def clean_idea(data: dict, board: dict) -> dict:
     if not isinstance(off, bool):
         raise ValueError("off must be true or false")
     idea = {"id": data["id"], "text": text, "papers": papers, "talk": talk, "off": off}
+    if isinstance(held, dict):
+        idea["paper"] = held
     if data.get("created_at"):
         idea["created_at"] = str(data["created_at"])
     return idea
@@ -499,6 +518,7 @@ def add_idea(project_path: Path, data: dict) -> dict:
     Put an idea on the idea board, at the end or at `at` (0 = first). `papers` and `talk`
     link it to papers and a Conductor talk. Returns {idea, rev}. Raises ValueError.
     """
+    data = {k: v for k, v in data.items() if k != "paper"}  # a paper comes in by stow_paper
     with _lock:
         board = load_board(project_path)
         if len(board["ideas"]) >= MAX_IDEAS:
@@ -516,7 +536,7 @@ def add_idea(project_path: Path, data: dict) -> dict:
 
 def update_idea(project_path: Path, idea_id: str, changes: dict) -> dict:
     """Rewrite an idea, change its links or set it aside (`off`). Returns {idea, rev}."""
-    changes = {k: v for k, v in changes.items() if k in {"text", "papers", "talk", "off"}}
+    changes = {k: v for k, v in changes.items() if k in {"text", "papers", "talk", "off"}}  # never `paper`
     with _lock:
         board = load_board(project_path)
         current = _find_idea(board, idea_id)
@@ -533,6 +553,59 @@ def delete_idea(project_path: Path, idea_id: str) -> dict:
         board["ideas"].remove(_find_idea(board, idea_id))
         board = _save(project_path, board)
     return {"rev": board["rev"]}
+
+
+def _idea_at(board: dict, at) -> int:
+    if at is None:
+        return len(board["ideas"])
+    if isinstance(at, bool) or not isinstance(at, int):
+        raise ValueError("at must be a whole number")
+    return max(0, min(at, len(board["ideas"])))
+
+
+def stow_paper(project_path: Path, paper_id: str, at=None) -> dict:
+    """
+    Take a paper off the table into the idea board, held inside a new idea at the end or at `at`.
+    The site stays on the table. Returns {idea, rev}. Raises ValueError, PaperNotFound.
+    """
+    with _lock:
+        board = load_board(project_path)
+        paper = _find(board, paper_id)
+        if paper["kind"] == "site":
+            raise ValueError("the site paper stays on the table")
+        if len(board["ideas"]) >= MAX_IDEAS:
+            raise ValueError(f"the idea board holds at most {MAX_IDEAS} ideas")
+        index = _idea_at(board, at)
+        board["papers"].remove(paper)
+        board["pins"] = [p for p in board["pins"] if p.get("paper") != paper_id]
+        idea = {"id": f"idea-{uuid.uuid4().hex[:8]}", "text": "", "papers": [], "talk": None, "off": False,
+                "paper": paper, "created_at": _now()}
+        board["ideas"].insert(index, idea)
+        board = _save(project_path, board)
+    return {"idea": idea, "rev": board["rev"]}
+
+
+def place_idea(project_path: Path, idea_id: str, placement: dict | None = None) -> dict:
+    """
+    Take an idea off the idea board onto the table at `placement` (x, y): the paper it holds goes
+    back, and an idea of text only becomes a note. Returns {paper, rev}. Raises ValueError, IdeaNotFound.
+    """
+    placement = {k: v for k, v in (placement or {}).items() if k in ("x", "y")}
+    with _lock:
+        board = load_board(project_path)
+        idea = _find_idea(board, idea_id)
+        if len(board["papers"]) >= MAX_PAPERS:
+            raise ValueError(f"the table holds at most {MAX_PAPERS} papers")
+        if isinstance(idea.get("paper"), dict):
+            paper = dict(idea["paper"])
+        else:
+            paper = clean_paper({"id": f"note-{uuid.uuid4().hex[:8]}", "kind": "note", "text": idea["text"][:MAX_TEXT]})
+        for key, value in placement.items():
+            paper[key] = _number(value, key)
+        board["ideas"].remove(idea)
+        board["papers"].append(paper)
+        board = _save(project_path, board)
+    return {"paper": paper, "rev": board["rev"]}
 
 
 def set_hidden(project_path: Path, ids: list) -> dict:
@@ -856,10 +929,12 @@ def ideas_block(board: dict | None) -> str:
     shown = [i for i in ideas if not i.get("off")]
     if not shown:
         return ""
-    names = {p["id"]: paper_name(p) for p in board["papers"] + board["tray"]}
+    names = {p["id"]: paper_name(p) for p in board["papers"] + board["tray"] + held_papers(board)}
     lines = []
     for n, idea in enumerate(shown, 1):
         text = "\n   ".join(line.strip() for line in idea["text"].splitlines() if line.strip())
+        if isinstance(idea.get("paper"), dict):
+            text = "\n   ".join(part for part in (_held_line(idea["paper"]), text) if part)
         links = [f'{i} "{names[i]}"' for i in idea.get("papers") or [] if i in names]
         if idea.get("talk"):
             links.append(f"Conductor talk {idea['talk']}")
@@ -873,6 +948,15 @@ def ideas_block(board: dict | None) -> str:
         + "\n".join(lines)
         + (f"\n({aside} more set aside by the designer for now: do not apply them.)" if aside else "")
     )
+
+
+def _held_line(paper: dict) -> str:
+    """A paper held in the idea board, in one line for a model (a note by its words)."""
+    kind = KIND_WORDS.get(paper.get("kind"), str(paper.get("kind")))
+    if paper.get("kind") == "note":
+        words = " ".join(str(paper.get("text") or "").split())
+        return f"[{kind} {paper.get('id')}] {words[:MAX_IDEA_TEXT]}" if words else f"[{kind} {paper.get('id')}]"
+    return f'[{kind} {paper.get("id")} "{paper_name(paper)}"]'
 
 
 def expert_context(project_path: Path, selection: Selection | None) -> str:

@@ -74,6 +74,16 @@ def create_router(load_config, core) -> APIRouter:
     def add_idea(name: str, body: dict) -> JSONResponse:
         return JSONResponse(call(board.add_idea, call(project, name), body), status_code=201)
 
+    # A paper dragged off the table into the idea board, and an idea dragged back onto the table.
+    @router.post("/ideas/stow")
+    def stow_paper(name: str, body: dict) -> JSONResponse:
+        result = call(board.stow_paper, call(project, name), str(body.get("paper") or ""), body.get("at"))
+        return JSONResponse(result, status_code=201)
+
+    @router.post("/ideas/{idea_id}/place")
+    def place_idea(name: str, idea_id: str, body: dict | None = None) -> dict:
+        return call(board.place_idea, call(project, name), idea_id, body or {})
+
     # Declared before /ideas/{idea_id} so "order" is not read as an idea id.
     @router.put("/ideas/order")
     def order_ideas(name: str, body: dict) -> dict:

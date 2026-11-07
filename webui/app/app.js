@@ -13,6 +13,7 @@ import {
 import {
   keepSelected, pickedNames, massIds, canCompare, COMPARE_QUESTION, addQuestion,
   ideaText, moveIdea, dropIdea, sameOrder, ideaPapers, linkPapers, pickedNotes, ideasInPlay, MAX_IDEA_TEXT, MAX_IDEA_PAPERS,
+  floatState, floatPlace, floatAnchor, ideaShape,
 } from './board-model.js';
 import {
   COMMANDS, GROUP_LABELS, readLine, suggest, pickOption, addHistory, remember, HISTORY_LINES,
@@ -54,8 +55,9 @@ const ui = {
   // The workspace: the drafting table, and beside it the experts, the site page or an expert's
   // page. Conductor conversations open in a collapsible left panel.
   expertsCollapsed: false, conductor: { open: true, active: null, list: false },
-  // The right panel shows the experts or the idea board (2026-11-05 지훈: a tab beside the experts).
-  sideTab: 'experts', ideaEdit: '', ideaConfirm: '', ideaBusy: false, ideaDrag: '', ideaLinkNew: true,
+  // The idea board floats over the drafting table in a corner (2026-11-07 지훈); it was a tab
+  // beside the experts before. Where it sits is kept for this visit only (no browser storage).
+  ideaFloat: floatState(null), ideaEdit: '', ideaConfirm: '', ideaBusy: false, ideaDrag: '', ideaLinkNew: true,
   pane: 'board', focusComposer: false, creatingTalk: false, talkMenu: '',
   panelRatios: { left: .27, right: .21, detail: .38 },
   settings: null, settingsDraft: null, settingsError: '', chatgptModels: null, chatgptNote: '',
@@ -79,6 +81,7 @@ let tableFor = '';
 let siteMap = null; // the map on the site page's "찾기" tab (site-map.js, loaded on first use)
 let siteMapLoading = false;
 let panelResize = null;
+let floatDrag = null; // moving or resizing the idea window
 let resizeRenderPending = false;
 
 // ------------------------------------------------------------------ helpers
@@ -301,6 +304,9 @@ function tableHooks(name) {
     place: (id, placement) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}/place`, { method: 'POST', body: placement }), true),
     discard: (id) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}`, { method: 'DELETE' }), true),
     select: (ids) => { ui.selected = ids; render(false); },
+    // A paper carried toward the idea board, and papers dropped into it.
+    carry: (at) => carryPapers(at),
+    stow: (ids) => stowPapers(name, ids),
     ask: () => askAbout(),
     openExpert: (agent) => { location.hash = expertUrl(name, agent); },
     experts: () => ui.session?.experts || [],
@@ -328,7 +334,7 @@ async function openTable(name) {
 
 // The table lives outside the redrawn page (so WebGL, a drag or a note being typed survive
 // redraws) and is laid over the page's #table-slot.
-const slotWatch = new ResizeObserver(() => placeTable());
+const slotWatch = new ResizeObserver(() => { placeTable(); placeIdeaFloat(); });
 
 function placeTable() {
   const slot = app.querySelector('#table-slot');
@@ -895,7 +901,6 @@ function expertsPanel() {
   const busy = jobRunning();
   const picked = ui.selected.length;
   return `<aside id="experts-panel" class="experts panel" aria-label="전문가">
-    ${sideTabs()}
     <header class="pane-head"><div><span class="eyebrow">함께 검토하기</span><h2>전문가 <span class="expert-count">${experts.length}</span></h2>
       <p>${picked ? `고른 종이 ${picked}장과 함께 실행` : '브리프와 제도판을 보고 실행'}</p></div>
       <button type="button" class="ghost" data-action="collapse-experts" aria-label="전문가 패널 접기" aria-controls="experts-panel" aria-expanded="true">›</button></header>
@@ -919,13 +924,6 @@ function expertsPanel() {
     <section class="runs" aria-label="검토 진행"><h3>검토 진행</h3>${runsBlock()}</section></aside>`;
 }
 
-// The two tabs on top of the right panel: the experts and the idea board.
-function sideTabs() {
-  const count = (ui.board?.ideas || []).length;
-  const tab = (id, label) => `<button type="button" role="tab" data-action="side-tab" data-tab="${id}" aria-selected="${ui.sideTab === id}" aria-controls="experts-panel">${label}</button>`;
-  return `<nav class="side-tabs" role="tablist" aria-label="오른쪽 칸">${tab('experts', '전문가')}${tab('ideas', `아이디어${count ? ` <span class="expert-count">${count}</span>` : ''}`)}</nav>`;
-}
-
 function ideaTalkChip(idea, editing) {
   if (!idea.talk) return '';
   const known = ui.session?.talks?.some((t) => t.id === idea.talk);
@@ -935,23 +933,37 @@ function ideaTalkChip(idea, editing) {
     : `<span class="attachment-title">${escape(label)}</span>`}${editing ? `<button type="button" class="attachment-remove" data-action="idea-unlink-talk" data-idea="${escape(idea.id)}" aria-label="대화 연결 끊기">×</button>` : ''}</span>`;
 }
 
+// One idea as a circle: drag it to reorder, or out onto the table to take it out (2026-11-07 지훈).
+function ideaDot(idea, index) {
+  const shape = ideaShape(idea, index);
+  const label = shape.name || shape.text;
+  const inner = shape.photo
+    ? `<img src="${escape(`${projectApi(currentRoute.name)}/board/photos/${encodeURIComponent(idea.paper.id)}`)}" alt="" draggable="false" decoding="async">`
+    : `<span aria-hidden="true">${escape(shape.glyph)}</span>`;
+  return `<button type="button" class="idea-dot kind-${shape.kind} ${idea.off ? 'is-off' : ''} ${ui.ideaDrag === idea.id ? 'is-dragging' : ''}" data-idea-dot="${escape(idea.id)}"
+    title="${escape(label.slice(0, 120))}${idea.off ? ' (잠시 뺌)' : ''} · 끌어서 순서 바꾸기, 제도판으로 끌어 꺼내기" aria-label="아이디어 ${index + 1}: ${escape(label.slice(0, 60))}">${inner}</button>`;
+}
+
 function ideaItem(idea, index, total) {
   const id = escape(idea.id);
   const editing = ui.ideaEdit === idea.id;
   const busy = ui.ideaBusy;
+  const shape = ideaShape(idea, index);
   const papers = ideaPapers(idea, ui.board);
   const links = papers.map((p) => `<span class="attachment"><button type="button" class="attachment-title" data-action="inspect-paper" data-id="${escape(p.id)}" title="상세 보기">${escape(p.name)}</button>${editing ? `<button type="button" class="attachment-remove" data-action="idea-unlink" data-idea="${id}" data-id="${escape(p.id)}" aria-label="${escape(p.name)} 연결 끊기">×</button>` : ''}</span>`).join('') + ideaTalkChip(idea, editing);
   const more = ui.selected.filter((x) => !(idea.papers || []).includes(x));
   const key = `idea-edit:${idea.id}`;
+  const held = idea.paper ? `<p class="idea-paper"><b>${escape(shape.name)}</b>${shape.text && shape.kind !== 'note' ? ` · ${escape(shape.text)}` : ''}</p>` : '';
+  const words = idea.paper ? (idea.text ? `<p class="idea-text idea-caption">${escape(idea.text)}</p>` : '') : `<p class="idea-text">${escape(idea.text)}</p>`;
   const body = editing
-    ? `<form class="idea-edit" data-idea-form="${id}">
-        <textarea data-focus="${escape(key)}" data-idea-draft="${escape(key)}" aria-label="아이디어 ${index + 1} 고치기" maxlength="${MAX_IDEA_TEXT}" rows="3">${escape(draftFor(key))}</textarea>
+    ? `${held}<form class="idea-edit" data-idea-form="${id}">
+        <textarea data-focus="${escape(key)}" data-idea-draft="${escape(key)}" aria-label="아이디어 ${index + 1} ${idea.paper ? '설명' : '고치기'}" maxlength="${MAX_IDEA_TEXT}" rows="3" placeholder="${idea.paper ? '이 종이에 붙일 한마디 (비워도 됨)' : ''}">${escape(draftFor(key))}</textarea>
         <div class="idea-edit-actions"><span class="composer-hint">Enter 저장 · Esc 취소</span>
           <button type="button" class="secondary small" data-action="idea-cancel">취소</button><button type="submit" class="primary small" ${busy ? 'disabled' : ''}>저장</button></div></form>`
-    : `<p class="idea-text">${escape(idea.text)}</p>`;
+    : `${held}${words}`;
   const confirm = ui.ideaConfirm === idea.id;
   return `<li class="idea ${idea.off ? 'is-off' : ''} ${ui.ideaDrag === idea.id ? 'is-dragging' : ''}" data-idea="${id}">
-      <span class="idea-num" draggable="true" title="끌어서 순서 바꾸기" aria-hidden="true">${index + 1}</span>
+      ${ideaDot(idea, index)}
       <div class="idea-body">
         ${idea.off ? '<span class="idea-off-badge">잠시 뺌 · AI에게 안 감</span>' : ''}
         ${body}
@@ -959,39 +971,52 @@ function ideaItem(idea, index, total) {
         <div class="idea-actions" aria-label="아이디어 ${index + 1} 편집">
           <button type="button" data-action="idea-move" data-idea="${id}" data-step="-1" aria-label="위로" title="위로" ${index === 0 || busy ? 'disabled' : ''}>↑</button>
           <button type="button" data-action="idea-move" data-idea="${id}" data-step="1" aria-label="아래로" title="아래로" ${index === total - 1 || busy ? 'disabled' : ''}>↓</button>
-          ${editing ? '' : `<button type="button" data-action="idea-edit" data-idea="${id}">고치기</button>`}
+          ${editing ? '' : `<button type="button" data-action="idea-edit" data-idea="${id}">${idea.paper ? '한마디' : '고치기'}</button>`}
           <button type="button" data-action="idea-off" data-idea="${id}" ${busy ? 'disabled' : ''} title="${idea.off ? 'AI가 다시 이 아이디어를 고려합니다' : '이 아이디어 없이 탐색해 보고 싶을 때: AI에게 보내지 않습니다'}">${idea.off ? '다시 넣기' : '잠시 빼기'}</button>
+          <button type="button" data-action="idea-place" data-idea="${id}" ${busy ? 'disabled' : ''} title="제도판 가운데에 꺼내 놓기 (동그라미를 제도판으로 끌어도 됩니다)">${idea.paper ? '제도판에 꺼내기' : '메모로 꺼내기'}</button>
           ${more.length ? `<button type="button" data-action="idea-link" data-idea="${id}" ${busy || (idea.papers || []).length >= MAX_IDEA_PAPERS ? 'disabled' : ''}>＋ 고른 종이 ${more.length}개 연결</button>` : ''}
-          <button type="button" class="idea-delete ${confirm ? 'confirm' : ''}" data-action="idea-delete" data-idea="${id}" ${busy ? 'disabled' : ''}>${confirm ? '정말 지우기' : '지우기'}</button>
+          <button type="button" class="idea-delete ${confirm ? 'confirm' : ''}" data-action="idea-delete" data-idea="${id}" ${busy ? 'disabled' : ''} title="${idea.paper ? '종이와 함께 지웁니다' : ''}">${confirm ? '정말 지우기' : '지우기'}</button>
         </div>
       </div>
     </li>`;
 }
 
-function ideasPanel() {
+// The idea board floats over the drafting table in a corner, always there (2026-11-07 지훈):
+// a row of circles, opening into the ideas with a little of each while the pointer is over it.
+function ideaFloatView() {
   const ideas = ui.board?.ideas || [];
   const busy = ui.ideaBusy || !ui.board;
   const picked = ui.selected.length;
   const notes = pickedNotes(ui.selected, ui.board);
   const inPlay = ideasInPlay(ui.board);
+  const open = ideaBoardOpen();
   const list = !ui.board ? '<p class="muted">제도판을 불러오는 중입니다.</p>'
     : ideas.length ? `<ol class="idea-list" aria-label="아이디어 목록 (순서대로)">${ideas.map((idea, i) => ideaItem(idea, i, ideas.length)).join('')}</ol>`
     : `<div class="idea-empty"><p><b>설계를 이끌 메인 아이디어를 모아 두세요.</b></p>
-        <p>아래에 직접 적거나, 대화의 답변에서 <b>＋ 아이디어로</b>를 누르면 그 메시지(드래그로 고른 부분)가 들어옵니다. 순서가 곧 중요도입니다.</p></div>`;
-  return `<aside id="experts-panel" class="experts panel ideas-panel" aria-label="아이디어 보드">
-    ${sideTabs()}
-    <header class="pane-head"><div><span class="eyebrow">메인 방향</span><h2>아이디어 보드 <span class="expert-count">${ideas.length}</span></h2>
-      <p>${ideas.length ? `AI가 읽는 아이디어 ${inPlay}개 · AI는 읽기만 하고 바꾸지 않습니다` : 'AI는 읽기만 하고 바꾸지 않습니다'}</p></div>
-      <button type="button" class="ghost" data-action="collapse-experts" aria-label="아이디어 보드 접기" aria-controls="experts-panel" aria-expanded="true">›</button></header>
-    <div class="experts-scroll ideas-scroll" data-scroll="ideas" data-scroll-from="top">${list}</div>
-    <form class="idea-new" id="idea-new-form" aria-label="새 아이디어">
-      ${notes.length ? `<button type="button" class="idea-from-notes" data-action="idea-notes" ${busy ? 'disabled' : ''}>고른 메모 ${notes.length}장을 아이디어로</button>` : ''}
-      <textarea data-focus="idea-new" data-idea-draft="idea-new" aria-label="새 아이디어" placeholder="새 아이디어 적기 (예: 길에서 마당이 보이게)" maxlength="${MAX_IDEA_TEXT}" rows="2">${escape(draftFor('idea-new'))}</textarea>
-      <div class="idea-new-footer">
-        ${picked ? `<label class="idea-link-picked"><input type="checkbox" id="idea-new-link" ${ui.ideaLinkNew ? 'checked' : ''}> 고른 종이 ${Math.min(picked, MAX_IDEA_PAPERS)}장 연결</label>` : '<span class="composer-hint">Enter 추가 · Shift+Enter 줄 바꿈</span>'}
-        <button type="submit" class="primary small" ${busy ? 'disabled' : ''}>추가</button></div>
-    </form>
-  </aside>`;
+        <p>제도판의 종이를 끌어 이 보드에 놓으면 동그라미로 들어옵니다. 동그라미를 제도판으로 끌어내면 다시 꺼내집니다. 아래에 직접 적거나 대화의 <b>＋ 아이디어로</b>도 됩니다. 순서가 곧 중요도입니다.</p></div>`;
+  const pin = ui.ideaFloat.pinned;
+  return `<section class="idea-float ${open ? 'is-open' : ''} at-${ui.ideaFloat.corner}" id="idea-float" aria-label="아이디어 보드">
+    <div class="idea-dock" data-float-drag="move" title="아이디어 보드 · 마우스를 올리면 펼쳐집니다 · 빈 곳을 끌어 옮기기">
+      <span class="idea-dock-label">아이디어</span>
+      ${ideas.length ? `<div class="idea-dots" aria-label="아이디어 ${ideas.length}개">${ideas.map((idea, i) => ideaDot(idea, i)).join('')}</div>` : '<span class="idea-dock-empty">종이를 여기로 끌어 넣기</span>'}
+      <button type="button" class="idea-dock-open" data-action="idea-float-pin" aria-label="아이디어 보드 펼쳐 두기" aria-expanded="false">⌄</button>
+    </div>
+    <div class="idea-panel">
+      <header class="idea-float-head" data-float-drag="move" title="끌어서 옮기기 · 가까운 구석에 붙습니다">
+        <div><h2>아이디어 보드${ideas.length ? ` <span class="expert-count">${ideas.length}</span>` : ''}</h2>
+        <p>${ideas.length ? `AI가 읽는 아이디어 ${inPlay}개 · AI는 읽기만 합니다` : 'AI는 읽기만 하고 바꾸지 않습니다'}</p></div>
+        <button type="button" class="ghost idea-float-pin ${pin ? 'is-on' : ''}" data-action="idea-float-pin" aria-pressed="${Boolean(pin)}" title="${pin ? '마우스를 떼면 다시 동그라미로 접히게' : '마우스를 떼도 펼쳐 두기'}" aria-label="펼쳐 두기">${pin ? '접기' : '고정'}</button></header>
+      <div class="ideas-scroll" data-scroll="ideas" data-scroll-from="top">${list}</div>
+      <form class="idea-new" id="idea-new-form" aria-label="새 아이디어">
+        ${notes.length ? `<button type="button" class="idea-from-notes" data-action="idea-notes" ${busy ? 'disabled' : ''}>고른 메모 ${notes.length}장을 아이디어로</button>` : ''}
+        <textarea data-focus="idea-new" data-idea-draft="idea-new" aria-label="새 아이디어" placeholder="새 아이디어 적기 (예: 길에서 마당이 보이게)" maxlength="${MAX_IDEA_TEXT}" rows="2">${escape(draftFor('idea-new'))}</textarea>
+        <div class="idea-new-footer">
+          ${picked ? `<label class="idea-link-picked"><input type="checkbox" id="idea-new-link" ${ui.ideaLinkNew ? 'checked' : ''}> 고른 종이 ${Math.min(picked, MAX_IDEA_PAPERS)}장 연결</label>` : '<span class="composer-hint">Enter 추가 · Shift+Enter 줄 바꿈</span>'}
+          <button type="submit" class="primary small" ${busy ? 'disabled' : ''}>추가</button></div>
+      </form>
+      <div class="idea-float-size" data-float-drag="size" title="끌어서 크기 조절" aria-hidden="true"></div>
+    </div>
+  </section>`;
 }
 
 function proposalBlock(agent) {
@@ -1556,7 +1581,7 @@ function boardHead(name, site, agent) {
       <div class="board-heading"><span class="eyebrow"><a href="#/">프로젝트</a><span aria-hidden="true">/</span><button type="button" class="project-name-edit" data-action="project-info" data-project="${escape(name)}" title="프로젝트 정보 수정">${escape(currentProjectLabel(name))} ✎</button><span aria-hidden="true">/</span>${site ? '대지' : '디자인'}</span><h1>제도판</h1></div>
       <div class="panel-toggles">
         <button type="button" class="panel-toggle" data-action="conductor-toggle" aria-controls="conductor-panel" aria-expanded="${shown}" aria-label="Conductor 대화 ${shown ? '접기' : '열기'}">대화</button>
-        ${site || agent || !ui.expertsCollapsed ? '' : `<button type="button" class="panel-toggle" data-action="toggle-experts-panel" aria-controls="experts-panel" aria-expanded="false"><span aria-hidden="true">‹</span> ${ui.sideTab === 'ideas' ? '아이디어' : '전문가'}</button>`}
+        ${site || agent || !ui.expertsCollapsed ? '' : `<button type="button" class="panel-toggle" data-action="toggle-experts-panel" aria-controls="experts-panel" aria-expanded="false"><span aria-hidden="true">‹</span> 전문가</button>`}
         ${site ? '' : `<button type="button" class="panel-toggle" data-action="vworld-3d" aria-pressed="${Boolean(ui.vworld)}" title="브이월드 3D 지도에 매스안 세워 보기 (vworld)">브이월드 3D</button>`}
         <details class="export-menu"><summary class="panel-toggle" title="CAD·라이노 파일로 내보내기 (export)">내보내기</summary>
           <div class="export-options">${EXPORT_FORMATS.map((f) => `<button type="button" data-action="export-board" data-format="${f.key}">${f.label}</button>`).join('')}
@@ -1620,13 +1645,13 @@ function workspaceView() {
   // site page or an expert's page takes their place. Conductor sits on the left when open.
   const side = site ? 'site-open' : agent ? 'expert-open' : '';
   const expertsFolded = !agent && !site && ui.expertsCollapsed;
-  const sideLabel = site ? '대지' : expert ? expert.name : ui.sideTab === 'ideas' ? '아이디어' : '전문가';
+  const sideLabel = site ? '대지' : expert ? expert.name : '전문가';
   const tabs = [['conductor', '대화'], ['board', '제도판'], ['side', sideLabel]];
   return `<main class="studio with-table ${side} pane-${ui.pane} ${ui.conductor.open ? 'conductor-open' : ''} ${expertsFolded ? 'experts-collapsed' : ''}" id="main" tabindex="-1">
       ${conductorPanel()}
       ${ui.conductor.open ? panelSplitter('left') : ''}
-      <section class="board panel" aria-label="제도판">${boardHead(name, site, agent)}<div class="board-canvas"><div id="table-slot"></div></div></section>
-      ${site ? sitePage(name) : agent ? expertPage(name, agent) : ui.sideTab === 'ideas' ? ideasPanel() : expertsPanel()}
+      <section class="board panel" aria-label="제도판">${boardHead(name, site, agent)}<div class="board-canvas"><div id="table-slot"></div>${ideaFloatView()}</div></section>
+      ${site ? sitePage(name) : agent ? expertPage(name, agent) : expertsPanel()}
       ${!expertsFolded ? panelSplitter('right') : ''}
       ${commandBar()}
       <nav class="pane-tabs" aria-label="화면 바꾸기">${tabs.map(([id, label]) => `<button type="button" data-action="pane" data-pane="${id}" aria-pressed="${ui.pane === id}">${escape(label)}</button>`).join('')}</nav>
@@ -1634,7 +1659,7 @@ function workspaceView() {
 }
 
 function render(fresh = true) {
-  if (panelResize) { resizeRenderPending = true; return; } // Keep the captured handle until release.
+  if (panelResize || floatDrag || dotDrag) { resizeRenderPending = true; return; } // Keep the captured handle until release.
   // Keep typing and reading positions across redraws.
   const focused = document.activeElement?.dataset?.focus;
   const selection = focused ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
@@ -1661,6 +1686,7 @@ function render(fresh = true) {
   const slot = app.querySelector('#table-slot');
   if (slot) slotWatch.observe(slot);
   placeTable();
+  placeIdeaFloat();
   placeSiteMap();
   const ask = ui.focusComposer && app.querySelector('[data-focus="command"]');
   ui.focusComposer = false;
@@ -2026,7 +2052,7 @@ function runCommand(name, command) {
       break;
     case 'idea':
       openIdeas(name);
-      say('idea — 아이디어 보드를 열었습니다. 오른쪽 칸에 적거나 대화에서 ＋ 아이디어로를 누르세요.');
+      say('idea — 아이디어 보드를 폈습니다. 제도판 위 창에 적거나 대화에서 ＋ 아이디어로를 누르세요.');
       break;
     case 'export':
       c.prompt = {
@@ -2062,12 +2088,245 @@ function runCommand(name, command) {
 
 // ------------------------------------------------------------------ the idea board
 
-// Show the idea board in the right panel (closing an expert's or the site page first).
-function openIdeas(name) {
-  if (currentRoute.agent || currentRoute.site) location.hash = projectUrl(name);
-  ui.sideTab = 'ideas';
-  ui.expertsCollapsed = false;
-  ui.pane = 'side';
+// The idea board is open while the pointer is over it, while an idea is being rewritten or typed
+// into, or when the designer pinned it open; otherwise it is a row of circles.
+function ideaBoardOpen() {
+  return Boolean(ui.ideaFloat.pinned || ui.ideaHover || ui.ideaEdit);
+}
+
+// Open or close the board in place (no redraw: the page under it keeps its state).
+function showIdeaBoard() {
+  const el = app.querySelector('#idea-float');
+  if (!el) return;
+  el.classList.toggle('is-open', ideaBoardOpen());
+  placeIdeaFloat();
+}
+
+let ideaHoverTimer = 0;
+function hoverIdeas(on) {
+  clearTimeout(ideaHoverTimer);
+  ideaHoverTimer = setTimeout(() => {
+    const el = app.querySelector('#idea-float');
+    if (!on && (floatDrag || dotDrag || el?.contains(document.activeElement) || el?.matches(':hover'))) return;
+    if (on && (floatDrag || dotDrag?.moved || table?.carrying)) return;
+    ui.ideaHover = on;
+    showIdeaBoard();
+  }, on ? 120 : 350);
+}
+app.addEventListener('pointerenter', (event) => {
+  if (event.target.id === 'idea-float' && event.pointerType !== 'touch') hoverIdeas(true);
+}, true);
+app.addEventListener('pointerleave', (event) => {
+  if (event.target.id === 'idea-float' && event.pointerType !== 'touch') hoverIdeas(false);
+}, true);
+app.addEventListener('focusout', (event) => {
+  if (event.target.closest?.('#idea-float')) hoverIdeas(false);
+});
+
+// Open the idea board and keep it open (the `idea` command; on a phone the table pane comes up).
+function openIdeas() {
+  ui.ideaFloat = { ...ui.ideaFloat, pinned: true };
+  if (ui.pane === 'conductor' || ui.pane === 'side') ui.pane = 'board';
+}
+
+function pinIdeas() {
+  ui.ideaFloat = { ...ui.ideaFloat, pinned: !ideaBoardOpen() || !ui.ideaFloat.pinned };
+  if (!ui.ideaFloat.pinned) ui.ideaHover = false;
+  render(false);
+}
+
+// Lay the idea board over the table area: held to its corner, sized to fit, never past the edges.
+function placeIdeaFloat() {
+  const el = app.querySelector('#idea-float');
+  const box = el?.parentElement;
+  if (!el || !box || !box.clientWidth) return;
+  const area = { width: box.clientWidth, height: box.clientHeight };
+  const open = el.classList.contains('is-open');
+  if (!open) { el.style.width = ''; el.style.height = ''; }
+  const size = open ? ui.ideaFloat : { width: el.offsetWidth, height: el.offsetHeight };
+  const at = floatPlace(ui.ideaFloat, size, area);
+  el.style.left = `${at.left}px`;
+  el.style.top = `${at.top}px`;
+  if (open) { el.style.width = `${at.width}px`; el.style.height = `${at.height}px`; }
+  else { el.style.maxWidth = `${area.width - 12}px`; }
+}
+
+// Dragging the board's head (or an empty part of its row of circles) moves it; its corner grip
+// resizes it. On release it holds to the nearest corner.
+function startFloatDrag(event) {
+  const grip = event.target.closest('[data-float-drag]');
+  if (!grip || event.button !== 0 || event.target.closest('button, a, input, textarea, label')) return false;
+  const el = grip.closest('#idea-float');
+  floatDrag = {
+    mode: grip.dataset.floatDrag, el, grip, pointer: event.pointerId, x: event.clientX, y: event.clientY,
+    left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight, moved: false,
+  };
+  grip.setPointerCapture(event.pointerId);
+  event.preventDefault(); // no text selection while dragging the head
+  return true;
+}
+
+function moveFloatDrag(event) {
+  const drag = floatDrag;
+  if (!drag || event.pointerId !== drag.pointer) return;
+  const dx = event.clientX - drag.x;
+  const dy = event.clientY - drag.y;
+  if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+  drag.moved = true;
+  document.body.classList.add('moving-float');
+  const box = drag.el.parentElement;
+  if (drag.mode === 'size') {
+    drag.el.style.width = `${Math.max(240, Math.min(drag.width + dx, box.clientWidth - drag.left - 6))}px`;
+    drag.el.style.height = `${Math.max(180, Math.min(drag.height + dy, box.clientHeight - drag.top - 6))}px`;
+  } else {
+    drag.el.style.left = `${Math.max(0, Math.min(drag.left + dx, box.clientWidth - drag.width))}px`;
+    drag.el.style.top = `${Math.max(0, Math.min(drag.top + dy, box.clientHeight - drag.height))}px`;
+  }
+}
+
+function finishFloatDrag(event) {
+  const drag = floatDrag;
+  if (!drag || event.pointerId !== drag.pointer) return;
+  floatDrag = null;
+  document.body.classList.remove('moving-float');
+  if (drag.grip.hasPointerCapture?.(drag.pointer)) drag.grip.releasePointerCapture(drag.pointer);
+  if (drag.moved) {
+    const el = drag.el;
+    const box = el.parentElement;
+    const rect = { left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight };
+    ui.ideaFloat = {
+      ...ui.ideaFloat, ...floatAnchor(rect, { width: box.clientWidth, height: box.clientHeight }),
+      ...(drag.mode === 'size' ? { width: rect.width, height: rect.height } : {}),
+    };
+  }
+  if (resizeRenderPending) { resizeRenderPending = false; render(false); } else showIdeaBoard();
+}
+
+// ---- circles carried between the table and the idea board (2026-11-07 지훈)
+
+const ideaGhost = document.createElement('div');
+ideaGhost.className = 'idea-ghost';
+ideaGhost.hidden = true;
+ideaGhost.setAttribute('aria-hidden', 'true');
+document.body.append(ideaGhost);
+
+function showGhost(at, html, tone) {
+  if (!at) { ideaGhost.hidden = true; return; }
+  ideaGhost.hidden = false;
+  ideaGhost.innerHTML = html;
+  ideaGhost.className = `idea-ghost ${tone}`;
+  ideaGhost.style.transform = `translate(${at.x}px, ${at.y}px)`;
+}
+
+const overIdeaBoard = (x, y) => {
+  const r = app.querySelector('#idea-float')?.getBoundingClientRect();
+  return Boolean(r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom);
+};
+
+// A paper moving on the table: its circle follows the pointer; over the idea board it can go in.
+// Answers the table: 'over', 'carry', or '' (nothing the board takes, such as the site alone).
+function carryPapers(at) {
+  const board = app.querySelector('#idea-float');
+  const papers = at ? at.ids.map((id) => (ui.board?.papers || []).find((p) => p.id === id)).filter((p) => p && p.kind !== 'site') : [];
+  if (!papers.length) { showGhost(null); board?.classList.remove('is-target'); return ''; }
+  const over = overIdeaBoard(at.x, at.y);
+  board?.classList.toggle('is-target', over);
+  const shape = ideaShape({ paper: papers[0] });
+  showGhost(at, `<span>${escape(shape.glyph)}</span>${papers.length > 1 ? `<b>${papers.length}</b>` : ''}`, `kind-${shape.kind} ${over ? 'is-over' : ''}`);
+  return over ? 'over' : 'carry';
+}
+
+async function stowPapers(name, ids) {
+  ui.ideaBusy = true;
+  let count = 0;
+  for (const id of ids) {
+    const done = await boardCall(name, () => api(`${projectApi(name)}/board/ideas/stow`, { method: 'POST', body: { paper: id } }));
+    if (!done) break;
+    count += 1;
+  }
+  ui.ideaBusy = false;
+  await loadBoard(name);
+  render(false);
+  if (count) { toast(`아이디어 보드에 넣었습니다${count > 1 ? ` (${count}장)` : ''}. 동그라미를 제도판으로 끌면 다시 꺼내집니다.`); announce('아이디어 보드에 넣었습니다.'); }
+}
+
+// An idea onto the table where it is dropped (the middle of the view without a point).
+async function placeIdea(name, id, x, y) {
+  const g = (x !== undefined && table?.ground(x, y)) || table?.view;
+  const spot = g ? { x: g.x, y: g.y } : {};
+  const idea = ideaById(id);
+  const result = await ideaCall(name, `${ideaUrl(id)}/place`, 'POST', spot);
+  if (result) announce(idea?.paper ? '제도판에 꺼냈습니다.' : '메모로 꺼냈습니다.');
+}
+
+let dotDrag = null;
+function startDotDrag(event) {
+  const dot = event.target.closest('[data-idea-dot]');
+  if (!dot || event.button !== 0 || ui.ideaBusy) return false;
+  dotDrag = { id: dot.dataset.ideaDot, dot, pointer: event.pointerId, x: event.clientX, y: event.clientY, moved: false, target: null };
+  dot.setPointerCapture(event.pointerId);
+  return true;
+}
+
+function clearDropMarks() {
+  for (const el of app.querySelectorAll('.drop-before, .drop-after')) el.classList.remove('drop-before', 'drop-after');
+}
+
+function moveDotDrag(event) {
+  const drag = dotDrag;
+  if (!drag || event.pointerId !== drag.pointer) return;
+  if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 4) return;
+  drag.moved = true;
+  ui.ideaDrag = drag.id;
+  drag.dot.classList.add('is-dragging');
+  document.body.classList.add('moving-float');
+  const over = overIdeaBoard(event.clientX, event.clientY);
+  clearDropMarks();
+  drag.target = null;
+  if (over) {
+    // Over another idea: before it, or after it past its middle (across in the row, down in the list).
+    const under = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-idea], [data-idea-dot]');
+    const id = under?.dataset.idea || under?.dataset.ideaDot;
+    if (under && id && id !== drag.id) {
+      const r = under.getBoundingClientRect();
+      const after = under.matches('.idea-dots > *') ? event.clientX > r.left + r.width / 2 : event.clientY > r.top + r.height / 2;
+      under.classList.add(after ? 'drop-after' : 'drop-before');
+      drag.target = { id, after };
+    }
+  }
+  const idea = ideaById(drag.id);
+  const shape = ideaShape(idea, (ui.board?.ideas || []).indexOf(idea));
+  showGhost({ x: event.clientX, y: event.clientY }, `<span>${escape(shape.glyph)}</span>`, `kind-${shape.kind} ${over ? '' : 'is-out'}`);
+}
+
+function finishDotDrag(event, cancel = false) {
+  const drag = dotDrag;
+  if (!drag || event.pointerId !== drag.pointer) return;
+  dotDrag = null;
+  ui.ideaDrag = '';
+  showGhost(null);
+  clearDropMarks();
+  document.body.classList.remove('moving-float');
+  if (drag.dot.hasPointerCapture?.(drag.pointer)) drag.dot.releasePointerCapture(drag.pointer);
+  drag.dot.classList.remove('is-dragging');
+  const name = currentRoute.name;
+  const pending = resizeRenderPending;
+  resizeRenderPending = false;
+  if (!drag.moved || cancel) {
+    if (!drag.moved && !cancel && !ideaBoardOpen()) { ui.ideaHover = true; showIdeaBoard(); }
+    if (pending) render(false);
+    return;
+  }
+  const canvas = app.querySelector('.board-canvas')?.getBoundingClientRect();
+  const inBoard = overIdeaBoard(event.clientX, event.clientY);
+  const onTable = canvas && event.clientX >= canvas.left && event.clientX <= canvas.right && event.clientY >= canvas.top && event.clientY <= canvas.bottom;
+  if (inBoard && drag.target) {
+    orderIdeas(name, dropIdea((ui.board?.ideas || []).map((i) => i.id), drag.id, drag.target.id, drag.target.after));
+  } else if (!inBoard && onTable) {
+    placeIdea(name, drag.id, event.clientX, event.clientY);
+  } else if (pending) {
+    render(false);
+  }
 }
 
 // One idea-board change through the API; the board is read again either way.
@@ -2136,7 +2395,8 @@ function ideaFromMessage(name, button) {
   messagePick = { article: null, text: '', at: 0 };
   const talk = button.dataset.talk || null;
   addIdea(name, { text, talk }, picked ? '고른 부분을 아이디어 보드에 넣었습니다.' : '메시지를 아이디어 보드에 넣었습니다.').then((result) => {
-    if (result && !currentRoute.agent && !currentRoute.site) { ui.sideTab = 'ideas'; ui.expertsCollapsed = false; render(false); }
+    // Shown open for a moment, so the designer sees where it went.
+    if (result && !ideaBoardOpen()) { ui.ideaHover = true; showIdeaBoard(); setTimeout(() => hoverIdeas(false), 2500); }
   });
 }
 
@@ -2169,7 +2429,7 @@ function ideaAction(name, action, button) {
   const id = button.dataset.idea;
   const idea = id ? ideaById(id) : null;
   if (action !== 'idea-delete') ui.ideaConfirm = '';
-  if (action === 'side-tab') { ui.sideTab = button.dataset.tab; render(false); return; }
+  if (action === 'idea-float-pin') { pinIdeas(); return; }
   if (action === 'idea-from-message') { ideaFromMessage(name, button); return; }
   if (action === 'idea-notes') { ideasFromNotes(name); return; }
   if (action === 'idea-cancel') { drafts.delete(`idea-edit:${ui.ideaEdit}`); ui.ideaEdit = ''; render(false); return; }
@@ -2183,6 +2443,7 @@ function ideaAction(name, action, button) {
     box?.focus({ preventScroll: true });
     box?.setSelectionRange(box.value.length, box.value.length);
   }
+  if (action === 'idea-place') placeIdea(name, id);
   if (action === 'idea-off') ideaCall(name, ideaUrl(id), 'PATCH', { off: !idea.off });
   if (action === 'idea-link') ideaCall(name, ideaUrl(id), 'PATCH', { papers: linkPapers(idea.papers, ui.selected) });
   if (action === 'idea-unlink') ideaCall(name, ideaUrl(id), 'PATCH', { papers: (idea.papers || []).filter((x) => x !== button.dataset.id) });
@@ -2194,39 +2455,6 @@ function ideaAction(name, action, button) {
     ideaCall(name, ideaUrl(id), 'DELETE');
   }
 }
-
-// Dragging an idea onto another puts it before that one (after it, past the middle).
-app.addEventListener('dragstart', (event) => {
-  const item = event.target.closest?.('.idea[data-idea]');
-  if (!item) return;
-  ui.ideaDrag = item.dataset.idea;
-  event.dataTransfer.effectAllowed = 'move';
-  event.dataTransfer.setData('text/plain', item.querySelector('.idea-text')?.textContent || '');
-  item.classList.add('is-dragging');
-});
-app.addEventListener('dragover', (event) => {
-  const item = ui.ideaDrag && event.target.closest?.('.idea[data-idea]');
-  if (!item) return;
-  event.preventDefault();
-  const r = item.getBoundingClientRect();
-  for (const el of app.querySelectorAll('.idea.drop-before, .idea.drop-after')) el.classList.remove('drop-before', 'drop-after');
-  if (item.dataset.idea !== ui.ideaDrag) item.classList.add(event.clientY > r.top + r.height / 2 ? 'drop-after' : 'drop-before');
-});
-app.addEventListener('drop', (event) => {
-  const item = ui.ideaDrag && event.target.closest?.('.idea[data-idea]');
-  if (!item) return;
-  event.preventDefault();
-  const r = item.getBoundingClientRect();
-  const ids = (ui.board?.ideas || []).map((i) => i.id);
-  const dragged = ui.ideaDrag;
-  ui.ideaDrag = '';
-  orderIdeas(currentRoute.name, dropIdea(ids, dragged, item.dataset.idea, event.clientY > r.top + r.height / 2));
-});
-app.addEventListener('dragend', () => {
-  if (!ui.ideaDrag) return;
-  ui.ideaDrag = '';
-  render(false);
-});
 
 // The drawing table as a DXF or 3dm file, with the scheme the table shows switched on.
 async function downloadBoard(name, format) {
@@ -2610,6 +2838,7 @@ function currentPanelWidths(studio) {
 }
 
 app.addEventListener('pointerdown', (event) => {
+  if (startDotDrag(event) || startFloatDrag(event)) return;
   const handle = event.target.closest('[data-resize-side]');
   if (!handle || event.button !== 0 || matchMedia('(max-width: 900px)').matches) return;
   event.preventDefault();
@@ -2650,6 +2879,9 @@ function finishPanelResize(event, cancel = false) {
 }
 window.addEventListener('pointerup', (event) => finishPanelResize(event));
 window.addEventListener('pointercancel', (event) => finishPanelResize(event, true));
+window.addEventListener('pointermove', (event) => { moveFloatDrag(event); moveDotDrag(event); });
+window.addEventListener('pointerup', (event) => { finishFloatDrag(event); finishDotDrag(event); });
+window.addEventListener('pointercancel', (event) => { finishFloatDrag(event); finishDotDrag(event, true); });
 app.addEventListener('lostpointercapture', (event) => finishPanelResize(event, true));
 
 app.addEventListener('keydown', (event) => {
@@ -2702,7 +2934,7 @@ app.addEventListener('click', (event) => {
   if (action === 'new-chat') newChat(button.dataset.agent);
   if (action === 'run-expert') runExpert(name, button.dataset.agent, button.dataset.withoutSite === 'true');
   if (action === 'unpick') unpick(button.dataset.id);
-  if (action === 'side-tab' || action.startsWith('idea-')) ideaAction(name, action, button);
+  if (action.startsWith('idea-')) ideaAction(name, action, button);
   const talkId = button.dataset.talk;
   if (action === 'talk-menu') { event.preventDefault(); ui.talkMenu = talkMenu(ui.talkMenu, 'toggle', talkId); render(false); }
   if (action === 'talk-open') {
@@ -3143,7 +3375,7 @@ window.addEventListener('focus', async () => {
 // ------------------------------------------------------------------ start
 
 window.addEventListener('hashchange', navigate);
-window.addEventListener('resize', () => { syncPanelWidths(); placeTable(); });
+window.addEventListener('resize', () => { syncPanelWidths(); placeTable(); placeIdeaFloat(); });
 matchMedia('(max-width: 900px)').addEventListener('change', () => {
   if (currentRoute.page === 'project') render(false);
 });

@@ -1034,7 +1034,7 @@ export const sameOrder = (a, b) => a.length === b.length && a.every((x, i) => x 
 
 // An idea's linked papers that are still on the table or in the AI section, by name.
 export function ideaPapers(idea, board) {
-  const all = [...(board?.papers || []), ...(board?.tray || [])];
+  const all = [...(board?.papers || []), ...(board?.tray || []), ...heldPapers(board)];
   return (idea?.papers || []).flatMap((id) => {
     const paper = all.find((p) => p.id === id);
     return paper ? [{ id, name: paperName(paper) }] : [];
@@ -1052,6 +1052,23 @@ export function pickedNotes(ids, board) {
   return ids.map((id) => all.find((p) => p.id === id))
     .filter((p) => p?.kind === 'note' && ideaText(p.text))
     .map((p) => ({ id: p.id, text: ideaText(p.text) }));
+}
+
+// The papers dragged off the table into the idea board (each held inside its idea).
+export function heldPapers(board) {
+  return (board?.ideas || []).map((i) => i.paper).filter((p) => p && typeof p === 'object');
+}
+
+const DOT_GLYPHS = { note: '✎', mass: '▣', tracing: '≈', expert: '◎', pdf: 'PDF', site: '◇' };
+
+// What an idea's circle and its line in the open board show: its kind, a glyph for the circle,
+// a name and a little of what it says. An idea of words shows its number.
+export function ideaShape(idea, index = 0) {
+  const p = idea?.paper;
+  if (!p) return { kind: 'text', glyph: String(index + 1), name: '', text: idea?.text || '' };
+  const kind = p.kind === 'photo' && /\.pdf$/i.test(p.file || '') ? 'pdf' : p.kind;
+  const said = p.kind === 'note' || p.kind === 'expert' ? String(p.text || '').trim() : '';
+  return { kind, glyph: DOT_GLYPHS[kind] || '•', name: paperName(p), text: said, photo: p.kind === 'photo' && kind !== 'pdf' };
 }
 
 // How many ideas the AI reads now (the ones not set aside).
@@ -1139,4 +1156,56 @@ export function hideKey({ key, ctrl, meta, shift }, picked) {
   if (picked && (k === 'delete' || k === 'backspace')) return 'hide';
   if (picked && k === 'escape') return 'cancel';
   return '';
+}
+
+// ------------------------------------------------------------------ the floating idea window
+// The idea board floats over the drafting table and holds to the corner it was left nearest
+// (2026-11-07 지훈: "제도판 위에 한구석에 떠 있어야"), so it stays in that corner when panels
+// open or close and the table changes size. `dx`, `dy` are the gaps to that corner's two edges.
+
+export const IDEA_FLOAT = {
+  corner: 'tr', dx: 76, dy: 16, width: 320, height: 440, // beside the table's view buttons (top right)
+  minWidth: 240, minHeight: 180, margin: 6,
+};
+
+const fit = (value, low, high) => Math.max(low, Math.min(high, value));
+const CORNERS = new Set(['tl', 'tr', 'bl', 'br']);
+
+// A saved window state made safe to draw (anything missing or broken falls back to the default).
+export function floatState(saved) {
+  const s = saved && typeof saved === 'object' ? saved : {};
+  const num = (v, d) => (Number.isFinite(v) && v >= 0 ? v : d);
+  return {
+    pinned: s.pinned === true, // kept open even without the pointer over it
+    corner: CORNERS.has(s.corner) ? s.corner : IDEA_FLOAT.corner,
+    dx: num(s.dx, IDEA_FLOAT.dx), dy: num(s.dy, IDEA_FLOAT.dy),
+    width: Math.max(IDEA_FLOAT.minWidth, num(s.width, IDEA_FLOAT.width)),
+    height: Math.max(IDEA_FLOAT.minHeight, num(s.height, IDEA_FLOAT.height)),
+  };
+}
+
+// Where the window (of `size`) sits in the table area `box`: held to its corner, never larger
+// than the area and never past its edges.
+export function floatPlace(state, size, box) {
+  const m = IDEA_FLOAT.margin;
+  const width = Math.max(0, Math.min(size.width, box.width - 2 * m));
+  const height = Math.max(0, Math.min(size.height, box.height - 2 * m));
+  const left = state.corner.includes('l') ? state.dx : box.width - width - state.dx;
+  const top = state.corner.includes('t') ? state.dy : box.height - height - state.dy;
+  return {
+    left: fit(left, m, Math.max(m, box.width - width - m)),
+    top: fit(top, m, Math.max(m, box.height - height - m)),
+    width, height,
+  };
+}
+
+// The corner a window at `rect` (inside `box`) is nearest, with its gaps to that corner.
+export function floatAnchor(rect, box) {
+  const left = rect.left + rect.width / 2 < box.width / 2;
+  const top = rect.top + rect.height / 2 < box.height / 2;
+  return {
+    corner: `${top ? 't' : 'b'}${left ? 'l' : 'r'}`,
+    dx: Math.max(0, Math.round(left ? rect.left : box.width - rect.left - rect.width)),
+    dy: Math.max(0, Math.round(top ? rect.top : box.height - rect.top - rect.height)),
+  };
 }

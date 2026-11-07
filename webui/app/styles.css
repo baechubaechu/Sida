@@ -920,11 +920,56 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .photo-drop[hidden] { display: none; }
 
 /* ---- the idea board (오른쪽 칸 "아이디어" 탭): the designer's main ideas, in order; the AI only reads them */
-.side-tabs { display: flex; gap: 4px; padding: 10px 12px 0; flex-shrink: 0; border-bottom: 1px solid var(--line); }
-.side-tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 7px 10px 8px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font-size: 13px; font-weight: 600; }
-.side-tabs button[aria-selected="true"] { color: var(--brand); border-bottom-color: var(--brand); }
-.side-tabs .expert-count { min-width: 18px; height: 18px; margin-left: 2px; font-size: 10px; }
-.ideas-scroll { padding: 10px 12px 12px; }
+/* The idea board floats over the table in a corner (2026-11-07 지훈): a row of circles, open
+   into the list while the pointer is over it. app.js places it (left/top) and sizes it when open. */
+.idea-float { position: absolute; z-index: 8; left: 0; top: 0; display: flex; flex-direction: column; min-width: 0; color: var(--text); }
+.idea-dock { display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 12px; border: 1px solid var(--line); border-radius: 999px; background: rgb(255 255 255 / .94); box-shadow: 0 4px 16px rgb(20 30 40 / .14); cursor: move; user-select: none; touch-action: none; max-width: 100%; }
+.idea-dock-label { flex-shrink: 0; font-size: 12px; font-weight: 700; color: var(--brand); }
+.idea-dock-empty { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.idea-dots { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.idea-dock-open { flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%; color: var(--muted); font-size: 14px; line-height: 1; }
+.idea-dot { flex-shrink: 0; position: relative; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; overflow: hidden; border-radius: 50%; border: 2px solid var(--brand); background: var(--note); color: var(--note-ink); font-size: 11px; font-weight: 700; line-height: 1; cursor: grab; touch-action: none; user-select: none; }
+.idea-dot:active { cursor: grabbing; }
+.idea-dot img { width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.idea-dot.kind-mass { background: #e3eaf1; color: var(--pen); border-color: #7f9bb3; }
+.idea-dot.kind-tracing { background: #f2f6f8; color: #126b89; border-color: #8fb7c6; }
+.idea-dot.kind-expert { background: #e4f1e9; color: var(--ok); border-color: #8fbea2; }
+.idea-dot.kind-photo, .idea-dot.kind-pdf { background: var(--surface); color: var(--muted); border-color: #b9c1c9; font-size: 8px; }
+.idea-dot.is-off { opacity: .55; border-style: dashed; }
+.idea-dot.is-dragging { opacity: .3; }
+.idea-dot.drop-before { box-shadow: -4px 0 0 -1px var(--brand); }
+.idea-dot.drop-after { box-shadow: 4px 0 0 -1px var(--brand); }
+.idea-panel { display: none; flex: 1; min-height: 0; flex-direction: column; position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 10px 30px rgb(20 30 40 / .18); }
+.idea-float.is-open .idea-dock { display: none; }
+.idea-float.is-open .idea-panel { display: flex; }
+.idea-float.is-target .idea-dock, .idea-float.is-target .idea-panel { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 30%, transparent), 0 8px 24px rgb(20 30 40 / .18); }
+.idea-float-head { display: flex; align-items: flex-start; gap: 8px; padding: 10px 10px 8px 14px; border-bottom: 1px solid var(--line); cursor: move; user-select: none; touch-action: none; flex-shrink: 0; }
+.idea-float-head > div { flex: 1; min-width: 0; }
+.idea-float-head h2 { margin: 0; font-size: 14px; }
+.idea-float-head p { margin: 2px 0 0; font-size: 11px; color: var(--muted); }
+.idea-float-pin { font-size: 11px; padding: 3px 8px; border-radius: 6px; color: var(--brand); }
+.idea-float-pin.is-on { background: var(--selected); }
+.idea-float-size { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none; background: linear-gradient(135deg, transparent 55%, #b9c1c9 55%, #b9c1c9 62%, transparent 62%, transparent 72%, #b9c1c9 72%, #b9c1c9 79%, transparent 79%); }
+.idea-float .idea-new { margin: 0 10px 10px; }
+.idea-float .idea-dot { margin-top: 1px; }
+.idea-paper { margin: 0; font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+.idea-paper b { color: var(--text); }
+.idea-caption { font-size: 13px; }
+.idea-list .idea-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+.idea-list .idea:hover .idea-text, .idea-list .idea:focus-within .idea-text { -webkit-line-clamp: unset; }
+body.moving-float, body.moving-float * { cursor: grabbing !important; user-select: none; }
+/* The circle a paper (or an idea) turns into while it is carried. */
+.idea-ghost { position: fixed; left: 0; top: 0; z-index: 60; pointer-events: none; display: grid; place-items: center; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; border: 2px solid var(--brand); background: var(--note); color: var(--note-ink); font-size: 13px; font-weight: 700; box-shadow: 0 6px 18px rgb(20 30 40 / .25); transition: width .12s, height .12s, margin .12s; }
+.idea-ghost[hidden] { display: none; }
+.idea-ghost.kind-mass { background: #e3eaf1; color: var(--pen); }
+.idea-ghost.kind-expert { background: #e4f1e9; color: var(--ok); }
+.idea-ghost.kind-photo, .idea-ghost.kind-pdf { background: var(--surface); color: var(--muted); font-size: 9px; }
+.idea-ghost.is-over { width: 42px; height: 42px; margin: -21px 0 0 -21px; box-shadow: 0 0 0 5px color-mix(in srgb, var(--brand) 25%, transparent), 0 6px 18px rgb(20 30 40 / .25); }
+.idea-ghost.is-out { border-style: dashed; }
+.idea-ghost b { position: absolute; right: -6px; top: -6px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--brand); color: white; font-size: 10px; line-height: 16px; text-align: center; }
+.table .slot.is-carried { opacity: .25; transition: opacity .12s; }
+.table.carrying-over .slot.is-carried { opacity: 0; }
+.ideas-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 10px 12px 12px; }
 .idea-empty { padding: 14px; font-size: 12px; line-height: 1.8; color: var(--muted); background: #f7f9fb; border: 1px solid var(--line); border-radius: 8px; }
 .idea-empty p { margin: 0 0 6px; }
 .idea-empty b { color: var(--text); }
@@ -935,8 +980,6 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .idea.is-dragging { opacity: .45; }
 .idea.drop-before { box-shadow: 0 -3px 0 var(--brand); }
 .idea.drop-after { box-shadow: 0 3px 0 var(--brand); }
-.idea-num { flex-shrink: 0; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--surface); border: 1px solid var(--line); color: var(--brand); font-size: 12px; font-weight: 700; cursor: grab; user-select: none; }
-.idea-num:active { cursor: grabbing; }
 .idea-body { flex: 1; min-width: 0; display: grid; gap: 6px; }
 .idea-text { margin: 0; font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
 .idea.is-off .idea-text { color: var(--muted); }

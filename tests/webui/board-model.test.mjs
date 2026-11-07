@@ -651,6 +651,37 @@ test('the idea board: text from a message, reordering, links and notes', async (
   assert.equal(ideasInPlay(null), 0);
 });
 
+test('the floating idea window holds to its nearest corner and stays inside the table', async () => {
+  const { floatState, floatPlace, floatAnchor, IDEA_FLOAT } = await import('../../webui/app/board-model.js');
+  const fresh = floatState(null);
+  assert.deepEqual(fresh, { pinned: false, corner: 'tr', dx: IDEA_FLOAT.dx, dy: IDEA_FLOAT.dy, width: IDEA_FLOAT.width, height: IDEA_FLOAT.height });
+  const broken = floatState({ pinned: 'yes', corner: 'middle', dx: -5, dy: 'x', width: 50, height: NaN });
+  assert.equal(broken.pinned, false);
+  assert.equal(floatState({ pinned: true }).pinned, true);
+  assert.equal(broken.corner, 'tr');
+  assert.equal(broken.dx, IDEA_FLOAT.dx);
+  assert.equal(broken.width, IDEA_FLOAT.minWidth); // never narrower than usable
+  assert.equal(broken.height, IDEA_FLOAT.height);
+
+  const box = { width: 1000, height: 700 };
+  const size = { width: 300, height: 400 };
+  // top right: measured from the right edge, so it stays there when the table grows
+  assert.deepEqual(floatPlace({ corner: 'tr', dx: 20, dy: 10 }, size, box), { left: 680, top: 10, width: 300, height: 400 });
+  assert.deepEqual(floatPlace({ corner: 'tr', dx: 20, dy: 10 }, size, { width: 1200, height: 700 }).left, 880);
+  assert.deepEqual(floatPlace({ corner: 'bl', dx: 30, dy: 40 }, size, box), { left: 30, top: 260, width: 300, height: 400 });
+  // a table smaller than the window: shrunk to fit, kept off the edges
+  const small = floatPlace({ corner: 'br', dx: 500, dy: 500 }, size, { width: 200, height: 150 });
+  assert.deepEqual(small, { left: IDEA_FLOAT.margin, top: IDEA_FLOAT.margin, width: 188, height: 138 });
+
+  // dropped nearer the bottom left: held to that corner, gaps measured to its edges
+  assert.deepEqual(floatAnchor({ left: 40, top: 380, width: 300, height: 300 }, box), { corner: 'bl', dx: 40, dy: 20 });
+  assert.deepEqual(floatAnchor({ left: 650, top: 12, width: 300, height: 300 }, box), { corner: 'tr', dx: 50, dy: 12 });
+  // placing again from the anchor puts it back where it was dropped
+  const rect = { left: 612, top: 345, width: 300, height: 320 };
+  const again = floatPlace(floatAnchor(rect, box), rect, box);
+  assert.deepEqual([again.left, again.top], [612, 345]);
+});
+
 test('the surroundings legend lists only the ground kinds and building kinds that are drawn', async () => {
   const { aroundLegend } = await import('../../webui/app/board-model.js');
   // no 1:5,000 areas here (마포): the grid is all 대지, so no 도로·인도·수계 chips

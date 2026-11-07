@@ -1183,6 +1183,24 @@ def test_board_api_keeps_the_idea_board_in_order(client, project):
     assert client.post("/api/projects/nope/board/ideas", json={"text": "x"}).status_code == 404
 
 
+def test_board_api_moves_a_paper_into_the_idea_board_and_back_onto_the_table(client, project):
+    base = f"/api/projects/{project.name}/board"
+    client.post(f"{base}/papers", json={"kind": "note", "id": "n1", "text": "북측 일조"})
+    r = client.post(f"{base}/ideas/stow", json={"paper": "n1", "at": 0})
+    assert r.status_code == 201 and r.json()["idea"]["paper"]["id"] == "n1"
+    idea = r.json()["idea"]["id"]
+    view = client.get(base).json()
+    assert [p["id"] for p in view["papers"]] == ["site"] and view["ideas"][0]["paper"]["text"] == "북측 일조"
+
+    r = client.post(f"{base}/ideas/{idea}/place", json={"x": 12, "y": -3})
+    assert r.status_code == 200 and (r.json()["paper"]["x"], r.json()["paper"]["y"]) == (12, -3)
+    assert [p["id"] for p in client.get(base).json()["papers"]] == ["site", "n1"]
+
+    assert client.post(f"{base}/ideas/stow", json={"paper": "site"}).status_code == 400
+    assert client.post(f"{base}/ideas/stow", json={"paper": "gone"}).status_code == 404
+    assert client.post(f"{base}/ideas/{idea}/place", json={}).status_code == 404
+
+
 def test_board_api_exports_the_table_as_cad_and_rhino_files(client, project):
     base = f"/api/projects/{project.name}/board"
     client.post(f"{base}/papers", json={"kind": "mass", "id": "mass-a", "title": "안 A", "blocks": [{"w": 30, "d": 20, "floors": 4}]})
