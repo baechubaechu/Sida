@@ -31,7 +31,7 @@ Brief ──┬─ site_reader ─────────┐
                                                      │
         development: spatial_reviewer, systems_advisor ←─┤
         critique:    design_critic                     ←─┤
-        communication: representation_planner, presentation_editor
+        communication: representation_planner, presentation_editor, model_maker
 
 Conductor: conditions (hard/soft), conflicts between experts, decisions required now
 ```
@@ -187,6 +187,7 @@ together is the Conductor's job.
 | `design_critic` | critique | jury-style critique against the core problem | all |
 | `representation_planner` | communication | diagrams, drawings, models that prove the concept and test weak points | concept, spatial, critic, site |
 | `presentation_editor` | communication | review / portfolio story, structure, anticipated questions | concept, critic, representation |
+| `model_maker` | communication | the laser-cut site model: board, scale, thickness among Sida's computed options, assembly order (held) | site |
 
 Each expert has a narrow lens, declared inputs, a fixed Markdown output format ending in
 `## Handoff`, and constraints on what it must not do (none of them designs the building).

@@ -94,8 +94,6 @@ export class DraftingTable {
     this.aroundRequest = null;
     this.aroundNoteOpen = null; // the source note: open or folded (decided by the width when first shown)
     this.aroundRange = null; // {size, shape, orient}: the project's range for the surroundings, read once
-    this.modelOpen = false; // the 모형 판 panel (model-maker.js), made when first opened
-    this.maker = null;
     this.stepped = null; // the stepped ground (GET .../site/model-base) for the 계단식 보기
     this.steppedOn = false;
     this.aroundLow = 0;
@@ -122,7 +120,6 @@ export class DraftingTable {
       <p class="table-ui ui-help">왼쪽 끌기: 선택 상자(→ 안에 든 것, ← 걸친 것, Shift 더하기, Ctrl 빼기) · 건물 클릭: 그 동만 고르기(끌면 옮김, 검볼, Delete 지우기) · 스케치업 도구는 명령으로: rect pushpull move copy rotate scale eraser dist (제도판에서 글자를 치면 명령창으로) · Ctrl+C/V 복사·붙여넣기, Ctrl+A 모든 동 · 고른 이름표 끌기: 종이 옮기기 · 휠: 커서 기준 확대 · 우클릭 끌기: 돌리기 · Shift+우클릭·가운데 버튼 끌기: 이동 · Ctrl+Z: 되돌리기 · 사진·PDF: 파일을 끌어다 놓거나 붙여넣기(photo) · 종이 모서리 끌기: 크기 조절</p>
       <p class="table-ui ui-hint" role="status" hidden></p>
       <section class="table-ui around-note" aria-label="주변 3D 자료 출처" hidden></section>
-      <section class="table-ui model-panel" aria-label="모형 판" hidden></section>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
       <section class="table-ui peek" aria-label="종이 내용" hidden></section>
       <section class="table-ui scheme-form" aria-label="매스안 입력" hidden></section>
@@ -815,38 +812,28 @@ export class DraftingTable {
 
   // ------------------------------------------------------------------ the site's surroundings
 
-  // 모형 바닥: the button that opens the 모형 판 panel (model-maker.js) over the table.
+  // 모형 바닥: the model maker's page (the model board panel and its advice); 계단식: the ground
+  // stepped as the kept board settings would cut it.
   modelMenu() {
-    return `<button type="button" data-ui="model-panel" aria-pressed="${this.modelOpen}" title="모형 판 크기·축척을 정해 레이저 커팅 파일 받기">모형 바닥</button>`;
+    return `<button type="button" data-ui="model-panel" title="모형 제작가: 모형 판 크기·축척을 정해 레이저 커팅 파일 받기">모형 바닥</button>
+      <button type="button" data-ui="model-stepped" aria-pressed="${this.steppedOn}" title="저장한 모형 판 설정(축척 × 두께) 간격으로 계단식 지형 보기">계단식</button>`;
   }
 
-  async toggleModel() {
-    this.modelOpen = !this.modelOpen;
-    const panel = this.root.querySelector('.model-panel');
-    panel.hidden = !this.modelOpen;
-    this.drawControls();
-    if (!this.modelOpen) return;
-    if (!this.maker) {
-      const { ModelMaker } = await import('./model-maker.js');
-      panel.innerHTML = '<div class="model-panel-head"><strong>모형 판</strong><button type="button" data-ui="model-panel" aria-label="닫기">×</button></div><div class="model-panel-body"></div>';
-      this.maker = new ModelMaker(panel.querySelector('.model-panel-body'), {
-        around: async () => { if (!this.aroundOn) await this.toggleAround(); return this.around; },
-        site: () => this.site,
-        range: () => (this.hooks.range ? this.hooks.range() : Promise.resolve(this.aroundRange || DEFAULT_RANGE)),
-        settings: () => this.hooks.modelSettings(),
-        fit: (params) => this.hooks.modelFit(params),
-        plan: (body) => this.hooks.modelPlan(body),
-        files: (body) => this.hooks.modelBoardFiles(body),
-        stepped: (interval) => this.showStepped(interval),
-      });
-    }
-    await this.maker.open();
+  openModel() { this.hooks.openExpert?.('model_maker'); }
+
+  async toggleStepped() {
+    let interval = this.stepInterval || 1.5;
+    try {
+      const s = await this.hooks.modelSettings?.();
+      if (s) interval = Math.round(Number(s.thickness_mm) * Number(s.scale)) / 1000;
+    } catch { /* the last height stays */ }
+    await this.showStepped(interval);
   }
 
   // 계단식 보기 at this step height (m): the stepped ground in place of the smooth one; asked
   // again for the same height, the smooth ground comes back. True when the steps are shown.
   async showStepped(interval) {
-    if (this.steppedOn && this.stepInterval === interval) {
+    if (this.steppedOn && this.stepInterval === interval) { // asked again: the smooth ground
       this.steppedOn = false;
       this.drawAround();
       this.drawControls();
@@ -901,7 +888,6 @@ export class DraftingTable {
     if (shown) await this.toggleAround();
     else this.drawControls();
     if (shown && stepped) await this.loadStepped();
-    if (this.modelOpen && this.maker) await this.maker.open(); // the board on the new range
   }
 
   // The project's range, read once (for the selects before the surroundings are fetched).
@@ -2196,7 +2182,8 @@ export class DraftingTable {
       case 'trace': this.layTracing(); break;
       case 'photo': this.pickPhotos(); break;
       case 'around': this.toggleAround(); break;
-      case 'model-panel': this.toggleModel(); break;
+      case 'model-panel': this.openModel(); break;
+      case 'model-stepped': this.toggleStepped(); break;
       case 'around-note': this.aroundNoteOpen = !this.aroundNoteOpen; this.drawAroundNote(); break;
       case 'delete': this.removeSelected(); break;
       case 'tray': this.trayOpen = !this.trayOpen; this.drawTray(); this.drawControls(); break;

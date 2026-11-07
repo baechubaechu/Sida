@@ -32,6 +32,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "worker_name_systems_advisor": "Systems Advisor",
         "worker_name_design_critic": "Design Critic",
         "worker_name_representation_planner": "Representation Planner",
+        "worker_name_model_maker": "Model Maker",
         "worker_name_presentation_editor": "Presentation Editor",
         # --- server log
         "busy_role": "Waiting on {role} …",
@@ -216,6 +217,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "worker_name_systems_advisor": "시스템 자문가",
         "worker_name_design_critic": "설계 비평가",
         "worker_name_representation_planner": "표현 계획자",
+        "worker_name_model_maker": "모형 제작가",
         "worker_name_presentation_editor": "발표 편집자",
         # --- server log
         "busy_role": "{role} 응답 대기 중 …",

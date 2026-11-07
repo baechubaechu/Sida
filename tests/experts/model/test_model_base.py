@@ -7,7 +7,7 @@ import zipfile
 
 import pytest
 
-from sida.experts.site import model_base
+from sida.experts.model import model_base
 from tests.experts.site.test_context3d import pack, plan_for_site  # noqa: F401  (pack is a fixture)
 
 

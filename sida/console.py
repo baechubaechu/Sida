@@ -40,6 +40,7 @@ AGENT_LOOK: dict[str, tuple[str, str]] = {
     "design_critic": ("DC", "bright_red"),
     "representation_planner": ("RP", "bright_cyan"),
     "presentation_editor": ("PE", "bright_blue"),
+    "model_maker": ("MM", "bright_yellow"),
 }
 
 ROLE_COLOR = {

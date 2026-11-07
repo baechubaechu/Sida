@@ -136,9 +136,12 @@ def fit(board_mm: tuple[float, float], range_outline: Polygon, site=None, *,
         sx0 = sx1 = middle.x
         sy0 = sy1 = middle.y
     want = ((sx0 + sx1) / 2, (sy0 + sy1) / 2)
+    rx0, ry0, rx1, ry1 = range_outline.bounds
     for scale in sorted(scales, reverse=True):
         w, h = frame_size(board_mm, scale)
         if w < sx1 - sx0 or h < sy1 - sy0:
+            continue
+        if w > rx1 - rx0 + 0.02 or h > ry1 - ry0 + 0.02:  # wider than the range anywhere: no spot can hold it
             continue
         # the centres at which the frame still holds the site
         xs = np.linspace(sx1 - w / 2, sx0 + w / 2, FIT_TRIES)

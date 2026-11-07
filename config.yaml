@@ -267,6 +267,15 @@ agents:
     desc: review / portfolio story, structure, anticipated questions
     inputs: [concept_framer, design_critic, representation_planner]
 
+  - id: model_maker
+    file: agents/63_model_maker.md
+    name: Model Maker
+    output: 63_model_maker.md
+    tier: held
+    phase: communication
+    desc: the laser-cut site model — board, scale, thickness among Sida's computed options; assembly order
+    inputs: [site_reader]
+
 # Suggested entry paths by what drives the project. The Conductor treats these as
 # hints, not sequences. Core experts only (held experts are left out).
 paths:

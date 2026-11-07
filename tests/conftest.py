@@ -27,8 +27,9 @@ from sida import (  # noqa: E402
 )
 from sida import config as sida_config  # noqa: E402
 from sida import project as prj  # noqa: E402
+from sida.experts.model import model_base  # noqa: E402
 from sida.experts.regulation import lawapi  # noqa: E402
-from sida.experts.site import context3d, datago, landapi, model_base, terrain_pack  # noqa: E402
+from sida.experts.site import context3d, datago, landapi, terrain_pack  # noqa: E402
 
 MAX_TEST_NAME = 300
 

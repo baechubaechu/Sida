@@ -872,6 +872,7 @@ def test_session_lists_which_experts_each_expert_reads(session_api, mock_config)
     experts = {e["id"]: e for e in client.get(f"{base}/session").json()["experts"]}
     assert experts["site_reader"]["inputs"] == ["program_analyst", "concept_framer"]
     assert experts["site_reader"]["tier"] == "core" and experts["spatial_reviewer"]["tier"] == "held"
+    assert (experts["model_maker"]["tier"], experts["model_maker"]["inputs"], experts["model_maker"]["chat"]) == ("held", ["site_reader"], True)
     assert experts["design_critic"]["inputs"] == [i for i in experts if i != "design_critic"]  # inputs: all
 
     agents = mock_config["agents"]

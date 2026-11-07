@@ -379,6 +379,8 @@ export const SECTION_LABELS = {
   'Diagram Sequence': '다이어그램 순서', 'Supporting Drawings': '보조 도면', 'Other Media': '그 밖의 자료',
   'One-line Summary': '한 줄 요약', 'Problem Statement': '문제', 'System Summary': '시스템 요약',
   'Key Outputs': '핵심 자료', 'Portfolio Section Structure': '포트폴리오 구성', 'Anticipated Questions': '예상 질문',
+  'Site & Range': '대지와 범위', 'Recommended Board': '추천하는 판', Alternatives: '다른 선택',
+  'Layers & Material': '층과 재료', 'Assembly Order': '조립 순서',
 };
 
 // Words the prompts ask experts to tag items with, shown as badges (tone = status-badge class).
@@ -467,6 +469,13 @@ export const EXPERT_LAYOUTS = {
     { section: 'Essential Diagrams', kind: 'cards', top: true },
     { section: 'Diagram Sequence', kind: 'steps' },
     { columns: ['Supporting Drawings', 'Other Media'], kind: 'list' },
+  ],
+  model_maker: [
+    { section: 'Recommended Board', kind: 'cards', top: true },
+    { section: 'Site & Range', kind: 'list' },
+    { columns: ['Alternatives', 'Layers & Material'], kind: 'cards' },
+    { section: 'Assembly Order', kind: 'steps' },
+    { section: 'Unconfirmed', kind: 'checklist' },
   ],
   presentation_editor: [
     { section: 'One-line Summary', kind: 'lead' },
@@ -809,4 +818,44 @@ export const NEW_PROJECT_FIELDS = ['name', 'type', 'site', 'intention'];
 export function keepNewDraft(draft, field, value) {
   if (!NEW_PROJECT_FIELDS.includes(field)) return draft || {};
   return { ...(draft || {}), [field]: String(value ?? '') };
+}
+
+// ------------------------------------------------------------------ the model maker's recommendation
+// The model maker ends its document with a ```json block {board, scale, orient, thickness}, so
+// the screen can lay the board out as recommended (추천대로 놓기).
+
+const BOARD_KEYS = ['A0', 'A1', 'A2', 'W600x900', 'W900x1800'];
+const FENCE = /```\s*json\s*\n([\s\S]*?)```/gi;
+
+// "우드락 900×600", "w600x900", "A1" → the board key, or ''.
+function boardKey(name) {
+  const plain = String(name || '').replace(/\s+/g, '').replace(/×/g, 'x').replace(/^우드락/, 'W');
+  const sized = plain.match(/^W?(\d+)x(\d+)$/i);
+  const key = sized ? `W${Math.min(sized[1], sized[2])}x${Math.max(sized[1], sized[2])}` : plain;
+  return BOARD_KEYS.find((k) => k.toLowerCase() === key.toLowerCase()) || '';
+}
+
+// The recommendation in a model maker document, read leniently (a fenced or bare object, "1:600"
+// for the scale, "3mm" for the thickness, "가로"/"세로" for the orientation), or null.
+export function parseRecommendation(markdown) {
+  const text = String(markdown || '');
+  const blocks = [...text.matchAll(FENCE)].map((m) => m[1]);
+  if (!blocks.length) blocks.push(...(text.match(/\{[^{}]*"board"[^{}]*\}/g) || []));
+  for (const raw of blocks.reverse()) { // the last one is the answer
+    let data;
+    try { data = JSON.parse(raw.trim().replace(/,\s*}/g, '}').replace(/'/g, '"')); } catch { continue; }
+    if (!data || typeof data !== 'object') continue;
+    const board = boardKey(data.board);
+    const scale = Number(String(data.scale ?? '').replace(/^\s*1\s*:\s*/, ''));
+    const thickness = Number(String(data.thickness ?? data.thickness_mm ?? '').replace(/\s*mm$/i, ''));
+    const o = String(data.orient || 'landscape').toLowerCase();
+    const orient = o === 'portrait' || o === '세로' ? 'portrait' : 'landscape';
+    if (board && scale > 0 && thickness > 0) return { board, scale: Math.round(scale), orient, thickness };
+  }
+  return null;
+}
+
+// The document without its recommendation block (the page shows the recommendation as a button).
+export function stripRecommendation(markdown) {
+  return String(markdown || '').replace(FENCE, '').replace(/\n{3,}/g, '\n\n').trim();
 }

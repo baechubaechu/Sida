@@ -557,3 +557,50 @@ test('what is typed on the new-project page is kept for the next redraw', async 
   assert.equal(keepNewDraft(draft, 'password', 'x'), draft); // not a field of the form
   assert.deepEqual(keepNewDraft(undefined, 'type', null), { type: '' });
 });
+
+test('the model maker: its recommendation is read leniently and its page is laid out by section', async () => {
+  const { parseRecommendation, stripRecommendation, arrangeDocument } = await import('../../webui/app/model.js');
+  const doc = `# Model Maker
+
+## Recommended Board
+- 우드락 600×900 — 1:600 — landscape — 3 mm: fills the range
+
+## Site & Range
+- 무교동 45, large rectangle
+
+## Alternatives
+- A1 — 1:600 — 3 mm
+
+## Layers & Material
+- 8 layers
+
+## Assembly Order
+1. base sheet
+2. layer 1
+
+## Unconfirmed
+- laser bed size
+
+## Handoff
+- → representation_planner: the model photos
+
+\`\`\`json
+{"board": "W600x900", "scale": 600, "orient": "landscape", "thickness": 3}
+\`\`\`
+`;
+  assert.deepEqual(parseRecommendation(doc), { board: 'W600x900', scale: 600, orient: 'landscape', thickness: 3 });
+  assert.deepEqual(parseRecommendation('```json\n{"board": "우드락 900x600", "scale": "1:500", "orient": "세로", "thickness": "5mm",}\n```'),
+    { board: 'W600x900', scale: 500, orient: 'portrait', thickness: 5 });
+  assert.deepEqual(parseRecommendation('끝에 {"board": "a1", "scale": 1000, "thickness": 3}'), { board: 'A1', scale: 1000, orient: 'landscape', thickness: 3 });
+  assert.equal(parseRecommendation('```json\n{"board": "B5", "scale": 500, "thickness": 3}\n```'), null); // not a board Sida cuts
+  assert.equal(parseRecommendation('```json\nnot json\n```'), null);
+  assert.equal(parseRecommendation(''), null);
+  const shown = stripRecommendation(doc);
+  assert.ok(!shown.includes('```') && shown.endsWith('the model photos'));
+  const arranged = arrangeDocument('model_maker', shown, ['representation_planner']);
+  assert.equal(arranged.rows[0].blocks[0].label, '추천하는 판');
+  assert.ok(arranged.rows[0].top);
+  assert.deepEqual(arranged.rows.map((r) => r.kind), ['cards', 'list', 'cards', 'steps', 'checklist']);
+  assert.deepEqual(arranged.rows[2].blocks.map((b) => b.label), ['다른 선택', '층과 재료']);
+  assert.equal(arranged.handoffs[0].agent, 'representation_planner');
+});

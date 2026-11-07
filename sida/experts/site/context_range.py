@@ -53,7 +53,7 @@ def load(project_dir: Path) -> dict:
         return _out(context3d.DEFAULT_SIZE, context3d.DEFAULT_SHAPE, context3d.DEFAULT_ORIENT)
 
 
-MODEL = "model"  # the last model board settings (sida/experts/site/model_base.settings), as given
+MODEL = "model"  # the last model board settings (sida/experts/model/model_base.settings), as given
 
 
 def model(project_dir: Path) -> dict:

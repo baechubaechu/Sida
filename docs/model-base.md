@@ -30,9 +30,9 @@
 - `boundary`(같은 m 좌표의 폴리곤, 예: 대지 가운데를 중심으로 한 원)를 주면 모형 외곽이 그 모양이 됩니다. 층, 바닥판, 도로·인도·수계 각인, 건물 바닥이 모두 그 안으로 잘리고, 판보다 크면 같은 격자로 모듈을 나눈 뒤 모듈마다 원으로 자릅니다.
 - 지형은 주변 3D와 같습니다(`context3d.ground`): 정밀도로지도 도로면 높이가 있는 곳은 그 높이를 씁니다. 지형 결과물은 국외 서버에 올리지 않습니다.
 
-### 화면과 API (`sida/experts/site/model_base.py`, `api.py`)
+### 화면과 API (`sida/experts/model/model_base.py`, `api.py`)
 
-- `GET /api/projects/{name}/site/model-base?interval=1.5&size=&shape=`: 계단식 지형(`steps`, `buildings`, `datum`, `radius`, `shape`, `size`). 제도판의 "모형 바닥 › 계단식 보기"가 씁니다.
+- `GET /api/projects/{name}/site/model-base?interval=1.5&size=&shape=`: 계단식 지형(`steps`, `buildings`, `datum`, `radius`, `shape`, `size`). 제도판의 "계단식"이 씁니다.
 - `GET /api/projects/{name}/site/model-base/files?scale=500&thickness=3&sheet=600x400&hollow=0&size=&shape=`: 레이저 파일 zip. 요약은 `X-Model-Base` 헤더(`interval`, `layers`, `pieces`, `sheets`, `modules`, `buildings`, `buildings_left_out`, `utilisation`, `size_mm`(가로x세로), `radius`, `shape`, `size`).
 - 둘 다 `size`(`small` 100m·`medium` 200m·`large` 300m)·`shape`(`square`·`circle`)를 안 주면 주변 3D에서 고른 프로젝트 범위(`site_context.json`, [site-context.md](site-context.md))를 씁니다. 예전 `radius`(m)도 받습니다. 모르는 값, 너무 큰 모형, 지형 없음은 `400`과 그 이유입니다.
 - 제도판 왼쪽 도구 막대의 주변 3D 범위·모양 옆 "모형 바닥"에서 축척(1:200·1:500·1:1000), 판 두께, 판 크기(가로x세로 mm), 속 비우기를 고르고 "레이저 파일 받기"를 누르면 zip을 받고 판 장수·조각·층·크기를 보여 줍니다. 계단 간격은 축척 × 판 두께입니다.
@@ -103,4 +103,4 @@ python scripts/model_base_terrain.py --sheet 600x400 --thickness 3 --scale 500 -
 
 ### 화면 (`webui/app/model-maker.js`)
 
-제도판의 "모형 바닥"이 모형 판 창을 엽니다(어느 요소에든 그릴 수 있게 만든 모듈이라 전문가 화면에도 붙일 수 있습니다). 불러온 3D 범위를 위에서 본 그림(높이 음영, 도로·보도·물, 등고선, 건물, 대지)에 판 범위를 파란 사각형으로 올리고, 끌어서 옮깁니다. 3D 범위를 벗어나면 빨갛게 바뀌고 몇 m 벗어나는지 알려 줍니다. 판 크기·축척·방향·두께·재료 아끼기를 고르고, "범위에 맞추기", "계산하기"(정확한 층·판 수), "레이저 파일 받기", "계단식 보기"(제도판에 그 간격으로)를 누릅니다. 아래 줄에 판 범위(m), 층, 판 수, 높이(mm), 판 위 대지 크기(cm)가 나옵니다. 계산 전의 층 수와 높이는 화면이 불러온 지형으로 어림한 값입니다.
+제도판의 "모형 바닥"은 모형 제작가(`model_maker`, 보류 전문가) 화면을 엽니다. 그 결과 탭 위에 모형 판 창이 있습니다(어느 요소에든 그릴 수 있게 만든 모듈). 모형 제작가를 실행하면 Sida 코드가 판·두께마다 계산한 축척·판 범위·층 수(`sida/experts/model/prompt.py`) 가운데서 판을 추천하고, 결과 끝의 JSON 블록으로 "추천대로 놓기" 버튼이 생깁니다. 제도판의 "계단식"은 저장한 판 설정(축척 × 두께) 간격으로 계단식 지형을 보여 줍니다. 불러온 3D 범위를 위에서 본 그림(높이 음영, 도로·보도·물, 등고선, 건물, 대지)에 판 범위를 파란 사각형으로 올리고, 끌어서 옮깁니다. 3D 범위를 벗어나면 빨갛게 바뀌고 몇 m 벗어나는지 알려 줍니다. 판 크기·축척·방향·두께·재료 아끼기를 고르고, "범위에 맞추기", "계산하기"(정확한 층·판 수), "레이저 파일 받기"를 누릅니다. 아래 줄에 판 범위(m), 층, 판 수, 높이(mm), 판 위 대지 크기(cm)가 나옵니다. 계산 전의 층 수와 높이는 화면이 불러온 지형으로 어림한 값입니다.

@@ -4,12 +4,12 @@ Sida(시다) 저장소에서 작업하는 모든 AI 에이전트(Claude Code, Cu
 
 ## 프로젝트 요약
 
-건축 설계 추론을 돕는 로컬 웹 앱(LLM 워크플로). Conductor가 10개 전문가(`agents/*.md`)를 조합해 구조화된 Markdown 문서를 만든다. 최종 설계를 대신하지 않는다.
+건축 설계 추론을 돕는 로컬 웹 앱(LLM 워크플로). Conductor가 11개 전문가(`agents/*.md`)를 조합해 구조화된 Markdown 문서를 만든다. 최종 설계를 대신하지 않는다.
 
 - 진입점: `webapp.py`(웹 UI), Windows는 `run.bat`. 저장소 최상위의 `webapp.py`는 `sida/webapp.py`를 실행하기만 한다. 터미널 CLI(`chat.py`, `run.py`, 허브, 슬래시 명령)는 2026-10-16에 없앴다. 새 기능은 터미널 화면 없이 코어 함수와 JSON API로 만든다.
 - 코드는 `sida/` 패키지에 있다. 공통 코어는 `sida/` 바로 아래에 둔다: `config.py`(설정 읽기), `providers.py`(LLM 연결), `runtime.py`(역할별 모델·컨텍스트), `worker.py`(전문가 실행), `conductor.py`, `engine.py`, `settings.py`(설정 화면 코어), `i18n.py`(한국어 우선 UI 문자열) 등.
 - 한 이름은 한 모듈에서만 가져온다. 다른 모듈의 것을 다시 내보내는 파일을 만들지 않는다. 가져오는 길이 둘이면 테스트의 바꿔치기(`monkeypatch`)가 실제 코드에 닿지 않는다. 특히 `sida.config.LOCAL_CONFIG_PATH`는 테스트가 임시 폴더로 돌려 두는 값이라, 다른 모듈에 복사해 두면 그 복사본은 이 PC의 실제 설정 파일을 가리킨다.
-- 한 전문가 영역에만 쓰이는 코드는 `sida/experts/<영역>/`에 둔다: `site/`(대지 사실, 정부 토지 API), `regulation/`(법령 검색), `rhino/`(Rhino 모델링). 테스트도 같은 구조로 `tests/experts/<영역>/`에 둔다. 새 전문가 기능은 공통 코어를 고치기보다 해당 영역 폴더에 만든다.
+- 한 전문가 영역에만 쓰이는 코드는 `sida/experts/<영역>/`에 둔다: `site/`(대지 사실, 정부 토지 API), `regulation/`(법령 검색), `rhino/`(Rhino 모델링), `model/`(레이저 커팅 대지 모형). 테스트도 같은 구조로 `tests/experts/<영역>/`에 둔다. 새 전문가 기능은 공통 코어를 고치기보다 해당 영역 폴더에 만든다.
 - 영역은 자기 폴더의 `hooks.py`로 코어에 연결된다(설명은 `sida/experts/__init__.py`). 전문가 프롬프트에 넣을 자료는 `prompt_blocks(run)`으로, 웹 UI용 JSON 경로는 `api_router(load_config, core)`로 내놓는다. 폴더는 자동으로 발견되므로 등록할 곳이 없다. 공통 코어(`worker.py`, `engine.py`, `conductor.py`, `session_jobs.py`, `expert_chat.py` 등)에서 `sida.experts.<영역>`을 직접 import하지 않는다(테스트가 막는다).
 - 국내 서버(네이버 클라우드)의 정부 API 중계는 `relay/`에 있다(앱 패키지에 들어가지 않음, 테스트는 `tests/relay/`). 앱 쪽은 `sida/relay.py`이고, 이 PC에 키가 있으면 정부 API를 직접, 없고 사람마다 받은 Sida 키 `SIDA_RELAY_TOKEN`이 있으면 중계를 거친다(`landapi`·`datago`·`lawapi`, 주소는 `SIDA_RELAY_URL` 또는 팀 서버 `relay.DEFAULT_URL`). 키는 설정 창에서 요청하고 팀이 서버에서 승인하면 앱이 받아 간다(`sida/relay_key.py`, 받기 코드는 `~/Sida/relay_request.json`). 테스트는 `tests/conftest.py`가 이 값을 지우고 요청 파일을 임시 폴더로 돌리며 `relay_key._http_post`를 막아 둔다.
 - 팀 VPS에서 도는 수집 서버는 `collector/`에 있다(로컬 앱 패키지에 들어가지 않음, 테스트는 `tests/collector/`). 앱 쪽 사용 기록은 `sida/telemetry.py`이고, 기본으로 꺼져 있으며 브리프·문서·오류 원문은 보내지 않는다(`docs/telemetry.md`). 테스트에서 실제로 보내지 않게 `tests/conftest.py`가 `telemetry._http_post`를 막아 두었다.
