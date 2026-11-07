@@ -5,7 +5,7 @@
 ## 앱은 언제 이 서버를 쓰나
 
 - 이 PC에 그 서비스의 키가 있으면 지금처럼 정부 API를 **직접** 부릅니다.
-- 키가 없고, 설정 창에 "Sida 자료 서버 주소"(`SIDA_RELAY_URL`)와 "Sida 자료 서버 키"(`SIDA_RELAY_TOKEN`, `sida_…`)가 **둘 다** 있으면 이 서버를 거칩니다. 정부 키는 앱에 없습니다.
+- 키가 없고 "Sida 키"(`SIDA_RELAY_TOKEN`, `sida_…`)가 있으면 이 서버를 거칩니다. 주소는 설정의 "Sida 자료 서버 주소"(`SIDA_RELAY_URL`)이고, 비워 두면 팀 서버(`https://sida-kr.duckdns.org`, `sida/relay.py`의 `DEFAULT_URL`)입니다. 정부 키는 앱에 없습니다.
 - 그 밖에는 지금처럼 "키 없음"입니다.
 
 ## 접속 키 (사람마다 하나)
@@ -24,6 +24,23 @@ docker compose exec relay python -m relay.admin limit <id> 5000
 docker compose exec relay python -m relay.admin usage --days 7
 ```
 
+## 키 요청과 승인 (앱에서 키 받기)
+
+키가 없는 사람은 앱 설정 창 "Sida 키 받기"에 이름(소속)과 연락처(선택)를 넣고 요청합니다.
+
+1. 앱이 `POST /relay/requests`로 요청을 보내고, 서버는 받기 코드(`sidareq_…`)를 돌려줍니다. 서버에는 이름·연락처와 받기 코드의 SHA-256만 남습니다.
+2. 관리자가 서버에서 기다리는 요청을 보고 승인하거나 거절합니다. `list`도 기다리는 요청 수를 알려 줍니다.
+3. 앱은 설정 창을 열 때와 켤 때 `POST /relay/requests/claim`으로 묻습니다. 승인됐으면 그때 키를 만들어 **한 번만** 돌려주고, 앱이 `.env`에 저장합니다. 키를 사람이 옮겨 줄 필요가 없습니다.
+
+```bash
+docker compose exec relay python -m relay.admin requests          # 기다리는 요청 (--all: 답한 것까지)
+docker compose exec relay python -m relay.admin approve <요청 id> --limit 3000 [--days 90]
+docker compose exec relay python -m relay.admin refuse <요청 id>
+```
+
+- 한 주소에서 한 시간에 5번까지 요청할 수 있고, 답하지 않은 요청이 200개를 넘으면 더 받지 않습니다(429).
+- 승인한 요청의 키를 앱이 아직 받아 가지 않았으면 `requests --all`에 "승인(아직 안 받아 감)"으로 보입니다.
+
 ## 한도
 
 - 키마다 하루 API 호출 수(`--limit`, 기본 3,000번). 한국 시간 자정에 다시 셉니다. SQLite에 있어 서버를 다시 켜도 이어 셉니다.
@@ -35,6 +52,8 @@ docker compose exec relay python -m relay.admin usage --days 7
 | 경로 | 보내는 곳 |
 |---|---|
 | `GET /relay/health` | `{"ok": true, "services": {"vworld", "datago", "law"}}` 서버에 키가 있는지 (접속 키 필요 없음) |
+| `POST /relay/requests` `{name, contact}` | 키 요청. `201 {id, claim, state: "pending"}` (접속 키 필요 없음) |
+| `POST /relay/requests/claim` `{claim}` | 요청 상태 `{id, state}`. 승인 직후 한 번만 `key`가 붙음. 모르는 코드는 404 |
 | `GET /relay/vworld/req/search`, `req/data`, `ned/data/<이름>` | `api.vworld.kr`의 같은 경로 (키·도메인을 서버가 붙임) |
 | `GET /relay/vworld/req/wms`, `req/wmts/1.0.0/Base/{z}/{y}/{x}.png` | 지도 배경·지적선 이미지 (브라우저가 부름) |
 | `GET /relay/datago/<토지이음·건축물대장 4개 경로>` | `apis.data.go.kr/1613000/...` |

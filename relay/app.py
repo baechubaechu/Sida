@@ -15,12 +15,17 @@ back as it came (status, content type, body).
   counted per key, day and service only.
 - A government key never leaves the server: one the client sends is dropped, and an answer that
   echoes the server's key has it masked.
+- Someone without a key asks for one from the app's settings (POST /relay/requests: a name and
+  how to reach them). The admin approves it with relay/admin.py, and the app collects the key
+  with the request's claim code (POST /relay/requests/claim). Each sending address can ask a few
+  times an hour.
 
 Run: uvicorn relay.app:from_env --factory (see relay/README.md).
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import threading
@@ -31,8 +36,9 @@ from dataclasses import dataclass
 
 import requests
 from fastapi import FastAPI, HTTPException, Request, Response
+from pydantic import BaseModel, ConfigDict, Field
 
-from relay.tokens import Token, TokenStore
+from relay.tokens import MAX_CONTACT, Token, TokenStore
 
 VWORLD_URL = "https://api.vworld.kr"
 DATAGO_URL = "https://apis.data.go.kr/1613000"
@@ -43,6 +49,7 @@ TOKEN_PARAM = "sida_token"  # map images: the browser can't send a header
 CALLS_PER_MINUTE = 120  # API calls per key per minute
 IMAGES_PER_MINUTE = 600  # map images per key per minute (a map view loads a few dozen)
 ADDRESS_PER_MINUTE = 1500  # requests per sending address per minute (a school shares one)
+REQUESTS_PER_HOUR = 5  # key requests per sending address per hour
 MAX_PARAMS = 30
 MAX_PARAM_CHARS = 4000  # attrFilter / geomFilter can be long polygons
 
@@ -104,11 +111,12 @@ def _fetch(url: str, params: dict, headers: dict) -> Upstream:
 
 
 class MinuteLimit:
-    """At most `limit` requests per key within the last 60 seconds (in memory)."""
+    """At most `limit` requests per key within the last `window` seconds (in memory)."""
 
-    def __init__(self, limit: int, clock: Callable[[], float]):
+    def __init__(self, limit: int, clock: Callable[[], float], window: float = 60):
         self.limit = limit
         self.clock = clock
+        self.window = window
         self._hits: dict[str, deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
 
@@ -116,12 +124,25 @@ class MinuteLimit:
         now = self.clock()
         with self._lock:
             hits = self._hits[key]
-            while hits and hits[0] <= now - 60:
+            while hits and hits[0] <= now - self.window:
                 hits.popleft()
             if len(hits) >= self.limit:
                 return False
             hits.append(now)
             return True
+
+
+class KeyRequestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80)
+    contact: str = Field(default="", max_length=MAX_CONTACT)
+
+
+class ClaimBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    claim: str = Field(min_length=1, max_length=100)
 
 
 def _client_params(request: Request) -> dict[str, str]:
@@ -148,6 +169,7 @@ def create_app(
     calls_per_minute = MinuteLimit(CALLS_PER_MINUTE, clock)
     images_per_minute = MinuteLimit(IMAGES_PER_MINUTE, clock)
     address_per_minute = MinuteLimit(ADDRESS_PER_MINUTE, clock)
+    requests_per_hour = MinuteLimit(REQUESTS_PER_HOUR, clock, window=3600)
 
     def address(request: Request) -> str:
         # Behind Caddy the sender is the first X-Forwarded-For address.
@@ -195,6 +217,36 @@ def create_app(
     def health() -> dict:
         return {"ok": True, "services": {"vworld": bool(keys.vworld), "datago": bool(keys.datago),
                                          "law": bool(keys.law)}}
+
+    def private(answer: dict, status: int = 200) -> Response:
+        return Response(content=json.dumps(answer), status_code=status, media_type="application/json",
+                        headers={"Cache-Control": "no-store"})
+
+    @app.post("/relay/requests", status_code=201)
+    def request_key(body: KeyRequestBody, request: Request) -> Response:
+        sender = address(request)
+        if not address_per_minute.take(sender) or not requests_per_hour.take(sender):
+            raise HTTPException(status_code=429, detail="too many key requests")
+        try:
+            claim, record = store.request(body.name, body.contact)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except OverflowError as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+        return private({"id": record.id, "claim": claim, "state": record.state}, 201)
+
+    @app.post("/relay/requests/claim")
+    def claim_key(body: ClaimBody, request: Request) -> Response:
+        if not address_per_minute.take(address(request)):
+            raise HTTPException(status_code=429, detail="too many requests")
+        found = store.collect(body.claim)
+        if found is None:
+            raise HTTPException(status_code=404, detail="unknown key request")
+        record, token = found
+        answer = {"id": record.id, "state": record.state}
+        if token:
+            answer["key"] = token
+        return private(answer)
 
     @app.get("/relay/vworld/{path:path}")
     def vworld(path: str, request: Request) -> Response:

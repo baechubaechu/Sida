@@ -277,6 +277,9 @@ def settings_view(config: dict) -> dict:
             else None
         ),
         "keys": {key_id: key_status(key_id, values) for key_id in KEYS},
+        # The relay used when this PC has no government key: the address in use (the team's
+        # server unless relay_url names another) and the team's server.
+        "relay": {"url": relay.server_url(), "default_url": relay.DEFAULT_URL},
         "chatgpt": {
             **chatgpt,
             "model": str(

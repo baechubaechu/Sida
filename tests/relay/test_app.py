@@ -174,3 +174,52 @@ def test_overlong_parameters_are_refused(client, upstream, token):
 def test_keys_come_from_the_environment():
     keys = relay.Keys.from_env({"VWORLD_API_KEY": " k ", "VWORLD_DOMAIN": "https://d", "LAW_OPEN_API_OC": "oc"})
     assert keys == relay.Keys(vworld="k", vworld_domain="https://d", datago="", law="oc")
+
+
+def test_a_key_request_is_collected_by_the_app_once_after_approval(client, store, upstream):
+    r = client.post("/relay/requests", json={"name": "  김 철수 ", "contact": "kim@example.com"})
+    assert r.status_code == 201 and r.headers["cache-control"] == "no-store"
+    sent = r.json()
+    assert sent["state"] == "pending" and sent["claim"].startswith("sidareq_")
+    assert store.get_request(sent["id"]).name == "김 철수"
+    claim = {"claim": sent["claim"]}
+    assert client.post("/relay/requests/claim", json=claim).json() == {"id": sent["id"], "state": "pending"}
+
+    assert store.approve(sent["id"], daily_limit=500, days=30)
+    got = client.post("/relay/requests/claim", json=claim).json()
+    assert got["state"] == "delivered" and got["key"].startswith("sida_")
+    record = store.find(got["key"])
+    assert (record.name, record.daily_limit, record.expires) == ("김 철수", 500, "2026-12-07")
+    assert call(client, "/relay/vworld/req/search", token=got["key"]).status_code == 200
+    # the key is given only once; the claim code and the key are kept only as hashes
+    assert client.post("/relay/requests/claim", json=claim).json() == {"id": sent["id"], "state": "delivered"}
+    dumped = "\n".join(store._db.iterdump())
+    assert sent["claim"] not in dumped and got["key"] not in dumped
+
+
+def test_a_refused_or_unknown_request_gets_no_key(client, store):
+    sent = client.post("/relay/requests", json={"name": "모르는 사람"}).json()
+    assert store.refuse(sent["id"]) and not store.approve(sent["id"])
+    assert client.post("/relay/requests/claim", json={"claim": sent["claim"]}).json() == {"id": sent["id"], "state": "refused"}
+    assert client.post("/relay/requests/claim", json={"claim": "sidareq_made-up"}).status_code == 404
+    assert client.post("/relay/requests/claim", json={"claim": "sida_not-a-claim"}).status_code == 404
+    assert store.all() == []
+
+
+def test_key_requests_are_limited_per_address_and_checked(client, store, clock):
+    assert client.post("/relay/requests", json={"name": " "}).status_code == 400
+    assert client.post("/relay/requests", json={"name": "x", "contact": "c" * 121}).status_code == 422
+    assert client.post("/relay/requests", json={"name": "x", "extra": 1}).status_code == 422
+    codes = [client.post("/relay/requests", json={"name": f"사람 {i}"}).status_code for i in range(5)]
+    assert codes == [201, 201, 201, 201, 429]  # 5 an hour; the blank name above counted too
+    other = client.post("/relay/requests", json={"name": "다른 곳"}, headers={"X-Forwarded-For": "10.0.0.9"})
+    assert other.status_code == 201
+    clock["tick"] = 3601.0
+    assert client.post("/relay/requests", json={"name": "한 시간 뒤"}).status_code == 201
+
+
+def test_too_many_waiting_requests_are_refused(client, store, monkeypatch):
+    monkeypatch.setattr("relay.tokens.MAX_PENDING_REQUESTS", 1)
+    assert client.post("/relay/requests", json={"name": "첫째"}).status_code == 201
+    r = client.post("/relay/requests", json={"name": "둘째"}, headers={"X-Forwarded-For": "10.0.0.9"})
+    assert r.status_code == 429

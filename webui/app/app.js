@@ -3,7 +3,7 @@
 import {
   phaseLabel, visibleExperts, STATUS_LABELS, PROVIDER_LABELS, MODE_LABELS, STATE_UPDATE_LABELS,
   escapeHtml as escape, findProjects, relativeDate, projectSummary, chatItems, eventNotice,
-  expertStatus, renderMarkdown, chatTitle, latestChat, chatLabel, DATA_KEYS, keyChanges,
+  expertStatus, renderMarkdown, chatTitle, latestChat, chatLabel, DATA_KEYS, keyChanges, relayKeyView,
   parseRoute, projectPath as projectUrl, expertPath, dateTime, arrangeDocument, itemTag, renderInline,
   questionAnswer, stateChangeView, sitePath, sitePageFor, needsSiteFirst, siteHeadline, areaText, zoneScope, missingText, SITE_PART_LABELS,
   UNKNOWN, restrictionGroups, buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
@@ -46,6 +46,9 @@ const REGION_LEVELS = ['sido', 'sigungu', 'emd', 'ri'];
 const REGION_LABELS = { sido: '시·도', sigungu: '시·군·구', emd: '읍·면·동', ri: '리' };
 
 const ui = {
+  // Asking the Sida relay for a key from settings (GET/POST /api/settings/relay-key): the last
+  // answer, the form, and whether a "새로 요청" form was opened although a key is saved.
+  relayKey: null, relayKeyDraft: { name: '', contact: '' }, relayKeyOpen: false, relayKeyBusy: false,
   projects: null, projectsError: '', query: '', sort: 'recent',
   project: '', session: null, sessionError: '',
   chat: null, chatMissing: false, module: null, moduleMissing: false, openExperts: new Set(),
@@ -3243,7 +3246,7 @@ function renderSettings() {
   const keyStatus = s.keys?.openrouter;
   const dataKeys = DATA_KEYS.map(({ id, label, secret }) => {
     const status = s.keys?.[id];
-    const hint = secret ? (status?.set ? `저장됨 ${status.hint || ''}` : '넣지 않음') : (id === 'relay_url' ? '예: https://sida-kr.duckdns.org' : '예: localhost');
+    const hint = secret ? (status?.set ? `저장됨 ${status.hint || ''}` : '넣지 않음') : (id === 'relay_url' ? `비우면 ${s.relay?.default_url || '팀 서버'}` : '예: localhost');
     return `<label for="set-key-${id}">${escape(label)}</label>
       <input id="set-key-${id}" data-key="${id}" type="${secret ? 'password' : 'text'}" autocomplete="off" placeholder="${escape(hint)}" value="${escape(d.keys[id])}">`;
   }).join('');
@@ -3266,12 +3269,79 @@ function renderSettings() {
     <select id="set-state" data-field="state_update">${s.options.state_update.map((m) => option(m, STATE_UPDATE_LABELS[m] || m, d.state_update)).join('')}</select>
     <label class="check"><input type="checkbox" data-field="rag_enabled" ${d.rag_enabled ? 'checked' : ''}> 법령 검색(법제처) 쓰기</label>
     <label class="check"><input type="checkbox" data-field="telemetry_enabled" ${d.telemetry_enabled ? 'checked' : ''}> 사용 기록 보내기 (브리프·문서 원문은 보내지 않음)</label>
+    ${relayKeyBlock(s)}
     <fieldset class="settings-group"><legend>정부 데이터 키</legend>
-      <p class="muted small-text">대지 조회(브이월드·공공데이터포털)와 법령 검색(법제처)에 씁니다. 넣은 값은 이 PC의 .env에만 저장됩니다.</p>
+      <p class="muted small-text">대지 조회(브이월드·공공데이터포털)와 법령 검색(법제처)에 씁니다. 이 PC에 키가 없는 서비스는 Sida 키로 Sida 자료 서버를 거쳐 부릅니다. 넣은 값은 이 PC의 .env에만 저장됩니다.</p>
       ${dataKeys}
     </fieldset>
     <p class="error-text" role="alert">${escape(ui.settingsError)}</p>
     <div class="form-actions"><button type="button" class="primary" data-settings="save">저장</button></div>`;
+}
+
+// "Sida 키 받기": ask the team's relay for a key, then wait for the team to approve it.
+function relayKeyBlock(s) {
+  const view = relayKeyView(ui.relayKey, Boolean(s.keys?.relay_token?.set));
+  const form = view.form || (view.offer && ui.relayKeyOpen);
+  const d = ui.relayKeyDraft;
+  const busy = ui.relayKeyBusy ? 'disabled' : '';
+  return `<fieldset class="settings-group"><legend>Sida 키 받기</legend>
+    ${view.note ? `<p class="${view.tone === 'muted' ? 'muted small-text' : `event-note ${view.tone}`}">${escape(view.note)}</p>` : ''}
+    ${view.offer && !ui.relayKeyOpen ? `<p class="muted small-text">Sida 키가 저장되어 있습니다.</p>
+      <div class="settings-buttons"><button type="button" class="secondary small" data-settings="relay-offer">키 새로 요청</button></div>` : ''}
+    ${form ? `<label for="set-relay-name">이름 (소속)</label>
+      <input id="set-relay-name" data-relay="name" maxlength="80" autocomplete="name" placeholder="예: 홍길동 (OO대 건축학과)" value="${escape(d.name)}">
+      <label for="set-relay-contact">연락처 (이메일이나 카톡 아이디, 선택)</label>
+      <input id="set-relay-contact" data-relay="contact" maxlength="120" autocomplete="email" value="${escape(d.contact)}">
+      <p class="muted small-text">이름과 연락처는 키를 승인하는 팀만 봅니다.</p>
+      <div class="settings-buttons"><button type="button" class="secondary small" data-settings="relay-ask" ${busy}>키 요청</button></div>` : ''}
+    ${view.waiting ? `<div class="settings-buttons">
+      <button type="button" class="secondary small" data-settings="relay-check" ${busy}>승인됐는지 확인</button>
+      <button type="button" class="secondary small" data-settings="relay-cancel" ${busy}>요청 취소</button></div>` : ''}
+  </fieldset>`;
+}
+
+// Ask the relay whether the waiting request was answered; a key that arrived is saved by the
+// server, so the settings are read again to show it.
+async function checkRelayKey({ quiet = false } = {}) {
+  try {
+    const answer = await api('/api/settings/relay-key');
+    if (answer.state === 'none' && quiet) return false;
+    ui.relayKey = answer;
+    if (answer.state === 'approved') {
+      toast('Sida 키를 받았습니다. 이제 정부 키 없이 대지 조회와 법령 검색을 쓸 수 있습니다.', 'success');
+      return true;
+    }
+    if (answer.state === 'refused' && quiet) toast('Sida 키 요청이 거절됐습니다. 설정에서 확인해 주세요.', 'error');
+  } catch (error) {
+    if (!quiet) ui.settingsError = error.message;
+  }
+  return false;
+}
+
+async function relayKeyAction(action) {
+  ui.relayKeyBusy = true;
+  renderSettings();
+  try {
+    if (action === 'relay-ask') {
+      const { name, contact } = ui.relayKeyDraft;
+      if (!name.trim()) throw new Error('이름을 넣어 주세요.');
+      ui.relayKey = await api('/api/settings/relay-key', { method: 'POST', body: { name: name.trim(), contact: contact.trim() } });
+      ui.relayKeyOpen = false;
+    }
+    if (action === 'relay-check' && await checkRelayKey()) {
+      await loadSettings();
+      if (ui.settings) ui.settingsDraft = { ...ui.settingsDraft, keys: draftFromSettings(ui.settings).keys };
+    }
+    if (action === 'relay-cancel') ui.relayKey = await api('/api/settings/relay-key', { method: 'DELETE' });
+    ui.settingsError = '';
+  } catch (error) {
+    ui.settingsError = error.status === 429 ? '요청이 너무 많습니다. 한 시간 뒤에 다시 요청해 주세요.'
+      : error.status === 502 ? 'Sida 자료 서버에 연결하지 못했습니다. 인터넷 연결을 확인하고 다시 시도해 주세요.'
+        : error.message;
+  } finally {
+    ui.relayKeyBusy = false;
+    renderSettings();
+  }
 }
 
 async function loadSettings() {
@@ -3295,6 +3365,7 @@ async function openSettings() {
   renderSettings();
   if (!settingsDialog.open) settingsDialog.showModal();
   await loadSettings();
+  if (ui.settings && await checkRelayKey()) await loadSettings();
   if (ui.settings) ui.settingsDraft = draftFromSettings(ui.settings);
   await loadChatgptModels();
   renderSettings();
@@ -3354,6 +3425,7 @@ settingsDialog.addEventListener('input', (event) => {
   if (!ui.settingsDraft) return;
   if (event.target.dataset.field === 'openrouter_key') ui.settingsDraft.openrouter_key = event.target.value;
   if (event.target.dataset.key) ui.settingsDraft.keys[event.target.dataset.key] = event.target.value;
+  if (event.target.dataset.relay) ui.relayKeyDraft[event.target.dataset.relay] = event.target.value;
 });
 
 settingsDialog.addEventListener('click', async (event) => {
@@ -3362,6 +3434,8 @@ settingsDialog.addEventListener('click', async (event) => {
   const action = button.dataset.settings;
   if (action === 'save') saveSettings();
   if (action === 'close') settingsDialog.close();
+  if (['relay-ask', 'relay-check', 'relay-cancel'].includes(action)) relayKeyAction(action);
+  if (action === 'relay-offer') { ui.relayKeyOpen = true; renderSettings(); }
   if (action === 'chatgpt-login') {
     try {
       const { authorize_url: url } = await api('/api/settings/chatgpt/login', { method: 'POST', body: {} });
@@ -3424,4 +3498,5 @@ navigate();
 loadSettings().then(() => {
   if (ui.settings?.first_run) openSettings();
   else render(false);
+  checkRelayKey({ quiet: true }); // a Sida key approved since the last visit arrives now
 });

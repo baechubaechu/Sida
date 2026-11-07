@@ -354,7 +354,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "web_site_use_no_match": "토지이음에 '{name}'이 들어간 용도 이름이 없습니다.",
         "site_err_no_key": (
             "[site] VWORLD_API_KEY가 없습니다. .env에 VWORLD_API_KEY와 VWORLD_DOMAIN을 넣거나 "
-            "(docs/dev-setup.md 참고), 설정에서 Sida 자료 서버 주소와 키를 넣어 주세요."
+            "(docs/dev-setup.md 참고), 설정에서 Sida 키를 요청하거나 받은 키를 넣어 주세요."
         ),
         "site_err_invalid_key": (
             "[site] 브이월드가 키를 거부했습니다({detail}). 키가 만료됐거나, VWORLD_DOMAIN이 "
@@ -365,7 +365,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "site_err_bad_response": "[site] 브이월드 응답이 예상과 다릅니다({detail}).",
         "datago_err_no_key": (
             "[site] DATA_GO_KR_API_KEY가 없습니다. .env에 공공데이터포털 키(Decoding 키)를 넣거나 "
-            "(docs/dev-setup.md 참고), 설정에서 Sida 자료 서버 주소와 키를 넣어 주세요."
+            "(docs/dev-setup.md 참고), 설정에서 Sida 키를 요청하거나 받은 키를 넣어 주세요."
         ),
         "datago_err_invalid_key": (
             "[site] 공공데이터포털이 키를 거부했습니다({detail}). 키가 만료됐거나, 이 서비스(토지이음 또는 "
