@@ -703,18 +703,6 @@ def provider_chat(provider, model, messages, temperature, max_tokens, **kw):
         return provider.chat(model, messages, temperature, max_tokens, **kw)
 
 
-def call_openrouter(
-    api_key: str,
-    model: str,
-    messages: list[dict[str, Any]],
-    temperature: float,
-    max_tokens: int,
-    **_: Any,
-) -> tuple[str, dict]:
-    """Backward-compatible wrapper. Raises LLMError."""
-    return OpenRouterProvider(api_key).chat(model, messages, temperature, max_tokens)
-
-
 def format_usage(usage: dict) -> str:
     if not usage:
         return ""

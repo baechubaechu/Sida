@@ -31,14 +31,12 @@
 
 ## 브리프·상태 편집
 
-- 세션이 있으면 `engine.read_editable_document(session, "brief" | "state")`를 호출합니다. 결과는 `Document(kind, content, revision)`입니다.
-- 저장은 `engine.edit_document(session, kind, content, expected_revision=document.revision)`입니다. 브리프를 저장하면 이후 모델 호출에 사용할 세션의 브리프도 새로 읽습니다.
-- 세션 없이 프로젝트만 다루려면 `project_documents.read_document(project, kind)`와 `save_document(project, kind, content, expected_revision=...)`를 사용합니다.
+- 읽기는 `project_documents.read_document(project, kind)`이고 결과는 `Document(kind, content, revision)`입니다. 저장은 `save_document(project, kind, content, expected_revision=...)`입니다. 웹 경로는 `editing.EditingService`를 거쳐 이 두 함수를 부릅니다.
 - `revision`은 서버가 돌려준 값을 그대로 전달하세요. 표시용 상태 본문에는 내부 기록이 없으므로 클라이언트에서 다시 계산하면 안 됩니다.
 - 편집 가능한 종류는 `brief`와 `state` 두 가지입니다. 임의 파일 경로는 받지 않습니다. 사용자가 작성한 Markdown 섹션은 그대로 저장하고, 이전 원문은 각각 `brief.prev.md`와 `project_state.prev.md`에 보관합니다.
 - 내용이 같으면 파일과 백업을 쓰지 않습니다. 읽은 뒤 다른 사용자가 저장했으면 `DocumentConflict`로 거절하고 최신 문서를 다시 불러오게 합니다.
 
-`DocumentConflict`는 HTTP 409로, 허용되지 않은 문서 종류는 400으로 처리합니다. 다른 `SidaError`는 기존 `core(...)` 오류 처리 경로를 사용합니다. 웹 라우터는 `document_api.py`, 작업 로직은 `editing.py`와 `engine.py`에 있습니다. 이 브랜치는 웹 템플릿을 수정하지 않습니다.
+`DocumentConflict`는 HTTP 409로, 허용되지 않은 문서 종류는 400으로 처리합니다. 다른 `SidaError`는 기존 `core(...)` 오류 처리 경로를 사용합니다. 웹 라우터는 `document_api.py`, 작업 로직은 `editing.py`, `project_documents.py`, `engine.py`(상태 제안)에 있습니다. 이 브랜치는 웹 템플릿을 수정하지 않습니다.
 
 ## 전문가 결과의 상태 반영 기록
 
