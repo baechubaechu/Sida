@@ -28,6 +28,23 @@ from sida import project as prj  # noqa: E402
 from sida.experts.regulation import lawapi  # noqa: E402
 from sida.experts.site import context3d, datago, landapi, terrain_pack  # noqa: E402
 
+MAX_TEST_NAME = 300
+
+
+def long_test_names(nodeids: list[str], limit: int = MAX_TEST_NAME) -> list[str]:
+    """Test names over `limit` characters, cut short for the error message."""
+    return [nodeid[:120] + "..." for nodeid in nodeids if len(nodeid) > limit]
+
+
+def pytest_collection_modifyitems(items):
+    # Some pytest versions spell a bytes parameter into the test name. A 20 MB value once made
+    # an 80 MB name that took minutes per run on Windows. Give such parameters ids=[...].
+    too_long = long_test_names([item.nodeid for item in items])
+    if too_long:
+        raise pytest.UsageError(
+            "Test names too long (add ids= to the parametrize): " + ", ".join(too_long)
+        )
+
 REAL_HTTP_GET = landapi._http_get  # the autouse fixture below replaces it for every test
 REAL_LAW_HTTP_GET = lawapi._http_get
 LAW_FIXTURES = ROOT / "tests" / "fixtures" / "lawapi"

@@ -485,6 +485,9 @@ def test_a_photo_is_saved_as_a_file_next_to_the_table_and_its_paper_names_it(tmp
         (b"\x00\x00\x00\x18ftypheic" + b"\x00" * 16, "PNG, JPEG, GIF or WebP"),  # an iPhone HEIC
         (JPEG + b"\x00" * board.MAX_PHOTO_BYTES, "at most 20 MB"),
     ],
+    # Without ids, older pytest spells each bytes value into the test name: the 20 MB case
+    # became a test name of about 80 MB that slowed every run on Windows.
+    ids=["empty", "pdf", "heic", "over_20mb"],
 )
 def test_what_is_not_a_photo_the_browser_can_show_is_refused_and_nothing_is_saved(tmp_path, data, message):
     with pytest.raises(ValueError, match=message):
