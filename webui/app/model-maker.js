@@ -5,11 +5,12 @@
 // A top view of the range on a canvas (the ground shaded by height, roads, pavements and water,
 // contours, buildings, the site) with the board's frame on it; the frame is dragged to move the
 // board. 판 크기, 축척, 방향 and 두께 change it; 범위에 맞추기 asks the server for the scale that
-// fills the range; 계산하기 gets the exact layers and sheets; 레이저 파일 받기 downloads the zip.
+// fills the range; 계산하기 gets the exact layers and sheets; 레이저 파일 받기 downloads the zip
+// in the formats ticked (DXF for AutoCAD and the laser, PDF for Illustrator, SVG).
 // The server keeps the last settings for the project (GET .../model-base/settings).
 import {
   MODEL_BOARDS, BOARD_SCALES, BOARD_THICKNESSES, BOARD_ORIENTS, DEFAULT_BOARD, OUTSIDE,
-  boardInfo, boardInfoText, boardBody, boardCenter, frameSize, mapFit, rangeHalf,
+  boardInfo, boardInfoText, boardBody, boardCenter, frameSize, mapFit, rangeHalf, LASER_FORMATS, pickFormats,
 } from './board-model.js';
 
 const COLORS = {
@@ -36,6 +37,7 @@ export class ModelMaker {
     this.note = '';
     this.drag = null;
     this.custom = { scale: false, thickness: false }; // 직접 입력 picked for the scale or the thickness
+    this.formats = LASER_FORMATS.map((f) => f.key); // the laser files to download
     this.host.classList.add('model-maker');
     this.host.innerHTML = `<canvas class="mm-map" width="${MAP_W}" height="${MAP_W}" aria-label="3D 범위 위의 모형 판 (끌어서 옮기기)"></canvas>
       <div class="mm-form"></div>
@@ -125,7 +127,8 @@ export class ModelMaker {
       ${pick('orient', '방향', BOARD_ORIENTS, s.orient)}
       ${pick('thickness_mm', '두께', [...BOARD_THICKNESSES.map((n) => ({ key: n, label: `${n} mm` })), { key: 'custom', label: '직접 입력' }], thickIn ? s.thickness_mm : 'custom')}
       ${thickIn ? '' : `<label><input data-field="thickness_custom" type="number" min="0.5" max="20" step="0.5" value="${esc(s.thickness_mm)}"> mm</label>`}
-      <label class="mm-check"><input type="checkbox" data-field="save_material" ${s.save_material ? 'checked' : ''}> 재료 아끼기 <small>(위층도 모아 자르기)</small></label>`;
+      <label class="mm-check"><input type="checkbox" data-field="save_material" ${s.save_material ? 'checked' : ''}> 재료 아끼기 <small>(위층도 모아 자르기)</small></label>
+      <span class="mm-formats">파일 ${LASER_FORMATS.map((f) => `<label class="mm-check"><input type="checkbox" data-format="${f.key}" ${this.formats.includes(f.key) ? 'checked' : ''}> ${esc(f.label)}</label>`).join('')}</span>`;
   }
 
   // ---------------------------------------------------------------- the map
@@ -232,6 +235,11 @@ export class ModelMaker {
 
   // ---------------------------------------------------------------- the form and the actions
   onChange(e) {
+    if (e.target.dataset.format) {
+      this.formats = pickFormats(this.formats, e.target.dataset.format, e.target.checked);
+      this.draw();
+      return;
+    }
     const field = e.target.dataset.field;
     if (!field) return;
     const v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
@@ -262,7 +270,8 @@ export class ModelMaker {
       return '계산했습니다.';
     });
     if (what === 'files') await this.run('files', async () => {
-      const summary = await this.hooks.files(boardBody(this.s, boardCenter(this.s, this.site)));
+      if (!this.formats.length) throw new Error('받을 파일 형식을 하나 이상 고르세요.');
+      const summary = await this.hooks.files({ ...boardBody(this.s, boardCenter(this.s, this.site)), formats: this.formats });
       if (summary?.sheets) this.summary = summary;
       return `받았습니다: 판 ${summary?.sheets ?? '?'}장 · 조각 ${summary?.pieces ?? '?'}개`;
     });

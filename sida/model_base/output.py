@@ -1,12 +1,16 @@
 """
 Files for the laser and for the person putting the model together.
 
-- `sheet_svg` / `sheet_dxf`: one sheet for the laser, in mm, in three kinds of line: engrave
-  (blue), inner cut (red: holes, and the outline of a piece that sits in a hole, innermost
-  first) and outer cut (green: the outer outlines). The laser runs engrave, then inner, then
-  outer, so nothing drops out before it is cut. Change the colours with `colors`. Each piece
-  has its id and a north arrow engraved, so a cut piece says which layer it is and which way
-  it faces.
+- `sheet_svg` / `sheet_dxf` / `sheets_pdf`: the sheets for the laser, in mm at true size, in
+  the usual laser convention: engraving blue, cuts red, hairlines. The cuts come inner first
+  (holes, and the outline of a piece that sits in a hole, innermost first), then the outer
+  outlines, so nothing drops out before it is cut; the SVG keeps them as the groups engrave,
+  inner and outer, the order the laser runs them. The DXF (AutoCAD 2013, mm, origin at the
+  sheet's lower-left corner) has the layers CUT (red), ENGRAVE (blue) and SHEET (the sheet's
+  outline and number, not printed), so every AutoCAD opens it as plain lines. The PDF has one
+  page per sheet as vector paths, so Illustrator opens it as editable paths (and can save it as
+  .ai). Each piece has its id (its layer) and a north arrow engraved in single-line strokes, so
+  a cut piece says which layer it is and which way it faces.
 - `guide_svg`: the same sheet for people, pieces filled by height and ids written large.
 - `assembly_svg`: the finished model from above, every piece in its place with its id, the
   site outlined, roads, pavements and water shaded, buildings with their sheet counts, a north
@@ -31,9 +35,14 @@ from sida.model_base.nesting import Layout, Placement
 from sida.model_base.pieces import ModelPlan, Piece, _polygons
 from sida.model_base.strokefont import strokes, text_width
 
-COLORS = {"engrave": "#0000FF", "inner": "#FF0000", "outer": "#00A000"}
-DXF_LAYERS = {"engrave": ("ENGRAVE", 5), "inner": ("CUT_INNER", 1), "outer": ("CUT_OUTER", 3)}  # ACI blue, red, green
-HAIRLINE = 0.1  # mm: lasers read the colour, not the width
+COLORS = {"engrave": "#0000FF", "inner": "#FF0000", "outer": "#FF0000"}  # the laser convention
+# DXF layer, ACI colour, true colour; lineweight 0 (hairline). SHEET is not printed.
+DXF_LAYERS = {"engrave": ("ENGRAVE", 5, (0, 0, 255)), "cut": ("CUT", 1, (255, 0, 0)), "sheet": ("SHEET", 8, (128, 128, 128))}
+FORMATS = ("dxf", "pdf", "svg")  # the laser files a zip can hold
+HAIRLINE = 0.1  # mm in the SVG: lasers read the colour, not the width
+PDF_HAIRLINE_PT = 0.001  # the thinnest stroke: Illustrator shows it as a hairline
+PT_PER_MM = 72 / 25.4
+SHEET_LABEL_MM = 2.5  # the sheet number's height, in the margin of a laid-out sheet
 LOW, HIGH = (233, 228, 206), (104, 132, 86)  # guide fill from the lowest to the highest layer
 AREA_STYLE = {"road": "#8a8f96", "sidewalk": "#b9a98f", "water": "#4f8fc0"}  # assembly map outlines
 AREA_NAMES = {"road": "도로", "sidewalk": "인도", "water": "수계"}
@@ -135,18 +144,95 @@ def sheet_svg(layout: Layout, sheet: int, colors: dict | None = None) -> str:
             + "\n".join(groups) + "\n</svg>\n")
 
 
+def parse_formats(value) -> tuple[str, ...]:
+    """The laser formats asked for ("dxf,pdf" or a list), in FORMATS order. Raises ValueError for
+    an unknown one or none."""
+    items = value.split(",") if isinstance(value, str) else list(value or [])
+    asked = {str(v).strip().lower() for v in items if str(v).strip()}
+    unknown = asked - set(FORMATS)
+    if unknown or not asked:
+        raise ValueError(f"formats are some of {', '.join(FORMATS)}")
+    return tuple(f for f in FORMATS if f in asked)
+
+
+def sheet_label(layout: Layout, sheet: int) -> list[list[tuple[float, float]]]:
+    """The sheet's number ("S3/21") in single-line strokes at its lower-left corner, in the margin."""
+    return strokes(f"S{sheet + 1}/{layout.sheets}", 1.5, 1.2, SHEET_LABEL_MM)
+
+
 def sheet_dxf(layout: Layout, sheet: int, path) -> None:
+    """One sheet as DXF (AutoCAD 2013, mm, origin at the sheet's lower-left corner): engraving on
+    ENGRAVE, then the cuts on CUT inner first, and the sheet's outline on SHEET. The sheet number
+    is engraved in the margin of a laid-out sheet; a sheet cut in place (no margin: its layer
+    covers the whole board) has it on SHEET, so the model's top stays unmarked."""
     import ezdxf
 
     doc = ezdxf.new("R2013", setup=True, units=4)  # 4 = millimetres
-    for name, color in DXF_LAYERS.values():
-        doc.layers.add(name, color=color)
+    doc.header["$MEASUREMENT"] = 1  # metric
+    for name, aci, rgb in DXF_LAYERS.values():
+        layer = doc.layers.add(name, color=aci)
+        layer.rgb = rgb
+        layer.dxf.lineweight = 0  # hairline
+    doc.layers.get("SHEET").dxf.plot = 0
     msp = doc.modelspace()
     passes = cut_passes(layout, sheet)
-    for kind in ("engrave", "inner", "outer"):
+    label_layer = "ENGRAVE" if layout.margin > 0 else "SHEET"
+    label = sheet_label(layout, sheet)
+    for line in passes["engrave"] + (label if label_layer == "ENGRAVE" else []):
+        msp.add_lwpolyline(line, dxfattribs={"layer": "ENGRAVE"})
+    for kind in ("inner", "outer"):  # the order the laser runs them
         for line in passes[kind]:
-            msp.add_lwpolyline(line, close=kind != "engrave", dxfattribs={"layer": DXF_LAYERS[kind][0]})
+            msp.add_lwpolyline(line, close=True, dxfattribs={"layer": "CUT"})
+    w, h = layout.sheet_w, layout.sheet_h
+    msp.add_lwpolyline([(0, 0), (w, 0), (w, h), (0, h)], close=True, dxfattribs={"layer": "SHEET"})
+    for line in label if label_layer == "SHEET" else []:
+        msp.add_lwpolyline(line, dxfattribs={"layer": "SHEET"})
     doc.saveas(path)
+
+
+def _pdf_color(hex_color: str) -> str:
+    h = hex_color.lstrip("#")
+    return " ".join(f"{int(h[i:i + 2], 16) / 255:.3f}" for i in (0, 2, 4))
+
+
+def sheets_pdf(layout: Layout, colors: dict | None = None) -> bytes:
+    """Every sheet as a page of a vector PDF at true size (mm), in the laser colours with hairline
+    strokes: engraving, then the cuts inner first. Illustrator opens the paths as they are."""
+    import zlib
+
+    c = {**COLORS, **(colors or {})}
+    pages = []
+    for n in range(layout.sheets):
+        passes = cut_passes(layout, n)
+        ops = [f"{PT_PER_MM:.6f} 0 0 {PT_PER_MM:.6f} 0 0 cm", f"{PDF_HAIRLINE_PT / PT_PER_MM:.6f} w", "1 J 1 j"]
+        engrave = passes["engrave"] + (sheet_label(layout, n) if layout.margin > 0 else [])
+        for kind, lines, closed in (("engrave", engrave, False), ("inner", passes["inner"], True),
+                                    ("outer", passes["outer"], True)):
+            if not lines:
+                continue
+            ops.append(f"{_pdf_color(c[kind])} RG")
+            for line in lines:
+                pts = [(round(x, 3), round(y, 3)) for x, y in line]
+                ops.append(f"{pts[0][0]} {pts[0][1]} m " + " ".join(f"{x} {y} l" for x, y in pts[1:]) + (" h S" if closed else " S"))
+        pages.append(zlib.compress("\n".join(ops).encode("ascii")))
+    w, h = layout.sheet_w * PT_PER_MM, layout.sheet_h * PT_PER_MM
+    objects = [b"<< /Type /Catalog /Pages 2 0 R >>",
+               ("<< /Type /Pages /Kids [" + " ".join(f"{3 + 2 * i} 0 R" for i in range(len(pages)))
+                + f"] /Count {len(pages)} >>").encode("ascii")]
+    for i, stream in enumerate(pages):
+        objects.append(f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w:.3f} {h:.3f}] /Contents {4 + 2 * i} 0 R "
+                       "/Resources << >> >>".encode("ascii"))
+        objects.append(f"<< /Length {len(stream)} /Filter /FlateDecode >>\nstream\n".encode("ascii") + stream + b"\nendstream")
+    out = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = []
+    for k, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f"{k} 0 obj\n".encode("ascii") + body + b"\nendobj\n"
+    xref = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode("ascii")
+    out += b"".join(f"{o:010d} 00000 n \n".encode("ascii") for o in offsets)
+    out += f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode("ascii")
+    return bytes(out)
 
 
 def _text(x, y, size, text, anchor="middle", weight="600", fill="#20262d") -> str:
@@ -169,7 +255,7 @@ def guide_svg(layout: Layout, sheet: int, plan: ModelPlan) -> str:
         size = max(2.5, min(9, p.piece.label_room * 0.7))
         out.append(_text(x, y + size * 0.35, size, p.piece.id))
     total = sum(1 for _ in layout.on_sheet(sheet))
-    out.append(_text(2, h + 10, 5, f"판 {sheet + 1}/{layout.sheets} · 조각 {total}개 · {w:g}×{h:g} mm · 색이 진할수록 높은 층 · 점선: 새김선(다음 층·대지 경계·도로 등) · 레이저 순서: 새김 → 내부 커팅(빨강) → 외부 커팅(초록)", anchor="start", weight="400"))
+    out.append(_text(2, h + 10, 5, f"판 {sheet + 1}/{layout.sheets} · 조각 {total}개 · {w:g}×{h:g} mm · 색이 진할수록 높은 층 · 점선: 새김선(다음 층·대지 경계·도로 등) · 레이저 순서: 새김(파랑) → 안쪽 자르기 → 바깥 자르기(빨강)", anchor="start", weight="400"))
     out.append("</svg>\n")
     return "\n".join(out)
 
@@ -246,17 +332,23 @@ def piece_rows(layout: Layout) -> list[dict]:
 
 
 
-def files(plan: ModelPlan, layout: Layout, colors: dict | None = None) -> dict[str, bytes]:
-    """Every file of a cutting layout by name: per sheet the laser SVG and DXF and the guide,
-    then assembly.svg and pieces.csv (UTF-8 with a BOM, so Excel reads the Korean)."""
+def files(plan: ModelPlan, layout: Layout, colors: dict | None = None,
+          formats: tuple[str, ...] = FORMATS) -> dict[str, bytes]:
+    """Every file of a cutting layout by name: per sheet the laser files in `formats` (DXF, SVG;
+    the PDF holds every sheet, sheets.pdf) and the guide, then assembly.svg and pieces.csv
+    (UTF-8 with a BOM, so Excel reads the Korean)."""
     out: dict[str, bytes] = {}
     with tempfile.TemporaryDirectory() as folder:
         for n in range(layout.sheets):
-            out[f"sheet-{n + 1}.svg"] = sheet_svg(layout, n, colors).encode("utf-8")
+            if "svg" in formats:
+                out[f"sheet-{n + 1}.svg"] = sheet_svg(layout, n, colors).encode("utf-8")
             out[f"sheet-{n + 1}-guide.svg"] = guide_svg(layout, n, plan).encode("utf-8")
-            path = Path(folder) / f"sheet-{n + 1}.dxf"
-            sheet_dxf(layout, n, path)
-            out[path.name] = path.read_bytes()
+            if "dxf" in formats:
+                path = Path(folder) / f"sheet-{n + 1}.dxf"
+                sheet_dxf(layout, n, path)
+                out[path.name] = path.read_bytes()
+    if "pdf" in formats:
+        out["sheets.pdf"] = sheets_pdf(layout, colors)
     out["assembly.svg"] = assembly_svg(plan, layout).encode("utf-8")
     rows = piece_rows(layout)
     text = io.StringIO(newline="")

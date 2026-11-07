@@ -198,13 +198,20 @@ def test_laser_files_engrave_then_cut_inside_then_outside(halves, tmp_path):
     svg = sheet_svg(layout, 0)
     assert 'width="160mm"' in svg
     assert svg.index('id="engrave"') < svg.index('id="inner"') < svg.index('id="outer"')  # the order the laser runs
-    assert 'stroke="#0000FF"' in svg and 'stroke="#00A000"' in svg
+    assert 'stroke="#0000FF"' in svg and 'stroke="#FF0000"' in svg and "#00A000" not in svg  # engrave blue, cut red
     assert 'stroke="#123456"' in sheet_svg(layout, 0, colors={"outer": "#123456"})
     sheet_dxf(layout, 0, tmp_path / "s.dxf")
     doc = ezdxf.readfile(tmp_path / "s.dxf")
-    used = {e.dxf.layer for e in doc.modelspace()}
-    assert {"CUT_OUTER", "ENGRAVE"} <= used <= {"CUT_INNER", "CUT_OUTER", "ENGRAVE"}
-    assert doc.header["$INSUNITS"] == 4  # millimetres
+    assert doc.dxfversion == "AC1027" and doc.header["$INSUNITS"] == 4  # AutoCAD 2013, millimetres
+    entities = list(doc.modelspace())
+    assert {e.dxf.layer for e in entities} == {"CUT", "ENGRAVE", "SHEET"}
+    cut, engrave, sheet = (doc.layers.get(n) for n in ("CUT", "ENGRAVE", "SHEET"))
+    assert (cut.color, cut.rgb, engrave.color, engrave.rgb) == (1, (255, 0, 0), 5, (0, 0, 255))
+    assert cut.dxf.lineweight == 0 and engrave.dxf.lineweight == 0 and sheet.dxf.plot == 0
+    layers = [e.dxf.layer for e in entities if e.dxf.layer != "SHEET"]
+    assert layers == sorted(layers, key=lambda n: n != "ENGRAVE")  # engrave first, then the cuts
+    outline = next(e for e in entities if e.dxf.layer == "SHEET" and e.closed)
+    assert [tuple(p[:2]) for p in outline.get_points()] == [(0, 0), (160, 0), (160, 200), (0, 200)]  # from the lower-left
     plan_svg = assembly_svg(halves, layout)
     assert all(f">{p.piece.id}·{p.sheet + 1}<" in plan_svg for p in layout.placements)
     assert ">1<" in plan_svg and ">2<" in plan_svg  # module numbers on the assembly map
@@ -424,3 +431,42 @@ def test_a_round_outline_cuts_every_layer_and_module_to_the_circle():
     assert base.area == pytest.approx(circle_mm.area, rel=0.01)  # the base sheet is the whole round model
     modules = {p.module for p in plan.pieces}
     assert len(modules) == len(plan.modules)  # each module still gets its share, clipped to the circle
+
+
+def test_the_laser_pdf_has_a_true_size_vector_page_per_sheet(halves):
+    import re
+    import zlib
+
+    from sida.model_base.output import sheets_pdf
+
+    layout = nest(halves.pieces, 160, 200, res=1.5, rotations=4)
+    pdf = sheets_pdf(layout)
+    assert pdf.startswith(b"%PDF-1.4") and pdf.rstrip().endswith(b"%%EOF")
+    start = int(pdf.rsplit(b"startxref\n", 1)[1].split(b"\n")[0])
+    rows = pdf[start:].split(b"\n")[3:]  # "xref", "0 n", the free entry, then one row per object
+    for k, row in enumerate(rows[:2 + 2 * layout.sheets], start=1):  # each points at its object
+        assert pdf[int(row[:10]):].startswith(f"{k} 0 obj".encode())
+    boxes = re.findall(rb"/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]", pdf)
+    assert len(boxes) == layout.sheets
+    assert all(float(w) == pytest.approx(160 * 72 / 25.4, abs=0.01) and float(h) == pytest.approx(200 * 72 / 25.4, abs=0.01) for w, h in boxes)
+    pages = [zlib.decompress(s).decode("ascii") for s in re.findall(rb"stream\n(.*?)\nendstream", pdf, re.S)]
+    assert len(pages) == layout.sheets
+    first = pages[0]
+    assert "0.000 0.000 1.000 RG" in first and "1.000 0.000 0.000 RG" in first  # engrave blue, cut red
+    assert " m " in first and " l " in first and " h S" in first and "Do" not in first  # paths, no pictures
+    assert first.index("0.000 0.000 1.000 RG") < first.index("1.000 0.000 0.000 RG")  # the laser's order
+    assert re.search(r"\n0\.000353 w\n", first)  # a 0.001 pt hairline in mm units
+
+
+def test_laser_formats_are_picked_and_unknown_ones_refused(halves):
+    from sida.model_base.output import files, parse_formats
+
+    assert parse_formats("svg, dxf") == ("dxf", "svg") and parse_formats(["PDF"]) == ("pdf",)
+    for bad in ("dwg", "", [], "dxf,ai"):
+        with pytest.raises(ValueError):
+            parse_formats(bad)
+    layout = nest(halves.pieces, 160, 200, res=1.5, rotations=4)
+    named = files(halves, layout, formats=("pdf",))
+    assert "sheets.pdf" in named and not any(n.endswith(".dxf") or (n.endswith(".svg") and "guide" not in n and n != "assembly.svg") for n in named)
+    assert "sheet-1-guide.svg" in named and "assembly.svg" in named and "pieces.csv" in named  # always there
+    assert {"sheet-1.dxf", "sheet-1.svg", "sheets.pdf"} <= set(files(halves, layout))

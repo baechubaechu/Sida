@@ -1460,6 +1460,18 @@ export function boardInfoText(info, summary) {
   return info.overflow > 0 ? `${text} · 3D 범위를 ${Math.round(info.overflow)} m 벗어납니다` : text;
 }
 
+// The laser file formats the zip can hold (the server's sida/model_base/output.FORMATS).
+export const LASER_FORMATS = [
+  { key: 'dxf', label: 'DXF (캐드·레이저)' }, { key: 'pdf', label: 'PDF (일러스트레이터)' }, { key: 'svg', label: 'SVG' },
+];
+
+// The formats ticked after one is ticked on or off, in LASER_FORMATS order.
+export function pickFormats(current, key, on) {
+  const set = new Set(current || []);
+  if (on) set.add(key); else set.delete(key);
+  return LASER_FORMATS.map((f) => f.key).filter((k) => set.has(k));
+}
+
 // The board settings as the server takes them (POST .../model-base/plan and files).
 export function boardBody(s, center) {
   const b = { ...DEFAULT_BOARD, ...(s || {}) };

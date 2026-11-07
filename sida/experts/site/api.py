@@ -13,6 +13,7 @@ from sida.experts.site import context3d, context_range, datago, landapi, model_b
 from sida.i18n import t
 from sida.model_base import board as model_board
 from sida.model_base.nesting import DoesNotFit
+from sida.model_base.output import FORMATS as model_board_formats
 from sida.project import load_project
 
 MAX_SHAPES = 50  # parcels per shape request: a merged site is a handful, not a 동
@@ -46,6 +47,7 @@ class BoardSettings(BaseModel):
     center: list[float] | None = None
     bed: list[float] | None = None
     save_material: bool | None = None
+    formats: list[str] | None = None  # the laser files: some of dxf, pdf, svg (all three when left out)
 
 
 class OptionState(BaseModel):
@@ -259,7 +261,7 @@ def _project_router(load_config, core) -> APIRouter:
     @router.get("/model-base/files")
     def get_model_base_files(name: str, scale: int = 500, thickness: float = 3.0, sheet: str = "600x400",
                              radius: float | None = None, hollow: float = 0.0, size: str | None = None,
-                             shape: str | None = None, orient: str | None = None) -> Response:
+                             shape: str | None = None, orient: str | None = None, formats: str = "dxf,pdf,svg") -> Response:
         """Laser files (zip) for the model of the range asked for (or the project's saved range; see
         _range), cut from sheets of material."""
         path, plan = _site_plan(name)
@@ -272,7 +274,7 @@ def _project_router(load_config, core) -> APIRouter:
         if not (100 <= scale <= 5000 and 0.5 <= thickness <= 20 and all(50 <= v <= 3000 for v in size) and 0 <= hollow <= 50):
             raise HTTPException(status_code=400, detail=t("web_model_base_bad", reason="scale 1:100–5000, thickness 0.5–20 mm, sheet 50–3000 mm"))
         data, summary = _model(model_base.cut_files, plan, radius=radius, scale=scale, thickness_mm=thickness,
-                               sheet=size, hollow_rim_mm=hollow, shape=shape, orient=orient)
+                               sheet=size, hollow_rim_mm=hollow, shape=shape, orient=orient, formats=formats)
         filename = f"{path.name}_모형바닥_1-{scale}_{thickness:g}mm.zip"
         return Response(data, media_type="application/zip", headers={
             "Content-Disposition": f"attachment; filename=\"sida-model-base.zip\"; filename*=UTF-8''{quote(filename)}",
@@ -281,7 +283,12 @@ def _project_router(load_config, core) -> APIRouter:
         })
 
     def _summary_header(summary: dict) -> str:
-        return ";".join(f"{k}={'x'.join(str(n) for n in v) if isinstance(v, list) else v}" for k, v in summary.items())
+        """k=v;k=v: sizes joined by x (594.0x420.0), names by + (dxf+pdf)."""
+        def text(v):
+            if isinstance(v, list):
+                return ("+" if all(isinstance(n, str) for n in v) else "x").join(str(n) for n in v)
+            return v
+        return ";".join(f"{k}={text(v)}" for k, v in summary.items())
 
     def _board_range(path) -> dict:
         saved = context_range.load(path)
@@ -307,6 +314,7 @@ def _project_router(load_config, core) -> APIRouter:
         in table metres. The settings are kept for the project."""
         path, plan = _site_plan(name)
         raw = body.model_dump(exclude_none=True)
+        raw.pop("formats", None)
         out = _model(model_base.board_plan, plan, raw, **_board_range(path))
         context_range.save_model(path, model_base.settings({**raw, "center": out["center"]}))
         return out
@@ -317,7 +325,8 @@ def _project_router(load_config, core) -> APIRouter:
         laid out on sheets of their own. The settings are kept for the project."""
         path, plan = _site_plan(name)
         raw = body.model_dump(exclude_none=True)
-        data, summary = _model(model_base.board_files, plan, raw, **_board_range(path))
+        formats = raw.pop("formats", None) or list(model_board_formats)
+        data, summary = _model(model_base.board_files, plan, raw, formats=formats, **_board_range(path))
         context_range.save_model(path, model_base.settings({**raw, "center": summary["center"]}))
         filename = f"{path.name}_모형판_{summary['board']}_1-{summary['scale']}_{summary['thickness_mm']:g}mm.zip"
         return Response(data, media_type="application/zip", headers={

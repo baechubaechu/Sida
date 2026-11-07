@@ -973,3 +973,11 @@ test('the model board: its size, frame, overflow past the range, layers and the 
   assert.deepEqual(MODEL_BOARDS.map((b) => b.key), ['A0', 'A1', 'A2', 'W600x900', 'W900x1800', 'custom']);
   assert.equal(BOARD_SCALES.length, 12);
 });
+
+test('the laser formats ticked on and off stay in their order', async () => {
+  const { pickFormats, LASER_FORMATS } = await import('../../webui/app/board-model.js');
+  assert.deepEqual(LASER_FORMATS.map((f) => f.key), ['dxf', 'pdf', 'svg']);
+  assert.deepEqual(pickFormats(['dxf', 'pdf', 'svg'], 'pdf', false), ['dxf', 'svg']);
+  assert.deepEqual(pickFormats(['svg'], 'dxf', true), ['dxf', 'svg']);
+  assert.deepEqual(pickFormats([], 'dwg', true), []); // not a format the server makes
+});

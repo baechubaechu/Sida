@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import re
+import zipfile
 from html.parser import HTMLParser
 
 import pytest
@@ -1570,7 +1572,14 @@ def test_a_model_board_is_fitted_planned_cut_and_remembered(client, project, fak
     r = client.post(f"{base}/model-base/files", json=body)
     assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
     told = dict(kv.split("=", 1) for kv in r.headers["X-Model-Base"].split(";"))
-    assert (told["scale"], told["board_mm"], told["in_place"]) == ("300", "594.0x420.0", "True")
+    assert (told["scale"], told["board_mm"], told["in_place"], told["formats"]) == ("300", "594.0x420.0", "True", "dxf+pdf+svg")
+    names = set(zipfile.ZipFile(io.BytesIO(r.content)).namelist())
+    assert {"sheet-1.dxf", "sheet-1.svg", "sheets.pdf"} <= names  # all three by default
+    r = client.post(f"{base}/model-base/files", json={**body, "formats": ["dxf"]})
+    names = set(zipfile.ZipFile(io.BytesIO(r.content)).namelist())
+    assert "sheet-1.dxf" in names and "sheets.pdf" not in names and "sheet-1.svg" not in names
+    assert client.post(f"{base}/model-base/files", json={**body, "formats": ["dwg"]}).status_code == 400
+    assert client.get(f"{base}/model-base/files", params={"formats": "dxf,ai"}).status_code == 400
 
     r = client.post(f"{base}/model-base/plan", json={**body, "scale": 500})  # 297 × 210 m on 200 × 133 m
     assert r.status_code == 400 and "m 벗어납니다" in r.json()["detail"]

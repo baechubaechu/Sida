@@ -23,7 +23,7 @@ from sida.experts.site import context3d
 from sida.model_base import board
 from sida.model_base.buildings import Building, buildings_from_context
 from sida.model_base.nesting import nest
-from sida.model_base.output import files, zip_files
+from sida.model_base.output import FORMATS, files, parse_formats, zip_files
 from sida.model_base.pieces import contour_interval, slice_terrain
 from sida.model_base.terraces import terrace_view
 from sida.model_base.terrain import Terrain, terrain_from_grid, terrain_in_frame
@@ -105,13 +105,14 @@ def stepped(plan: dict, interval: float, radius: float = context3d.DEFAULT_RADIU
 def cut_files(plan: dict, *, radius: float, scale: int, thickness_mm: float, sheet: tuple[float, float],
               hollow_rim_mm: float = 0.0, folder: Path | None = None, around: dict | None = None,
               res: float = 2.0, rotations: int = 4, shape: str = context3d.DEFAULT_SHAPE,
-              orient: str = context3d.DEFAULT_ORIENT) -> tuple[bytes, dict]:
+              orient: str = context3d.DEFAULT_ORIENT, formats=FORMATS) -> tuple[bytes, dict]:
     """
     A zip of the laser files for the model ±radius m around the site (a circle of that radius for
     "circle") at 1:scale, one layer per sheet of material `thickness_mm` thick, laid on sheets of
     `sheet` (w, h) mm; and a summary.
     """
     interval = contour_interval(scale, thickness_mm)
+    formats = parse_formats(formats)
     terrain = site_terrain(plan, radius, folder=folder, shape=shape, orient=orient)
     if around is None:
         around = context3d.build(plan, radius, folder=folder, for_export=True, shape=shape, orient=orient)
@@ -129,7 +130,7 @@ def cut_files(plan: dict, *, radius: float, scale: int, thickness_mm: float, she
         "radius": float(radius), "shape": shape, "orient": orient,
         "size": next((name for name, r in context3d.SIZES.items() if r == float(radius)), None),
     }
-    return zip_files(files(model, layout)), summary
+    return zip_files(files(model, layout, formats=formats)), {**summary, "formats": list(formats)}
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +264,9 @@ def board_plan(plan: dict, raw: dict | None, **range_kw) -> dict:
     return {**summary, "frame": frame, "steps": view["steps"], "base_elev": view["base_elev"]}
 
 
-def board_files(plan: dict, raw: dict | None, **range_kw) -> tuple[bytes, dict]:
-    """A zip of the board's laser files and its summary."""
+def board_files(plan: dict, raw: dict | None, *, formats=FORMATS, **range_kw) -> tuple[bytes, dict]:
+    """A zip of the board's laser files in `formats` (output.FORMATS: dxf, pdf, svg) and its
+    summary. Raises ValueError for an unknown format."""
+    formats = parse_formats(formats)
     made, summary, _ = board_cut(plan, raw, **range_kw)
-    return zip_files(files(made.model, made.layout)), summary
+    return zip_files(files(made.model, made.layout, formats=formats)), {**summary, "formats": list(formats)}
