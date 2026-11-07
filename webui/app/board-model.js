@@ -13,6 +13,8 @@ export const MAX_TILT = 90; // lying flat to the table shows elevations (2026-11
 export const FOLD_TILT = 10; // past this lean papers fold into pins, so the model reads (2026-10-26)
 export const VIEW_LIMITS = { min: 12, max: 2500 }; // metres of table shown top to bottom
 export const TRACE_MARGIN = 14; // metres of tracing paper around the site
+// A paper dragged by a corner keeps its size between these (CSS px of paper; 1 px is 0.1 m).
+export const PAPER_LIMITS = { min: 60, max: 4000 };
 export const PAPER_SIZE = { site: [300, 250], mass: [300, 210], note: [200, 140], expert: [320, 270], photo: [300, 225] };
 export const MAX_BLOCKS = 20;
 export const MAX_CONTEXT = 8; // papers one message may carry (board.MAX_CONTEXT)
@@ -21,6 +23,35 @@ const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a
 const rad = (d) => (d * Math.PI) / 180;
 
 export const fmt = (n, digits = 0) => Number(n).toLocaleString('ko-KR', { maximumFractionDigits: digits, minimumFractionDigits: digits });
+
+// Which papers a corner drag resizes: not a tracing sheet (it is the size of the site, to lie in
+// register over it) and not one folded into a name tag.
+export function resizable(p) {
+  return Boolean(p) && p.kind !== 'tracing' && !p.folded;
+}
+
+// A paper {x, y, w, h} (middle in metres, size in CSS px) dragged by its corner `corner`
+// ('nw', 'ne', 'sw', 'se', as the paper reads: n is +y) to the table point {x, y}. The opposite
+// corner stays where it is. `ratio` keeps the paper's shape (a photo), taking the larger pull.
+export function resizedPaper(from, corner, point, { ratio = false, min = PAPER_LIMITS.min, max = PAPER_LIMITS.max } = {}) {
+  const sx = corner.includes('e') ? 1 : -1;
+  const sy = corner.includes('n') ? 1 : -1;
+  const fixed = { x: from.x - (sx * from.w * PX) / 2, y: from.y - (sy * from.h * PX) / 2 };
+  const clamp = (v) => Math.min(max, Math.max(min, v));
+  let w = clamp((sx * (point.x - fixed.x)) / PX);
+  let h = clamp((sy * (point.y - fixed.y)) / PX);
+  if (ratio && from.w > 0 && from.h > 0) {
+    const k = Math.max(w / from.w, h / from.h);
+    const lo = Math.max(min / from.w, min / from.h);
+    const hi = Math.min(max / from.w, max / from.h);
+    const kk = Math.min(hi, Math.max(lo, k));
+    w = from.w * kk;
+    h = from.h * kk;
+  }
+  w = Math.round(w);
+  h = Math.round(h);
+  return { x: fixed.x + (sx * w * PX) / 2, y: fixed.y + (sy * h * PX) / 2, w, h };
+}
 
 // ------------------------------------------------------------------ camera
 // One camera, as plain numbers. tilt 0° looks straight down (a plan); leaning further goes from a
@@ -731,7 +762,7 @@ export function planDrawing(site, paper = null) {
 
 // ------------------------------------------------------------------ photos
 // A photo (a site photo, a hand sketch, a reference) laid on the table as a paper. The server
-// takes PNG, JPEG, GIF and WebP up to 20 MB (board.MAX_PHOTO_BYTES); anything else the browser
+// takes PNG, JPEG, GIF, WebP and PDF up to 20 MB (board.MAX_PHOTO_BYTES); anything else the browser
 // can open (an iPhone HEIC in Safari) or a very large picture is redrawn as a smaller JPEG first.
 
 export const PHOTO_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
@@ -764,6 +795,24 @@ export function photoPaperSize(width, height, longest = PHOTO_SIZES.medium) {
   return { w, h };
 }
 
+// The canvas size (device pixels) for a PDF page on a paper w × h CSS px, shown at `zoom` screen
+// px per paper px on a screen of `dpr`: as sharp as the screen, but never past `side` px on its
+// longest side or `area` px in all (a canvas that large is slow and may not draw at all).
+export const PDF_MAX_SIDE = 4096;
+export const PDF_MAX_AREA = 16e6;
+export function pdfCanvasSize(w, h, zoom, dpr = 1, side = PDF_MAX_SIDE, area = PDF_MAX_AREA) {
+  const want = Math.max(0.05, Number(zoom) || 1) * Math.max(1, Number(dpr) || 1);
+  const k = Math.min(want, side / Math.max(w, h, 1), Math.sqrt(area / Math.max(1, w * h)));
+  return { width: Math.max(1, Math.round(w * k)), height: Math.max(1, Math.round(h * k)) };
+}
+
+// Whether a page drawn at `have` should be drawn again for `want`: when the paper is shown much
+// sharper than it was drawn (it would blur), or much smaller (it wastes memory).
+export function pdfNeedsRedraw(have, want) {
+  if (!have?.width) return true;
+  return want.width > have.width * 1.15 || want.width < have.width * 0.4;
+}
+
 // The paper's title from the file name: without its extension, at most 120 characters, and ''
 // for the names a pasted screenshot gets ("image.png").
 export function photoTitle(fileName) {
@@ -772,11 +821,21 @@ export function photoTitle(fileName) {
   return base.slice(0, 120);
 }
 
-// Which of the dropped or pasted files are pictures (by type, or by extension when the browser
-// gave no type), at most MAX_PHOTOS_AT_ONCE; `skipped` counts the rest.
+// A PDF (a drawing exported from CAD) goes up as it is and lies on the table as one page, drawn
+// from the PDF at the size it is shown, so its lines stay sharp however large the paper grows.
+export function isPdfFile(file) {
+  return file?.type === 'application/pdf' || (!file?.type && /\.pdf$/i.test(String(file?.name || '')));
+}
+
+export function isPdfPaper(p) {
+  return p?.kind === 'photo' && /\.pdf$/i.test(String(p.file || ''));
+}
+
+// Which of the dropped or pasted files are pictures or PDFs (by type, or by extension when the
+// browser gave no type), at most MAX_PHOTOS_AT_ONCE; `skipped` counts the rest.
 export function pickPhotoFiles(files) {
   const all = [...(files || [])];
-  const pictures = all.filter((f) => String(f.type || '').startsWith('image/')
+  const pictures = all.filter((f) => String(f.type || '').startsWith('image/') || isPdfFile(f)
     || (!f.type && /\.(png|jpe?g|gif|webp|heic|heif|avif|bmp)$/i.test(String(f.name || ''))));
   const taken = pictures.slice(0, MAX_PHOTOS_AT_ONCE);
   return { files: taken, skipped: all.length - taken.length };
@@ -1040,10 +1099,44 @@ export function hideBuildings(hidden, ids) {
 }
 
 // How the viewer likes the VWorld map (vworld-view.js keeps it for the page, not the project):
-// white: buildings as a white model, plain: the ground without the aerial photo. Anything
-// unreadable is the default (the photos on).
+// white: buildings as a white model, plain: the ground without the aerial photo, noNames:
+// VWorld's name labels off. Anything unreadable is the default (photos and names on).
 export function readLook(stored) {
   let v = null;
   try { v = JSON.parse(stored); } catch { v = null; }
-  return { white: v?.white === true, plain: v?.plain === true };
+  return { white: v?.white === true, plain: v?.plain === true, noNames: v?.noNames === true };
+}
+
+// The hiding steps on the VWorld map, for Ctrl+Z and Ctrl+Shift+Z: the hidden lists before
+// (past), now (present) and undone (future). A new step clears what was undone; the same list
+// again is no step. At most MAX_HIDE_STEPS steps back.
+export const MAX_HIDE_STEPS = 50;
+export function startHistory(present) {
+  return { past: [], present: [...(present || [])], future: [] };
+}
+export function commitHistory(h, next) {
+  if (sameOrder(h.present, next)) return h;
+  return { past: [...h.past, h.present].slice(-MAX_HIDE_STEPS), present: [...next], future: [] };
+}
+export function undoHistory(h) {
+  if (!h.past.length) return h;
+  return { past: h.past.slice(0, -1), present: h.past.at(-1), future: [h.present, ...h.future] };
+}
+export function redoHistory(h) {
+  if (!h.future.length) return h;
+  return { past: [...h.past, h.present], present: h.future[0], future: h.future.slice(1) };
+}
+
+// What a key does on the VWorld map: 'hide' (Delete or Backspace with a building picked),
+// 'cancel' (Esc with one picked), 'undo' (Ctrl+Z / ⌘Z), 'redo' (Ctrl+Shift+Z, Ctrl+Y), or ''.
+export function hideKey({ key, ctrl, meta, shift }, picked) {
+  const k = String(key || '').toLowerCase();
+  if (ctrl || meta) {
+    if (k === 'z') return shift ? 'redo' : 'undo';
+    if (k === 'y') return 'redo';
+    return '';
+  }
+  if (picked && (k === 'delete' || k === 'backspace')) return 'hide';
+  if (picked && k === 'escape') return 'cancel';
+  return '';
 }

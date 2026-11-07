@@ -9,6 +9,7 @@
 // own element, which app.js lays over a slot in the page, so redraws of the page leave it be.
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
+import { drawPage, pdfInfo } from './pdf-view.js';
 import {
   PX, TILT, MAX_TILT, PAPER_SIZE, cameraFor, riseFor, groundFor, zoomAround, drawingScale, scaleSpan, scaleBar, lerpView, dragMode, wheelZoom, orbitBy, viewName, viewFor, panBy, EDGE_TILT,
   siteBounds, traceHome, isOverlaid, blockCorners, placeUnplaced, freeSpot, fitView,
@@ -19,7 +20,8 @@ import {
   numericToolClick, numericPushBlock, numericScaleBlocks,
   snapTape,
   massIds, createHistory, recordStep, undoStep, redoStep, changedFields, planDrawing,
-  photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE,
+  photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE, MAX_PHOTO_BYTES,
+  isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, resizable, resizedPaper,
   CONTOUR_STEPS, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, noteStartsOpen, buildingInfo,
 } from './board-model.js';
 
@@ -68,6 +70,9 @@ export class DraftingTable {
     this.editing = '';
     this.peekId = ''; // the paper whose card is open from its pin in 3D
     this.detailId = ''; // the paper open in the detail panel (a click on it, or 상세 보기)
+    this.paperZoom = 1; // screen px per paper px in plan (the corner grips and PDF pages follow it)
+    this.pdfs = new Map(); // 'card:'/'detail:'/'peek:' + paper id → {canvas, url, page, size}
+    this.pdfPages = new Map(); // PDF url → its number of pages
     this.history = createHistory(); // the designer's edits, for undo and redo (this session only)
     this.trayOpen = false;
     this.form = null;
@@ -107,7 +112,7 @@ export class DraftingTable {
       <div class="table-ui ui-scheme"></div>
       <div class="table-ui ui-tilt" aria-label="기울기"></div>
       <div class="table-ui ui-zoom"></div>
-      <p class="table-ui ui-help">왼쪽 끌기: 선택 상자(→ 안에 든 것, ← 걸친 것, Shift 더하기, Ctrl 빼기) · 건물 클릭: 그 동만 고르기(끌면 옮김, 검볼, Delete 지우기) · 스케치업 도구는 명령으로: rect pushpull move copy rotate scale eraser dist (제도판에서 글자를 치면 명령창으로) · Ctrl+C/V 복사·붙여넣기, Ctrl+A 모든 동 · 고른 이름표 끌기: 종이 옮기기 · 휠: 커서 기준 확대 · 우클릭 끌기: 돌리기 · Shift+우클릭·가운데 버튼 끌기: 이동 · Ctrl+Z: 되돌리기 · 사진: 파일을 끌어다 놓거나 붙여넣기(photo)</p>
+      <p class="table-ui ui-help">왼쪽 끌기: 선택 상자(→ 안에 든 것, ← 걸친 것, Shift 더하기, Ctrl 빼기) · 건물 클릭: 그 동만 고르기(끌면 옮김, 검볼, Delete 지우기) · 스케치업 도구는 명령으로: rect pushpull move copy rotate scale eraser dist (제도판에서 글자를 치면 명령창으로) · Ctrl+C/V 복사·붙여넣기, Ctrl+A 모든 동 · 고른 이름표 끌기: 종이 옮기기 · 휠: 커서 기준 확대 · 우클릭 끌기: 돌리기 · Shift+우클릭·가운데 버튼 끌기: 이동 · Ctrl+Z: 되돌리기 · 사진·PDF: 파일을 끌어다 놓거나 붙여넣기(photo) · 종이 모서리 끌기: 크기 조절</p>
       <p class="table-ui ui-hint" role="status" hidden></p>
       <section class="table-ui around-note" aria-label="주변 3D 자료 출처" hidden></section>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
@@ -115,8 +120,8 @@ export class DraftingTable {
       <section class="table-ui scheme-form" aria-label="매스안 입력" hidden></section>
       <dialog class="card-detail" aria-labelledby="detail-title"></dialog>
       <dialog class="tool-number" aria-labelledby="tool-number-title" aria-describedby="tool-number-help"></dialog>
-      <input type="file" class="photo-input" accept="image/*" multiple hidden aria-hidden="true" tabindex="-1">
-      <div class="photo-drop" hidden aria-hidden="true"><span>여기에 놓으면 사진이 제도판에 올라갑니다</span></div>`;
+      <input type="file" class="photo-input" accept="image/*,application/pdf,.pdf" multiple hidden aria-hidden="true" tabindex="-1">
+      <div class="photo-drop" hidden aria-hidden="true"><span>여기에 놓으면 사진·PDF가 제도판에 올라갑니다</span></div>`;
     this.stage = this.root.querySelector('.table-stage');
     this.pinLayer = this.root.querySelector('.table-pins');
     this.boxEl = this.root.querySelector('.table-box');
@@ -152,6 +157,7 @@ export class DraftingTable {
     window.removeEventListener('paste', this.onPaste);
     cancelAnimationFrame(this.frame);
     this.observer?.disconnect();
+    clearTimeout(this.pdfTimer);
     this.gl?.renderer.dispose();
     this.root.remove();
   }
@@ -383,6 +389,15 @@ export class DraftingTable {
     for (const [id, obj] of objects) obj.visible = !fold && !shut.has(id);
     if (fold !== this.root.classList.contains('is-3d')) this.foldChanged(fold);
     this.root.classList.toggle('has-folded', shut.size > 0);
+    // How large a paper px is on the screen, for the corner grips (a steady size on the screen)
+    // and the PDF pages (drawn again, a moment after a zoom, as sharp as they are now seen).
+    const zoom = (PX * this.root.clientHeight) / v.span;
+    if (!fold && Math.abs(zoom / this.paperZoom - 1) > 0.02) {
+      this.paperZoom = zoom;
+      this.root.style.setProperty('--paper-zoom', zoom.toFixed(4));
+      clearTimeout(this.pdfTimer);
+      this.pdfTimer = setTimeout(() => this.refreshPdfs(), 180);
+    }
     renderer.render(scene, camera);
     cssRenderer.render(cssScene, camera);
     if (fold || shut.size) this.placePins(fold ? null : shut);
@@ -1094,11 +1109,14 @@ export class DraftingTable {
     const madeTag = made ? `<span class="paper-made">${escape(made)}</span>` : '';
     const foldButton = overlaid || state.editing ? ''
       : `<button type="button" class="paper-fold" data-fold="${escape(p.id)}" aria-label="${escape(paperName(p))} 이름표로 접기" title="이름표로 접기">접기</button>`;
+    // Corner grips: a drag on one resizes the paper (2026-11-07 지훈), the opposite corner staying put.
+    const grips = resizable(p) && !state.editing
+      ? ['nw', 'ne', 'sw', 'se'].map((c) => `<i class="paper-grip" data-grip="${c}" data-for="${escape(p.id)}" aria-hidden="true"></i>`).join('') : '';
     if (p.kind === 'note') {
       el.innerHTML = `<article class="${cls}" data-paper="${escape(p.id)}" style="${size}">${madeTag}${foldButton}
         ${state.editing
     ? `<textarea aria-label="메모 내용" maxlength="4000">${escape(p.text || '')}</textarea>`
-    : `<p>${escape(p.text || '메모')}</p>`}</article>`;
+    : `<p>${escape(p.text || '메모')}</p>`}</article>${grips}`;
       if (state.editing) {
         const area = el.querySelector('textarea');
         requestAnimationFrame(() => { area.focus(); area.select(); });
@@ -1106,9 +1124,12 @@ export class DraftingTable {
       return;
     }
     if (p.kind === 'photo') {
+      const pdf = isPdfPaper(p);
       el.innerHTML = `<article class="${cls}" data-paper="${escape(p.id)}" style="${size}">${madeTag}${foldButton}
-        <img src="${escape(this.hooks.photoUrl(p.id))}" alt="${escape(paperName(p))}" draggable="false" decoding="async">
-        ${p.title ? `<span class="paper-tag">${escape(p.title)}</span>` : ''}</article>`;
+        ${pdf ? `<div class="pdf-page" role="img" aria-label="${escape(paperName(p))}"></div>`
+    : `<img src="${escape(this.hooks.photoUrl(p.id))}" alt="${escape(paperName(p))}" draggable="false" decoding="async">`}
+        ${p.title ? `<span class="paper-tag">${escape(p.title)}</span>` : ''}</article>${grips}`;
+      if (pdf) this.showPdf(el.querySelector('.pdf-page'), `card:${p.id}`, p, pdfCanvasSize(p.w, p.h, this.paperZoom, window.devicePixelRatio));
       return;
     }
     if (p.kind === 'tracing') {
@@ -1120,7 +1141,7 @@ export class DraftingTable {
     el.innerHTML = `<article class="${cls}" data-paper="${escape(p.id)}" style="${size}">${foldButton}
       <header class="paper-head"><span class="paper-kind">${escape(KIND_LABELS[p.kind] || p.kind)}</span>${madeTag}<h3>${escape(title)}</h3>
         <button type="button" class="paper-open" data-inspect="${escape(p.id)}" aria-label="${escape(title)} 상세 보기">상세 보기 ↗</button></header>
-      <div class="paper-body">${body}</div></article>`;
+      <div class="paper-body">${body}</div></article>${grips}`;
   }
 
   // What a site, mass or expert paper says: the same on the table and in its card in 3D.
@@ -1198,6 +1219,7 @@ export class DraftingTable {
     let body;
     if (p.kind === 'note') body = `<p class="note-text">${escape(p.text || '메모')}</p>`;
     else if (p.kind === 'tracing') body = `<div class="peek-trace">${this.traceSvg(p)}</div><p class="source">획 ${(p.strokes || []).length}개 · 대지에서 떼어 둔 종이</p>`;
+    else if (isPdfPaper(p)) body = `<div class="peek-photo pdf-page" style="aspect-ratio: ${p.w} / ${p.h}"></div>`;
     else if (p.kind === 'photo') body = `<img class="peek-photo" src="${escape(this.hooks.photoUrl(p.id))}" alt="${escape(paperName(p))}" draggable="false">`;
     else body = this.paperContent(p, this.active === p.id, this.figures[p.id], true).body;
     const actions = [
@@ -1215,6 +1237,7 @@ export class DraftingTable {
       <h4>${escape(paperName(p))}</h4>
       <div class="peek-body">${body}</div>
       <div class="tray-actions">${actions}</div>`;
+    if (isPdfPaper(p)) this.showPdf(card.querySelector('.pdf-page'), `peek:${p.id}`, p, pdfCanvasSize(p.w, p.h, 300 / Math.max(p.w, p.h), window.devicePixelRatio));
     card.hidden = false;
     card.style.visibility = 'hidden'; // placed beside its pin on the next frame
     this.invalidate();
@@ -1290,7 +1313,9 @@ export class DraftingTable {
 
   // ------------------------------------------------------------------ the detail panel
   // A click on a paper (or its 상세 보기) opens it at reading size beside the table, whatever the
-  // zoom: the site plan with the scheme drawn on it, the figures, a note to write in.
+  // zoom: the site plan with the scheme drawn on it, the figures, a note to write in. The table
+  // stays as it is beside it, neither dimmed nor blocked (2026-11-07 지훈): a click on another
+  // paper shows that one, a click on empty table, × or Esc closes it.
 
   inspect(id) {
     if (!this.find(id)) return;
@@ -1300,8 +1325,10 @@ export class DraftingTable {
     this.drawDetail();
     const dialog = this.ui.detail;
     if (!dialog.open) {
-      if (typeof dialog.showModal === 'function') dialog.showModal();
+      if (typeof dialog.show === 'function') dialog.show();
       else dialog.setAttribute('open', '');
+      // Opening it does not take the keyboard from the table (Delete, Ctrl+Z, a typed command).
+      this.root.focus({ preventScroll: true });
     }
   }
 
@@ -1349,11 +1376,20 @@ export class DraftingTable {
       body = `<div class="detail-tracing">${this.traceSvg(p)}</div><p class="detail-caption">그린 선 ${(p.strokes || []).length}개${isOverlaid(p, this.home) ? ' · 대지 위에 덮여 있음' : ''}</p>`;
     } else if (p.kind === 'photo') {
       const longest = Math.max(p.w, p.h);
+      const pdf = isPdfPaper(p);
+      const url = this.hooks.photoUrl(p.id);
       const sizes = Object.entries({ small: '작게', medium: '보통', large: '크게' }).map(([key, label]) => `<button type="button" data-detail="size-${key}" aria-pressed="${Math.round(longest) === PHOTO_SIZES[key]}">${label}</button>`).join('');
-      body = `<a class="detail-photo" href="${escape(this.hooks.photoUrl(p.id))}" target="_blank" rel="noopener" title="원본을 새 탭에서 보기"><img src="${escape(this.hooks.photoUrl(p.id))}" alt="${escape(paperName(p))}"></a>
-        <label class="detail-title">사진 이름<input type="text" data-detail-title="${id}" maxlength="120" value="${escape(p.title || '')}" placeholder="예: 북측 도로에서 본 대지"></label>
+      const pages = pdf ? this.pdfPages.get(url) : 0;
+      const pager = pages > 1 ? `<div class="detail-sizes detail-pages" role="group" aria-label="PDF 페이지"><span>페이지</span>
+          <button type="button" data-detail="page-prev" aria-label="앞 페이지" ${p.page > 1 ? '' : 'disabled'}>‹</button>
+          <b>${escape(String(Math.min(p.page || 1, pages)))} / ${escape(String(pages))}</b>
+          <button type="button" data-detail="page-next" aria-label="다음 페이지" ${(p.page || 1) < pages ? '' : 'disabled'}>›</button></div>` : '';
+      body = `<a class="detail-photo" href="${escape(url)}" target="_blank" rel="noopener" title="원본을 새 탭에서 보기">${pdf
+        ? `<div class="pdf-page" role="img" aria-label="${escape(paperName(p))}"></div>` : `<img src="${escape(url)}" alt="${escape(paperName(p))}">`}</a>
+        ${pdf ? `<p class="detail-caption">PDF는 보이는 크기에 맞춰 다시 그려서, 카드를 키워도 선이 흐려지지 않습니다. 눌러서 원본 PDF를 새 탭에서 볼 수 있습니다.</p>${pager}` : ''}
+        <label class="detail-title">${pdf ? 'PDF 이름' : '사진 이름'}<input type="text" data-detail-title="${id}" maxlength="120" value="${escape(p.title || '')}" placeholder="예: 북측 도로에서 본 대지"></label>
         <div class="detail-sizes" role="group" aria-label="제도판 위 크기"><span>제도판 위 크기</span>${sizes}</div>
-        <p class="detail-caption">AI에게는 사진 이름만 갑니다. 사진에 무엇이 있는지는 질문에 적어 주세요.</p>`;
+        <p class="detail-caption">AI에게는 ${pdf ? 'PDF' : '사진'} 이름만 갑니다. 무엇이 있는지는 질문에 적어 주세요.</p>`;
     }
     const why = [p.based_on ? `${paperName(this.find(p.based_on)) || p.based_on}의 수정안` : '', p.reason || ''].filter(Boolean)
       .map((t) => `<p class="detail-caption">${escape(t)}</p>`).join('');
@@ -1368,6 +1404,12 @@ export class DraftingTable {
       <div class="detail-body kind-${escape(p.kind)}">${why}${body}</div>
       <footer class="detail-actions"><div class="detail-more">${actions}</div>
         <button type="button" class="detail-primary" data-detail="ask">이 종이로 질문하기 →</button></footer>`;
+    const page = isPdfPaper(p) && dialog.querySelector('.pdf-page');
+    if (page) {
+      const across = Math.max(240, (dialog.clientWidth || 480) - 50);
+      this.showPdf(page, `detail:${p.id}`, p, pdfCanvasSize(p.w, p.h, across / p.w, window.devicePixelRatio))
+        .then((pages) => { if (pages > 1 && this.detailId === p.id && !dialog.querySelector('.detail-pages')) this.drawDetail(); });
+    }
   }
 
   detailAction(action) {
@@ -1380,6 +1422,7 @@ export class DraftingTable {
       case 'unfold': this.setFolded(id, false); this.drawDetail(); break;
       case 'focus': this.closeDetail(); this.planAt(p); this.select([id]); break;
       case 'size-small': case 'size-medium': case 'size-large': this.resizePhoto(id, PHOTO_SIZES[action.slice(5)]); break;
+      case 'page-prev': case 'page-next': this.turnPage(id, action === 'page-next' ? 1 : -1); break;
       case 'place': this.closeDetail(); this.placeFromTray(id); break;
       case 'ask': this.closeDetail(); if (!this.selected.includes(id)) this.select(toggleSelected(this.selected, id, true)); this.hooks.ask?.(id); break;
       default: break;
@@ -1417,8 +1460,8 @@ export class DraftingTable {
   // files: a FileList or array; at: where on the table (metres) the first one goes, else beside the site.
   async addPhotos(files, at = null) {
     const { files: pictures, skipped } = pickPhotoFiles(files);
-    if (!pictures.length) { this.say('사진 파일이 아닙니다. JPEG, PNG, GIF, WebP 사진을 올려 주세요.'); return; }
-    if (skipped) this.say(`사진 파일만, 한 번에 ${MAX_PHOTOS_AT_ONCE}장까지 올립니다. ${skipped}개는 건너뜁니다.`);
+    if (!pictures.length) { this.say('사진이나 PDF 파일이 아닙니다. JPEG, PNG, GIF, WebP 사진이나 PDF를 올려 주세요.'); return; }
+    if (skipped) this.say(`사진·PDF 파일만, 한 번에 ${MAX_PHOTOS_AT_ONCE}개까지 올립니다. ${skipped}개는 건너뜁니다.`);
     let spot = at;
     const added = [];
     const failed = [];
@@ -1426,7 +1469,8 @@ export class DraftingTable {
       this.say(`사진을 올리는 중입니다… (${added.length + failed.length + 1}/${pictures.length})`);
       const ready = await this.preparePhoto(file);
       if (!ready) { failed.push(file.name || '사진'); continue; }
-      const { w, h } = photoPaperSize(ready.width, ready.height);
+      // A drawing (PDF) starts larger than a photo: it is there to be read.
+      const { w, h } = photoPaperSize(ready.width, ready.height, ready.pdf ? PHOTO_SIZES.large : PHOTO_SIZES.medium);
       const place = spot || freeSpot(this.papers, this.bounds, w, h);
       const done = await this.hooks.addPhoto(ready.blob, ready.name, { title: photoTitle(file.name), x: cm(place.x), y: cm(place.y), w, h });
       if (!done?.paper) { failed.push(file.name || '사진'); continue; }
@@ -1439,13 +1483,19 @@ export class DraftingTable {
       if (!at) { const last = added[added.length - 1]; this.animateTo({ x: last.x, y: last.y, tilt: 0, turn: 0, span: Math.max(this.view.span, 120) }); }
     }
     const lines = [];
-    if (added.length) lines.push(`사진 ${added.length}장을 제도판에 올렸습니다. 누르면 크게 보고 이름을 붙일 수 있습니다.`);
-    if (failed.length) lines.push(`${failed.join(', ')}은(는) 올리지 못했습니다. 브라우저가 열 수 있는 사진(JPEG, PNG 등)인지 확인해 주세요.`);
+    if (added.length) lines.push(`${added.length}개를 제도판에 올렸습니다. 누르면 크게 보고 이름을 붙일 수 있고, 모서리를 끌면 크기가 바뀝니다.`);
+    if (failed.length) lines.push(`${failed.join(', ')}은(는) 올리지 못했습니다. 브라우저가 열 수 있는 사진(JPEG, PNG 등)이나 20MB 이하의 PDF인지 확인해 주세요.`);
     this.say(lines.join(' '));
   }
 
-  // {blob, name, width, height}, or null when the browser cannot open the picture.
+  // {blob, name, width, height, pdf}, or null when the browser cannot open the picture. A PDF goes
+  // up as it is (its first page gives the paper its shape); the table draws it from the PDF.
   async preparePhoto(file) {
+    if (isPdfFile(file)) {
+      if (file.size > MAX_PHOTO_BYTES) return null;
+      const info = await pdfInfo(file);
+      return info && { blob: file, name: file.name || 'drawing.pdf', width: info.width, height: info.height, pdf: true };
+    }
     let bitmap;
     try { bitmap = await createImageBitmap(file); } catch { return null; }
     const { width, height } = bitmap;
@@ -1477,6 +1527,107 @@ export class DraftingTable {
     this.syncPapers();
     this.drawDetail();
     this.save(id, { w, h });
+  }
+
+  // ------------------------------------------------------------------ PDF pages
+  // A PDF paper shows one page, drawn from the PDF at the size it is seen (pdf-view.js), in the
+  // paper on the table, in the detail panel and in its card in 3D. Each keeps its canvas, so a
+  // redraw of the paper (picked, moved) moves the drawn page over instead of drawing it again.
+
+  // Put the page into holder, drawing it again when it is wanted sharper (or much smaller) than
+  // it was drawn, or another page is asked for. Resolves to the PDF's number of pages (0: not drawn).
+  async showPdf(holder, key, p, size) {
+    const url = this.hooks.photoUrl(p.id);
+    let entry = this.pdfs.get(key);
+    if (!entry || entry.url !== url) {
+      const canvas = document.createElement('canvas');
+      canvas.className = 'pdf-canvas';
+      entry = { canvas, url, page: 0, size: null };
+      this.pdfs.set(key, entry);
+    }
+    if (holder && entry.canvas.parentElement !== holder) holder.append(entry.canvas);
+    const page = p.page || 1;
+    if (entry.page === page && !pdfNeedsRedraw(entry.size, size)) return this.pdfPages.get(url) || 0;
+    Object.assign(entry, { page, size });
+    try {
+      const pages = await drawPage(entry.canvas, url, page, size.width);
+      if (pages) this.pdfPages.set(url, pages);
+      this.invalidate();
+      return pages;
+    } catch {
+      entry.size = null;
+      holder?.classList.add('is-broken');
+      this.say(`${paperName(p)} PDF를 그리지 못했습니다. 파일이 손상되었거나 암호가 걸려 있을 수 있습니다.`);
+      return 0;
+    }
+  }
+
+  // After a zoom: draw the PDF papers again at the new sharpness (only those that need it).
+  refreshPdfs() {
+    for (const p of this.papers) {
+      if (!isPdfPaper(p)) continue;
+      const holder = this.slots.get(p.id)?.querySelector('.pdf-page');
+      if (holder) this.showPdf(holder, `card:${p.id}`, p, pdfCanvasSize(p.w, p.h, this.paperZoom, window.devicePixelRatio));
+    }
+    for (const key of this.pdfs.keys()) {
+      const [where, id] = key.split(/:(.*)/s);
+      if (where === 'card' && !this.papers.some((p) => p.id === id)) this.pdfs.delete(key);
+    }
+  }
+
+  turnPage(id, step) {
+    const p = this.papers.find((x) => x.id === id && isPdfPaper(x));
+    const pages = p && this.pdfPages.get(this.hooks.photoUrl(id));
+    if (!p || !pages) return;
+    const page = Math.min(pages, Math.max(1, (p.page || 1) + step));
+    if (page === (p.page || 1)) return;
+    this.record([{ op: 'update', id, before: { page: p.page || 1 }, after: { page } }]);
+    p.page = page;
+    this.syncPapers();
+    this.drawDetail();
+    this.save(id, { page });
+  }
+
+  // ------------------------------------------------------------------ resizing a paper
+  // A drag on a corner grip resizes the paper; a photo or PDF keeps its shape.
+
+  resizeGesture(grip, e) {
+    const p = this.papers.find((x) => x.id === grip.dataset.for);
+    const g0 = this.ground(e.clientX, e.clientY);
+    if (!p || !resizable(p) || !g0) return null;
+    if (!this.selected.includes(p.id)) this.select([p.id]);
+    return { kind: 'resize', id: p.id, corner: grip.dataset.grip, from: { x: p.x, y: p.y, w: p.w, h: p.h }, g0, moved: false, x: e.clientX, y: e.clientY };
+  }
+
+  resizeMove(g, e) {
+    if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 3) return;
+    const at = this.ground(e.clientX, e.clientY);
+    const p = this.papers.find((x) => x.id === g.id);
+    if (!at || !p) return;
+    g.moved = true;
+    // The pointer may have pressed a little inside the corner: keep that offset.
+    const sx = g.corner.includes('e') ? 1 : -1;
+    const sy = g.corner.includes('n') ? 1 : -1;
+    const corner = { x: g.from.x + (sx * g.from.w * PX) / 2, y: g.from.y + (sy * g.from.h * PX) / 2 };
+    const point = { x: at.x + corner.x - g.g0.x, y: at.y + corner.y - g.g0.y };
+    Object.assign(p, resizedPaper(g.from, g.corner, point, { ratio: p.kind === 'photo' }));
+    // Only the size changes while dragging; the paper is drawn again when the drag ends.
+    const article = this.slots.get(p.id)?.querySelector('[data-paper]');
+    if (article) Object.assign(article.style, { width: `${p.w}px`, height: `${p.h}px` });
+    this.gl?.objects.get(p.id)?.position.set(p.x, p.y, 0.1);
+    this.say(`${fmt(p.w * PX, 1)} × ${fmt(p.h * PX, 1)} m`);
+    this.invalidate();
+  }
+
+  resizeEnd(g) {
+    const p = this.papers.find((x) => x.id === g.id);
+    if (!p || !g.moved) return;
+    const after = { x: p.x, y: p.y, w: p.w, h: p.h };
+    if (Object.keys(after).every((k) => after[k] === g.from[k])) return;
+    this.record([{ op: 'update', id: p.id, before: { ...g.from }, after }]);
+    this.syncPapers();
+    if (this.detailId === p.id) this.drawDetail();
+    this.save(p.id, after);
   }
 
   saveNoteText(id, text) {
@@ -1613,7 +1764,7 @@ export class DraftingTable {
       <span class="sep"></span>
       <button type="button" data-ui="scheme-new" title="숫자로 매스안 만들기">＋ 매스안</button>
       <button type="button" data-ui="trace" title="트레이싱지 덮기 (명령: trace)">트레이싱지 덮기</button>
-      <button type="button" data-ui="photo" title="사진 올리기 (명령: photo) — 사진 파일을 제도판에 끌어다 놓거나 붙여넣어도 됩니다">사진 올리기</button>
+      <button type="button" data-ui="photo" title="사진·PDF 올리기 (명령: photo) — 사진이나 PDF 도면을 제도판에 끌어다 놓거나 붙여넣어도 됩니다">사진·PDF 올리기</button>
       <button type="button" data-ui="around" aria-pressed="${this.aroundOn}" ${this.site?.plan && !this.aroundBusy ? '' : 'disabled'} title="대지 주변 200m의 지형과 건물을 3D로 보기 (공공 자료로 만든 참고용 모형)">${this.aroundBusy ? '주변 불러오는 중…' : '주변 3D'}</button>
       ${this.aroundOn && this.around?.terrain ? `<label class="check">등고선 <select data-ui="contour-step" aria-label="등고선 간격">${CONTOUR_STEPS.map((s) => `<option value="${s}" ${s === this.contourStep ? 'selected' : ''}>${s}m</option>`).join('')}</select></label>` : ''}
       <button type="button" data-ui="delete" ${this.selected.some((id) => this.papers.some((p) => p.id === id && p.kind !== 'site')) ? '' : 'disabled'} title="삭제 (Delete)">삭제</button>
@@ -1841,7 +1992,7 @@ export class DraftingTable {
       if (!this.root.isConnected || this.root.parentElement?.hidden) return;
       const at = document.activeElement;
       if (typing(at) || at?.closest?.('dialog')) return;
-      const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
+      const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/') || isPdfFile(f));
       if (!files.length) return;
       e.preventDefault();
       this.addPhotos(files);
@@ -1860,11 +2011,14 @@ export class DraftingTable {
     });
     const detail = this.ui.detail;
     detail.addEventListener('close', () => { this.saveDetailNote(); this.detailId = ''; });
-    detail.addEventListener('click', (e) => {
-      // A click on the backdrop (outside the panel) closes it.
-      if (e.target !== detail) return;
-      const r = detail.getBoundingClientRect();
-      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) this.closeDetail();
+    // The panel sits beside the table without blocking it, so Esc is handled here (a panel that
+    // is not modal does not close on Esc by itself).
+    detail.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.closeDetail();
+      this.root.focus({ preventScroll: true });
     });
   }
 
@@ -1991,6 +2145,8 @@ export class DraftingTable {
     const v = this.view;
     const grip = e.button === 0 && this.gumAxes && e.target.closest('[data-gumball]')?.dataset.gumball;
     if (grip) { this.gesture = this.gumballGesture(grip, e); return; }
+    const corner = e.button === 0 && !e.shiftKey && !(e.ctrlKey || e.metaKey) && e.target.closest('[data-grip]');
+    if (corner) { this.gesture = this.resizeGesture(corner, e); if (this.gesture) return; }
     const mode = dragMode({ button: e.button, shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, alt: e.altKey });
     if (mode === 'orbit') { this.gesture = { kind: 'orbit', x: e.clientX, y: e.clientY, v }; return; }
     const g0 = this.ground(e.clientX, e.clientY);
@@ -2161,6 +2317,8 @@ export class DraftingTable {
     } else if (g.kind === 'zoom') {
       // Drag up to zoom in, down to zoom out, around the point first pressed.
       this.setView(zoomAround(g.v, g.g0.x, g.g0.y, Math.exp((e.clientY - g.y) * 0.005)));
+    } else if (g.kind === 'resize') {
+      this.resizeMove(g, e);
     } else if (g.kind === 'move') {
       const p = this.ground(e.clientX, e.clientY);
       if (!p) return;
@@ -2193,6 +2351,14 @@ export class DraftingTable {
   onUp(cancelled = false) {
     const g = this.gesture;
     this.gesture = null;
+    if (g?.kind === 'resize') {
+      if (cancelled) {
+        const p = this.papers.find((x) => x.id === g.id);
+        if (p) { Object.assign(p, g.from); this.syncPapers(); }
+      } else this.resizeEnd(g);
+      if (this.pending) { const view = this.pending; this.pending = null; this.setBoard(view); }
+      return;
+    }
     if (cancelled && (g?.kind === 'push' || g?.kind === 'gumball')) {
       const before = g.kind === 'push' ? new Map([[g.id, g.before]]) : new Map([...g.from].map(([id, from]) => [id, from.blocks]));
       for (const paper of this.papers) if (before.has(paper.id)) paper.blocks = before.get(paper.id);
@@ -2234,6 +2400,7 @@ export class DraftingTable {
       } else if (!g.add && !g.remove) {
         if (this.selected.length) this.select([]);
         if (this.picked.length) this.pickBlocks([]);
+        if (this.detailId) this.closeDetail();
       }
     } else if (g?.kind === 'move' && g.moved) {
       const edits = [];
@@ -2294,6 +2461,7 @@ export class DraftingTable {
     // command line (app.js). Only Delete and Esc act here.
     if (k === 'delete' || k === 'backspace') { e.preventDefault(); if (this.picked.length) this.removePicked(); else this.removeSelected(); }
     else if (k === 'escape') {
+      if (this.detailId) { this.closeDetail(); return; }
       if (this.peekId) { this.peekId = ''; this.drawPins(); this.drawPeek(); return; }
       this.select([]);
       if (this.picked.length) this.pickBlocks([]);

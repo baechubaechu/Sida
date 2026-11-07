@@ -481,18 +481,38 @@ def test_a_photo_is_saved_as_a_file_next_to_the_table_and_its_paper_names_it(tmp
     "data, message",
     [
         (b"", "empty"),
-        (b"%PDF-1.7 not a picture", "PNG, JPEG, GIF or WebP"),
+        (b"PK\x03\x04 a zip", "PNG, JPEG, GIF or WebP image, or a PDF"),
         (b"\x00\x00\x00\x18ftypheic" + b"\x00" * 16, "PNG, JPEG, GIF or WebP"),  # an iPhone HEIC
         (JPEG + b"\x00" * board.MAX_PHOTO_BYTES, "at most 20 MB"),
     ],
     # Without ids, older pytest spells each bytes value into the test name: the 20 MB case
     # became a test name of about 80 MB that slowed every run on Windows.
-    ids=["empty", "pdf", "heic", "over_20mb"],
+    ids=["empty", "zip", "heic", "over_20mb"],
 )
 def test_what_is_not_a_photo_the_browser_can_show_is_refused_and_nothing_is_saved(tmp_path, data, message):
     with pytest.raises(ValueError, match=message):
         board.add_photo(tmp_path, data)
     assert not board.board_path(tmp_path).exists() and not board.photo_dir(tmp_path).exists()
+
+
+PDF = b"%PDF-1.7\n" + b"\x00" * 32
+
+
+def test_a_pdf_lies_on_the_table_as_one_of_its_pages_and_the_page_can_change(tmp_path):
+    paper = board.add_photo(tmp_path, PDF, {"title": "기준층 평면", "w": 300, "h": 212})["paper"]
+    assert paper["file"] == f"{paper['id']}.pdf" and paper["page"] == 1
+    path, media = board.photo_file(tmp_path, paper["id"])
+    assert path.read_bytes() == PDF and media == "application/pdf"
+    assert "page 1 of a PDF" in board.paper_text(paper, None)
+
+    turned = board.update_paper(tmp_path, paper["id"], {"page": 3, "w": 600, "h": 424})["paper"]
+    assert turned["page"] == 3 and turned["w"] == 600
+    for bad in (0, 2.5, "2", board.MAX_PDF_PAGE + 1):
+        with pytest.raises(ValueError, match="page"):
+            board.update_paper(tmp_path, paper["id"], {"page": bad})
+    # A picture has no pages.
+    photo = board.add_photo(tmp_path, PNG, {"page": 2})["paper"]
+    assert "page" not in photo
 
 
 def test_a_photo_is_only_added_by_upload_but_an_undo_can_lay_a_removed_one_back(tmp_path):

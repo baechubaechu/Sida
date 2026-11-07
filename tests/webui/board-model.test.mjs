@@ -13,6 +13,7 @@ import {
   massIds, canCompare, COMPARE_QUESTION, addQuestion, createHistory, changedFields, recordStep, undoStep, redoStep,
   invertStep, HISTORY_LIMIT, planDrawing, dragMode, wheelZoom, orbitBy, viewName, viewFor, panBy,
   photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_MAX_SIDE, MAX_PHOTOS_AT_ONCE, KIND_LABELS,
+  isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, PDF_MAX_SIDE, PDF_MAX_AREA, resizable, resizedPaper, PAPER_LIMITS,
 } from '../../webui/app/board-model.js';
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -571,11 +572,11 @@ test('a photo is named after its file, and a pasted screenshot has no name', () 
   assert.equal(KIND_LABELS.photo, '사진');
 });
 
-test('only pictures are taken from what was dropped, a few at a time', () => {
+test('only pictures and PDFs are taken from what was dropped, a few at a time', () => {
   const file = (name, type) => ({ name, type });
   const got = pickPhotoFiles([file('a.jpg', 'image/jpeg'), file('b.pdf', 'application/pdf'), file('c.HEIC', ''), file('d.txt', '')]);
-  assert.deepEqual(got.files.map((f) => f.name), ['a.jpg', 'c.HEIC']);
-  assert.equal(got.skipped, 2);
+  assert.deepEqual(got.files.map((f) => f.name), ['a.jpg', 'b.pdf', 'c.HEIC']);
+  assert.equal(got.skipped, 1);
   const many = pickPhotoFiles(Array.from({ length: 13 }, (_, i) => file(`${i}.png`, 'image/png')));
   assert.equal(many.files.length, MAX_PHOTOS_AT_ONCE);
   assert.equal(many.skipped, 3);
@@ -728,9 +729,106 @@ test('the board masses go on the VWorld 3D map as lon/lat polygons standing on t
 
 test('the VWorld map look (white model, no ground photo) is read back safely', async () => {
   const { readLook } = await import('../../webui/app/board-model.js');
-  assert.deepEqual(readLook(JSON.stringify({ white: true, plain: false })), { white: true, plain: false });
-  assert.deepEqual(readLook(JSON.stringify({ white: true, plain: true })), { white: true, plain: true });
-  assert.deepEqual(readLook(null), { white: false, plain: false }); // nothing stored: photos on
-  assert.deepEqual(readLook('not json'), { white: false, plain: false });
-  assert.deepEqual(readLook(JSON.stringify({ white: 'yes', plain: 1 })), { white: false, plain: false }); // only true counts
+  assert.deepEqual(readLook(JSON.stringify({ white: true, plain: false })), { white: true, plain: false, noNames: false });
+  assert.deepEqual(readLook(JSON.stringify({ white: true, plain: true, noNames: true })), { white: true, plain: true, noNames: true });
+  assert.deepEqual(readLook(null), { white: false, plain: false, noNames: false }); // nothing stored: photos and names on
+  assert.deepEqual(readLook('not json'), { white: false, plain: false, noNames: false });
+  assert.deepEqual(readLook(JSON.stringify({ white: 'yes', plain: 1, noNames: 'y' })), { white: false, plain: false, noNames: false }); // only true counts
+});
+
+test('hiding VWorld buildings goes step by step, with undo and redo', async () => {
+  const { startHistory, commitHistory, undoHistory, redoHistory, hideBuildings, MAX_HIDE_STEPS } = await import('../../webui/app/board-model.js');
+  let h = startHistory(['old']);
+  h = commitHistory(h, hideBuildings(h.present, ['a'])); // a click, confirmed
+  h = commitHistory(h, hideBuildings(h.present, ['b', 'c'])); // 대지 위 건물 숨기기
+  assert.deepEqual(h.present, ['old', 'a', 'b', 'c']);
+  assert.equal(commitHistory(h, ['old', 'a', 'b', 'c']), h); // the same list is no step
+  h = commitHistory(h, []); // 숨긴 건물 모두 보이기
+  h = undoHistory(h);
+  assert.deepEqual(h.present, ['old', 'a', 'b', 'c']); // Ctrl+Z brings them back as they were
+  h = undoHistory(undoHistory(h));
+  assert.deepEqual(h.present, ['old']); // back to what the project had
+  assert.equal(undoHistory(h), h); // nothing more to undo
+  h = redoHistory(h);
+  assert.deepEqual(h.present, ['old', 'a']);
+  h = commitHistory(h, hideBuildings(h.present, ['d'])); // a new step drops what was undone
+  assert.equal(redoHistory(h), h);
+  assert.deepEqual(h.present, ['old', 'a', 'd']);
+  let long = startHistory([]);
+  for (let i = 0; i < MAX_HIDE_STEPS + 10; i += 1) long = commitHistory(long, [...long.present, `m${i}`]);
+  assert.equal(long.past.length, MAX_HIDE_STEPS);
+});
+
+test('keys on the VWorld map: Delete hides the picked building, Esc cancels, Ctrl+Z undoes', async () => {
+  const { hideKey } = await import('../../webui/app/board-model.js');
+  assert.equal(hideKey({ key: 'Delete' }, true), 'hide');
+  assert.equal(hideKey({ key: 'Backspace' }, true), 'hide');
+  assert.equal(hideKey({ key: 'Delete' }, false), ''); // nothing picked: the key is not ours
+  assert.equal(hideKey({ key: 'Escape' }, true), 'cancel');
+  assert.equal(hideKey({ key: 'Escape' }, false), '');
+  assert.equal(hideKey({ key: 'z', ctrl: true }, false), 'undo');
+  assert.equal(hideKey({ key: 'Z', meta: true }, false), 'undo');
+  assert.equal(hideKey({ key: 'Z', ctrl: true, shift: true }, false), 'redo');
+  assert.equal(hideKey({ key: 'y', ctrl: true }, false), 'redo');
+  assert.equal(hideKey({ key: 'c', ctrl: true }, true), '');
+  assert.equal(hideKey({ key: 'a' }, true), '');
+});
+
+test('a corner drag resizes a paper about its opposite corner, within the limits', () => {
+  const from = { x: 0, y: 0, w: 300, h: 200 }; // 30 m × 20 m, corners at x ±15, y ±10
+  // South-east corner to (30, -30): the north-west corner (-15, 10) stays.
+  assert.deepEqual(resizedPaper(from, 'se', { x: 30, y: -30 }), { x: 7.5, y: -10, w: 450, h: 400 });
+  // North-west corner pulled in: the south-east corner (15, -10) stays.
+  const nw = resizedPaper(from, 'nw', { x: 5, y: 0 });
+  assert.deepEqual([nw.w, nw.h], [100, 100]);
+  close(nw.x + (nw.w * PX) / 2, 15); close(nw.y - (nw.h * PX) / 2, -10);
+  // Dragged past the opposite corner or far away: held at the smallest and largest size.
+  const tiny = resizedPaper(from, 'ne', { x: -100, y: -100 });
+  assert.deepEqual([tiny.w, tiny.h], [PAPER_LIMITS.min, PAPER_LIMITS.min]);
+  close(tiny.x - (tiny.w * PX) / 2, -15); close(tiny.y - (tiny.h * PX) / 2, -10); // the south-west corner stays
+  const huge = resizedPaper(from, 'sw', { x: -1e6, y: -1e6 });
+  assert.deepEqual([huge.w, huge.h], [PAPER_LIMITS.max, PAPER_LIMITS.max]);
+});
+
+test('a photo or PDF keeps its shape when a corner is dragged', () => {
+  const from = { x: 0, y: 0, w: 300, h: 200 };
+  const r = resizedPaper(from, 'se', { x: 45, y: -12 }, { ratio: true }); // pulled mostly sideways
+  assert.deepEqual([r.w, r.h], [600, 400]);
+  close(r.x - (r.w * PX) / 2, -15); close(r.y + (r.h * PX) / 2, 10);
+  const small = resizedPaper(from, 'se', { x: -14, y: 9 }, { ratio: true });
+  assert.equal(small.h, PAPER_LIMITS.min); assert.equal(small.w, 90); // the short side stops at the limit
+  const big = resizedPaper(from, 'se', { x: 1e6, y: 0 }, { ratio: true });
+  assert.equal(big.w, PAPER_LIMITS.max); assert.ok(Math.abs(big.h - PAPER_LIMITS.max * 2 / 3) <= 1);
+});
+
+test('every paper but a tracing sheet or a folded one can be resized', () => {
+  for (const kind of ['site', 'mass', 'note', 'expert', 'photo']) assert.ok(resizable({ kind }), kind);
+  assert.ok(!resizable({ kind: 'tracing' }));
+  assert.ok(!resizable({ kind: 'photo', folded: true }));
+  assert.ok(!resizable(null));
+});
+
+test('a PDF is taken as it is and its page is drawn as sharp as it is seen', () => {
+  assert.ok(isPdfFile({ type: 'application/pdf', name: 'a' }));
+  assert.ok(isPdfFile({ type: '', name: '평면도.PDF' }));
+  assert.ok(!isPdfFile({ type: 'image/png', name: 'x.pdf' }));
+  assert.ok(isPdfPaper({ kind: 'photo', file: 'photo-0a1b2c3d.pdf' }));
+  assert.ok(!isPdfPaper({ kind: 'photo', file: 'photo-0a1b2c3d.png' }));
+  const files = [{ type: 'application/pdf', name: 'plan.pdf' }, { type: 'text/plain', name: 'x.txt' }, { type: 'image/png', name: 'p.png' }];
+  assert.deepEqual(pickPhotoFiles(files), { files: [files[0], files[2]], skipped: 1 });
+
+  // 300 × 212 px of paper shown 4 screen px per paper px on a 2× screen: 2400 device px across.
+  assert.deepEqual(pdfCanvasSize(300, 212, 4, 2), { width: 2400, height: 1696 });
+  // Zoomed far in, held at the longest side and the area a canvas can take.
+  const capped = pdfCanvasSize(300, 300, 100, 2);
+  assert.equal(capped.width, capped.height);
+  assert.ok(capped.width <= PDF_MAX_SIDE && capped.width * capped.height <= PDF_MAX_AREA + 2 * capped.width);
+  assert.equal(pdfCanvasSize(3000, 100, 10, 1).width, PDF_MAX_SIDE);
+  // Zoomed out it is drawn only as large as it is seen.
+  assert.deepEqual(pdfCanvasSize(300, 200, 0.5, 1), { width: 150, height: 100 });
+
+  assert.ok(pdfNeedsRedraw(null, { width: 10 }));
+  assert.ok(!pdfNeedsRedraw({ width: 1000 }, { width: 1100 })); // a little sharper: not worth a redraw
+  assert.ok(pdfNeedsRedraw({ width: 1000 }, { width: 1200 })); // it would blur
+  assert.ok(pdfNeedsRedraw({ width: 1000 }, { width: 300 })); // much smaller: free the memory
 });
