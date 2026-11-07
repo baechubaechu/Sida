@@ -882,7 +882,17 @@ test('a round range leaves the ground cells outside it out of the mesh and the c
   assert.ok(segs(round).length < segs(square).length);
   assert.ok(segs(round).every(([x1, y1, x2, y2]) => !(x1 > 0 && y1 > 0 && x2 > 0 && y2 > 0))); // none in the cut cell
   assert.deepEqual(RANGE_SIZES.map((s) => [s.key, s.radius]), [['small', 100], ['medium', 200], ['large', 300]]);
-  assert.deepEqual(RANGE_SHAPES.map((s) => s.key), ['square', 'circle']);
+  assert.deepEqual(RANGE_SHAPES.map((s) => s.key), ['square', 'circle', 'rect']);
+});
+
+test('the range: query and what the server sends back', async () => {
+  const { rangeQuery, parseRange, RANGE_ORIENTS } = await import('../../webui/app/board-model.js');
+  assert.equal(rangeQuery({ size: 'small', shape: 'circle', orient: 'portrait' }), 'size=small&shape=circle'); // orient only for a rectangle
+  assert.equal(rangeQuery({ size: 'large', shape: 'rect', orient: 'portrait' }), 'size=large&shape=rect&orient=portrait');
+  assert.equal(rangeQuery(null), '');
+  assert.deepEqual(parseRange({ size: 'large', shape: 'rect', orient: 'portrait', radius: 300 }), { size: 'large', shape: 'rect', orient: 'portrait' });
+  assert.deepEqual(parseRange({}), { size: 'medium', shape: 'square', orient: 'landscape' });
+  assert.deepEqual(RANGE_ORIENTS.map((o) => o.label), ['가로', '세로']);
 });
 
 test('the model base: step height, sheet size, the files request and the summary line', async () => {
@@ -900,6 +910,7 @@ test('the model base: step height, sheet size, the files request and the summary
   assert.equal(s.sheets, '2');
   assert.equal(modelSummaryText(s), '판 2장 · 조각 31개 · 층 4개 · 400×400 mm (작게, 원)');
   assert.match(modelSummaryText({ ...s, size: 'None', radius: '150.0', shape: 'square', buildings_left_out: 'True' }), /반경 150m, 정사각형\) · 실시간 건물은/);
+  assert.match(modelSummaryText({ ...s, shape: 'rect', orient: 'portrait' }), /\(작게, 직사각형 세로\)/);
   assert.equal(modelSummaryText({}), '');
 });
 
@@ -925,4 +936,48 @@ test('the VWorld 3D frame opens the app page with the script, or the data server
   assert.equal(vworldFrame(null, origin, 'x'), null);
   assert.equal(vworldFrame({ script }, origin, 'x'), null);
   assert.equal(vworldFrame({ page: '/app/vworld3d.html' }, null, 'x'), null);
+});
+
+test('the model board: its size, frame, overflow past the range, layers and the request', async () => {
+  const {
+    boardSize, frameSize, rangeHalf, frameOverflow, boardCenter, layersUnder, boardInfo, boardInfoText, boardBody, mapFit,
+    MODEL_BOARDS, BOARD_SCALES,
+  } = await import('../../webui/app/board-model.js');
+  assert.deepEqual(boardSize({ board: 'W600x900' }), [900, 600]);
+  assert.deepEqual(boardSize({ board: 'A1', orient: 'portrait' }), [594, 841]);
+  assert.deepEqual(boardSize({ board: 'custom', width_mm: 400, height_mm: 700 }), [700, 400]);
+  assert.equal(boardSize({ board: 'custom', width_mm: 40, height_mm: 700 }), null);
+  assert.deepEqual(frameSize({ board: 'W600x900', scale: 600 }), [540, 360]);
+  assert.deepEqual(rangeHalf({ size: 'large', shape: 'rect', orient: 'portrait' }), { hx: 200, hy: 300, round: false });
+  const wide = { radius: 300, shape: 'rect', orient: 'landscape' };
+  assert.equal(frameOverflow([0, 0], [540, 360], wide), 0);
+  assert.equal(frameOverflow([50, 0], [540, 360], wide), 20); // the east edge at 320 m
+  assert.ok(Math.abs(frameOverflow([0, 0], [540, 360], { radius: 300, shape: 'circle' }) - 24.5) < 0.1);
+  assert.deepEqual(boardCenter({ center: [5, 6] }, null), [5, 6]);
+  assert.deepEqual(boardCenter({}, { plan: { bounds: { min_x: -10, max_x: 30, min_y: 0, max_y: 20 } } }), [10, 10]);
+  // ground rising 0 → 8 m northward on a 3 × 3 grid, 10 m apart; 1.5 m steps (3 mm at 1:500)
+  const terrain = { min: -10, step: 10, n: 3, z: [0, 0, 0, 4, 4, 4, 8, 8, 8], classes: 'ggggggggx' };
+  assert.equal(layersUnder(terrain, 30, [0, 0], [40, 40], 1.5), 6); // 30–38 m: from 30 up to 39
+  assert.equal(layersUnder(terrain, 30, [0, -10], [5, 5], 1.5), 1); // only the south row
+  const site = { plan: { bounds: { min_x: -10, max_x: 10, min_y: -5, max_y: 5 } } };
+  const info = boardInfo({ board: 'W600x900', scale: 500, thickness_mm: 3 }, { range: wide, site, terrain, groundElev: 30 });
+  assert.deepEqual([info.frame, info.interval, info.siteCm, info.overflow], [[450, 300], 1.5, [4, 2], 0]);
+  assert.match(boardInfoText(info), /^판 범위 450×300 m · 층 약 6개 · 땅 높이 약 18 mm · 등고 간격 1.5 m · 대지 4×2 cm$/);
+  assert.match(boardInfoText(info, { layers: 7, sheets: 9, total_height_mm: 21 }), /층 7개 · 판 9장 · 높이 21 mm/);
+  const over = boardInfo({ board: 'A0', scale: 1000, thickness_mm: 3 }, { range: wide, site });
+  assert.match(boardInfoText(over), /3D 범위를 \d+ m 벗어납니다$/);
+  assert.deepEqual(boardBody({ board: 'custom', width_mm: 500, height_mm: 400, scale: 300, thickness_mm: 5 }, [1.234, 2]),
+    { board: 'custom', orient: 'landscape', scale: 300, thickness_mm: 5, save_material: false, width_mm: 500, height_mm: 400, center: [1.23, 2] });
+  const fit = mapFit(wide, 460, 316);
+  assert.ok(Math.abs((0 - fit.west) * fit.k - 230) < 1e-9 && Math.abs(fit.north * fit.k - 158) < 1e-9); // the range's middle at the picture's middle
+  assert.deepEqual(MODEL_BOARDS.map((b) => b.key), ['A0', 'A1', 'A2', 'W600x900', 'W900x1800', 'custom']);
+  assert.equal(BOARD_SCALES.length, 12);
+});
+
+test('the laser formats ticked on and off stay in their order', async () => {
+  const { pickFormats, LASER_FORMATS } = await import('../../webui/app/board-model.js');
+  assert.deepEqual(LASER_FORMATS.map((f) => f.key), ['dxf', 'pdf', 'svg']);
+  assert.deepEqual(pickFormats(['dxf', 'pdf', 'svg'], 'pdf', false), ['dxf', 'svg']);
+  assert.deepEqual(pickFormats(['svg'], 'dxf', true), ['dxf', 'svg']);
+  assert.deepEqual(pickFormats([], 'dwg', true), []); // not a format the server makes
 });

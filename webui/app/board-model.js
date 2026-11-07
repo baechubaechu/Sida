@@ -919,13 +919,35 @@ export function massBase(outline, terrain) {
 // entry per height, {z, index, segments: [[x1, y1, x2, y2], ...]}; every fifth height is an
 // index contour. The very top height (which only touches the grid) is skipped.
 // The range the surroundings are made in (GET/PUT .../site/context/range): the size as a radius
-// (a square is ±radius) and the shape. A round range marks the ground outside it OUTSIDE.
+// (a square is ±radius), the shape and, for a rectangle, its orientation (long side east–west or
+// north–south; the short side is 2/3 of the long one). A round or oblong range marks the ground
+// outside it OUTSIDE.
 export const RANGE_SIZES = [
   { key: 'small', label: '작게 · 반경 100m', radius: 100 },
   { key: 'medium', label: '중간 · 반경 200m', radius: 200 },
   { key: 'large', label: '크게 · 반경 300m', radius: 300 },
 ];
-export const RANGE_SHAPES = [{ key: 'square', label: '정사각형' }, { key: 'circle', label: '원' }];
+export const RANGE_SHAPES = [{ key: 'square', label: '정사각형' }, { key: 'circle', label: '원' }, { key: 'rect', label: '직사각형' }];
+export const RANGE_ORIENTS = [{ key: 'landscape', label: '가로' }, { key: 'portrait', label: '세로' }];
+export const DEFAULT_RANGE = { size: 'medium', shape: 'square', orient: 'landscape' };
+
+// The range as the server takes it in a query (size, shape, and orient for a rectangle).
+export function rangeQuery(range) {
+  const q = new URLSearchParams();
+  if (range?.size) q.set('size', range.size);
+  if (range?.shape) q.set('shape', range.shape);
+  if (range?.shape === 'rect' && range.orient) q.set('orient', range.orient);
+  return q.toString();
+}
+
+// A range read from the server (GET .../context/range or the surroundings), with the defaults.
+export function parseRange(r) {
+  return {
+    size: r?.size || DEFAULT_RANGE.size,
+    shape: r?.shape || DEFAULT_RANGE.shape,
+    orient: r?.orient === 'portrait' ? 'portrait' : 'landscape',
+  };
+}
 export const OUTSIDE = 'x';
 
 // Whether the ground cell from point (i, j) to (i + 1, j + 1) is drawn: none of its corners outside.
@@ -1287,8 +1309,7 @@ export function modelBaseQuery(settings, range) {
     scale: String(s.scale), thickness: String(s.thickness), sheet: sheet ? `${sheet[0]}x${sheet[1]}` : String(s.sheet),
     hollow: String(s.hollow || 0),
   });
-  if (range?.size) q.set('size', range.size);
-  if (range?.shape) q.set('shape', range.shape);
+  for (const [k, v] of new URLSearchParams(rangeQuery(range))) q.set(k, v);
   return q.toString();
 }
 
@@ -1305,9 +1326,168 @@ export function readModelSummary(header) {
 export function modelSummaryText(summary) {
   if (!summary || !summary.sheets) return '';
   const size = (summary.size_mm || '').split('x').map((v) => Math.round(Number(v))).filter(Boolean);
-  const shape = summary.shape === 'circle' ? '원' : '정사각형';
+  const shape = summary.shape === 'circle' ? '원' : summary.shape === 'rect' ? `직사각형 ${summary.orient === 'portrait' ? '세로' : '가로'}` : '정사각형';
   const name = { small: '작게', medium: '중간', large: '크게' }[summary.size] || `반경 ${Math.round(Number(summary.radius) || 0)}m`;
   return `판 ${summary.sheets}장 · 조각 ${summary.pieces}개 · 층 ${summary.layers}개`
     + (size.length === 2 ? ` · ${size[0]}×${size[1]} mm` : '') + ` (${name}, ${shape})`
     + (summary.buildings_left_out === 'True' ? ' · 실시간 건물은 파일에 넣지 않았습니다' : '');
+}
+
+// ------------------------------------------------------------------ the model board (모형 판)
+// The board the designer cuts the model to (POST .../site/model-base/plan and files): its size,
+// the scale and where it lies on the loaded 3D range. The server does the cutting and has the
+// last word (it answers 400 for a board past the range); these helpers draw and explain it.
+
+export const MODEL_BOARDS = [
+  { key: 'A0', label: 'A0 (1189×841)', long: 1189, short: 841 },
+  { key: 'A1', label: 'A1 (841×594)', long: 841, short: 594 },
+  { key: 'A2', label: 'A2 (594×420)', long: 594, short: 420 },
+  { key: 'W600x900', label: '우드락 600×900', long: 900, short: 600 },
+  { key: 'W900x1800', label: '우드락 900×1800', long: 1800, short: 900 },
+  { key: 'custom', label: '직접 입력' },
+];
+export const BOARD_SCALES = [100, 200, 250, 300, 400, 500, 600, 750, 1000, 1200, 1500, 2000];
+export const BOARD_THICKNESSES = [3, 5];
+export const BOARD_ORIENTS = [{ key: 'landscape', label: '가로' }, { key: 'portrait', label: '세로' }];
+export const DEFAULT_BOARD = {
+  board: 'W600x900', width_mm: null, height_mm: null, orient: 'landscape', scale: 500, thickness_mm: 3,
+  center: null, save_material: false,
+};
+
+// The board's (east–west, north–south) mm as it lies, or null for a custom size out of 100–3000 mm.
+export function boardSize(s) {
+  const b = { ...DEFAULT_BOARD, ...(s || {}) };
+  let long; let short;
+  if (b.board === 'custom') {
+    const sides = [Number(b.width_mm), Number(b.height_mm)];
+    if (!sides.every((v) => v >= 100 && v <= 3000)) return null;
+    [long, short] = [Math.max(...sides), Math.min(...sides)];
+  } else {
+    const preset = MODEL_BOARDS.find((p) => p.key === b.board) || MODEL_BOARDS.find((p) => p.key === DEFAULT_BOARD.board);
+    [long, short] = [preset.long, preset.short];
+  }
+  return b.orient === 'portrait' ? [short, long] : [long, short];
+}
+
+// Metres of ground the board covers at its scale.
+export function frameSize(s) {
+  const size = boardSize(s);
+  const scale = Number(s?.scale) || DEFAULT_BOARD.scale;
+  return size ? [size[0] * scale / 1000, size[1] * scale / 1000] : null;
+}
+
+// The 3D range's box half sides (m) and whether it is round (the server's context3d.half_sides).
+export function rangeHalf(range) {
+  const r = Number(range?.radius) || RANGE_SIZES.find((s) => s.key === range?.size)?.radius || 200;
+  if (range?.shape === 'rect') return range.orient === 'portrait' ? { hx: r * 2 / 3, hy: r, round: false } : { hx: r, hy: r * 2 / 3, round: false };
+  return { hx: r, hy: r, round: range?.shape === 'circle' };
+}
+
+// How far (m) the board's frame, centred on `center`, reaches past the range: its farthest
+// corner's distance, 0 when the frame lies inside.
+export function frameOverflow(center, frame, range) {
+  const { hx, hy, round } = rangeHalf(range);
+  const [cx, cy] = center;
+  let worst = 0;
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      const x = cx + sx * frame[0] / 2;
+      const y = cy + sy * frame[1] / 2;
+      const d = round ? Math.max(0, Math.hypot(x, y) - hx)
+        : Math.hypot(Math.max(0, Math.abs(x) - hx), Math.max(0, Math.abs(y) - hy));
+      worst = Math.max(worst, d);
+    }
+  }
+  return worst;
+}
+
+// Where the board sits when the designer has not moved it: the middle of the site's bounds.
+export function boardCenter(s, site) {
+  if (Array.isArray(s?.center) && s.center.length === 2) return [Number(s.center[0]), Number(s.center[1])];
+  const b = site?.plan?.bounds;
+  return b ? [(b.min_x + b.max_x) / 2, (b.min_y + b.max_y) / 2] : [0, 0];
+}
+
+// The ground under the frame, from the loaded range (terrain: {min, step, n, z, classes}, z
+// relative to `groundElev`): roughly how many layers it takes (the server's count is exact).
+export function layersUnder(terrain, groundElev, center, frame, interval) {
+  if (!terrain || !(interval > 0)) return null;
+  let lo = Infinity; let hi = -Infinity;
+  const [x0, x1, y0, y1] = [center[0] - frame[0] / 2, center[0] + frame[0] / 2, center[1] - frame[1] / 2, center[1] + frame[1] / 2];
+  for (let j = 0; j < terrain.n; j += 1) {
+    const y = terrain.min + j * terrain.step;
+    if (y < y0 || y > y1) continue;
+    for (let i = 0; i < terrain.n; i += 1) {
+      const x = terrain.min + i * terrain.step;
+      if (x < x0 || x > x1 || terrain.classes?.[j * terrain.n + i] === OUTSIDE) continue;
+      const z = terrain.z[j * terrain.n + i] + (Number(groundElev) || 0);
+      lo = Math.min(lo, z); hi = Math.max(hi, z);
+    }
+  }
+  if (lo === Infinity) return null;
+  const base = Math.floor(lo / interval + 1e-9) * interval;
+  return Math.max(1, Math.ceil((hi - base) / interval - 1e-9));
+}
+
+// What the panel tells about the board: frame (m), how far past the range, layers, height (mm)
+// and how big the site looks on the board (cm).
+export function boardInfo(s, { range, site, terrain, groundElev } = {}) {
+  const frame = frameSize(s);
+  if (!frame) return null;
+  const center = boardCenter(s, site);
+  const scale = Number(s.scale) || DEFAULT_BOARD.scale;
+  const thickness = Number(s.thickness_mm) || DEFAULT_BOARD.thickness_mm;
+  const interval = stepInterval(scale, thickness);
+  const layers = layersUnder(terrain, groundElev, center, frame, interval);
+  const b = site?.plan?.bounds;
+  const siteCm = b ? [(b.max_x - b.min_x) * 100 / scale, (b.max_y - b.min_y) * 100 / scale].map((v) => Math.round(v * 10) / 10) : null;
+  return {
+    frame, center, interval, layers, siteCm,
+    overflow: range ? Math.round(frameOverflow(center, frame, range) * 10) / 10 : 0,
+    heightMm: layers ? Math.round(layers * thickness * 10) / 10 : null,
+  };
+}
+
+export function boardInfoText(info, summary) {
+  if (!info) return '판 크기를 100~3000 mm로 적어 주세요.';
+  const m = (v) => Math.round(v);
+  const parts = [`판 범위 ${m(info.frame[0])}×${m(info.frame[1])} m`];
+  if (summary) parts.push(`층 ${summary.layers}개`, `판 ${summary.sheets}장`, `높이 ${summary.total_height_mm} mm`);
+  else if (info.layers) parts.push(`층 약 ${info.layers}개`, `땅 높이 약 ${info.heightMm} mm`);
+  parts.push(`등고 간격 ${info.interval} m`);
+  if (info.siteCm) parts.push(`대지 ${info.siteCm[0]}×${info.siteCm[1]} cm`);
+  const text = parts.join(' · ');
+  return info.overflow > 0 ? `${text} · 3D 범위를 ${Math.round(info.overflow)} m 벗어납니다` : text;
+}
+
+// The laser file formats the zip can hold (the server's sida/model_base/output.FORMATS).
+export const LASER_FORMATS = [
+  { key: 'dxf', label: 'DXF (캐드·레이저)' }, { key: 'pdf', label: 'PDF (일러스트레이터)' }, { key: 'svg', label: 'SVG' },
+];
+
+// The formats ticked after one is ticked on or off, in LASER_FORMATS order.
+export function pickFormats(current, key, on) {
+  const set = new Set(current || []);
+  if (on) set.add(key); else set.delete(key);
+  return LASER_FORMATS.map((f) => f.key).filter((k) => set.has(k));
+}
+
+// The board settings as the server takes them (POST .../model-base/plan and files).
+export function boardBody(s, center) {
+  const b = { ...DEFAULT_BOARD, ...(s || {}) };
+  const body = {
+    board: b.board, orient: b.orient, scale: Number(b.scale), thickness_mm: Number(b.thickness_mm),
+    save_material: Boolean(b.save_material),
+  };
+  if (b.board === 'custom') Object.assign(body, { width_mm: Number(b.width_mm), height_mm: Number(b.height_mm) });
+  if (center) body.center = [Math.round(center[0] * 100) / 100, Math.round(center[1] * 100) / 100];
+  return body;
+}
+
+// The board's place on a picture of the range `w` × `h` px: px per m and the range's west/north
+// edges, so that (x, y) m is at ((x - west) × k, (north - y) × k).
+export function mapFit(range, w, h, pad = 8) {
+  const { hx, hy } = rangeHalf(range);
+  const k = Math.min((w - 2 * pad) / (2 * hx), (h - 2 * pad) / (2 * hy));
+  return { k, west: -hx - (w / k - 2 * hx) / 2, north: hy + (h / k - 2 * hy) / 2 };
 }

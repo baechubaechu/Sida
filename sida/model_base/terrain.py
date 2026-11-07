@@ -3,7 +3,9 @@ The ground as a height grid in metres (x east, y north), with the site on it.
 
 `terrain_from_grid` takes the ground the drawing table already computes for a site (a square
 height grid around the site's middle, see sida/experts/site/context3d.py) and cuts out the
-part to model; `example_terrain` makes up a ground for trying the layout without one.
+part to model; `terrain_in_frame` reads it over any rectangle (a model board laid on the
+ground, sida/model_base/board.py), edge to edge; `example_terrain` makes up a ground for
+trying the layout without one.
 """
 
 from __future__ import annotations
@@ -144,3 +146,59 @@ def terrain_from_grid(grid, half: float, step: float, *, width_m: float, depth_m
                 shapes.append((kind, shape))
     return Terrain(xs=xs, ys=ys, z=heights, site=site_poly, name=name, areas=tuple(shapes),
                    origin=(x0, y0), datum=float(base_elev), boundary=outline)
+
+
+def _bilinear(grid: np.ndarray, half: float, step: float, x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    n = grid.shape[0]
+    fx = np.clip((x + half) / step, 0, n - 1 - 1e-9)
+    fy = np.clip((y + half) / step, 0, n - 1 - 1e-9)
+    i, j = np.floor(fx).astype(int), np.floor(fy).astype(int)
+    tx, ty = fx - i, fy - j
+    return ((grid[j, i] * (1 - tx) + grid[j, i + 1] * tx) * (1 - ty)
+            + (grid[j + 1, i] * (1 - tx) + grid[j + 1, i + 1] * tx) * ty)
+
+
+def terrain_in_frame(grid, half: float, step: float, *, center: tuple[float, float], width_m: float,
+                     depth_m: float, base_elev: float = 0.0, site=None, areas=(), name: str = "") -> Terrain:
+    """
+    The ground over the rectangle `width_m` × `depth_m` centred on `center`, read from a square
+    height grid as terrain_from_grid takes it (heights between grid points interpolated), on a
+    grid of its own that runs exactly from edge to edge, so the model is the rectangle's size to
+    the millimetre. The model's (0, 0) is the rectangle's south-west corner. Raises ValueError for
+    a rectangle reaching past the grid.
+    """
+    if grid is None:
+        raise ValueError("no ground for this site")
+    z = np.asarray(grid, dtype=float)
+    if z.ndim != 2 or z.shape[0] != z.shape[1] or z.shape[0] < 2:
+        raise ValueError("the ground grid must be square")
+    if width_m <= 0 or depth_m <= 0:
+        raise ValueError("the area to model must have a size")
+    cx, cy = float(center[0]), float(center[1])
+    x0, y0 = cx - width_m / 2, cy - depth_m / 2
+    reach = -half + step * (z.shape[0] - 1)
+    if x0 < -half - 1e-6 or y0 < -half - 1e-6 or x0 + width_m > reach + 1e-6 or y0 + depth_m > reach + 1e-6:
+        raise ValueError("the area to model reaches past the ground")
+    xs = np.linspace(0.0, width_m, max(2, int(np.ceil(width_m / step)) + 1))
+    ys = np.linspace(0.0, depth_m, max(2, int(np.ceil(depth_m / step)) + 1))
+    gx, gy = np.meshgrid(xs + x0, ys + y0)
+    heights = _bilinear(z, half, step, gx, gy) + float(base_elev)
+    extent = box(0.0, 0.0, width_m, depth_m)
+
+    def place(shape):
+        poly = _polygon(shape)
+        return affinity.translate(poly, -x0, -y0) if poly is not None else None
+
+    kinds: dict[str, list[Polygon]] = {}
+    for kind, ring in areas:
+        poly = place(ring) if kind in AREA_KINDS else None
+        if poly is not None:
+            kinds.setdefault(kind, []).append(poly)
+    shapes = []
+    for kind in AREA_KINDS:
+        if kind in kinds:
+            shape = unary_union(kinds[kind]).intersection(extent)
+            if not shape.is_empty:
+                shapes.append((kind, shape))
+    return Terrain(xs=xs, ys=ys, z=heights, site=place(site), name=name, areas=tuple(shapes),
+                   origin=(x0, y0), datum=float(base_elev))

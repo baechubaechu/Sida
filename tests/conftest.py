@@ -27,6 +27,7 @@ from sida import (  # noqa: E402
 )
 from sida import config as sida_config  # noqa: E402
 from sida import project as prj  # noqa: E402
+from sida.experts.model import model_base  # noqa: E402
 from sida.experts.regulation import lawapi  # noqa: E402
 from sida.experts.site import context3d, datago, landapi, terrain_pack  # noqa: E402
 
@@ -248,6 +249,8 @@ def isolated_settings(tmp_path, monkeypatch):
     # Terrain packs: never this machine's ~/Sida/context_data; no site surroundings cached across tests.
     monkeypatch.setattr(terrain_pack, "TERRAIN_DIR", tmp_path / "context_data")
     context3d._cache.clear()
+    for cache in (model_base._cache, model_base._grounds, model_base._cuts):
+        cache.clear()
     yield
 
 

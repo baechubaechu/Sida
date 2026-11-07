@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import re
+import zipfile
 from html.parser import HTMLParser
 
 import pytest
@@ -870,6 +872,7 @@ def test_session_lists_which_experts_each_expert_reads(session_api, mock_config)
     experts = {e["id"]: e for e in client.get(f"{base}/session").json()["experts"]}
     assert experts["site_reader"]["inputs"] == ["program_analyst", "concept_framer"]
     assert experts["site_reader"]["tier"] == "core" and experts["spatial_reviewer"]["tier"] == "held"
+    assert "model_maker" not in experts and len(experts) == 10  # the site model is the representation planner's
     assert experts["design_critic"]["inputs"] == [i for i in experts if i != "design_critic"]  # inputs: all
 
     agents = mock_config["agents"]
@@ -1473,9 +1476,9 @@ def test_site_context_range_is_kept_per_project_and_shapes_the_surroundings(clie
     assert (body["size"], body["shape"], body["radius"]) == ("medium", "square", 200.0)
     assert "x" not in body["terrain"]["classes"]
 
-    assert client.get(f"{url}/range").json() == {"size": "medium", "shape": "square", "radius": 200.0}
+    assert client.get(f"{url}/range").json() == {"size": "medium", "shape": "square", "orient": "landscape", "radius": 200.0}
     saved = client.put(f"{url}/range", json={"size": "small", "shape": "circle"}).json()
-    assert saved == {"size": "small", "shape": "circle", "radius": 100.0}
+    assert saved == {"size": "small", "shape": "circle", "orient": "landscape", "radius": 100.0}
     assert client.get(f"{url}/range").json() == saved
     assert (project.path / "site_context.json").exists() and not (project.path / "board.json").exists()
     context3d._cache.clear()
@@ -1487,8 +1490,19 @@ def test_site_context_range_is_kept_per_project_and_shapes_the_surroundings(clie
     body = client.get(url, params={"size": "large", "shape": "square"}).json()  # asked for, not saved
     assert (body["radius"], body["shape"]) == (300.0, "square")
     assert client.get(url, params={"radius": 150}).json()["radius"] == 150.0  # the old way still works
-    for bad in ({"size": "huge", "shape": "square"}, {"size": "small", "shape": "hexagon"}, {}):
+    context3d._cache.clear()
+    wide = client.put(f"{url}/range", json={"size": "small", "shape": "rect", "orient": "portrait"}).json()
+    assert (wide["shape"], wide["orient"]) == ("rect", "portrait")
+    body = client.get(url).json()
+    assert (body["shape"], body["orient"]) == ("rect", "portrait")
+    t = body["terrain"]
+    mid = (t["n"] // 2) * t["n"]
+    assert t["classes"][mid] == "x" and t["classes"][mid + t["n"] // 2] != "x"  # portrait: the west edge is outside
+    assert client.get(url, params={"shape": "rect", "orient": "landscape"}).json()["orient"] == "landscape"
+    for bad in ({"size": "huge", "shape": "square"}, {"size": "small", "shape": "hexagon"}, {},
+                {"size": "small", "shape": "rect", "orient": "diagonal"}):
         assert client.put(f"{url}/range", json=bad).status_code == 400
+    assert client.get(url, params={"shape": "rect", "orient": "diagonal"}).status_code == 400
     assert client.get(url, params={"shape": "hexagon"}).status_code == 400
     assert client.get(url, params={"size": "huge"}).status_code == 400
     assert client.put("/api/projects/nope/site/context/range", json={"size": "small", "shape": "circle"}).status_code == 404
@@ -1519,6 +1533,58 @@ def test_model_base_follows_the_saved_range_or_the_one_asked_for(client, project
                                                         "size": "medium", "shape": "square"})
     told = dict(kv.split("=", 1) for kv in r.headers["X-Model-Base"].split(";"))
     assert (told["shape"], told["size"]) == ("square", "medium")
+    r = client.get(f"{base}/model-base/files", params={"scale": 1000, "thickness": 2, "sheet": "300x200",
+                                                        "size": "small", "shape": "rect", "orient": "portrait"})
+    told = dict(kv.split("=", 1) for kv in r.headers["X-Model-Base"].split(";"))
+    assert (told["shape"], told["orient"]) == ("rect", "portrait")
+    assert client.get(f"{base}/model-base", params={"shape": "rect", "orient": "diagonal"}).status_code == 400
     assert client.get(f"{base}/model-base/files", params={"shape": "hexagon"}).status_code == 400
     assert client.get(f"{base}/model-base/files", params={"size": "huge"}).status_code == 400
     assert client.get(f"{base}/model-base", params={"size": "huge"}).status_code == 400
+
+
+def test_a_model_board_is_fitted_planned_cut_and_remembered(client, project, fake_vworld):
+    from sida import board
+    from sida.experts.site import landapi, site_facts, terrain_pack
+
+    base = f"/api/projects/{project.name}/site"
+    parcel = landapi.search_parcels("경기도 군포시 금정동 689")[:1]
+    site_facts.save_facts(project.path, site_facts.build_facts("금정동 689-14", parcel))
+    origin = board.site_plan(site_facts.board_summary(site_facts.load_facts(project.path))["parcels"])["origin"]
+    conn = terrain_pack.create(terrain_pack.TERRAIN_DIR / f"t{terrain_pack.SUFFIX}", {"name": "t", "source": "s"})
+    for dy, elev in ((-0.004, 35.0), (0.0, 40.0), (0.004, 45.0)):  # rising northward
+        terrain_pack.add_contour(conn, elev, [[origin["lon"] - 0.01, origin["lat"] + dy], [origin["lon"] + 0.01, origin["lat"] + dy]])
+    conn.commit()
+    conn.close()
+    client.put(f"{base}/context/range", json={"size": "small", "shape": "rect"})  # 200 × 133 m
+
+    fit = client.get(f"{base}/model-base/fit", params={"board": "A2", "thickness": 3}).json()
+    assert (fit["scale"], fit["frame_m"], fit["board_mm"]) == (300, [178.2, 126.0], [594.0, 420.0])
+    assert client.get(f"{base}/model-base/settings").json()["board"] == "W600x900"  # nothing kept yet: the defaults
+
+    body = {"board": "A2", "scale": 300, "thickness_mm": 3, "center": fit["center"]}
+    plan = client.post(f"{base}/model-base/plan", json=body).json()
+    assert (plan["scale"], plan["frame_m"], plan["board_mm"], plan["interval"]) == (300, [178.2, 126.0], [594.0, 420.0], 0.9)
+    assert plan["layers"] >= 1 and plan["sheets"] >= plan["layers"] and plan["total_height_mm"] >= 3
+    assert len(plan["frame"]) == 4 and plan["steps"]
+    kept = client.get(f"{base}/model-base/settings").json()
+    assert (kept["board"], kept["scale"], kept["center"]) == ("A2", 300, fit["center"])
+
+    r = client.post(f"{base}/model-base/files", json=body)
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    told = dict(kv.split("=", 1) for kv in r.headers["X-Model-Base"].split(";"))
+    assert (told["scale"], told["board_mm"], told["in_place"], told["formats"]) == ("300", "594.0x420.0", "True", "dxf+pdf+svg")
+    names = set(zipfile.ZipFile(io.BytesIO(r.content)).namelist())
+    assert {"sheet-1.dxf", "sheet-1.svg", "sheets.pdf"} <= names  # all three by default
+    r = client.post(f"{base}/model-base/files", json={**body, "formats": ["dxf"]})
+    names = set(zipfile.ZipFile(io.BytesIO(r.content)).namelist())
+    assert "sheet-1.dxf" in names and "sheets.pdf" not in names and "sheet-1.svg" not in names
+    assert client.post(f"{base}/model-base/files", json={**body, "formats": ["dwg"]}).status_code == 400
+    assert client.get(f"{base}/model-base/files", params={"formats": "dxf,ai"}).status_code == 400
+
+    r = client.post(f"{base}/model-base/plan", json={**body, "scale": 500})  # 297 × 210 m on 200 × 133 m
+    assert r.status_code == 400 and "m 벗어납니다" in r.json()["detail"]
+    assert client.post(f"{base}/model-base/plan", json={**body, "board": "A9"}).status_code == 400
+    assert client.get(f"{base}/model-base/fit", params={"board": "A0", "thickness": 99}).status_code == 400
+    client.put(f"{base}/context/range", json={"size": "small", "shape": "square"})
+    assert client.get(f"{base}/model-base/settings").json()["board"] == "A2"  # a new range keeps the board settings

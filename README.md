@@ -185,7 +185,7 @@ together is the Conductor's job.
 | `spatial_reviewer` | development | test the described organization: circulation, section, thresholds, program fit | concept, site, program, regulation |
 | `systems_advisor` | development | structure / envelope / services / egress questions and trade-offs — no sizing | spatial, regulation, site, program |
 | `design_critic` | critique | jury-style critique against the core problem | all |
-| `representation_planner` | communication | diagrams, drawings, models that prove the concept and test weak points | concept, spatial, critic, site |
+| `representation_planner` | communication | diagrams, drawings, models that prove the concept and test weak points; the laser-cut site model's board among Sida's computed options | concept, spatial, critic, site |
 | `presentation_editor` | communication | review / portfolio story, structure, anticipated questions | concept, critic, representation |
 
 Each expert has a narrow lens, declared inputs, a fixed Markdown output format ending in

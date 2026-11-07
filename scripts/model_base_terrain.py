@@ -5,9 +5,9 @@ Cut files for a contour model of the ground, laid out on your material.
     python scripts/model_base_terrain.py --sheet 600x400 --thickness 3 --scale 500 --out output/model_base
 
 For now the ground is a made-up example (`--seed` picks one); surveyed ground comes later.
-Writes, per sheet, a laser file (sheet-N.svg and .dxf: blue engrave, red inner cut, green outer
-cut, run in that order) and a guide for people (sheet-N-guide.svg), plus assembly.svg (the
-model from above, every piece in its place) and pieces.csv.
+Writes, per sheet, the laser files (sheet-N.dxf and .svg, and every sheet in sheets.pdf: blue
+engrave, then red cuts inner first) and a guide for people (sheet-N-guide.svg), plus assembly.svg
+(the model from above, every piece in its place) and pieces.csv.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ def main(argv=None) -> int:
     ap.add_argument("--relief", type=float, default=16.0, help="example ground: highest minus lowest, m")
     ap.add_argument("--seed", type=int, default=7, help="which example ground")
     ap.add_argument("--hollow", type=float, default=0.0, help="hollow the hidden middle of each layer, keeping this rim (mm); 0 = solid")
-    ap.add_argument("--colors", default="", help="laser colours, e.g. engrave=#0000FF,inner=#FF0000,outer=#00A000")
+    ap.add_argument("--colors", default="", help="laser colours, e.g. engrave=#0000FF,inner=#FF0000,outer=#FF0000")
     ap.add_argument("--gap", type=float, default=2.0, help="space between pieces, mm")
     ap.add_argument("--margin", type=float, default=5.0, help="unused edge of the sheet, mm")
     ap.add_argument("--rotations", type=int, default=8, help="orientations tried per piece")

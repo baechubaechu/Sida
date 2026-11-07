@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 from typing import Annotated
-from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from sida import board, telemetry, workspace
-from sida.experts.site import context3d, context_range, datago, landapi, model_base, site_facts
+from sida.experts.site import context3d, context_range, datago, landapi, site_facts
 from sida.i18n import t
-from sida.model_base.nesting import DoesNotFit
 from sida.project import load_project
 
 MAX_SHAPES = 50  # parcels per shape request: a merged site is a handful, not a 동
@@ -50,6 +48,25 @@ def _land(fn, *args, **kwargs):
         telemetry.record_failure(f"site:{getattr(named, '__name__', 'lookup')}", exc.kind, inputs=inputs)
         detail = t(exc.MESSAGE_PREFIX + exc.kind, detail=exc.detail).removeprefix("[site] ")
         raise HTTPException(status_code=_LAND_STATUS.get(exc.kind, 502), detail=detail) from exc
+
+
+def asked_range(path, radius: float | None, size: str | None, shape: str | None,
+                orient: str | None = None) -> tuple[float, str, str]:
+    """(radius, shape, orient) asked for: `size`, `shape` and `orient` as given, else the
+    project's saved range; an old `radius` (m) still works in place of size. 400 for an
+    unknown value."""
+    saved = context_range.load(path)
+    shape = shape or saved["shape"]
+    orient = orient or saved["orient"]
+    try:
+        context_range.check(size or saved["size"], shape, orient)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=t("web_site_context_range")) from exc
+    if size is not None or radius is None:
+        radius = context3d.SIZES[size or saved["size"]]
+    if not 50 <= radius <= context3d.MAX_RADIUS:
+        raise HTTPException(status_code=400, detail=t("web_site_context_radius", max=int(context3d.MAX_RADIUS)))
+    return float(radius), shape, orient
 
 
 def create_router(load_config, core) -> APIRouter:
@@ -158,35 +175,20 @@ def _project_router(load_config, core) -> APIRouter:
         core(site_facts.note_lookup, project, query, project.load_history())
         return site_facts.site_view(facts)
 
-    def _range(path, radius: float | None, size: str | None, shape: str | None) -> tuple[float, str]:
-        """(radius, shape) asked for: `size` and `shape` as given, else the project's saved range; an
-        old `radius` (m) still works in place of size. 400 for an unknown value."""
-        saved = context_range.load(path)
-        shape = shape or saved["shape"]
-        if size is not None or radius is None:
-            try:
-                context_range.check(size or saved["size"], shape)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=t("web_site_context_range")) from exc
-            radius = context3d.SIZES[size or saved["size"]]
-        elif shape not in context3d.SHAPES:
-            raise HTTPException(status_code=400, detail=t("web_site_context_range"))
-        if not 50 <= radius <= context3d.MAX_RADIUS:
-            raise HTTPException(status_code=400, detail=t("web_site_context_radius", max=int(context3d.MAX_RADIUS)))
-        return float(radius), shape
-
     @router.get("/context")
-    def get_context(name: str, radius: float | None = None, size: str | None = None, shape: str | None = None) -> dict:
-        """The surroundings in `size` (small, medium, large) and `shape` (square, circle); see _range."""
+    def get_context(name: str, radius: float | None = None, size: str | None = None, shape: str | None = None,
+                    orient: str | None = None) -> dict:
+        """The surroundings in `size` (small, medium, large), `shape` (square, circle, rect) and, for
+        a rectangle, `orient` (landscape, portrait); see _range."""
         path = core(workspace.find_project, load_config(), name)
         facts = site_facts.load_facts(path)
         if facts is None:
             raise HTTPException(status_code=404, detail=t("web_site_none"))
-        radius, shape = _range(path, radius, size, shape)
+        radius, shape, orient = asked_range(path, radius, size, shape, orient)
         plan = board.site_plan(site_facts.board_summary(facts)["parcels"])
         if plan is None:
             raise HTTPException(status_code=400, detail=t("web_site_context_no_plan"))
-        out = _land(context3d.build, plan, radius, shape=shape)
+        out = _land(context3d.build, plan, radius, shape=shape, orient=orient)
         return {**out, "disclaimer": t("site_context_disclaimer")}
 
     @router.get("/context/range")
@@ -196,66 +198,13 @@ def _project_router(load_config, core) -> APIRouter:
 
     @router.put("/context/range")
     def put_context_range(name: str, body: dict) -> dict:
-        """Keep the range the surroundings are made in for this project: {size, shape}."""
+        """Keep the range the surroundings are made in for this project: {size, shape, orient?}."""
         path = core(workspace.find_project, load_config(), name)
         try:
-            return context_range.save(path, str(body.get("size")), str(body.get("shape")))
+            return context_range.save(path, str(body.get("size")), str(body.get("shape")),
+                                      str(body.get("orient") or context3d.DEFAULT_ORIENT))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=t("web_site_context_range")) from exc
-
-    def _site_plan(name: str) -> tuple:
-        path = core(workspace.find_project, load_config(), name)
-        facts = site_facts.load_facts(path)
-        if facts is None:
-            raise HTTPException(status_code=404, detail=t("web_site_none"))
-        plan = board.site_plan(site_facts.board_summary(facts)["parcels"])
-        if plan is None:
-            raise HTTPException(status_code=400, detail=t("web_site_context_no_plan"))
-        return path, plan
-
-    def _model(fn, *args, **kwargs):
-        try:
-            return _land(fn, *args, **kwargs)
-        except model_base.NoTerrain as exc:
-            raise HTTPException(status_code=400, detail=t("web_model_base_no_terrain")) from exc
-        except DoesNotFit as exc:
-            raise HTTPException(status_code=400, detail=t("web_model_base_too_big")) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=t("web_model_base_bad", reason=str(exc))) from exc
-
-    @router.get("/model-base")
-    def get_model_base(name: str, interval: float = 1.5, radius: float | None = None, size: str | None = None,
-                       shape: str | None = None) -> dict:
-        """The ground around the site stepped every `interval` m, with the buildings on it, in the
-        range asked for (or the project's saved range; see _range)."""
-        path, plan = _site_plan(name)
-        radius, shape = _range(path, radius, size, shape)
-        out = _model(model_base.stepped, plan, interval, radius, shape=shape)
-        return {**out, "size": next((k for k, r in context3d.SIZES.items() if r == radius), None)}
-
-    @router.get("/model-base/files")
-    def get_model_base_files(name: str, scale: int = 500, thickness: float = 3.0, sheet: str = "600x400",
-                             radius: float | None = None, hollow: float = 0.0, size: str | None = None,
-                             shape: str | None = None) -> Response:
-        """Laser files (zip) for the model of the range asked for (or the project's saved range; see
-        _range), cut from sheets of material."""
-        path, plan = _site_plan(name)
-        radius, shape = _range(path, radius, size, shape)
-        w, _, h = sheet.lower().partition("x")
-        try:
-            size = (float(w), float(h))
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=t("web_model_base_bad", reason="sheet is WIDTHxHEIGHT mm")) from exc
-        if not (100 <= scale <= 5000 and 0.5 <= thickness <= 20 and all(50 <= v <= 3000 for v in size) and 0 <= hollow <= 50):
-            raise HTTPException(status_code=400, detail=t("web_model_base_bad", reason="scale 1:100–5000, thickness 0.5–20 mm, sheet 50–3000 mm"))
-        data, summary = _model(model_base.cut_files, plan, radius=radius, scale=scale, thickness_mm=thickness,
-                               sheet=size, hollow_rim_mm=hollow, shape=shape)
-        filename = f"{path.name}_모형바닥_1-{scale}_{thickness:g}mm.zip"
-        return Response(data, media_type="application/zip", headers={
-            "Content-Disposition": f"attachment; filename=\"sida-model-base.zip\"; filename*=UTF-8''{quote(filename)}",
-            "Cache-Control": "no-store",
-            "X-Model-Base": ";".join(f"{k}={'x'.join(str(n) for n in v) if isinstance(v, list) else v}" for k, v in summary.items()),
-        })
 
     @router.get("/ordinance")
     def get_ordinance(name: str) -> dict:

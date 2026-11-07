@@ -557,3 +557,50 @@ test('what is typed on the new-project page is kept for the next redraw', async 
   assert.equal(keepNewDraft(draft, 'password', 'x'), draft); // not a field of the form
   assert.deepEqual(keepNewDraft(undefined, 'type', null), { type: '' });
 });
+
+test('the representation planner: its site model recommendation is read and the page has a 모형 tab', async () => {
+  const { parseRecommendation, stripRecommendation, arrangeDocument, expertPageTabs, parseRoute, expertPath } = await import('../../webui/app/model.js');
+  const doc = `# Representation Planner
+
+## Essential Diagrams
+- section diagram — the claim
+
+## Diagram Sequence
+1. section diagram
+
+## Supporting Drawings
+- site plan
+
+## Other Media
+- none needed now
+
+## Physical Model
+- What it shows: the slope to 청계천로
+- Recommended: 우드락 600×900 — 1:600 — landscape — 3 mm: fills the range
+- Alternatives: A1 — 1:600 — 5 mm
+
+## Handoff
+- → presentation_editor: the model photos
+
+\`\`\`json
+{"board": "W600x900", "scale": 600, "orient": "landscape", "thickness": 3}
+\`\`\`
+`;
+  assert.deepEqual(parseRecommendation(doc), { board: 'W600x900', scale: 600, orient: 'landscape', thickness: 3 });
+  assert.deepEqual(parseRecommendation('```json\n{"board": "우드락 900x600", "scale": "1:500", "orient": "세로", "thickness": "5mm",}\n```'),
+    { board: 'W600x900', scale: 500, orient: 'portrait', thickness: 5 });
+  assert.deepEqual(parseRecommendation('끝에 {"board": "a1", "scale": 1000, "thickness": 3}'), { board: 'A1', scale: 1000, orient: 'landscape', thickness: 3 });
+  assert.equal(parseRecommendation('```json\n{"board": "B5", "scale": 500, "thickness": 3}\n```'), null); // not a board Sida cuts
+  assert.equal(parseRecommendation('```json\nnot json\n```'), null);
+  assert.equal(parseRecommendation(doc.replace(/```json[\s\S]*```/, '')), null); // no numbers given: nothing to place
+  const shown = stripRecommendation(doc);
+  assert.ok(!shown.includes('```') && shown.endsWith('the model photos'));
+  const arranged = arrangeDocument('representation_planner', shown, ['presentation_editor']);
+  const model = arranged.rows.at(-1);
+  assert.equal(model.blocks[0].label, '모형');
+  assert.equal(model.blocks[0].items.length, 3);
+  assert.equal(arranged.handoffs[0].agent, 'presentation_editor');
+  assert.deepEqual(expertPageTabs('representation_planner'), [{ id: 'model', label: '모형' }]);
+  assert.deepEqual(expertPageTabs('site_reader'), []);
+  assert.equal(parseRoute(expertPath('가', 'representation_planner', 'model')).tab, 'model');
+});

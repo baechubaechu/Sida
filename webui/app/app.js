@@ -4,7 +4,7 @@ import {
   phaseLabel, visibleExperts, STATUS_LABELS, PROVIDER_LABELS, MODE_LABELS, STATE_UPDATE_LABELS,
   escapeHtml as escape, findProjects, relativeDate, projectSummary, chatItems, eventNotice,
   expertStatus, renderMarkdown, chatTitle, latestChat, chatLabel, DATA_KEYS, keyChanges, relayKeyView,
-  parseRoute, projectPath as projectUrl, expertPath, dateTime, arrangeDocument, itemTag, renderInline,
+  parseRoute, projectPath as projectUrl, expertPath, dateTime, arrangeDocument, itemTag, renderInline, parseRecommendation, stripRecommendation, expertPageTabs, MODEL_EXPERT,
   questionAnswer, stateChangeView, sitePath, sitePageFor, needsSiteFirst, siteHeadline, areaText, zoneScope, missingText, SITE_PART_LABELS,
   UNKNOWN, restrictionGroups, buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
   ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
@@ -13,7 +13,7 @@ import {
 import {
   keepSelected, pickedNames, massIds, canCompare, COMPARE_QUESTION, addQuestion,
   ideaText, moveIdea, dropIdea, sameOrder, ideaPapers, linkPapers, pickedNotes, ideasInPlay, MAX_IDEA_TEXT, MAX_IDEA_PAPERS,
-  floatState, floatPlace, floatAnchor, ideaShape, modelBaseQuery, readModelSummary,
+  floatState, floatPlace, floatAnchor, ideaShape, readModelSummary, rangeQuery,
 } from './board-model.js';
 import {
   COMMANDS, GROUP_LABELS, readLine, suggest, pickOption, addHistory, remember, HISTORY_LINES,
@@ -82,6 +82,8 @@ let trackingId = null;
 let table = null; // the drafting table of the open project (table.js, loaded on first use)
 let tableFor = '';
 let siteMap = null; // the map on the site page's "찾기" tab (site-map.js, loaded on first use)
+let modelMaker = null; // the model board panel on the model maker's page: {name, host, maker} (model-maker.js)
+let modelMakerLoading = false;
 let siteMapLoading = false;
 let panelResize = null;
 let floatDrag = null; // moving or resizing the idea window
@@ -287,6 +289,21 @@ async function boardCall(name, call, reload = false) {
   }
 }
 
+// The model board (모형 판, model-maker.js): the project's 3D range and surroundings, the kept
+// settings, fitting the board to the range, its plan and its laser files.
+function modelHooks(name) {
+  const base = `${projectApi(name)}/site`;
+  return {
+    around: () => api(`${base}/context`),
+    site: () => table?.site || ui.board?.site || null,
+    range: () => api(`${base}/context/range`),
+    settings: () => api(`${base}/model-base/settings`),
+    fit: (p) => api(`${base}/model-base/fit?${new URLSearchParams(Object.entries(p).filter(([, v]) => v != null && v !== ''))}`),
+    plan: (body) => api(`${base}/model-base/plan`, { method: 'POST', body }),
+    files: (body) => downloadModelBoard(name, body),
+  };
+}
+
 function tableHooks(name) {
   const paperUrl = (id) => `${projectApi(name)}/board/papers/${encodeURIComponent(id)}`;
   return {
@@ -303,13 +320,13 @@ function tableHooks(name) {
     }, true),
     photoUrl: (id) => `${projectApi(name)}/board/photos/${encodeURIComponent(id)}`,
     // The site's surroundings in 3D (ground, nearby buildings): GET .../site/context.
-    // range {size, shape}: as asked; none: the project's saved range.
-    context: (range) => api(`${projectApi(name)}/site/context${range ? `?size=${encodeURIComponent(range.size)}&shape=${encodeURIComponent(range.shape)}` : ''}`),
+    // range {size, shape, orient}: as asked; none: the project's saved range.
+    context: (range) => api(`${projectApi(name)}/site/context${range ? `?${rangeQuery(range)}` : ''}`),
     range: () => api(`${projectApi(name)}/site/context/range`),
     saveRange: (range) => api(`${projectApi(name)}/site/context/range`, { method: 'PUT', body: range }),
     // The model base: the stepped ground (GET .../site/model-base) and its laser files (a zip).
-    modelBase: (interval, range) => api(`${projectApi(name)}/site/model-base?interval=${encodeURIComponent(interval)}${range ? `&size=${encodeURIComponent(range.size)}&shape=${encodeURIComponent(range.shape)}` : ''}`),
-    modelFiles: (settings, range) => downloadModelBase(name, settings, range),
+    modelBase: (interval, range) => api(`${projectApi(name)}/site/model-base?interval=${encodeURIComponent(interval)}${range ? `&${rangeQuery(range)}` : ''}`),
+    modelSettings: () => modelHooks(name).settings(),
     place: (id, placement) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}/place`, { method: 'POST', body: placement }), true),
     discard: (id) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}`, { method: 'DELETE' }), true),
     select: (ids) => { ui.selected = ids; render(false); },
@@ -317,7 +334,7 @@ function tableHooks(name) {
     carry: (at) => carryPapers(at),
     stow: (ids) => stowPapers(name, ids),
     ask: () => askAbout(),
-    openExpert: (agent) => { location.hash = expertUrl(name, agent); },
+    openExpert: (agent, tab) => { location.hash = tab ? expertPath(name, agent, tab) : expertUrl(name, agent); },
     experts: () => ui.session?.experts || [],
   };
 }
@@ -1150,7 +1167,19 @@ function docTab(name, agent, expert) {
   }
   const reads = expert.inputs?.length
     ? `<p class="reads">읽은 전문가 ${expert.inputs.map((id) => expertLink(name, id)).join('')}</p>` : '';
-  return `${proposalBlock(agent)}${siteNote(name, agent)}${reads}${arrangedDoc(name, agent, ui.module.content)}`;
+  const content = agent === MODEL_EXPERT ? stripRecommendation(ui.module.content) : ui.module.content;
+  return `${proposalBlock(agent)}${siteNote(name, agent)}${reads}${arrangedDoc(name, agent, content)}`;
+}
+
+// The representation planner's 모형 tab: the model board panel (placeModelMaker), with
+// 추천대로 놓기 when the latest result recommends a board.
+function modelTab() {
+  const rec = parseRecommendation(ui.module?.content);
+  const label = rec ? `추천대로 놓기 (${rec.board.replace(/^W/, '우드락 ')} · 1:${rec.scale} · ${rec.thickness} mm)` : '';
+  const note = rec ? '' : '<p class="muted">표현 계획자를 실행하면 결과의 모형 추천을 여기서 바로 놓을 수 있습니다.</p>';
+  return `<section class="doc-section model-maker-section" aria-label="모형 판">
+    ${rec ? `<button class="primary-small" data-action="model-apply">${escape(label)}</button>` : note}
+    <div id="model-maker-slot" class="model-maker-slot"><p class="muted">모형 판을 여는 중입니다.</p></div></section>`;
 }
 
 function chatTab(name, agent, expert) {
@@ -1246,14 +1275,18 @@ function expertPage(name, agent) {
     return `<section class="expert-page"><header class="expert-head"><div><h1>전문가를 찾을 수 없습니다</h1></div>
       <a class="icon-button" href="${projectUrl(name)}" aria-label="전문가 화면 닫기">×</a></header></section>`;
   }
-  const tab = currentRoute.tab === 'chat' && !expert.chat ? 'doc' : currentRoute.tab;
+  const extra = expertPageTabs(agent);
+  const known = currentRoute.tab !== 'model' || extra.some((t) => t.id === 'model');
+  const tab = (currentRoute.tab === 'chat' && !expert.chat) || !known ? 'doc' : currentRoute.tab;
   const status = expertStatus(expert, ui.job);
   const tabs = [
     ['doc', '결과', expertUrl(name, agent)],
     ...(expert.chat ? [['chat', `분석 채팅${expert.chats?.length ? ` ${expert.chats.length}` : ''}`, expertPath(name, agent, 'chat')]] : []),
     ['versions', `이전 버전${ui.versions?.length ? ` ${ui.versions.length}` : ''}`, expertPath(name, agent, 'versions')],
+    ...extra.map((t) => [t.id, t.label, expertPath(name, agent, t.id)]),
   ];
-  const body = tab === 'chat' ? chatTab(name, agent, expert) : tab === 'versions' ? versionsTab(name, agent) : docTab(name, agent, expert);
+  const body = tab === 'chat' ? chatTab(name, agent, expert) : tab === 'versions' ? versionsTab(name, agent)
+    : tab === 'model' ? modelTab() : docTab(name, agent, expert);
   return `<section class="expert-page" aria-label="${escape(expert.name)}">
     <header class="expert-head"><div>
       <h1>${escape(expert.name)}</h1>
@@ -1703,6 +1736,7 @@ function render(fresh = true) {
   placeTable();
   placeIdeaFloat();
   placeSiteMap();
+  placeModelMaker();
   const ask = ui.focusComposer && app.querySelector('[data-focus="command"]');
   ui.focusComposer = false;
   const again = focused && app.querySelector(`[data-focus="${CSS.escape(focused)}"]`);
@@ -2499,10 +2533,12 @@ async function downloadBoard(name, format) {
 
 // The laser files for a site model: the zip goes to the designer's downloads; the server's summary
 // (X-Model-Base) comes back for the table to show. A 400 (too big, no terrain) comes as its message.
-async function downloadModelBase(name, settings, range) {
+async function downloadModelBoard(name, body) {
   let response;
   try {
-    response = await fetch(`${projectApi(name)}/site/model-base/files?${modelBaseQuery(settings, range)}`);
+    response = await fetch(`${projectApi(name)}/site/model-base/files`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
   } catch {
     throw new Error('Sida 서버에 연결할 수 없습니다.');
   }
@@ -2514,7 +2550,7 @@ async function downloadModelBase(name, settings, range) {
   const summary = readModelSummary(response.headers.get('X-Model-Base'));
   const link = document.createElement('a');
   link.href = URL.createObjectURL(await response.blob());
-  link.download = `${currentProjectLabel(name)}_모형바닥_1-${settings.scale}_${settings.thickness}mm.zip`;
+  link.download = `${currentProjectLabel(name)}_모형판_1-${body.scale}_${body.thickness_mm}mm.zip`;
   link.hidden = true;
   document.body.append(link);
   link.click();
@@ -2611,6 +2647,30 @@ function placeSiteMap() {
   if (!siteMap) { openSiteMap(); return; }
   siteMap.attach(slot);
   siteMap.show(mapGroups());
+}
+
+// The model board panel kept across redraws (one per project) and put into its slot.
+function placeModelMaker() {
+  const slot = app.querySelector('#model-maker-slot');
+  const name = currentRoute.name;
+  if (!slot || !name) return;
+  if (modelMaker?.name !== name) { openModelMaker(name); return; }
+  slot.replaceChildren(modelMaker.host);
+}
+
+async function openModelMaker(name) {
+  if (modelMakerLoading) return;
+  modelMakerLoading = true;
+  try {
+    const { ModelMaker } = await import('./model-maker.js');
+    const host = document.createElement('div');
+    modelMaker = { name, host, maker: new ModelMaker(host, modelHooks(name)) };
+    modelMaker.maker.open();
+  } catch (error) {
+    toast(`모형 판을 열지 못했습니다. ${error.message}`, 'error');
+  }
+  modelMakerLoading = false;
+  render(false);
 }
 
 async function openSiteMap() {
@@ -2970,6 +3030,7 @@ app.addEventListener('click', (event) => {
   if (action === 'select-masses') table?.selectMasses();
   if (action === 'ask-selection') askAbout(button.dataset.compare === 'true' ? COMPARE_QUESTION : '');
   if (action === 'open-expert') location.hash = expertUrl(name, button.dataset.agent);
+  if (action === 'model-apply') modelMaker?.maker.apply(parseRecommendation(ui.module?.content));
   if (action === 'open-chat') location.hash = expertUrl(name, button.dataset.agent, button.dataset.chat);
   if (action === 'new-chat') newChat(button.dataset.agent);
   if (action === 'run-expert') runExpert(name, button.dataset.agent, button.dataset.withoutSite === 'true');

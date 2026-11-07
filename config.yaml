@@ -255,7 +255,7 @@ agents:
     output: 61_representation_planner.md
     tier: core
     phase: communication
-    desc: the diagrams that carry the concept and test weak points; drawings only where a diagram cannot
+    desc: the diagrams that carry the concept and test weak points; drawings only where a diagram cannot; the laser-cut site model's board
     inputs: [concept_framer, spatial_reviewer, design_critic, site_reader]
 
   - id: presentation_editor

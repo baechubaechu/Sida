@@ -30,9 +30,9 @@
 - `boundary`(같은 m 좌표의 폴리곤, 예: 대지 가운데를 중심으로 한 원)를 주면 모형 외곽이 그 모양이 됩니다. 층, 바닥판, 도로·인도·수계 각인, 건물 바닥이 모두 그 안으로 잘리고, 판보다 크면 같은 격자로 모듈을 나눈 뒤 모듈마다 원으로 자릅니다.
 - 지형은 주변 3D와 같습니다(`context3d.ground`): 정밀도로지도 도로면 높이가 있는 곳은 그 높이를 씁니다. 지형 결과물은 국외 서버에 올리지 않습니다.
 
-### 화면과 API (`sida/experts/site/model_base.py`, `api.py`)
+### 화면과 API (`sida/experts/model/model_base.py`, `api.py`)
 
-- `GET /api/projects/{name}/site/model-base?interval=1.5&size=&shape=`: 계단식 지형(`steps`, `buildings`, `datum`, `radius`, `shape`, `size`). 제도판의 "모형 바닥 › 계단식 보기"가 씁니다.
+- `GET /api/projects/{name}/site/model-base?interval=1.5&size=&shape=`: 계단식 지형(`steps`, `buildings`, `datum`, `radius`, `shape`, `size`). 제도판의 "계단식"이 씁니다.
 - `GET /api/projects/{name}/site/model-base/files?scale=500&thickness=3&sheet=600x400&hollow=0&size=&shape=`: 레이저 파일 zip. 요약은 `X-Model-Base` 헤더(`interval`, `layers`, `pieces`, `sheets`, `modules`, `buildings`, `buildings_left_out`, `utilisation`, `size_mm`(가로x세로), `radius`, `shape`, `size`).
 - 둘 다 `size`(`small` 100m·`medium` 200m·`large` 300m)·`shape`(`square`·`circle`)를 안 주면 주변 3D에서 고른 프로젝트 범위(`site_context.json`, [site-context.md](site-context.md))를 씁니다. 예전 `radius`(m)도 받습니다. 모르는 값, 너무 큰 모형, 지형 없음은 `400`과 그 이유입니다.
 - 제도판 왼쪽 도구 막대의 주변 3D 범위·모양 옆 "모형 바닥"에서 축척(1:200·1:500·1:1000), 판 두께, 판 크기(가로x세로 mm), 속 비우기를 고르고 "레이저 파일 받기"를 누르면 zip을 받고 판 장수·조각·층·크기를 보여 줍니다. 계단 간격은 축척 × 판 두께입니다.
@@ -48,13 +48,16 @@ python scripts/model_base_terrain.py --sheet 600x400 --thickness 3 --scale 500 -
 | `--scale` | 모형 축척 1:N | 500 |
 | `--area` | 모형에 담을 땅 m (동서x남북) | 240x180 |
 | `--hollow` | 다음 층에 가려지는 속을 비우고 남길 테두리 폭 mm. 0이면 속이 찬 층 | 0 |
-| `--colors` | 레이저 색, 예: `engrave=#0000FF,inner=#FF0000,outer=#00A000` | 왼쪽 예 |
+| `--colors` | 레이저 색, 예: `engrave=#0000FF,inner=#FF0000,outer=#FF0000` | 왼쪽 예 |
 | `--gap`, `--margin` | 조각 사이 간격, 판 가장자리 여백 mm | 2, 5 |
 | `--rotations`, `--res` | 조각마다 시험할 방향 수, 배열 격자 mm(작을수록 빽빽하고 느림) | 8, 1 |
 
 ## 나오는 파일
 
-- `sheet-N.svg`, `sheet-N.dxf`: 레이저용, mm. 선이 세 가지이고 레이저는 이 순서로 돌립니다: **새기기(파랑)** → **내부 커팅(빨강)**: 구멍과 구멍 속 조각의 외곽, 안쪽 것부터 → **외부 커팅(초록)**: 바깥 외곽. DXF 레이어는 `ENGRAVE`, `CUT_INNER`, `CUT_OUTER`, SVG 그룹도 같은 순서입니다. 레이저실 색 규칙이 다르면 `--colors`로 바꿉니다.
+- 레이저용 파일은 실제 크기(mm)이고 레이저실의 흔한 규칙을 따릅니다: **새기기는 파랑, 자르기는 빨강, 선은 가장 가는 선**. 자르기는 안쪽(구멍과 구멍 속 조각의 외곽, 안쪽 것부터)을 먼저, 바깥 외곽을 나중에 써서 조각이 먼저 떨어지지 않게 합니다. 형식은 고를 수 있습니다(`formats`, 기본은 셋 다).
+  - `sheet-N.dxf`: AutoCAD 2013 형식, mm, 원점은 판의 왼쪽 아래. 레이어는 `CUT`(빨강, ACI 1), `ENGRAVE`(파랑, ACI 5), `SHEET`(판 외곽과 판 번호, 인쇄 안 함)이고, 모두 보통 선(폴리라인)이라 어느 AutoCAD에서나 고칠 수 있습니다. 조각 번호(층)와 북쪽 화살표는 한 줄 글꼴로 `ENGRAVE`에 새깁니다. 판 번호(`S3/21`)는 배열한 판이면 여백에 새기고, 층을 제자리로 자른 판(여백 없음)이면 모형 윗면에 자국이 남지 않게 `SHEET`에 둡니다.
+  - `sheets.pdf`: 판마다 한 쪽, 실제 크기의 벡터 선(0.001 pt). 일러스트레이터에서 열면 고칠 수 있는 패스이고, 거기서 .ai로 저장하면 됩니다.
+  - `sheet-N.svg`: 같은 색, 그룹 `engrave` → `inner` → `outer`가 레이저 순서입니다. 레이저실 색 규칙이 다르면 `--colors`로 바꿉니다.
 - `sheet-N-guide.svg`: 사람이 보는 같은 판. 높이별 색, 큰 조각 이름.
 - `assembly.svg`: 완성 모형을 위에서 본 조립도. 조각마다 `이름·판 번호`(예: `1-05A·3`), 모듈 경계와 번호, 대지 경계(빨간 점선), 방위, 축척 막대.
 - `pieces.csv`: 조각 목록(이름, 종류(땅·건물), 모듈, 층, 등고 높이, 판, 면적, 이름이 가려지는 면에 새겨졌는지, 추정 높이인지).
@@ -80,3 +83,24 @@ python scripts/model_base_terrain.py --sheet 600x400 --thickness 3 --scale 500 -
 ## 배열 방식
 
 조각을 격자로 바꿔, 외곽이 차지하는 크기가 큰 조각부터 여러 방향으로 돌려 가며 판의 가장 아래·왼쪽 빈자리에 넣습니다(모든 자리를 FFT 상관으로 한 번에 검사).
+판 수가 많아도 빠르게, 결과는 그대로 둔 채 계산을 줄입니다. 판마다 FFT를 조각을 놓을 때만 다시 하고, 조각의 FFT는 한 번만 만듭니다(같은 모양 조각, 예를 들어 한 건물의 여러 장도 한 번). 빈칸이 조각보다 적은 판과, 조각 크기의 창 어디에도 빈칸이 모자란 방향은 건너뜁니다. 같은 모양 조각은 앞 조각이 들어간 판부터 찾습니다. 무교동 45 크게(반경 300 m) 기준, 같은 배열에 판 배치 시간이 80초에서 11초로 줄었습니다.
+
+## 모형 판에 맞춰 자르기 (`sida/model_base/board.py`)
+
+모형 판(A0 1189×841, A1 841×594, A2 594×420, 우드락 600×900, 900×1800, 직접 입력 100–3000 mm)과 축척, 판 두께(3·5 mm 등)를 고르면 판이 덮는 땅(판 mm × 축척 / 1000 m, "판 범위")이 정해집니다. 판 범위는 불러온 3D 범위 안에 있어야 합니다. 판은 가로(긴 변 동서)·세로로 놓고, 가운데(m, 제도판 좌표)를 옮길 수 있습니다(기본은 대지 가운데).
+
+- **범위에 맞추기**(`fit`): 표준 축척(1:100, 200, 250, 300, 400, 500, 600, 750, 1000, 1200, 1500, 2000) 가운데 판 범위가 3D 범위 안에 들어가면서 범위를 가장 넓게 덮고 대지를 다 담는 축척을 고릅니다.
+- **자르기**: 등고선 한 층을 판 크기 판 한 장에서 **제자리로** 자릅니다(배열 없음). 그래서 판을 그대로 쌓으면 됩니다. 각 층에는 다음 층 자리, 대지 경계, 도로·보도·물 경계, 그 층에 서는 건물 자리가 새겨집니다. 건물 조각만 판 크기 판에 따로 배열합니다. "재료 아끼기"(`save_material`)를 켜면 바닥판 위 층도 배열해 판 수를 줄입니다(판에 안 들어갈 만큼 큰 조각은 제자리). 레이저 작업대가 판보다 작으면(`bed`) 예전처럼 모듈로 나눠 작업대 크기 판에 배열합니다.
+
+| 경로 | 요청 | 응답 |
+|---|---|---|
+| `GET .../site/model-base/fit?board=&thickness=&orient=&width=&height=` | 판(`custom`이면 `width`·`height` mm), 두께, 판 방향 | `{scale, center, frame_m, board_mm}`. 표준 축척으로 맞출 수 없으면 `400` |
+| `POST .../site/model-base/plan` | `{board, width_mm?, height_mm?, orient, scale, thickness_mm, center?, bed?, save_material}` | 요약 `{scale, frame_m, board_mm, interval, layers, sheets, pieces, buildings, total_height_mm, in_place, center, ...}`, 판 외곽 `frame`과 층마다의 땅 `steps`(제도판 m). 판이 3D 범위를 벗어나면 몇 m 벗어나는지 적은 `400` |
+| `POST .../site/model-base/files` | 같은 본문 | 레이저 파일 zip, 요약은 `X-Model-Base` 헤더 |
+| `GET .../site/model-base/settings` | | 마지막으로 쓴 판 설정(없으면 기본값: 우드락 600×900, 1:500, 3 mm) |
+
+판 설정은 프로젝트 폴더의 `site_context.json` `model`에 범위와 함께 저장됩니다. 3D 범위는 저장된 범위(`.../site/context/range`)를 씁니다. 예전 `GET .../site/model-base`, `.../model-base/files`도 그대로 동작합니다.
+
+### 화면 (`webui/app/model-maker.js`)
+
+제도판의 "모형 바닥"은 표현 계획자 화면의 "모형" 탭을 엽니다. 그 탭에 모형 판 창이 있습니다(어느 요소에든 그릴 수 있게 만든 모듈). 대지를 조회하고 3D 범위를 저장한 프로젝트에서 표현 계획자를 실행하면, Sida 코드가 판·두께마다 계산한 축척·판 범위·층 수(`sida/experts/model/prompt.py`)를 받아 마지막 "Physical Model"(모형) 절에서 그 가운데 판을 추천합니다. 결과 끝의 JSON 블록으로 모형 탭에 "추천대로 놓기" 버튼이 생깁니다. 제도판의 "계단식"은 저장한 판 설정(축척 × 두께) 간격으로 계단식 지형을 보여 줍니다. 불러온 3D 범위를 위에서 본 그림(높이 음영, 도로·보도·물, 등고선, 건물, 대지)에 판 범위를 파란 사각형으로 올리고, 끌어서 옮깁니다. 3D 범위를 벗어나면 빨갛게 바뀌고 몇 m 벗어나는지 알려 줍니다. 판 크기·축척·방향·두께·재료 아끼기를 고르고, "범위에 맞추기", "계산하기"(정확한 층·판 수), "레이저 파일 받기"를 누릅니다. 아래 줄에 판 범위(m), 층, 판 수, 높이(mm), 판 위 대지 크기(cm)가 나옵니다. 계산 전의 층 수와 높이는 화면이 불러온 지형으로 어림한 값입니다.
