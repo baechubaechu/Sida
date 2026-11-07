@@ -9,9 +9,12 @@
 | 파일 | 내용 |
 |---|---|
 | `webui/app/index.html` | 뼈대, 설정 창 |
-| `webui/app/app.js` | 화면 그리기, API 호출, 작업 진행 따라가기 |
+| `webui/app/app.js` | 시작점: 주소(`#/...`)에 따라 화면을 고르고, 페이지의 클릭·입력·제출을 아래 동작 파일로 잇습니다(2026-11-08에 한 파일을 나눔) |
+| `webui/app/state.js`, `api.js` | 화면이 기억하는 것(`ui`, 작성 중인 글, 현재 주소)과 index.html의 고정 요소 · 서버 JSON API 호출 한 함수(`api`)와 주소 도우미 |
+| `webui/app/render.js`, `view-*.js` | HTML 문자열을 만드는 쪽. `render.js`가 작업 공간(Conductor·제도판·전문가·명령창)을 그리고 포커스·스크롤 위치를 지키며, `view-home.js`(프로젝트 목록·새 프로젝트), `view-conductor.js`(대화 패널), `view-command.js`(명령창), `view-experts.js`(전문가 목록·전문가 페이지), `view-site.js`(대지 페이지), `view-ideas.js`(아이디어 보드)가 각 부분을 만듭니다 |
+| `webui/app/jobs.js`, `talks.js`, `experts.js`, `site.js`, `ideas.js`, `commands.js`, `projects.js`, `settings.js`, `panels.js`, `board.js` | 동작 쪽. 세션·작업 따라가기, Conductor 대화, 전문가 실행·채팅·평가, 대지 페이지, 아이디어 보드, 명령창, 프로젝트 정보·삭제, 설정 창, 패널 너비, 제도판·브이월드 3D·모형 판을 페이지에 올리기 |
 | `webui/app/model.js` | DOM과 `fetch`를 쓰지 않는 도우미 함수(검색·정렬, 대화 항목, 이벤트 알림 문구, Markdown, 저장할 정부 데이터 키, 화면 주소, 전문가별 결과 배치 `EXPERT_LAYOUTS`). `tests/webui/model.test.mjs`가 확인합니다 |
-| `webui/app/table.js` | 제도판(`DraftingTable`): Three.js 장면, 종이, AI 섹션, 매스안 입력, 종이 상세 창, 되돌리기·다시 하기. 프로젝트를 열 때만 불러옵니다 |
+| `webui/app/table.js`, `table-*.js` | 제도판(`DraftingTable`). `table.js`에 장면·보기·되돌리기·조작 막대가 있고, `table-papers.js`(종이·핀·AI 섹션·사진·PDF), `table-blocks.js`(동 편집·검볼·스케치업 도구·매스안 입력), `table-around.js`(대지 주변 3D·범위·계단식 지형), `table-detail.js`(종이 상세 창), `table-pointer.js`(마우스·휠·키), `table-shared.js`(도구 목록 등 공용 값)가 메서드를 보탭니다(`Object.assign(DraftingTable.prototype, ...)`). 프로젝트를 열 때만 불러옵니다 |
 | `webui/app/pdf-view.js` | 제도판에 올린 PDF의 한 페이지를 pdf.js(`webui/app/vendor/pdfjs/`)로 보이는 크기에 맞춰 그립니다. PDF가 있을 때만 불러옵니다 |
 | `webui/app/board-model.js` | 제도판의 DOM 없는 도우미(카메라·확대, 대지 범위, 동 꼭짓점, 새 종이 자리, 3D 이름표와 내용 카드 자리, 종이 이름, 매스안 입력 검사, 고른 종이, 두 안 비교 질문, 되돌리기 기록, 상세 창 배치도). `tests/webui/board-model.test.mjs`가 확인합니다 |
 | `webui/app/talk-panel-model.js` | Conductor 패널 열기·닫기, 이전 대화와 새 대화 선택 상태. `tests/webui/talk-panel.test.mjs`가 확인합니다 |

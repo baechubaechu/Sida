@@ -17,18 +17,7 @@ jobs:
       - name: Test web screen helpers (offline)
         run: node --test tests/webui/model.test.mjs tests/webui/board-model.test.mjs tests/webui/command-model.test.mjs tests/webui/talk-panel.test.mjs
       - name: Check browser scripts
-        run: |
-          node --check webui/app/app.js
-          node --check webui/app/model.js
-          node --check webui/app/board-model.js
-          node --check webui/app/table.js
-          node --check webui/app/command-model.js
-          node --check webui/app/talk-panel-model.js
-          node --check webui/app/site-map.js
-          node --check webui/app/model-maker.js
-          node --check webui/app/vworld-view.js
-          node --check webui/app/vworld3d-frame.js
-          node --check webui/app/pdf-view.js
+        run: for f in webui/app/*.js; do node --check "$f"; done
 
   test:
     runs-on: ubuntu-latest
