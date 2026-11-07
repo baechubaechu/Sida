@@ -44,7 +44,7 @@ from sida.errors import SidaError, fail
 from sida.experts import run_needs
 from sida.i18n import get_language
 from sida.project import MAIN_TALK, Project, open_or_create
-from sida.project_documents import Document, DocumentConflict, read_document, save_document
+from sida.project_documents import DocumentConflict
 from sida.providers import LLMError, format_usage
 from sida.runtime import conductor_provider, worker_provider
 from sida.state_revisions import content_revision, module_revisions
@@ -97,14 +97,8 @@ class Session:
         if self.project.talk == MAIN_TALK:  # session.json counts the first talk only
             self.project.save_session(history_messages=len(self.history))
 
-    def reload_brief(self) -> None:
-        self.project_brief = self.project.read_brief()
-
     def refresh_modules(self) -> None:
         self.previous_blocks[:] = load_existing_outputs(self.agents, self.output_dir)
-
-    def user_turns(self) -> int:
-        return sum(1 for m in self.history if m.get("role") == "user")
 
     def completed_ids(self) -> list[str]:
         return completed_ids(self.agents, self.output_dir)
@@ -729,18 +723,6 @@ def discard_state(session: Session, proposal: StateProposal) -> None:
     if session.pending_state is not proposal:
         raise DocumentConflict("이미 처리됐거나 현재 세션의 승인안이 아닙니다.")
     session.pending_state = None
-
-
-def read_editable_document(session: Session, kind: str) -> Document:
-    return read_document(session.project, kind)
-
-
-def edit_document(session: Session, kind: str, content: str, *, expected_revision: str) -> Document:
-    """Save a designer edit and refresh the brief used by subsequent model calls."""
-    document = save_document(session.project, kind, content, expected_revision=expected_revision)
-    if kind == "brief":
-        session.reload_brief()
-    return document
 
 
 # ---------------------------------------------------------------------------

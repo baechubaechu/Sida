@@ -264,16 +264,6 @@ def test_applied_state_cannot_be_applied_twice(core):
     assert (s.project.path / "project_state.prev.md").read_bytes() == before_backup
 
 
-def test_editing_brief_refreshes_session_context(core, capsys):
-    s = core()
-    document = engine.read_editable_document(s, "brief")
-    edited = document.content + "\n## 직접 작성한 요구\n- 보행 연결\n"
-    saved = engine.edit_document(s, "brief", edited, expected_revision=document.revision)
-    assert s.project_brief == saved.content
-    assert "보행 연결" in s.project_brief
-    assert capsys.readouterr() == ("", "")
-
-
 def test_identical_summary_for_new_module_version_still_needs_acceptance(core):
     from sida.conductor_context import modules_newer_than_state
 

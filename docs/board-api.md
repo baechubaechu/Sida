@@ -1,6 +1,6 @@
 # 제도판 API (디자인 워크스페이스)
 
-가운데 디자인 화면(제도판)이 쓰는 JSON API입니다. 제도판 위의 종이(대지, 매스안, 메모, 트레이싱지, 사진)를 프로젝트 폴더의 `board.json`에 저장하고(사진 파일은 `board_photos/`에), 설계자가 고른 종이를 Conductor와 전문가에게 함께 보냅니다. AI가 만든 종이는 제도판이 아니라 따로 있는 AI 섹션에 놓이고, 설계자가 마음에 드는 것만 제도판으로 옮깁니다. 로직은 `sida/board.py`, 경로는 `sida/board_api.py`에 있습니다. 화면은 `webui/app/table.js`입니다([web-ui.md](web-ui.md)). 처음 시험판은 `prototypes/drafting-table/`에 있습니다.
+가운데 디자인 화면(제도판)이 쓰는 JSON API입니다. 제도판 위의 종이(대지, 매스안, 메모, 트레이싱지, 사진)를 프로젝트 폴더의 `board.json`에 저장하고(사진 파일은 `board_photos/`에), 설계자가 고른 종이를 Conductor와 전문가에게 함께 보냅니다. AI가 만든 종이는 제도판이 아니라 따로 있는 AI 섹션에 놓이고, 설계자가 마음에 드는 것만 제도판으로 옮깁니다. 로직은 `sida/board.py`, 경로는 `sida/board_api.py`에 있습니다. 화면은 `webui/app/table.js`입니다([web-ui.md](web-ui.md)). 처음 시험판은 PR #63에서 만들었고, 지금 화면으로 옮긴 뒤 저장소에서 지웠습니다.
 
 ## 종이
 

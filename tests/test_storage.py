@@ -9,7 +9,12 @@ from pathlib import Path
 import pytest
 
 from sida import errors, providers, worker
+from sida.project_documents import read_document, save_document
 from sida.state_updater import write_state
+
+
+def _save_brief(project, content: str):
+    return save_document(project, "brief", content, expected_revision=read_document(project, "brief").revision)
 
 
 @pytest.mark.parametrize("operation", ["history", "session", "brief", "state", "module"])
@@ -25,7 +30,7 @@ def test_failed_project_save_preserves_previous_file(
         save = partial(project.save_session, history_messages=99)
     elif operation == "brief":
         target = project.brief_path
-        save = partial(project.update_brief_sections, {"Core Problem": "새 문제"})
+        save = partial(_save_brief, project, "# 새 브리프\n")
     elif operation == "state":
         target = project.state_path
         save = partial(write_state, project, "# 새 상태\n")
@@ -56,7 +61,7 @@ def test_failed_project_save_preserves_previous_file(
 def test_backup_failure_prevents_overwrite(operation, project, mock_config, agents, monkeypatch):
     if operation == "brief":
         target = project.brief_path
-        save = partial(project.update_brief_sections, {"Core Problem": "changed"})
+        save = partial(_save_brief, project, "changed")
     elif operation == "state":
         target = project.state_path
         save = partial(write_state, project, "changed")

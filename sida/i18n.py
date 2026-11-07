@@ -417,10 +417,6 @@ def set_language(lang: str) -> str:
     return lang
 
 
-def has_language() -> bool:
-    return load_settings().get("language") in SUPPORTED
-
-
 def t(key: str, **kwargs: object) -> str:
     lang = get_language()
     table = STRINGS.get(lang) or STRINGS[FALLBACK_LANGUAGE]

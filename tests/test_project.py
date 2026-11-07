@@ -42,15 +42,6 @@ def test_module_status_rows_explicit_and_fallback(agents):
     assert prj.module_status_rows(None).count("| pending |") == len(agents)
 
 
-def test_update_brief_sections_backs_up_and_patches(project):
-    project.update_brief_sections({"Core Problem": "patched", "Site Issues": ""})
-    assert (project.path / "brief.prev.md").exists()
-    assert section_body(project.read_brief(), "Core Problem") == "patched"
-    assert "## Main Layers" in project.read_brief()
-    # empty value ignored
-    assert section_body(project.read_brief(), "Site Issues") == section_body(BRIEF, "Site Issues")
-
-
 def test_history_roundtrip_filters_bad_items(project):
     project.save_history([{"role": "user", "content": "a"}, {"role": "bogus", "content": "x"}, {"role": "assistant", "content": ""}])
     loaded = project.load_history()
