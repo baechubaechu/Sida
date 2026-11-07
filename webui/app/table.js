@@ -22,7 +22,8 @@ import {
   massIds, createHistory, recordStep, undoStep, redoStep, changedFields, planDrawing,
   photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE, MAX_PHOTO_BYTES,
   isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, resizable, resizedPaper,
-  CONTOUR_STEPS, RANGE_SIZES, RANGE_SHAPES, OUTSIDE, terrainFaces, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, noteStartsOpen, buildingInfo,
+  CONTOUR_STEPS, RANGE_SIZES, RANGE_SHAPES, OUTSIDE, terrainFaces,
+  MODEL_SCALES, MODEL_DEFAULTS, stepInterval, readSheet, modelSummaryText, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, noteStartsOpen, buildingInfo,
 } from './board-model.js';
 
 const SNAP = 7; // metres: a tracing sheet this close to its place on the site clicks into register
@@ -93,6 +94,12 @@ export class DraftingTable {
     this.aroundRequest = null;
     this.aroundNoteOpen = null; // the source note: open or folded (decided by the width when first shown)
     this.aroundRange = null; // {size, shape}: the project's range for the surroundings, read once
+    this.model = { ...MODEL_DEFAULTS }; // the model base: scale, sheet thickness (mm), sheet WxH (mm), hollow rim (mm)
+    this.modelOpen = false;
+    this.modelBusy = false;
+    this.modelNote = '';
+    this.stepped = null; // the stepped ground (GET .../site/model-base) for the 계단식 보기
+    this.steppedOn = false;
     this.aroundLow = 0;
     this.contourStep = 1;
     this.root = document.createElement('div');
@@ -809,13 +816,82 @@ export class DraftingTable {
 
   // ------------------------------------------------------------------ the site's surroundings
 
+  // 모형 바닥: the settings for the laser files, the stepped view and the download.
+  modelMenu() {
+    const m = this.model;
+    const off = this.modelBusy ? 'disabled' : '';
+    return `<details class="model-menu" ${this.modelOpen ? 'open' : ''}><summary data-ui="model-menu">모형 바닥</summary>
+      <div class="model-form">
+        <label>축척 <select data-ui="model-scale">${MODEL_SCALES.map((s) => `<option value="${s}" ${s === m.scale ? 'selected' : ''}>1:${s}</option>`).join('')}</select></label>
+        <label>판 두께 <input data-ui="model-thickness" type="number" min="0.5" max="20" step="0.5" value="${m.thickness}"> mm</label>
+        <label>판 크기 <input data-ui="model-sheet" value="${escape(m.sheet)}" placeholder="600x400"> mm</label>
+        <label>속 비우기 <input data-ui="model-hollow" type="number" min="0" max="50" step="1" value="${m.hollow}"> mm <small>0이면 끔</small></label>
+        <p class="model-step">계단 간격 ${stepInterval(m.scale, m.thickness)} m (축척 × 판 두께)</p>
+        <button type="button" data-ui="model-stepped" aria-pressed="${this.steppedOn}" ${off}>계단식 보기</button>
+        <button type="button" data-ui="model-files" ${off}>${this.modelBusy ? '만드는 중…' : '레이저 파일 받기'}</button>
+        ${this.modelNote ? `<p class="model-note" role="status">${escape(this.modelNote)}</p>` : ''}
+      </div></details>`;
+  }
+
+  modelSetting(key, value) {
+    if (key === 'scale') this.model.scale = Number(value) || MODEL_DEFAULTS.scale;
+    if (key === 'thickness') this.model.thickness = Math.min(20, Math.max(0.5, Number(value) || MODEL_DEFAULTS.thickness));
+    if (key === 'sheet') this.model.sheet = String(value || MODEL_DEFAULTS.sheet);
+    if (key === 'hollow') this.model.hollow = Math.min(50, Math.max(0, Number(value) || 0));
+    this.modelNote = key === 'sheet' && !readSheet(this.model.sheet) ? '판 크기는 가로x세로 mm로 적어 주세요 (각 50~3000).' : '';
+    if (this.steppedOn && (key === 'scale' || key === 'thickness')) this.loadStepped();
+    else this.drawControls();
+  }
+
+  // 계단식 보기: the stepped ground in place of the smooth one (the surroundings are shown with it).
+  async toggleStepped() {
+    if (this.steppedOn) { this.steppedOn = false; this.drawAround(); this.drawControls(); return; }
+    if (!this.aroundOn) await this.toggleAround();
+    if (!this.aroundOn) return;
+    await this.loadStepped();
+  }
+
+  async loadStepped() {
+    if (!this.hooks.modelBase) return;
+    this.modelBusy = true;
+    this.drawControls();
+    try {
+      this.stepped = await this.hooks.modelBase(stepInterval(this.model.scale, this.model.thickness), this.aroundRange);
+      this.steppedOn = true;
+      this.modelNote = `계단 ${this.stepped.steps.length}단 · ${stepInterval(this.model.scale, this.model.thickness)} m 간격`;
+    } catch (error) {
+      this.modelNote = error.message;
+    }
+    this.modelBusy = false;
+    this.drawAround();
+    this.drawControls();
+  }
+
+  // 레이저 파일 받기: the zip for this range, and its summary.
+  async downloadModel() {
+    if (!this.hooks.modelFiles) return;
+    if (!readSheet(this.model.sheet)) { this.modelNote = '판 크기는 가로x세로 mm로 적어 주세요 (각 50~3000).'; this.drawControls(); return; }
+    this.modelBusy = true;
+    this.modelNote = '';
+    this.drawControls();
+    try {
+      const summary = await this.hooks.modelFiles(this.model, this.aroundRange);
+      this.modelNote = `받았습니다: ${modelSummaryText(summary)}`;
+    } catch (error) {
+      this.modelNote = error.message;
+    }
+    this.modelBusy = false;
+    this.drawControls();
+  }
+
   // 범위 and 모양 for the surroundings, beside the 주변 3D button.
   rangeSelects() {
     this.readRange();
     const r = this.aroundRange || { size: 'medium', shape: 'square' };
     const off = this.aroundBusy ? 'disabled' : '';
     return `<label class="check">범위 <select data-ui="around-size" aria-label="주변 범위" ${off}>${RANGE_SIZES.map((s) => `<option value="${s.key}" ${s.key === r.size ? 'selected' : ''}>${s.label}</option>`).join('')}</select></label>
-      <label class="check">모양 <select data-ui="around-shape" aria-label="주변 모양" ${off}>${RANGE_SHAPES.map((s) => `<option value="${s.key}" ${s.key === r.shape ? 'selected' : ''}>${s.label}</option>`).join('')}</select></label>`;
+      <label class="check">모양 <select data-ui="around-shape" aria-label="주변 모양" ${off}>${RANGE_SHAPES.map((s) => `<option value="${s.key}" ${s.key === r.shape ? 'selected' : ''}>${s.label}</option>`).join('')}</select></label>
+      ${this.modelMenu()}`;
   }
 
   // A new range (size, shape): kept for the project, and the surroundings made again if shown.
@@ -828,10 +904,14 @@ export class DraftingTable {
       this.say(`범위를 저장하지 못했습니다. ${error.message}`);
     }
     const shown = this.aroundOn;
+    const stepped = this.steppedOn;
     this.around = null;
     this.aroundOn = false;
+    this.stepped = null;
+    this.steppedOn = false;
     if (shown) await this.toggleAround();
     else this.drawControls();
+    if (shown && stepped) await this.loadStepped();
   }
 
   // The project's range, read once (for the selects before the surroundings are fetched).
@@ -889,7 +969,8 @@ export class DraftingTable {
     this.aroundLow = 0;
     if (!data) { this.invalidate(); return; }
     const t = data.terrain;
-    if (t) {
+    if (this.steppedOn && this.stepped) this.drawSteps(around);
+    if (t && !(this.steppedOn && this.stepped)) {
       // A plane with one vertex per ground point (three.js lays its rows from the top, north),
       // lifted to the heights and coloured by what the ground is.
       const { n } = t;
@@ -979,6 +1060,25 @@ export class DraftingTable {
   // (the same rule as the export), else on the table (0).
   blockBase(frame, b) {
     return massBase(blockCorners(frame, b), this.aroundOn ? this.around?.terrain : null);
+  }
+
+  // The stepped ground (계단식 보기): each step a flat plate at its height with its outline.
+  drawSteps(group) {
+    const tones = [0xe7dcc6, 0xd9cdb4];
+    const ink = new THREE.LineBasicMaterial({ color: 0x8a7a5c });
+    this.stepped.steps.forEach((step, k) => {
+      const material = new THREE.MeshLambertMaterial({ color: tones[k % 2], side: THREE.DoubleSide });
+      for (const poly of step.polygons) {
+        const shape = new THREE.Shape(poly.outline.map(([x, y]) => new THREE.Vector2(x, y)));
+        for (const hole of poly.holes || []) shape.holes.push(new THREE.Path(hole.map(([x, y]) => new THREE.Vector2(x, y))));
+        const plate = new THREE.Mesh(new THREE.ShapeGeometry(shape), material);
+        plate.position.z = step.top;
+        plate.receiveShadow = true;
+        group.add(plate);
+        group.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(poly.outline.map(([x, y]) => new THREE.Vector3(x, y, step.top + 0.02))), ink));
+      }
+      this.aroundLow = Math.min(this.aroundLow, step.bottom);
+    });
   }
 
   // The active scheme stands solid; the others (and an AI scheme being previewed) as outlines.
@@ -2011,6 +2111,7 @@ export class DraftingTable {
       if (e.target.dataset.ui === 'contour-step') { this.contourStep = Number(e.target.value) || 1; this.drawAround(); }
       if (e.target.dataset.ui === 'around-size') this.changeRange({ size: e.target.value });
       if (e.target.dataset.ui === 'around-shape') this.changeRange({ shape: e.target.value });
+      if (e.target.dataset.ui?.startsWith('model-')) this.modelSetting(e.target.dataset.ui.slice(6), e.target.value);
       if (e.target === this.photoInput && this.photoInput.files.length) this.addPhotos([...this.photoInput.files]);
       if (e.target.dataset.detailTitle) this.saveTitle(e.target.dataset.detailTitle, e.target.value);
     });
@@ -2105,6 +2206,9 @@ export class DraftingTable {
       case 'trace': this.layTracing(); break;
       case 'photo': this.pickPhotos(); break;
       case 'around': this.toggleAround(); break;
+      case 'model-menu': this.modelOpen = !t.closest('details')?.open; break;
+      case 'model-stepped': this.toggleStepped(); break;
+      case 'model-files': this.downloadModel(); break;
       case 'around-note': this.aroundNoteOpen = !this.aroundNoteOpen; this.drawAroundNote(); break;
       case 'delete': this.removeSelected(); break;
       case 'tray': this.trayOpen = !this.trayOpen; this.drawTray(); this.drawControls(); break;

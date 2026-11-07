@@ -1,6 +1,6 @@
 # 모형 바탕 (레이저 커팅)
 
-대지 주변 땅을 등고선 층으로 잘라 레이저 커팅 파일로 만들고, 사용자의 재료 판 안에 최대한 빽빽하게 배열합니다. 스크립트의 땅은 **예시 지형**(무작위, `--seed`)입니다. 화면과 API는 다음 단계입니다. 코드는 `sida/model_base/`, 실행은 `scripts/model_base_terrain.py`입니다.
+대지 주변 땅을 등고선 층으로 잘라 레이저 커팅 파일로 만들고, 사용자의 재료 판 안에 최대한 빽빽하게 배열합니다. 스크립트의 땅은 **예시 지형**(무작위, `--seed`)이고, 실제 대지는 화면과 API(아래 "실제 지형 연결")로 만듭니다. 코드는 `sida/model_base/`, 실행은 `scripts/model_base_terrain.py`입니다.
 
 ## 주변 건물
 
@@ -27,7 +27,15 @@
 - 높이는 `ground_elev`를 더해 해발로 둡니다. 그래서 등고 층이 해발 1.5 m, 3 m … 같은 고른 높이에서 나뉩니다.
 - 대지 경계와 땅의 종류(`road`, `sidewalk`, `water`)는 같은 m 좌표의 폴리곤으로 받습니다. 그 밖의 종류는 버립니다.
 - 격자가 모형 범위보다 작으면 지어내지 않고 오류를 냅니다.
-- 화면·API 연결은 주변 3D(`feat/site-context-3d`)가 main에 들어간 뒤 대지 영역(`sida/experts/site/`)에서 합니다. 지형 결과물은 국외 서버에 올리지 않습니다.
+- `boundary`(같은 m 좌표의 폴리곤, 예: 대지 가운데를 중심으로 한 원)를 주면 모형 외곽이 그 모양이 됩니다. 층, 바닥판, 도로·인도·수계 각인, 건물 바닥이 모두 그 안으로 잘리고, 판보다 크면 같은 격자로 모듈을 나눈 뒤 모듈마다 원으로 자릅니다.
+- 지형은 주변 3D와 같습니다(`context3d.ground`): 정밀도로지도 도로면 높이가 있는 곳은 그 높이를 씁니다. 지형 결과물은 국외 서버에 올리지 않습니다.
+
+### 화면과 API (`sida/experts/site/model_base.py`, `api.py`)
+
+- `GET /api/projects/{name}/site/model-base?interval=1.5&size=&shape=`: 계단식 지형(`steps`, `buildings`, `datum`, `radius`, `shape`, `size`). 제도판의 "모형 바닥 › 계단식 보기"가 씁니다.
+- `GET /api/projects/{name}/site/model-base/files?scale=500&thickness=3&sheet=600x400&hollow=0&size=&shape=`: 레이저 파일 zip. 요약은 `X-Model-Base` 헤더(`interval`, `layers`, `pieces`, `sheets`, `modules`, `buildings`, `buildings_left_out`, `utilisation`, `size_mm`(가로x세로), `radius`, `shape`, `size`).
+- 둘 다 `size`(`small` 100m·`medium` 200m·`large` 300m)·`shape`(`square`·`circle`)를 안 주면 주변 3D에서 고른 프로젝트 범위(`site_context.json`, [site-context.md](site-context.md))를 씁니다. 예전 `radius`(m)도 받습니다. 모르는 값, 너무 큰 모형, 지형 없음은 `400`과 그 이유입니다.
+- 제도판 왼쪽 도구 막대의 주변 3D 범위·모양 옆 "모형 바닥"에서 축척(1:200·1:500·1:1000), 판 두께, 판 크기(가로x세로 mm), 속 비우기를 고르고 "레이저 파일 받기"를 누르면 zip을 받고 판 장수·조각·층·크기를 보여 줍니다. 계단 간격은 축척 × 판 두께입니다.
 
 ```bash
 python scripts/model_base_terrain.py --sheet 600x400 --thickness 3 --scale 500 --area 240x180 --out output/model_base

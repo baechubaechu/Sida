@@ -31,9 +31,15 @@ class Terrain:
     # and the height above sea level of the table's z = 0 (the ground at the site's middle).
     origin: tuple[float, float] = (0.0, 0.0)
     datum: float = 0.0
+    # The model's outline when it is not the grid's rectangle (a round range), in the same metres.
+    boundary: Polygon | None = None
 
     @property
     def extent(self) -> Polygon:
+        """The model's outline: `boundary` if there is one, else the grid's rectangle. Every
+        layer, the base sheet, the engravings and the buildings are cut to it."""
+        if self.boundary is not None:
+            return self.boundary
         return box(float(self.xs[0]), float(self.ys[0]), float(self.xs[-1]), float(self.ys[-1]))
 
 
@@ -83,7 +89,7 @@ def _polygon(shape) -> Polygon | MultiPolygon | None:
 
 
 def terrain_from_grid(grid, half: float, step: float, *, width_m: float, depth_m: float,
-                      base_elev: float = 0.0, site=None, areas=(), name: str = "") -> Terrain:
+                      base_elev: float = 0.0, site=None, areas=(), name: str = "", boundary=None) -> Terrain:
     """
     The part of a square height grid to model: `width_m` × `depth_m` around the grid's middle.
 
@@ -93,6 +99,8 @@ def terrain_from_grid(grid, half: float, step: float, *, width_m: float, depth_m
     layers fall on round heights. `site` is the site boundary and `areas` are (kind, ring)
     pairs of what the ground is (AREA_KINDS; other kinds are left out), both as polygons or
     rings of points in the grid's metres. The model's own (0, 0) is its south-west corner.
+    `boundary` (a polygon in the grid's metres, e.g. a circle around the middle) makes the
+    model's outline that shape instead of the rectangle.
     """
     if grid is None:
         raise ValueError("no ground for this site")
@@ -115,6 +123,13 @@ def terrain_from_grid(grid, half: float, step: float, *, width_m: float, depth_m
         poly = _polygon(shape)
         return affinity.translate(poly, -x0, -y0) if poly is not None else None
 
+    outline = place(boundary)
+    if outline is not None:
+        outline = outline.intersection(extent)
+        if outline.is_empty:
+            raise ValueError("the model's outline lies outside the ground")
+        extent = outline
+
     site_poly = place(site)
     kinds: dict[str, list[Polygon]] = {}
     for kind, ring in areas:
@@ -128,4 +143,4 @@ def terrain_from_grid(grid, half: float, step: float, *, width_m: float, depth_m
             if not shape.is_empty:
                 shapes.append((kind, shape))
     return Terrain(xs=xs, ys=ys, z=heights, site=site_poly, name=name, areas=tuple(shapes),
-                   origin=(x0, y0), datum=float(base_elev))
+                   origin=(x0, y0), datum=float(base_elev), boundary=outline)

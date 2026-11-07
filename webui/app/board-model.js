@@ -1244,3 +1244,56 @@ export function floatAnchor(rect, box) {
     dy: Math.max(0, Math.round(top ? rect.top : box.height - rect.top - rect.height)),
   };
 }
+
+// ------------------------------------------------------------------ the model base (laser files)
+// The stepped ground for a site model (GET .../site/model-base) and its laser files
+// (GET .../site/model-base/files), in the range picked for the surroundings.
+
+export const MODEL_SCALES = [200, 500, 1000];
+export const MODEL_DEFAULTS = { scale: 500, thickness: 3, sheet: '600x400', hollow: 0 };
+
+// The height one sheet of material stands for (m): its thickness at the model's scale.
+export function stepInterval(scale, thickness) {
+  return Math.round(Number(thickness) * Number(scale)) / 1000;
+}
+
+// A sheet size typed as WxH (mm, 50–3000 each) as [w, h], or null.
+export function readSheet(text) {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*$/i.exec(String(text ?? ''));
+  if (!m) return null;
+  const [w, h] = [Number(m[1]), Number(m[2])];
+  return w >= 50 && w <= 3000 && h >= 50 && h <= 3000 ? [w, h] : null;
+}
+
+// The query for the laser files: the model's settings and the surroundings' range.
+export function modelBaseQuery(settings, range) {
+  const s = { ...MODEL_DEFAULTS, ...(settings || {}) };
+  const sheet = readSheet(s.sheet);
+  const q = new URLSearchParams({
+    scale: String(s.scale), thickness: String(s.thickness), sheet: sheet ? `${sheet[0]}x${sheet[1]}` : String(s.sheet),
+    hollow: String(s.hollow || 0),
+  });
+  if (range?.size) q.set('size', range.size);
+  if (range?.shape) q.set('shape', range.shape);
+  return q.toString();
+}
+
+// The files' summary the server sends in the X-Model-Base header (k=v;k=v), and one line of it.
+export function readModelSummary(header) {
+  const out = {};
+  for (const part of String(header || '').split(';')) {
+    const [k, ...v] = part.split('=');
+    if (k) out[k.trim()] = v.join('=').trim();
+  }
+  return out;
+}
+
+export function modelSummaryText(summary) {
+  if (!summary || !summary.sheets) return '';
+  const size = (summary.size_mm || '').split('x').map((v) => Math.round(Number(v))).filter(Boolean);
+  const shape = summary.shape === 'circle' ? '원' : '정사각형';
+  const name = { small: '작게', medium: '중간', large: '크게' }[summary.size] || `반경 ${Math.round(Number(summary.radius) || 0)}m`;
+  return `판 ${summary.sheets}장 · 조각 ${summary.pieces}개 · 층 ${summary.layers}개`
+    + (size.length === 2 ? ` · ${size[0]}×${size[1]} mm` : '') + ` (${name}, ${shape})`
+    + (summary.buildings_left_out === 'True' ? ' · 실시간 건물은 파일에 넣지 않았습니다' : '');
+}

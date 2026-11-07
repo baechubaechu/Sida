@@ -2,10 +2,12 @@
 
 import csv
 import itertools
+import math
 
 import ezdxf
 import numpy as np
 import pytest
+from shapely import affinity
 from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import unary_union
 
@@ -398,3 +400,27 @@ def test_buildings_stand_on_their_step_as_stacked_sheets_in_a_cut_out():
     (stand,) = view["buildings"]
     assert stand["bottom"] == pytest.approx(plan.base_m + b.layer * 1.5 - 20)
     assert stand["top"] - stand["bottom"] == pytest.approx(b.sheets * 1.5) and stand["sheets"] == b.sheets
+
+
+def test_a_round_outline_cuts_every_layer_and_module_to_the_circle():
+    # a 200 m square of ground rising eastward, modelled as the 90 m circle around its middle
+    axis = np.arange(-100, 101, 2.0)
+    grid = np.tile(axis / 20.0, (len(axis), 1))
+    circle = Point(0, 0).buffer(90, quad_segs=32)
+    ring = [[-10, -10], [10, -10], [10, 10], [-10, 10]]
+    terrain = terrain_from_grid(grid, 100, 2.0, width_m=180, depth_m=180, base_elev=30.0, boundary=circle,
+                                site=ring, areas=[("road", [[-100, -5], [100, -5], [100, 5], [-100, 5]])])
+    assert terrain.extent.area == pytest.approx(math.pi * 90 ** 2, rel=0.01)
+    square = terrain_from_grid(grid, 100, 2.0, width_m=180, depth_m=180, base_elev=30.0, site=ring)
+    assert square.extent.area == pytest.approx(180 * 180) and square.boundary is None  # as before
+    (road,) = [shape for kind, shape in terrain.areas if kind == "road"]
+    assert road.within(terrain.extent.buffer(0.01))  # the engraved road stops at the circle
+    # 1:500, 3 mm: the 180 m circle is 360 mm across; a 200 mm sheet makes it modules
+    plan = slice_terrain(terrain, scale=500, thickness_mm=3, room=(200, 200))
+    circle_mm = affinity.scale(affinity.translate(terrain.extent, -float(terrain.xs[0]), -float(terrain.ys[0])), 2, 2, origin=(0, 0))
+    assert len(plan.modules) > 1
+    assert all(p.shape.within(circle_mm.buffer(0.05)) for p in plan.pieces)  # every piece inside the circle
+    base = unary_union([p.shape for p in plan.pieces if p.layer == 0])
+    assert base.area == pytest.approx(circle_mm.area, rel=0.01)  # the base sheet is the whole round model
+    modules = {p.module for p in plan.pieces}
+    assert len(modules) == len(plan.modules)  # each module still gets its share, clipped to the circle

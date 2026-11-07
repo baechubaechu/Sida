@@ -884,3 +884,21 @@ test('a round range leaves the ground cells outside it out of the mesh and the c
   assert.deepEqual(RANGE_SIZES.map((s) => [s.key, s.radius]), [['small', 100], ['medium', 200], ['large', 300]]);
   assert.deepEqual(RANGE_SHAPES.map((s) => s.key), ['square', 'circle']);
 });
+
+test('the model base: step height, sheet size, the files request and the summary line', async () => {
+  const { stepInterval, readSheet, modelBaseQuery, readModelSummary, modelSummaryText, MODEL_DEFAULTS } = await import('../../webui/app/board-model.js');
+  assert.equal(stepInterval(500, 3), 1.5); // 3 mm at 1:500 is 1.5 m of ground
+  assert.equal(stepInterval(1000, 2), 2);
+  assert.deepEqual(readSheet('600x400'), [600, 400]);
+  assert.deepEqual(readSheet(' 900 × 600 '), [900, 600]);
+  assert.equal(readSheet('600'), null);
+  assert.equal(readSheet('10x400'), null); // too small to be a sheet
+  const q = new URLSearchParams(modelBaseQuery({ ...MODEL_DEFAULTS, sheet: '900×600', hollow: 4 }, { size: 'small', shape: 'circle' }));
+  assert.deepEqual(Object.fromEntries(q), { scale: '500', thickness: '3', sheet: '900x600', hollow: '4', size: 'small', shape: 'circle' });
+  assert.equal(new URLSearchParams(modelBaseQuery(null, null)).get('size'), null); // the project's saved range
+  const s = readModelSummary('interval=1.5;layers=4;pieces=31;sheets=2;size_mm=400.0x400.0;radius=100.0;shape=circle;size=small;buildings_left_out=False');
+  assert.equal(s.sheets, '2');
+  assert.equal(modelSummaryText(s), '판 2장 · 조각 31개 · 층 4개 · 400×400 mm (작게, 원)');
+  assert.match(modelSummaryText({ ...s, size: 'None', radius: '150.0', shape: 'square', buildings_left_out: 'True' }), /반경 150m, 정사각형\) · 실시간 건물은/);
+  assert.equal(modelSummaryText({}), '');
+});

@@ -1484,3 +1484,33 @@ def test_site_context_range_is_kept_per_project_and_shapes_the_surroundings(clie
     assert client.get(url, params={"shape": "hexagon"}).status_code == 400
     assert client.get(url, params={"size": "huge"}).status_code == 400
     assert client.put("/api/projects/nope/site/context/range", json={"size": "small", "shape": "circle"}).status_code == 404
+
+
+def test_model_base_follows_the_saved_range_or_the_one_asked_for(client, project, fake_vworld):
+    from sida import board
+    from sida.experts.site import landapi, site_facts, terrain_pack
+
+    base = f"/api/projects/{project.name}/site"
+    parcel = landapi.search_parcels("경기도 군포시 금정동 689")[:1]
+    site_facts.save_facts(project.path, site_facts.build_facts("금정동 689-14", parcel))
+    origin = board.site_plan(site_facts.board_summary(site_facts.load_facts(project.path))["parcels"])["origin"]
+    conn = terrain_pack.create(terrain_pack.TERRAIN_DIR / f"t{terrain_pack.SUFFIX}", {"name": "t", "source": "s"})
+    for dy, elev in ((-0.004, 35.0), (0.0, 40.0), (0.004, 45.0)):  # rising northward
+        terrain_pack.add_contour(conn, elev, [[origin["lon"] - 0.01, origin["lat"] + dy], [origin["lon"] + 0.01, origin["lat"] + dy]])
+    conn.commit()
+    conn.close()
+
+    client.put(f"{base}/context/range", json={"size": "small", "shape": "circle"})
+    view = client.get(f"{base}/model-base", params={"interval": 2}).json()
+    assert (view["shape"], view["radius"], view["size"]) == ("circle", 100.0, "small")
+    r = client.get(f"{base}/model-base/files", params={"scale": 1000, "thickness": 2, "sheet": "300x200"})
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    told = dict(kv.split("=", 1) for kv in r.headers["X-Model-Base"].split(";"))
+    assert (told["shape"], told["size"], told["radius"]) == ("circle", "small", "100.0")
+    r = client.get(f"{base}/model-base/files", params={"scale": 1000, "thickness": 2, "sheet": "300x200",
+                                                        "size": "medium", "shape": "square"})
+    told = dict(kv.split("=", 1) for kv in r.headers["X-Model-Base"].split(";"))
+    assert (told["shape"], told["size"]) == ("square", "medium")
+    assert client.get(f"{base}/model-base/files", params={"shape": "hexagon"}).status_code == 400
+    assert client.get(f"{base}/model-base/files", params={"size": "huge"}).status_code == 400
+    assert client.get(f"{base}/model-base", params={"size": "huge"}).status_code == 400
