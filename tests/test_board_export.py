@@ -201,3 +201,25 @@ def test_each_block_of_a_mass_stands_on_the_lowest_ground_under_it(tmp_path):
     assert "base" not in saved and "z" not in saved  # the saved table is unchanged
     flat = board_export.export_scene(tmp_path, hooks=NO_SITE)
     assert next(layer for layer in flat["layers"] if layer["parent"] == "매스")["solids"][0]["base"] == 0.0
+
+
+def test_a_round_ground_goes_out_as_only_the_cells_inside_the_circle(tmp_path):
+    # a 9 × 9 grid 10 m apart over ±40 m, clipped to a 30 m circle
+    surface = {"min_x": -40, "min_y": -40, "step": 10, "nx": 9, "ny": 9, "z": [1.0] * 81, "clip_radius": 30.0}
+    cells = board_export.grid_cells(surface)
+    assert 0 < len(cells) < 64 and len(board_export.grid_cells({**surface, "clip_radius": None})) == 64
+    ground = SimpleNamespace(board_export_layers=lambda path: [{
+        "name": "대지 주변 - 지형", "short": "지형", "parent": "대지 주변", "color": (170, 150, 120), "surfaces": [surface]}])
+    doc = ezdxf.read(io.StringIO(board_export.export_board(tmp_path, "dxf", hooks=[("site", ground)]).decode("utf-8")))
+    (mesh,) = doc.modelspace().query('MESH[layer=="대지 주변 - 지형"]')
+    assert len(mesh.faces) == len(cells)
+    path = tmp_path / "round.3dm"
+    path.write_bytes(board_export.export_board(tmp_path, "3dm", hooks=[("site", ground)]))
+    model = rhino3dm.File3dm.Read(str(path))
+    layers = {layer.FullPath: layer.Index for layer in model.Layers}
+    (body,) = [o.Geometry for o in model.Objects if o.Attributes.LayerIndex == layers["대지 주변::지형"]]
+    assert isinstance(body, rhino3dm.Mesh) and body.Faces.Count == len(cells)
+    box = body.GetBoundingBox()
+    assert max(abs(box.Min.X), abs(box.Max.X), abs(box.Min.Y), abs(box.Max.Y)) <= 30.0 + 1e-6
+    # a mass still stands on the ground of a round range
+    assert board_export.mass_base([[-5, -5], [5, -5], [5, 5], [-5, 5]], surface) == pytest.approx(1.0)

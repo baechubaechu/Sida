@@ -863,3 +863,42 @@ test('a PDF is taken as it is and its page is drawn as sharp as it is seen', () 
   assert.ok(pdfNeedsRedraw({ width: 1000 }, { width: 1200 })); // it would blur
   assert.ok(pdfNeedsRedraw({ width: 1000 }, { width: 300 })); // much smaller: free the memory
 });
+
+test('a round range leaves the ground cells outside it out of the mesh and the contour lines', async () => {
+  const { contourLines, terrainFaces, cellOpen, RANGE_SIZES, RANGE_SHAPES, OUTSIDE } = await import('../../webui/app/board-model.js');
+  // 3 × 3 points rising northward; the north-east corner point is outside the circle
+  const z = [0, 0, 0, 1, 1, 1, 2, 2, 2];
+  const square = { min: -10, step: 10, n: 3, z, classes: 'ggggggggg' };
+  const round = { ...square, classes: `gggggggg${OUTSIDE}` };
+  assert.equal(terrainFaces(square).length, 4 * 6); // 4 cells, 2 triangles each
+  assert.equal(terrainFaces(round).length, 3 * 6); // the north-east cell is left out
+  assert.equal(cellOpen(round, 1, 1), false);
+  assert.equal(cellOpen(round, 0, 1), true);
+  assert.equal(cellOpen({ ...square, classes: undefined }, 1, 1), true);
+  // PlaneGeometry's vertex order: row 0 is the north row (j = n - 1)
+  const top = terrainFaces(square).slice(0, 6);
+  assert.deepEqual(top, [0, 3, 1, 3, 4, 1]);
+  const segs = (t) => contourLines(t, 0.5).flatMap((l) => l.segments);
+  assert.ok(segs(round).length < segs(square).length);
+  assert.ok(segs(round).every(([x1, y1, x2, y2]) => !(x1 > 0 && y1 > 0 && x2 > 0 && y2 > 0))); // none in the cut cell
+  assert.deepEqual(RANGE_SIZES.map((s) => [s.key, s.radius]), [['small', 100], ['medium', 200], ['large', 300]]);
+  assert.deepEqual(RANGE_SHAPES.map((s) => s.key), ['square', 'circle']);
+});
+
+test('the model base: step height, sheet size, the files request and the summary line', async () => {
+  const { stepInterval, readSheet, modelBaseQuery, readModelSummary, modelSummaryText, MODEL_DEFAULTS } = await import('../../webui/app/board-model.js');
+  assert.equal(stepInterval(500, 3), 1.5); // 3 mm at 1:500 is 1.5 m of ground
+  assert.equal(stepInterval(1000, 2), 2);
+  assert.deepEqual(readSheet('600x400'), [600, 400]);
+  assert.deepEqual(readSheet(' 900 × 600 '), [900, 600]);
+  assert.equal(readSheet('600'), null);
+  assert.equal(readSheet('10x400'), null); // too small to be a sheet
+  const q = new URLSearchParams(modelBaseQuery({ ...MODEL_DEFAULTS, sheet: '900×600', hollow: 4 }, { size: 'small', shape: 'circle' }));
+  assert.deepEqual(Object.fromEntries(q), { scale: '500', thickness: '3', sheet: '900x600', hollow: '4', size: 'small', shape: 'circle' });
+  assert.equal(new URLSearchParams(modelBaseQuery(null, null)).get('size'), null); // the project's saved range
+  const s = readModelSummary('interval=1.5;layers=4;pieces=31;sheets=2;size_mm=400.0x400.0;radius=100.0;shape=circle;size=small;buildings_left_out=False');
+  assert.equal(s.sheets, '2');
+  assert.equal(modelSummaryText(s), '판 2장 · 조각 31개 · 층 4개 · 400×400 mm (작게, 원)');
+  assert.match(modelSummaryText({ ...s, size: 'None', radius: '150.0', shape: 'square', buildings_left_out: 'True' }), /반경 150m, 정사각형\) · 실시간 건물은/);
+  assert.equal(modelSummaryText({}), '');
+});

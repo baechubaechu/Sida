@@ -918,6 +918,40 @@ export function massBase(outline, terrain) {
 // Contour lines through the ground grid every `interval` m of height (marching squares): one
 // entry per height, {z, index, segments: [[x1, y1, x2, y2], ...]}; every fifth height is an
 // index contour. The very top height (which only touches the grid) is skipped.
+// The range the surroundings are made in (GET/PUT .../site/context/range): the size as a radius
+// (a square is ±radius) and the shape. A round range marks the ground outside it OUTSIDE.
+export const RANGE_SIZES = [
+  { key: 'small', label: '작게 · 반경 100m', radius: 100 },
+  { key: 'medium', label: '중간 · 반경 200m', radius: 200 },
+  { key: 'large', label: '크게 · 반경 300m', radius: 300 },
+];
+export const RANGE_SHAPES = [{ key: 'square', label: '정사각형' }, { key: 'circle', label: '원' }];
+export const OUTSIDE = 'x';
+
+// Whether the ground cell from point (i, j) to (i + 1, j + 1) is drawn: none of its corners outside.
+export function cellOpen(terrain, i, j) {
+  const c = terrain?.classes;
+  if (!c) return true;
+  const n = terrain.n;
+  return c[j * n + i] !== OUTSIDE && c[j * n + i + 1] !== OUTSIDE && c[(j + 1) * n + i] !== OUTSIDE && c[(j + 1) * n + i + 1] !== OUTSIDE;
+}
+
+// The triangles of the ground mesh (three.js PlaneGeometry's vertex order: rows from the top,
+// north) without the cells that have a corner outside the range.
+export function terrainFaces(terrain) {
+  const n = terrain.n;
+  const out = [];
+  for (let iy = 0; iy < n - 1; iy += 1) {
+    const j = n - 2 - iy; // the cell's southern row of points
+    for (let ix = 0; ix < n - 1; ix += 1) {
+      if (!cellOpen(terrain, ix, j)) continue;
+      const a = ix + n * iy, b = ix + n * (iy + 1), c = ix + 1 + n * (iy + 1), d = ix + 1 + n * iy;
+      out.push(a, b, d, b, c, d);
+    }
+  }
+  return out;
+}
+
 export function contourLines(terrain, interval) {
   if (!terrain || !terrain.n || !(interval > 0)) return [];
   const { n, z } = terrain;
@@ -933,6 +967,7 @@ export function contourLines(terrain, interval) {
     };
     for (let j = 0; j < n - 1; j += 1) {
       for (let i = 0; i < n - 1; i += 1) {
+        if (!cellOpen(terrain, i, j)) continue;
         const corners = [[i, j], [i + 1, j], [i + 1, j + 1], [i, j + 1]];
         const above = corners.map(([ci, cj]) => z[cj * n + ci] >= level);
         if (above.every(Boolean) || !above.some(Boolean)) continue;
@@ -1208,4 +1243,57 @@ export function floatAnchor(rect, box) {
     dx: Math.max(0, Math.round(left ? rect.left : box.width - rect.left - rect.width)),
     dy: Math.max(0, Math.round(top ? rect.top : box.height - rect.top - rect.height)),
   };
+}
+
+// ------------------------------------------------------------------ the model base (laser files)
+// The stepped ground for a site model (GET .../site/model-base) and its laser files
+// (GET .../site/model-base/files), in the range picked for the surroundings.
+
+export const MODEL_SCALES = [200, 500, 1000];
+export const MODEL_DEFAULTS = { scale: 500, thickness: 3, sheet: '600x400', hollow: 0 };
+
+// The height one sheet of material stands for (m): its thickness at the model's scale.
+export function stepInterval(scale, thickness) {
+  return Math.round(Number(thickness) * Number(scale)) / 1000;
+}
+
+// A sheet size typed as WxH (mm, 50–3000 each) as [w, h], or null.
+export function readSheet(text) {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*$/i.exec(String(text ?? ''));
+  if (!m) return null;
+  const [w, h] = [Number(m[1]), Number(m[2])];
+  return w >= 50 && w <= 3000 && h >= 50 && h <= 3000 ? [w, h] : null;
+}
+
+// The query for the laser files: the model's settings and the surroundings' range.
+export function modelBaseQuery(settings, range) {
+  const s = { ...MODEL_DEFAULTS, ...(settings || {}) };
+  const sheet = readSheet(s.sheet);
+  const q = new URLSearchParams({
+    scale: String(s.scale), thickness: String(s.thickness), sheet: sheet ? `${sheet[0]}x${sheet[1]}` : String(s.sheet),
+    hollow: String(s.hollow || 0),
+  });
+  if (range?.size) q.set('size', range.size);
+  if (range?.shape) q.set('shape', range.shape);
+  return q.toString();
+}
+
+// The files' summary the server sends in the X-Model-Base header (k=v;k=v), and one line of it.
+export function readModelSummary(header) {
+  const out = {};
+  for (const part of String(header || '').split(';')) {
+    const [k, ...v] = part.split('=');
+    if (k) out[k.trim()] = v.join('=').trim();
+  }
+  return out;
+}
+
+export function modelSummaryText(summary) {
+  if (!summary || !summary.sheets) return '';
+  const size = (summary.size_mm || '').split('x').map((v) => Math.round(Number(v))).filter(Boolean);
+  const shape = summary.shape === 'circle' ? '원' : '정사각형';
+  const name = { small: '작게', medium: '중간', large: '크게' }[summary.size] || `반경 ${Math.round(Number(summary.radius) || 0)}m`;
+  return `판 ${summary.sheets}장 · 조각 ${summary.pieces}개 · 층 ${summary.layers}개`
+    + (size.length === 2 ? ` · ${size[0]}×${size[1]} mm` : '') + ` (${name}, ${shape})`
+    + (summary.buildings_left_out === 'True' ? ' · 실시간 건물은 파일에 넣지 않았습니다' : '');
 }

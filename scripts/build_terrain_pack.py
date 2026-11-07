@@ -9,6 +9,12 @@ CC BY). Only what lies in the box is kept. Each kind of source goes in its own p
                    and 건물 N3A_B0010000 (층수, 용도: floors where GIS건물통합정보 has none)
   --buildings PATH GIS건물통합정보 AL_D010_<시도>_<날짜>.zip (or a folder of them: the newest by the
                    date in the name is taken; pyshp reads the zip as it is)
+  --hdmap PATH     국토지리정보원 정밀도로지도 downloads (국토정보플랫폼, 공공누리 제1유형): the
+                   "(B110)정밀도로지도_….zip" files as they are, or a folder of them or of what
+                   they unzip to. Only the HDMap_UTMK_정표고 layers are read: road heights from
+                   A2_LINK 주행경로링크 (RoadType 1), B2_SURFACELINEMARK 노면선표시, B3_SURFACEMARK
+                   노면표시 and A4_SUBSIDIARYSECTION 보도 (not on bridges or in tunnels: A3 sections
+                   and A2 links of other RoadTypes), one point per metre; the 보도 as sidewalk areas
 
 Needs two packages the app itself does not: pip install -e ".[pack]"  (pyshp, pyproj)
 
@@ -16,6 +22,7 @@ Needs two packages the app itself does not: pip install -e ".[pack]"  (pyshp, py
         --contours DIR --source-date 2026-10-01
     python scripts/build_terrain_pack.py --name seoul-junggu --box 126.96,37.54,127.03,37.58 --areas DIR
     python scripts/build_terrain_pack.py --name seoul --box 126.76,37.41,127.19,37.72 --buildings DIR
+    python scripts/build_terrain_pack.py --name seoul-junggu --box 126.96,37.54,127.03,37.58 --hdmap DIR
 
 A pack goes to ~/Sida/context_data/<name>-<kind>.terrain.sqlite (outside the repository).
 """
@@ -40,7 +47,14 @@ SOURCES = {
     "contours": "국토지리정보원 연속수치지형도 등고선(N3L_F0010000)·표고점(N3P_F0020000), CC BY",
     "areas": "국토지리정보원 수치지형도 v2.0 1:5,000 도로경계·보도·하천·호소, CC BY",
     "buildings": "국토교통부 GIS건물통합정보(AL_D010), CC BY",
+    "roads": "국토지리정보원 정밀도로지도(UTM-K 정표고), 공공누리 1유형",
 }
+HDMAP_DIR = "HDMap_UTMK_정표고"  # the 정밀도로지도 layers in UTM-K with heights above sea level
+HDMAP_LAYERS = ("A2_LINK", "A3_DRIVEWAYSECTION", "A4_SUBSIDIARYSECTION", "B2_SURFACELINEMARK", "B3_SURFACEMARK")
+GROUND_ROAD = 1  # RoadType 1 일반도로; 2 터널, 3 교량, 4 지하차도, 5 고가차도 are not the ground
+SIDEWALK = 3  # A4_SUBSIDIARYSECTION SubType 3: 보도
+ROAD_POINT_GAP = 1.0  # m: at most one road point per cell of this size, and lines densified to it
+OFF_GROUND_REACH = 2.0  # m: B2/B3/A4 points this close to a bridge or tunnel link are not the ground
 AREA_LAYERS = {
     "N3A_A0010000": "road",  # 도로경계
     "N3A_A0033320": "sidewalk",  # 보도
@@ -62,13 +76,14 @@ def main() -> int:
     ap.add_argument("--contours", type=Path, help="folder with the unzipped contour and spot-height files")
     ap.add_argument("--areas", type=Path, help="folder with the unzipped 1:5,000 sheets")
     ap.add_argument("--buildings", type=Path, help="an AL_D010 zip, or a folder holding them")
+    ap.add_argument("--hdmap", type=Path, help="정밀도로지도 zips, or a folder of them or of what they unzip to")
     ap.add_argument("--source-date", default="", help="the download's 기준일 / 갱신일 (contours, areas)")
     ap.add_argument("--out", type=Path, default=terrain_pack.TERRAIN_DIR)
     args = ap.parse_args()
     if Path(args.name).name != args.name or args.name in {"", ".", ".."}:
         ap.error("--name must be a single file name")
-    if not (args.contours or args.areas or args.buildings):
-        ap.error("give --contours, --areas or --buildings")
+    if not (args.contours or args.areas or args.buildings or args.hdmap):
+        ap.error("give --contours, --areas, --buildings or --hdmap")
 
     args.out.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=args.out) as staging, ExitStack() as cleanup:
@@ -234,7 +249,232 @@ def build(args, staging: Path, cleanup: ExitStack) -> int:
         conn.execute("UPDATE meta SET value = ? WHERE key = 'source_date'", (args.source_date or date,))
         conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('file', ?)", (source.name,))
         done(path, conn, f"{count} buildings from {source.name} (기준일 {args.source_date or date})", started)
+
+    if args.hdmap:
+        started = time.perf_counter()
+        path, conn = pack("roads", args.source_date)
+        cells: dict[tuple[int, int], list[float]] = {}  # 1 m cell in the file's metres → [x, y, z sums, n]
+        date, sections, walks, tr = "", 0, 0, None
+        for _section, layers in hdmap_sections(args.hdmap):
+            if not {"A2_LINK", "prj"} <= layers.keys():
+                continue
+            sections += 1
+            crs = CRS.from_wkt(layers["prj"])
+            tr = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+            back = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+            xs, ys = back.transform([west, east, west, east], [south, south, north, north])
+            own = (min(xs), min(ys), max(xs), max(ys))
+            points, sidewalks, when = road_heights(layers, own)
+            date = max(date, when)
+            for x, y, z in points:
+                c = cells.setdefault((int(x // ROAD_POINT_GAP), int(y // ROAD_POINT_GAP)), [0.0, 0.0, 0.0, 0])
+                c[0] += x
+                c[1] += y
+                c[2] += z
+                c[3] += 1
+            for ring in sidewalks:
+                lons, lats = tr.transform(*zip(*ring, strict=True))
+                terrain_pack.add_area(conn, "sidewalk", [list(q) for q in zip(lons, lats, strict=True)])
+                walks += 1
+        if not cells:
+            raise ValueError("no 정밀도로지도 road heights found in the requested area")
+        for x, y, z, n in cells.values():
+            lon, lat = tr.transform(x / n, y / n)
+            terrain_pack.add_road_point(conn, lon, lat, round(z / n, 3))
+        conn.execute("UPDATE meta SET value = ? WHERE key = 'source_date'", (args.source_date or _date(date),))
+        done(path, conn, f"{len(cells)} road points, {walks} sidewalks from {sections} sections", started)
     return 0
+
+
+def cpg_encoding(text: str | None) -> str:
+    """The encoding a shapefile's .cpg names (EUC-KR → cp949, which reads it and more); cp949 without one."""
+    name = (text or "").strip().lower().replace("-", "_")
+    if name in ("utf_8", "utf8", "65001"):
+        return "utf-8"
+    return "cp949"
+
+
+def road_heights(layers: dict, own: tuple[float, float, float, float]):
+    """
+    One 정밀도로지도 section's road-surface heights in the file's metres: ([(x, y, z)], [sidewalk outer
+    rings [(x, y)]], latest UpdateDate). Kept: A2 links on ordinary roads (RoadType 1), and the
+    lane lines (B2), road markings (B3) and sidewalks (A4 SubType 3) that are not on a bridge or in
+    a tunnel: not inside an A3 section whose RoadType isn't 1, nor within OFF_GROUND_REACH m of an
+    A2 link whose RoadType isn't 1 (a lane line often names no link). Lines are densified to
+    ROAD_POINT_GAP; only points inside `own` (the box in the file's metres) are kept.
+    """
+    import shapefile  # pyshp
+
+    def reader(stem):
+        files = layers.get(stem)
+        if not files:
+            return None
+        files = dict(files)
+        encoding = cpg_encoding(files.pop("cpg", None))
+        return shapefile.Reader(**files, encoding=encoding, encodingErrors="replace")
+
+    def column(r, name):
+        fields = [f[0].lower() for f in r.fields[1:]]
+        return fields.index(name.lower()) if name.lower() in fields else None
+
+    def rows(r):
+        return zip(r.iterShapes(), r.iterRecords(), strict=True)
+
+    def parts(shape):
+        bounds = list(shape.parts) + [len(shape.points)]
+        zs = list(getattr(shape, "z", None) or [])
+        return [[(*shape.points[i][:2], zs[i]) for i in range(a, z) if i < len(zs)] for a, z in zip(bounds, bounds[1:], strict=False)]
+
+    points, sidewalks, date = [], [], ""
+    off_lines, off_areas = [], []  # bridges, tunnels, underpasses, overpasses
+    links = reader("A2_LINK")
+    kind_at, when_at = column(links, "RoadType"), column(links, "UpdateDate")
+    for shape, row in rows(links):
+        if when_at is not None:
+            date = max(date, str(row[when_at] or ""))
+        ground = _int(row[kind_at]) == GROUND_ROAD
+        for part in parts(shape):
+            if ground:
+                points += _dense(part)
+            else:
+                off_lines.append(part)
+    sections = reader("A3_DRIVEWAYSECTION")
+    if sections is not None:
+        kind_at = column(sections, "RoadType")
+        for shape, row in rows(sections):
+            if kind_at is not None and _int(row[kind_at]) != GROUND_ROAD:
+                off_areas += [[(x, y) for x, y, _z in ring] for ring in parts(shape)[:1]]
+    on_ground = _off_ground_test(off_lines, off_areas)
+    for stem in ("B2_SURFACELINEMARK", "B3_SURFACEMARK"):
+        r = reader(stem)
+        if r is not None:
+            for shape, _row in rows(r):
+                for part in parts(shape):
+                    points += [p for p in _dense(part) if on_ground(p)]
+    walks = reader("A4_SUBSIDIARYSECTION")
+    if walks is not None:
+        sub_at = column(walks, "SubType")
+        for shape, row in rows(walks):
+            if sub_at is None or _int(row[sub_at]) != SIDEWALK:
+                continue
+            ring = parts(shape)[:1]
+            if not ring or len(ring[0]) < 3:
+                continue
+            kept = [p for p in _dense(ring[0]) if on_ground(p)]
+            points += kept
+            if kept:
+                sidewalks.append([(x, y) for x, y, _z in ring[0]])
+    inside = [p for p in points if own[0] <= p[0] <= own[2] and own[1] <= p[1] <= own[3]]
+    walks_in = [r for r in sidewalks if any(own[0] <= x <= own[2] and own[1] <= y <= own[3] for x, y in r)]
+    return inside, walks_in, date
+
+
+def _dense(part, gap: float = ROAD_POINT_GAP):
+    """A line's points with more in between, so no two are farther apart than `gap`."""
+    out = part[:1]
+    for (x1, y1, z1), (x2, y2, z2) in zip(part, part[1:], strict=False):
+        k = max(1, int(((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5 // gap))
+        out += [(x1 + (x2 - x1) * s / k, y1 + (y2 - y1) * s / k, z1 + (z2 - z1) * s / k) for s in range(1, k + 1)]
+    return out
+
+
+def _off_ground_test(lines, areas):
+    """A test for a point (x, y, z): True unless it lies on a bridge or in a tunnel (see road_heights)."""
+    reach = OFF_GROUND_REACH
+    segments: dict[tuple[int, int], list] = {}
+    for line in lines:
+        for (x1, y1, _a), (x2, y2, _b) in zip(line, line[1:], strict=False):
+            for cx in range(int((min(x1, x2) - reach) // reach), int((max(x1, x2) + reach) // reach) + 1):
+                for cy in range(int((min(y1, y2) - reach) // reach), int((max(y1, y2) + reach) // reach) + 1):
+                    segments.setdefault((cx, cy), []).append((x1, y1, x2, y2))
+    boxes = [(min(x for x, _ in r), min(y for _, y in r), max(x for x, _ in r), max(y for _, y in r), r) for r in areas]
+
+    def near_line(x, y):
+        for x1, y1, x2, y2 in segments.get((int(x // reach), int(y // reach)), ()):
+            dx, dy = x2 - x1, y2 - y1
+            t = 0.0 if dx == dy == 0 else max(0.0, min(1.0, ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy)))
+            if (x - x1 - t * dx) ** 2 + (y - y1 - t * dy) ** 2 <= reach * reach:
+                return True
+        return False
+
+    def in_area(x, y):
+        for w, s, e, n, ring in boxes:
+            if w <= x <= e and s <= y <= n and _inside(x, y, ring):
+                return True
+        return False
+
+    return lambda p: not (near_line(p[0], p[1]) or in_area(p[0], p[1]))
+
+
+def _inside(x, y, ring) -> bool:
+    hit = False
+    for (x1, y1), (x2, y2) in zip(ring, ring[1:] + ring[:1], strict=True):
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            hit = not hit
+    return hit
+
+
+def _int(value) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _date(text: str) -> str:
+    """YYYYMMDD (as the 정밀도로지도 writes it) as YYYY-MM-DD; anything else as it is."""
+    return f"{text[:4]}-{text[4:6]}-{text[6:8]}" if len(text) >= 8 and text[:8].isdigit() else text
+
+
+def hdmap_sections(source: Path):
+    """
+    (section, {layer: {"shp", "shx", "dbf": file objects, "cpg": text}, "prj": text}) for each
+    정밀도로지도 section found in `source`: a downloaded zip (read as it is), or a folder of zips or of
+    unzipped sections. Only the HDMAP_DIR layers are read; the rest of a download (GNSS-INS logs,
+    photos) is skipped.
+    """
+    import io
+    import zipfile
+
+    zips = [source] if source.suffix.lower() == ".zip" else sorted(source.rglob("*.zip")) if source.is_dir() else []
+    for zpath in zips:
+        with zipfile.ZipFile(zpath) as z:
+            found: dict[str, dict] = {}
+            for info in z.infolist():
+                name = info.filename if info.flag_bits & 0x800 else _korean(info.filename)
+                parts = name.split("/")
+                if len(parts) < 3 or parts[-2] != HDMAP_DIR:
+                    continue
+                stem, _, ext = parts[-1].rpartition(".")
+                ext = ext.lower()
+                layers = found.setdefault("/".join(parts[:-2]), {})
+                if ext == "prj" and stem == "A2_LINK":
+                    layers["prj"] = z.read(info).decode("ascii", "ignore")
+                elif stem in HDMAP_LAYERS and ext in ("shp", "shx", "dbf"):
+                    layers.setdefault(stem, {})[ext] = io.BytesIO(z.read(info))
+                elif stem in HDMAP_LAYERS and ext == "cpg":
+                    layers.setdefault(stem, {})["cpg"] = z.read(info).decode("ascii", "ignore")
+            yield from found.items()
+    if source.is_dir():
+        for folder in sorted(p for p in source.rglob(HDMAP_DIR) if p.is_dir()):
+            layers: dict = {}
+            for stem in HDMAP_LAYERS:
+                if (folder / f"{stem}.shp").exists():
+                    files = {ext: io.BytesIO((folder / f"{stem}.{ext}").read_bytes()) for ext in ("shp", "shx", "dbf")}
+                    if (folder / f"{stem}.cpg").exists():
+                        files["cpg"] = (folder / f"{stem}.cpg").read_text(encoding="ascii", errors="ignore")
+                    layers[stem] = files
+            if (folder / "A2_LINK.prj").exists():
+                layers["prj"] = (folder / "A2_LINK.prj").read_text(encoding="ascii", errors="ignore")
+            yield str(folder.parent.relative_to(source)), layers
+
+
+def _korean(name: str) -> str:
+    """A zip entry name the way Korean Windows wrote it (cp949 bytes read as cp437)."""
+    try:
+        return name.encode("cp437").decode("cp949")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return name
 
 
 if __name__ == "__main__":

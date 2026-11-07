@@ -8,13 +8,15 @@
 
 | 메서드·경로 | 요청 | 응답 |
 |---|---|---|
-| `GET /api/projects/{name}/site/context?radius=200` | `radius`: 대지 가운데에서 m, 50~500(기본 200) | 아래 표. 대지 사실이 없으면 `404`, 반경이 범위 밖이거나 대지 경계가 없으면 `400`, 브이월드 오류는 대지 API와 같은 코드(`503` 키, `429` 한도, `502` 연결) |
+| `GET /api/projects/{name}/site/context?size=medium&shape=square` | `size`: `small`(반경 100m)·`medium`(200m)·`large`(300m), `shape`: `square`(±반경 정사각형)·`circle`(반경 원). 안 주면 프로젝트에 저장한 범위(없으면 `medium`·`square`). 예전 `radius`(m, 50~500)도 `size` 대신 받음 | 아래 표. 대지 사실이 없으면 `404`, 범위·모양·반경이 잘못됐거나 대지 경계가 없으면 `400`, 브이월드 오류는 대지 API와 같은 코드(`503` 키, `429` 한도, `502` 연결) |
+| `GET /api/projects/{name}/site/context/range` | | `{size, shape, radius}`: 이 프로젝트에 저장한 범위(없으면 기본값) |
+| `PUT /api/projects/{name}/site/context/range` | `{size, shape}` | `{size, shape, radius}`. 프로젝트 폴더의 `site_context.json`에 저장(제도판 `board.json`이 아님). 모르는 값은 `400`, 없는 프로젝트는 `404`. 내보내기(`대지 주변` 레이어, 매스 높이)도 이 범위로 만듦 |
 
 | 키 | 내용 |
 |---|---|
-| `origin`, `radius` | 원점(위경도), 반경 |
+| `origin`, `radius`, `size`, `shape` | 원점(위경도), 반경(m), 범위 이름(반경이 그 값일 때, 아니면 `null`), 모양 |
 | `ground_elev` | 대지 가운데 지반의 해발 높이(m). 지형 묶음이 없으면 `null` |
-| `terrain` | `{min, step, n, z, classes}`: `step`(4m) 간격 n×n 격자의 높이(남쪽 줄부터, 대지 가운데 기준)와 점마다 지면 종류 한 글자(`g` 대지, `r` 도로, `s` 인도, `w` 수계). 지형 묶음이 없으면 `null`(평지로 그림) |
+| `terrain` | `{min, step, n, z, classes}`: `step`(4m) 간격 n×n 격자의 높이(남쪽 줄부터, 대지 가운데 기준)와 점마다 지면 종류 한 글자(`g` 대지, `r` 도로, `s` 인도, `w` 수계, `x` 원 밖: 높이는 남기고 화면은 그 칸을 그리지 않음). 지형 묶음이 없으면 `null`(평지로 그림) |
 | `contours` | 원본 등고선(5m 간격) `{elev, z, index, points}`. `index`는 25m마다의 계곡선 |
 | `buildings` | `{outline(반시계), base(기초 바닥), ground(외곽선 아래 지반의 중앙값), foundation, top, height(지반에서), height_source, floors, use, name, on_site, ground_line(지형을 따라가는 접지선 [x,y,z])}` |
 | `unknown_buildings` | 높이도 층수도 없는 건물: `{outline, base, ground_line, name}`. 상자로 세우지 않고 바닥선만 |
@@ -24,7 +26,7 @@
 | `counts`, `notes` | 높이 원천별 건물 수, 일부 조회가 실패한 이유(`ledger:no_key` 등) |
 | `terrain_sources`, `building_source`, `disclaimer` | 출처 이름과 기준일, 면책 문구 |
 
-같은 대지·반경은 10분 동안 서버 메모리에서 다시 씁니다. 브이월드 응답은 저장하지 않습니다(이용약관 제19조⑥).
+원 범위에서는 건물·필지·지면 영역을 가운데가 원 안에 있는 것만 남기고, 등고선도 원으로 자릅니다. 내보내기의 지형은 원 안 칸만 담은 메시(3dm, DXF)입니다. 같은 대지·반경·모양은 10분 동안 서버 메모리에서 다시 씁니다. 브이월드 응답은 저장하지 않습니다(이용약관 제19조⑥).
 
 ## 높이를 정하는 순서
 
@@ -53,6 +55,7 @@ pip install -e ".[pack]"   # pyshp, pyproj (묶음을 만들 때만)
 python scripts/build_terrain_pack.py --name seoul --box 126.76,37.41,127.19,37.72 --contours <등고선·표고점 SHP 폴더> --source-date 2026-10-01
 python scripts/build_terrain_pack.py --name seoul-junggu --box 126.94,37.53,127.04,37.59 --areas <1:5,000 도엽 SHP 폴더> --source-date 2026-01-27
 python scripts/build_terrain_pack.py --name seoul --box 126.76,37.41,127.19,37.72 --buildings <AL_D010 zip 또는 그 폴더>
+python scripts/build_terrain_pack.py --name seoul-junggu --box 126.76,37.41,127.19,37.72 --hdmap "<(B110)정밀도로지도_서울특별시_중구.zip>"
 ```
 
 | 종류 | 원본 (브이월드 다운로드) | 묶음에 남는 것 |
@@ -60,7 +63,9 @@ python scripts/build_terrain_pack.py --name seoul --box 126.76,37.41,127.19,37.7
 | `--contours` | 연속수치지형도 등고선 `N3L_F0010000_*.shp`(시도별 파일 목록 xlsx로 번호 확인), 표고점 `N3P_F0020000.shp` | 등고선(해발 m), 표고점 |
 | `--areas` | 수치지형도 v2.0 1:5,000 SHP(시군구 zip 안의 도엽 zip을 풀어 둔 폴더) | 도로경계·보도·하천경계·실폭하천·호소 면, 건물 층수·용도 |
 | `--buildings` | GIS건물통합정보 `AL_D010_<시도>_<날짜>.zip`(폴더를 주면 이름의 날짜가 가장 늦은 것) | 외곽선, PNU, 용도, 높이, 지상층수, 건물명, 동명, 데이터기준일자 |
+| `--hdmap` | 국토지리정보원 정밀도로지도 벡터(국토정보플랫폼, 공공누리 1유형) `(B110)정밀도로지도_….zip`을 받은 그대로(또는 그 폴더). `HDMap_UTMK_정표고` 레이어만 읽고 측량 차량 기록·사진은 건너뜀 | 도로면 높이 점(1m에 하나): 일반도로(`RoadType` 1)의 주행경로링크 A2, 노면선표시 B2, 노면표시 B3, 보도 A4(`SubType` 3). 교량·터널·지하차도·고가차도(A3 차도구간이나 A2 링크의 `RoadType`가 1이 아닌 곳, 링크에서 2m 안)는 뺌. 보도 면은 `sidewalk` 영역으로도 |
 
+- 정밀도로지도는 평면·수직 ±0.25m(1:5,000 수치지형도는 수직 ±1.67m)라, 도로면 높이 점이 있는 곳에서는 지형이 그 점을 따릅니다. 그 점에서 8m(`ROAD_TRUST`) 안의 등고선·표고점은 쓰지 않고, 이때 내보내는 등고선은 만든 지형에서 5m 간격으로 다시 그립니다. 범위는 큰 도로 위주라 이름 없는 골목은 등고선으로 메웁니다. 구 단위 zip이 수 GB인 것은 대부분 측량 차량 기록이라, 묶음은 작습니다(중구 26MB: 도로점 28만, 보도 669).
 - 시험에 쓴 서울 묶음: 등고선 436MB(110,582선·99,191점), 중구 영역 35MB, 서울 건물 260MB(695,770동, 기준일 2026-03-06)
 - 국토지리정보원 보안관리규정은 1:5,000 이상 지도의 좌표와 등고선·표고값을 인터넷으로 표시하지 못하게 합니다. 그래서 묶음은 각 PC 안에서만 쓰고, 외부 서버에 올리지 않습니다. 측량성과의 국외 반출도 금지라, 해외 서버(팀 VPS 포함)에는 두지 않습니다.
 

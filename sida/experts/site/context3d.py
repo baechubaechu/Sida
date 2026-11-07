@@ -43,11 +43,19 @@ from sida.experts.site import datago, landapi, terrain_pack
 
 DEFAULT_RADIUS = 200.0  # m around the site's middle
 MAX_RADIUS = 500.0
+# The range the designer picks (sida/experts/site/context_range.py keeps it per project): the size
+# as a radius in m (a square is ±radius) and the shape. medium + square is the default.
+SIZES = {"small": 100.0, "medium": 200.0, "large": 300.0}
+SHAPES = ("square", "circle")
+DEFAULT_SIZE, DEFAULT_SHAPE = "medium", "square"
+OUTSIDE = "x"  # the class of a ground point outside a circle (its height is kept)
 SOLVE_STEP = 2.0  # m, the grid the ground is computed on
 VIEW_STEP = 4.0  # m, the grid the screen gets
 MARGIN = 60.0  # m read beyond the radius so the edge of the ground is not guessed
+CONTOUR_EVERY = 5.0  # m: the 1:5,000 contour interval (and of the lines drawn from the ground)
 INDEX_EVERY = 25.0  # m: index (계곡선) contours on a 5 m interval
 DRAPE_GAP = 2.0  # m between the points of a building's line on the ground
+ROAD_TRUST = 8.0  # m: contour and spot heights this close to a 정밀도로지도 road point give way to it
 # Storey heights for an estimate from the number of floors (m), by the 건축물대장 main use.
 STOREY = (
     (("주택", "아파트", "다세대", "연립", "다가구", "기숙사"), 2.9),
@@ -178,11 +186,120 @@ def _densify(line: np.ndarray, gap: float) -> np.ndarray:
     return np.vstack(out)
 
 
-def ground(frame: Frame, radius: float, *, folder: Path | None = None) -> dict:
+def grid_contours(grid: np.ndarray, half: float, step: float, interval: float) -> list[tuple[float, np.ndarray]]:
+    """
+    Contour lines through a height grid every `interval` m (marching squares, the pieces joined
+    into lines): [(elevation, points (k × 2) in the grid's metres)].
+    """
+    lo, hi = float(grid.min()), float(grid.max())
+    quads = np.stack([grid[:-1, :-1], grid[:-1, 1:], grid[1:, 1:], grid[1:, :-1]])
+    cell_lo, cell_hi = quads.min(axis=0), quads.max(axis=0)
+    out = []
+    level = math.ceil(lo / interval) * interval
+    while level < hi:
+        pieces = []
+        above = grid >= level
+        for i, j in np.argwhere((cell_lo < level) & (cell_hi >= level)):  # only the cells the level crosses
+            corners = ((i, j), (i, j + 1), (i + 1, j + 1), (i + 1, j))
+            flags = [above[c] for c in corners]
+            if all(flags) or not any(flags):
+                continue
+            cuts = []
+            for k in range(4):
+                a, b = corners[k], corners[(k + 1) % 4]
+                if above[a] != above[b]:
+                    a, b = sorted(((int(a[0]), int(a[1])), (int(b[0]), int(b[1]))))  # one cut per edge
+                    za, zb = grid[a], grid[b]
+                    s = (level - za) / (zb - za)
+                    y = -half + (a[0] + (b[0] - a[0]) * s) * step
+                    x = -half + (a[1] + (b[1] - a[1]) * s) * step
+                    cuts.append((round(x, 3), round(y, 3)))
+            for k in range(0, len(cuts) - 1, 2):
+                pieces.append((cuts[k], cuts[k + 1]))
+        for line in _join(pieces):
+            out.append((float(level), np.asarray(line, dtype=float)))
+        level += interval
+    return out
+
+
+def _join(pieces: list[tuple[tuple, tuple]]) -> list[list[tuple]]:
+    """Line pieces (two end points each) joined end to end into lines."""
+    ends: dict[tuple, list[int]] = {}
+    for k, (a, b) in enumerate(pieces):
+        ends.setdefault(a, []).append(k)
+        ends.setdefault(b, []).append(k)
+    used = [False] * len(pieces)
+    lines = []
+    for start in range(len(pieces)):
+        if used[start]:
+            continue
+        used[start] = True
+        line = list(pieces[start])
+        for forward in (True, False):
+            while True:
+                tip = line[-1] if forward else line[0]
+                nxt = next((k for k in ends.get(tip, ()) if not used[k]), None)
+                if nxt is None:
+                    break
+                used[nxt] = True
+                a, b = pieces[nxt]
+                other = b if a == tip else a
+                if forward:
+                    line.append(other)
+                else:
+                    line.insert(0, other)
+        lines.append(line)
+    return lines
+
+
+def away_from_roads(fixed: list[tuple[float, float, float]], road_xy: np.ndarray) -> list[tuple[float, float, float]]:
+    """The contour and spot points away from the road points: by cells of ROAD_TRUST / 2, so a
+    point within ROAD_TRUST m of a road point is always dropped and one beyond about 2 × ROAD_TRUST
+    is always kept."""
+    cell = ROAD_TRUST / 2
+    roads = {(int(math.floor(x / cell)), int(math.floor(y / cell))) for x, y in road_xy}
+    reach = range(-2, 3)
+
+    def near(x, y):
+        cx, cy = int(math.floor(x / cell)), int(math.floor(y / cell))
+        return any((cx + dx, cy + dy) in roads for dx in reach for dy in reach)
+
+    return [p for p in fixed if not near(p[0], p[1])]
+
+
+def in_range(points, radius: float, shape: str = DEFAULT_SHAPE, pad: float = 0.0) -> np.ndarray:
+    """Which (m × 2) points (or one point) lie within the range: ±radius for a square, within
+    `radius` of the middle for a circle; `pad` m more either way."""
+    p = np.asarray(points, dtype=float).reshape(-1, 2)
+    if shape == "circle":
+        return np.hypot(p[:, 0], p[:, 1]) <= radius + pad
+    return np.abs(p).max(axis=1) <= radius + pad
+
+
+def clip_range(points, radius: float, shape: str = DEFAULT_SHAPE) -> list[np.ndarray]:
+    """The parts of a polyline within the range (a circle's edge within about half a metre)."""
+    if shape != "circle":
+        return clip_line(points, radius)
+    pts = _densify(np.asarray(points, dtype=float), 0.5)
+    keep = in_range(pts, radius, "circle")
+    parts, start = [], None
+    for i, k in enumerate(list(keep) + [False]):
+        if k and start is None:
+            start = i
+        elif not k and start is not None:
+            if i - start >= 2:
+                parts.append(pts[start:i])
+            start = None
+    return parts
+
+
+def ground(frame: Frame, radius: float, *, folder: Path | None = None, shape: str = DEFAULT_SHAPE) -> dict:
     """
     The ground around the site from the terrain packs: {"grid" (SOLVE_STEP, relative to the
     site's middle), "half", "step", "ground_elev" (m above sea level at the middle), "contours",
     "sources", "areas" [(kind, local ring)]}. {"grid": None, ...} when no pack covers the site.
+    Road heights from the 정밀도로지도 (±0.25 m) are held where there are some; contour and spot
+    heights within ROAD_TRUST m of them (±1.67 m on 1:5,000) give way, so the two do not fight.
     """
     half = radius + MARGIN
     found = terrain_pack.query(*frame.box(half), folder=folder)
@@ -197,6 +314,12 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None) -> dict:
         spots = np.asarray(found["spots"], dtype=float)
         for (x, y), z in zip(frame.local(spots[:, :2]), spots[:, 2], strict=True):
             fixed.append((x, y, z))
+    roads_used = bool(found.get("road_points"))
+    if roads_used:
+        roads = np.asarray(found["road_points"], dtype=float)
+        road_xy = frame.local(roads[:, :2])
+        fixed = away_from_roads(fixed, road_xy)
+        fixed += [(x, y, z) for (x, y), z in zip(road_xy, roads[:, 2], strict=True)]
     areas = [(a["kind"], frame.local(a["ring"])) for a in found["areas"]]
     grid = solve_ground(fixed, half, SOLVE_STEP)
     if grid is None:
@@ -204,9 +327,11 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None) -> dict:
                 "sources": found["sources"], "areas": areas, "buildings": found["buildings"],
                 "map_buildings": found["map_buildings"]}
     elev0 = float(sample(grid, half, SOLVE_STEP, [0.0], [0.0])[0])
+    if roads_used:  # the 1:5,000 lines no longer lie on the ground near the roads: draw them from it
+        lines = grid_contours(grid, half, SOLVE_STEP, CONTOUR_EVERY)
     contours = []
     for elev, pts in lines:
-        for run in clip_line(pts, radius):
+        for run in clip_range(pts, radius, shape):
             contours.append({
                 "elev": round(elev, 2), "z": round(elev - elev0, 3),
                 "index": abs(elev / INDEX_EVERY - round(elev / INDEX_EVERY)) < 1e-6,
@@ -256,17 +381,22 @@ def classify(points: np.ndarray, areas: list[tuple[str, np.ndarray]]) -> str:
 
 
 def view_grid(g: dict, radius: float, areas: list[tuple[str, np.ndarray]] | None = None,
-              step: float = VIEW_STEP) -> dict | None:
+              step: float = VIEW_STEP, shape: str = DEFAULT_SHAPE) -> dict | None:
     """
     The ground as the screen draws it: heights on a `step` grid over ±radius (rows south to
-    north) and what the ground is at each point ("classes", CLASS_CODES letters).
+    north) and what the ground is at each point ("classes", CLASS_CODES letters; OUTSIDE for a
+    point outside a circle, its height kept so the edge can be drawn).
     """
     if g["grid"] is None:
         return None
     axis = np.arange(-radius, radius + step / 2, step)
     xx, yy = np.meshgrid(axis, axis)
     z = sample(g["grid"], g["half"], g["step"], xx.ravel(), yy.ravel())
-    classes = classify(np.column_stack([xx.ravel(), yy.ravel()]), areas or [])
+    points = np.column_stack([xx.ravel(), yy.ravel()])
+    classes = classify(points, areas or [])
+    if shape == "circle":
+        out = ~in_range(points, radius, "circle")
+        classes = "".join(OUTSIDE if o else c for c, o in zip(classes, out, strict=True))
     return {"min": -radius, "step": step, "n": len(axis), "z": [round(float(v), 2) for v in z], "classes": classes}
 
 
@@ -406,7 +536,7 @@ def _pack_features(buildings: list[dict]) -> list[dict]:
 def surroundings(
     frame: Frame, radius: float, ground_at: Callable, *, site_rings: list[np.ndarray] | None = None,
     http_get=None, ledger: Callable[[str], list[dict]] | None = None, packed: list[dict] | None = None,
-    mapped: list[dict] | None = None, for_export: bool = False,
+    mapped: list[dict] | None = None, for_export: bool = False, shape: str = DEFAULT_SHAPE,
 ) -> dict:
     """
     Buildings (with their height and where it came from) and parcels around the site. The
@@ -448,7 +578,7 @@ def surroundings(
     for f in bldg:
         for ring in _rings(f["shape"], frame):
             middle = ring.mean(axis=0)
-            if np.abs(middle).max() <= radius:
+            if in_range(middle, radius, shape)[0]:
                 found.append((ring, f["properties"], abs(_area(ring)), middle))
     inner = set()
     for i, (_ring, _p, area, middle) in enumerate(found):
@@ -504,7 +634,7 @@ def surroundings(
 
         def here(ring, parcel=parcel, near=near):
             m = ring.mean(axis=0)
-            if np.abs(m).max() > radius:  # like the file's outlines: only within the radius
+            if not in_range(m, radius, shape)[0]:  # like the file's outlines: only within the range
                 return False
             if parcel:
                 return any(_inside(m, r) for r in parcel)
@@ -613,7 +743,7 @@ def surroundings(
     lots_out = []
     for rings, _pnu, jibun in lots:
         for ring in rings:
-            if np.abs(ring.mean(axis=0)).max() <= radius + 30:
+            if in_range(ring.mean(axis=0), radius, shape, pad=30)[0]:
                 lots_out.append({"ring": [[round(float(x), 2), round(float(y), 2)] for x, y in ring],
                                  "road": jibun.strip().endswith("도"), "label": jibun.strip()})
     return {"buildings": buildings, "unknown_buildings": unknown, "left_out": left_out,
@@ -667,6 +797,18 @@ def clip_line(points, lim: float) -> list[np.ndarray]:
     return [np.asarray(r) for r in parts if len(r) >= 2]
 
 
+def ground_surface(around: dict) -> dict | None:
+    """The ground as a board_export height grid; for a circle, `clip_radius`: only the cells
+    within it are written."""
+    t = around.get("terrain")
+    if not t:
+        return None
+    surface = {"min_x": t["min"], "min_y": t["min"], "step": t["step"], "nx": t["n"], "ny": t["n"], "z": t["z"]}
+    if around.get("shape") == "circle":
+        surface["clip_radius"] = float(around["radius"])
+    return surface
+
+
 def export_layers(around: dict) -> list[dict]:
     """
     The surroundings as board_export layers (same frame as the table): the ground as a height
@@ -681,9 +823,9 @@ def export_layers(around: dict) -> list[dict]:
 
     out = []
     t = around.get("terrain")
+    shape = around.get("shape", DEFAULT_SHAPE)
     if t:
-        out.append(layer("지형", (170, 150, 120), surfaces=[
-            {"min_x": t["min"], "min_y": t["min"], "step": t["step"], "nx": t["n"], "ny": t["n"], "z": t["z"]}]))
+        out.append(layer("지형", (170, 150, 120), surfaces=[ground_surface(around)]))
     if t and around.get("areas"):
         grid = np.asarray(t["z"], dtype=float).reshape(t["n"], t["n"])
         half = -t["min"]
@@ -692,8 +834,8 @@ def export_layers(around: dict) -> list[dict]:
             for a in around["areas"]:
                 if a["kind"] != kind:
                     continue
-                # cut to the ground's square, so no line hangs past the edge of the surface
-                for ring in clip_line(_densify(np.vstack([a["ring"], a["ring"][:1]]), DRAPE_GAP), half):
+                # cut to the ground's range, so no line hangs past the edge of the surface
+                for ring in clip_range(_densify(np.vstack([a["ring"], a["ring"][:1]]), DRAPE_GAP), half, shape):
                     zs = sample(grid, half, t["step"], ring[:, 0], ring[:, 1]) + 0.03
                     curves.append({"points": [[round(float(x), 2), round(float(y), 2), round(float(z), 2)] for (x, y), z in zip(ring, zs, strict=True)],
                                    "closed": False})
@@ -727,11 +869,12 @@ def export_layers(around: dict) -> list[dict]:
 
 
 def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = None, http_get=None,
-          ledger=None, use_cache: bool = True, for_export: bool = False) -> dict:
+          ledger=None, use_cache: bool = True, for_export: bool = False, shape: str = DEFAULT_SHAPE) -> dict:
     """
     The surroundings of a site whose table plan is `plan` (board.site_plan): ground, contours,
-    buildings and parcels within `radius` m of its middle, in the table's frame. Raises
-    ValueError for a plan without an origin or a radius out of range.
+    buildings and parcels within `radius` m of its middle (±radius for a square, a circle of that
+    radius), in the table's frame. Raises ValueError for a plan without an origin, a radius out
+    of range or an unknown shape.
     """
     origin = (plan or {}).get("origin")
     if not origin:
@@ -739,49 +882,53 @@ def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = N
     radius = float(radius)
     if not 50 <= radius <= MAX_RADIUS:
         raise ValueError(f"radius must be 50–{MAX_RADIUS:g} m")
+    if shape not in SHAPES:
+        raise ValueError(f"shape must be one of {', '.join(SHAPES)}")
     site_rings = [np.asarray(r, dtype=float) for p in plan.get("parcels") or [] for r in p.get("rings") or []]
     rings = tuple(r.tobytes() for r in site_rings)
-    key = (origin["lon"], origin["lat"], radius, str(folder), for_export, rings)
+    key = (origin["lon"], origin["lat"], radius, shape, str(folder), for_export, rings)
     # An export takes what the screen has just drawn for the same site and radius: the ground,
     # contours and pack buildings are the same, so the 건축물대장 is not asked again.
     # export_layers leaves its VWorld-only values (parcels, VWorld buildings, api_estimate) out.
-    tried = [key, (*key[:4], False, rings)] if for_export else [key]
+    tried = [key, (*key[:5], False, rings)] if for_export else [key]
     for k in tried:
         hit = _cache.get(k)
         if use_cache and hit and time.time() - hit[0] < CACHE_SECONDS:
             return hit[1]
     started = time.perf_counter()
     frame = Frame(origin)
-    g = ground(frame, radius, folder=folder)
+    g = ground(frame, radius, folder=folder, shape=shape)
     if g["grid"] is None:
         def ground_at(x, y):
             return np.zeros(np.shape(x))
     else:
         def ground_at(x, y):
             return sample(g["grid"], g["half"], g["step"], x, y)
-    packed = [b for b in g["buildings"] if np.abs(frame.local(b["ring"]).mean(axis=0)).max() <= radius]
+    packed = [b for b in g["buildings"] if in_range(frame.local(b["ring"]).mean(axis=0), radius, shape)[0]]
     around = surroundings(frame, radius, ground_at, site_rings=site_rings, http_get=http_get, ledger=ledger,
-                          packed=packed, mapped=g["map_buildings"], for_export=for_export)
+                          packed=packed, mapped=g["map_buildings"], for_export=for_export, shape=shape)
 
     def source(s):
         return {"name": s.get("source", ""), "date": s.get("source_date", ""), "pack": s.get("name", "")}
 
-    terrain_sources = [source(s) for s in g["sources"] if s.get("kind", "contours") in ("contours", "areas")]
+    terrain_sources = [source(s) for s in g["sources"] if s.get("kind", "contours") in ("contours", "areas", "roads")]
     building_packs = [source(s) for s in g["sources"] if s.get("kind") == "buildings"]
     building_source = (building_packs[0] if packed and building_packs
                        else {"name": "브이월드 건축물정보·도로명주소 건물 (실시간, 저장하지 않음)", "date": "", "pack": ""})
     out = {
         "origin": {"lon": origin["lon"], "lat": origin["lat"]},
         "radius": radius,
+        "shape": shape,
+        "size": next((name for name, r in SIZES.items() if r == radius), None),
         "ground_elev": g["ground_elev"],
         "terrain": view_grid(g, radius, g["areas"] + [
             ("road", np.asarray(p["ring"], dtype=float)) for p in around["parcels"] if p["road"]
-        ]),
+        ], shape=shape),
         "terrain_sources": terrain_sources,
         "building_source": building_source,
         "areas": [
             {"kind": kind, "ring": [[round(float(x), 2), round(float(y), 2)] for x, y in ring]}
-            for kind, ring in g["areas"] if len(ring) >= 3 and np.abs(ring.mean(axis=0)).max() <= radius
+            for kind, ring in g["areas"] if len(ring) >= 3 and in_range(ring.mean(axis=0), radius, shape)[0]
         ],
         "contours": g["contours"],
         **around,

@@ -13,7 +13,7 @@ import {
 import {
   keepSelected, pickedNames, massIds, canCompare, COMPARE_QUESTION, addQuestion,
   ideaText, moveIdea, dropIdea, sameOrder, ideaPapers, linkPapers, pickedNotes, ideasInPlay, MAX_IDEA_TEXT, MAX_IDEA_PAPERS,
-  floatState, floatPlace, floatAnchor, ideaShape,
+  floatState, floatPlace, floatAnchor, ideaShape, modelBaseQuery, readModelSummary,
 } from './board-model.js';
 import {
   COMMANDS, GROUP_LABELS, readLine, suggest, pickOption, addHistory, remember, HISTORY_LINES,
@@ -300,7 +300,13 @@ function tableHooks(name) {
     }, true),
     photoUrl: (id) => `${projectApi(name)}/board/photos/${encodeURIComponent(id)}`,
     // The site's surroundings in 3D (ground, nearby buildings): GET .../site/context.
-    context: (radius) => api(`${projectApi(name)}/site/context?radius=${encodeURIComponent(radius)}`),
+    // range {size, shape}: as asked; none: the project's saved range.
+    context: (range) => api(`${projectApi(name)}/site/context${range ? `?size=${encodeURIComponent(range.size)}&shape=${encodeURIComponent(range.shape)}` : ''}`),
+    range: () => api(`${projectApi(name)}/site/context/range`),
+    saveRange: (range) => api(`${projectApi(name)}/site/context/range`, { method: 'PUT', body: range }),
+    // The model base: the stepped ground (GET .../site/model-base) and its laser files (a zip).
+    modelBase: (interval, range) => api(`${projectApi(name)}/site/model-base?interval=${encodeURIComponent(interval)}${range ? `&size=${encodeURIComponent(range.size)}&shape=${encodeURIComponent(range.shape)}` : ''}`),
+    modelFiles: (settings, range) => downloadModelBase(name, settings, range),
     place: (id, placement) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}/place`, { method: 'POST', body: placement }), true),
     discard: (id) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}`, { method: 'DELETE' }), true),
     select: (ids) => { ui.selected = ids; render(false); },
@@ -2485,6 +2491,31 @@ async function downloadBoard(name, format) {
     toast(`내보내지 못했습니다: ${text}`, 'error');
   }
   render(false);
+}
+
+// The laser files for a site model: the zip goes to the designer's downloads; the server's summary
+// (X-Model-Base) comes back for the table to show. A 400 (too big, no terrain) comes as its message.
+async function downloadModelBase(name, settings, range) {
+  let response;
+  try {
+    response = await fetch(`${projectApi(name)}/site/model-base/files?${modelBaseQuery(settings, range)}`);
+  } catch {
+    throw new Error('Sida 서버에 연결할 수 없습니다.');
+  }
+  if (!response.ok) {
+    let detail = '';
+    try { detail = (await response.json()).detail; } catch { /* not JSON */ }
+    throw new Error(typeof detail === 'string' && detail ? detail : `요청이 실패했습니다 (${response.status})`);
+  }
+  const summary = readModelSummary(response.headers.get('X-Model-Base'));
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(await response.blob());
+  link.download = `${currentProjectLabel(name)}_모형바닥_1-${settings.scale}_${settings.thickness}mm.zip`;
+  link.hidden = true;
+  document.body.append(link);
+  link.click();
+  setTimeout(() => { link.remove(); URL.revokeObjectURL(link.href); }, 10000);
+  return summary;
 }
 
 async function sendFeedback(rating) {

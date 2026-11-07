@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel
 
 from sida import board, telemetry, workspace
-from sida.experts.site import context3d, datago, landapi, model_base, site_facts
+from sida.experts.site import context3d, context_range, datago, landapi, model_base, site_facts
 from sida.i18n import t
 from sida.model_base.nesting import DoesNotFit
 from sida.project import load_project
@@ -158,19 +158,50 @@ def _project_router(load_config, core) -> APIRouter:
         core(site_facts.note_lookup, project, query, project.load_history())
         return site_facts.site_view(facts)
 
+    def _range(path, radius: float | None, size: str | None, shape: str | None) -> tuple[float, str]:
+        """(radius, shape) asked for: `size` and `shape` as given, else the project's saved range; an
+        old `radius` (m) still works in place of size. 400 for an unknown value."""
+        saved = context_range.load(path)
+        shape = shape or saved["shape"]
+        if size is not None or radius is None:
+            try:
+                context_range.check(size or saved["size"], shape)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=t("web_site_context_range")) from exc
+            radius = context3d.SIZES[size or saved["size"]]
+        elif shape not in context3d.SHAPES:
+            raise HTTPException(status_code=400, detail=t("web_site_context_range"))
+        if not 50 <= radius <= context3d.MAX_RADIUS:
+            raise HTTPException(status_code=400, detail=t("web_site_context_radius", max=int(context3d.MAX_RADIUS)))
+        return float(radius), shape
+
     @router.get("/context")
-    def get_context(name: str, radius: float = context3d.DEFAULT_RADIUS) -> dict:
+    def get_context(name: str, radius: float | None = None, size: str | None = None, shape: str | None = None) -> dict:
+        """The surroundings in `size` (small, medium, large) and `shape` (square, circle); see _range."""
         path = core(workspace.find_project, load_config(), name)
         facts = site_facts.load_facts(path)
         if facts is None:
             raise HTTPException(status_code=404, detail=t("web_site_none"))
-        if not 50 <= radius <= context3d.MAX_RADIUS:
-            raise HTTPException(status_code=400, detail=t("web_site_context_radius", max=int(context3d.MAX_RADIUS)))
+        radius, shape = _range(path, radius, size, shape)
         plan = board.site_plan(site_facts.board_summary(facts)["parcels"])
         if plan is None:
             raise HTTPException(status_code=400, detail=t("web_site_context_no_plan"))
-        out = _land(context3d.build, plan, radius)
+        out = _land(context3d.build, plan, radius, shape=shape)
         return {**out, "disclaimer": t("site_context_disclaimer")}
+
+    @router.get("/context/range")
+    def get_context_range(name: str) -> dict:
+        """The range the surroundings are made in for this project (the default when none was picked)."""
+        return context_range.load(core(workspace.find_project, load_config(), name))
+
+    @router.put("/context/range")
+    def put_context_range(name: str, body: dict) -> dict:
+        """Keep the range the surroundings are made in for this project: {size, shape}."""
+        path = core(workspace.find_project, load_config(), name)
+        try:
+            return context_range.save(path, str(body.get("size")), str(body.get("shape")))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=t("web_site_context_range")) from exc
 
     def _site_plan(name: str) -> tuple:
         path = core(workspace.find_project, load_config(), name)
@@ -193,16 +224,23 @@ def _project_router(load_config, core) -> APIRouter:
             raise HTTPException(status_code=400, detail=t("web_model_base_bad", reason=str(exc))) from exc
 
     @router.get("/model-base")
-    def get_model_base(name: str, interval: float = 1.5, radius: float = context3d.DEFAULT_RADIUS) -> dict:
-        """The ground around the site stepped every `interval` m, with the buildings on it."""
-        _path, plan = _site_plan(name)
-        return _model(model_base.stepped, plan, interval, radius)
+    def get_model_base(name: str, interval: float = 1.5, radius: float | None = None, size: str | None = None,
+                       shape: str | None = None) -> dict:
+        """The ground around the site stepped every `interval` m, with the buildings on it, in the
+        range asked for (or the project's saved range; see _range)."""
+        path, plan = _site_plan(name)
+        radius, shape = _range(path, radius, size, shape)
+        out = _model(model_base.stepped, plan, interval, radius, shape=shape)
+        return {**out, "size": next((k for k, r in context3d.SIZES.items() if r == radius), None)}
 
     @router.get("/model-base/files")
     def get_model_base_files(name: str, scale: int = 500, thickness: float = 3.0, sheet: str = "600x400",
-                             radius: float = 100.0, hollow: float = 0.0) -> Response:
-        """Laser files (zip) for the model ±radius m around the site, cut from sheets of material."""
+                             radius: float | None = None, hollow: float = 0.0, size: str | None = None,
+                             shape: str | None = None) -> Response:
+        """Laser files (zip) for the model of the range asked for (or the project's saved range; see
+        _range), cut from sheets of material."""
         path, plan = _site_plan(name)
+        radius, shape = _range(path, radius, size, shape)
         w, _, h = sheet.lower().partition("x")
         try:
             size = (float(w), float(h))
@@ -211,12 +249,12 @@ def _project_router(load_config, core) -> APIRouter:
         if not (100 <= scale <= 5000 and 0.5 <= thickness <= 20 and all(50 <= v <= 3000 for v in size) and 0 <= hollow <= 50):
             raise HTTPException(status_code=400, detail=t("web_model_base_bad", reason="scale 1:100–5000, thickness 0.5–20 mm, sheet 50–3000 mm"))
         data, summary = _model(model_base.cut_files, plan, radius=radius, scale=scale, thickness_mm=thickness,
-                               sheet=size, hollow_rim_mm=hollow)
+                               sheet=size, hollow_rim_mm=hollow, shape=shape)
         filename = f"{path.name}_모형바닥_1-{scale}_{thickness:g}mm.zip"
         return Response(data, media_type="application/zip", headers={
             "Content-Disposition": f"attachment; filename=\"sida-model-base.zip\"; filename*=UTF-8''{quote(filename)}",
             "Cache-Control": "no-store",
-            "X-Model-Base": ";".join(f"{k}={v}" for k, v in summary.items() if not isinstance(v, list)),
+            "X-Model-Base": ";".join(f"{k}={'x'.join(str(n) for n in v) if isinstance(v, list) else v}" for k, v in summary.items()),
         })
 
     @router.get("/ordinance")

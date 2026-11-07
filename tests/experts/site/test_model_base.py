@@ -59,3 +59,22 @@ def test_laser_files_hold_pack_buildings_only(pack):  # noqa: F811
     _, live = model_base.cut_files(plan_for_site(), radius=60, scale=1000, thickness_mm=2, sheet=(300, 200),
                                    folder=pack, around=around(pack_buildings=False))
     assert live["buildings"] == 0 and live["buildings_left_out"]  # VWorld's live outlines are not written down
+
+
+def test_a_round_range_makes_a_round_model(pack):  # noqa: F811
+    import math
+
+    round_view = model_base.stepped(plan_for_site(), 1.0, 100, folder=pack, around=around(pack_buildings=False), shape="circle")
+    assert round_view["shape"] == "circle"
+    for step in round_view["steps"]:
+        for poly in step["polygons"]:
+            assert all(math.hypot(x, y) <= 100.5 for x, y in poly["outline"])  # cut to the circle
+    first = round_view["steps"][0]["polygons"][0]["outline"]
+    assert max(math.hypot(x, y) for x, y in first) == pytest.approx(100, abs=0.5)  # and reaching it
+    square_view = model_base.stepped(plan_for_site(), 1.0, 100, folder=pack, around=around(pack_buildings=False))
+    assert square_view["shape"] == "square" and max(abs(x) for x, _ in square_view["steps"][0]["polygons"][0]["outline"]) == pytest.approx(100)
+    _, summary = model_base.cut_files(plan_for_site(), radius=60, scale=1000, thickness_mm=2, sheet=(300, 200),
+                                      folder=pack, around=around(pack_buildings=True), shape="circle")
+    assert summary["shape"] == "circle" and summary["radius"] == 60 and summary["size"] is None
+    with pytest.raises(ValueError):
+        model_base.stepped(plan_for_site(), 1.0, 100, folder=pack, around=around(pack_buildings=False), shape="hexagon")

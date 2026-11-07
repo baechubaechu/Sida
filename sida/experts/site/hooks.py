@@ -33,14 +33,15 @@ def board_export_layers(project_dir) -> list[dict]:
     """The site's surroundings (ground, contours, buildings from map files) for the CAD/Rhino export.
     Nothing when no site is looked up, or when the surroundings cannot be had right now."""
     from sida.board import site_plan
-    from sida.experts.site import context3d, landapi
+    from sida.experts.site import context3d, context_range, landapi
 
     facts = site_facts.load_facts(project_dir)
     plan = site_plan(site_facts.board_summary(facts)["parcels"]) if facts else None
     if not plan:
         return []
+    picked = context_range.load(project_dir)
     try:
-        return context3d.export_layers(context3d.build(plan, for_export=True))
+        return context3d.export_layers(context3d.build(plan, picked["radius"], shape=picked["shape"], for_export=True))
     except (landapi.LandApiError, ValueError):
         return []
 
@@ -49,17 +50,18 @@ def board_ground(project_dir) -> dict | None:
     """The ground around the site as a height grid (board_export surface form), for standing the
     masses on it in the export. None without a site or a terrain pack over it."""
     from sida.board import site_plan
-    from sida.experts.site import context3d, landapi
+    from sida.experts.site import context3d, context_range, landapi
 
     facts = site_facts.load_facts(project_dir)
     plan = site_plan(site_facts.board_summary(facts)["parcels"]) if facts else None
     if not plan:
         return None
+    picked = context_range.load(project_dir)
     try:
-        t = context3d.build(plan, for_export=True).get("terrain")
+        around = context3d.build(plan, picked["radius"], shape=picked["shape"], for_export=True)
     except (landapi.LandApiError, ValueError):
         return None
-    return {"min_x": t["min"], "min_y": t["min"], "step": t["step"], "nx": t["n"], "ny": t["n"], "z": t["z"]} if t else None
+    return context3d.ground_surface(around)
 
 
 def run_needs(config, agent, project_dir) -> str | None:

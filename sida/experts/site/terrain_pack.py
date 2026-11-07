@@ -15,6 +15,11 @@ ground and cutting it into layers, from the 1:5,000 수치지형도 (도로경�
 the file carries (BUILDING_FIELDS). Each kind can be its own pack; a pack holds only what it
 was made from. Map buildings are the 1:5,000 수치지형도 건물 polygons with their 층수 and 용도,
 kept only to fill in floors where GIS건물통합정보 has none.
+
+Road points are heights on the road surface from the 국토지리정보원 정밀도로지도 (공공누리 제1유형,
+±0.25 m): its lane links, lane lines and road markings on ordinary roads (no tunnels, bridges,
+underpasses or overpasses), at most one point per metre. Where they are, the ground follows them
+rather than the 1:5,000 contours (±1.67 m in height).
 """
 
 from __future__ import annotations
@@ -41,6 +46,8 @@ CREATE TABLE IF NOT EXISTS areas (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, ri
 CREATE VIRTUAL TABLE IF NOT EXISTS areas_box USING rtree(id, west, east, south, north);
 CREATE TABLE IF NOT EXISTS buildings (id INTEGER PRIMARY KEY, ring TEXT NOT NULL, attrs TEXT NOT NULL);
 CREATE VIRTUAL TABLE IF NOT EXISTS buildings_box USING rtree(id, west, east, south, north);
+CREATE TABLE IF NOT EXISTS road_points (id INTEGER PRIMARY KEY, lon REAL NOT NULL, lat REAL NOT NULL, elev REAL NOT NULL);
+CREATE VIRTUAL TABLE IF NOT EXISTS road_points_box USING rtree(id, west, east, south, north);
 CREATE TABLE IF NOT EXISTS map_buildings (id INTEGER PRIMARY KEY, ring TEXT NOT NULL, floors REAL NOT NULL, use TEXT NOT NULL);
 CREATE VIRTUAL TABLE IF NOT EXISTS map_buildings_box USING rtree(id, west, east, south, north);
 """
@@ -72,6 +79,12 @@ def add_contour(conn: sqlite3.Connection, elev: float, points: list[list[float]]
         "INSERT INTO contours_box VALUES (?, ?, ?, ?, ?)",
         (cur.lastrowid, min(lons), max(lons), min(lats), max(lats)),
     )
+
+
+def add_road_point(conn: sqlite3.Connection, lon: float, lat: float, elev: float) -> None:
+    """One height on the road surface (정밀도로지도): [lon, lat] and m above sea level."""
+    cur = conn.execute("INSERT INTO road_points (lon, lat, elev) VALUES (?, ?, ?)", (lon, lat, float(elev)))
+    conn.execute("INSERT INTO road_points_box VALUES (?, ?, ?, ?, ?)", (cur.lastrowid, lon, lon, lat, lat))
 
 
 def add_spot(conn: sqlite3.Connection, lon: float, lat: float, elev: float) -> None:
@@ -140,10 +153,11 @@ def query(west: float, south: float, east: float, north: float, folder: Path | N
     Contours, spot heights, ground areas and buildings touching the box, from every pack in the
     folder: {"contours": [{"elev", "points": [[lon, lat]]}], "spots": [[lon, lat, elev]],
     "areas": [{"kind", "ring": [[lon, lat]]}], "buildings": [{"ring", **BUILDING_FIELDS}],
-    "map_buildings": [{"ring", "floors", "use"}], "sources": [pack meta]}. Empty lists when no
-    pack covers the box.
+    "map_buildings": [{"ring", "floors", "use"}], "road_points": [[lon, lat, elev]],
+    "sources": [pack meta]}. Empty lists when no pack covers the box.
     """
-    out: dict = {"contours": [], "spots": [], "areas": [], "buildings": [], "map_buildings": [], "sources": []}
+    out: dict = {"contours": [], "spots": [], "areas": [], "buildings": [], "map_buildings": [],
+                 "road_points": [], "sources": []}
     for path in packs(folder):
         with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as conn:
             lines = conn.execute(
@@ -171,13 +185,19 @@ def query(west: float, south: float, east: float, north: float, folder: Path | N
                 "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",
                 (west, east, south, north),
             ).fetchall() if _has_table(conn, "map_buildings") else []
-            if lines or points or areas or houses or mapped:
+            roads = conn.execute(
+                "SELECT r.lon, r.lat, r.elev FROM road_points r JOIN road_points_box b ON b.id = r.id "
+                "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",
+                (west, east, south, north),
+            ).fetchall() if _has_table(conn, "road_points") else []
+            if lines or points or areas or houses or mapped or roads:
                 out["sources"].append(dict(conn.execute("SELECT key, value FROM meta")))
         out["contours"] += [{"elev": elev, "points": json.loads(text)} for elev, text in lines]
         out["spots"] += [[lon, lat, elev] for lon, lat, elev in points]
         out["areas"] += [{"kind": kind, "ring": json.loads(text)} for kind, text in areas]
         out["buildings"] += [{"ring": json.loads(ring), **json.loads(attrs)} for ring, attrs in houses]
         out["map_buildings"] += [{"ring": json.loads(ring), "floors": floors, "use": use} for ring, floors, use in mapped]
+        out["road_points"] += [[lon, lat, elev] for lon, lat, elev in roads]
     return out
 
 
