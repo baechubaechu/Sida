@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import os
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -621,6 +624,79 @@ def test_a_paper_taken_off_the_table_drops_out_of_the_ideas_it_was_linked_to(tmp
     board.delete_paper(tmp_path, "n1")
     assert board.load_board(tmp_path)["ideas"][0]["papers"] == ["site"]
     assert board.update_idea(tmp_path, idea["id"], {"off": True})["idea"]["papers"] == ["site"]
+
+
+def test_a_paper_dragged_into_the_idea_board_leaves_the_table_and_comes_back_where_it_is_dropped(tmp_path):
+    board.add_paper(tmp_path, {"kind": "note", "id": "n1", "text": "북측 일조", "x": 10, "y": 20})
+    board.add_paper(tmp_path, {**MASS, "id": "mass-a"})
+    linked = board.add_idea(tmp_path, {"text": "북측은 낮게", "papers": ["n1"]})["idea"]
+    held = board.stow_paper(tmp_path, "n1", at=0)["idea"]
+    saved = board.load_board(tmp_path)
+    assert [p["id"] for p in saved["papers"]] == ["site", "mass-a"]  # off the table
+    assert saved["ideas"][0]["id"] == held["id"] and held["paper"]["text"] == "북측 일조" and held["text"] == ""
+    assert saved["ideas"][1]["papers"] == ["n1"]  # a link to the held paper stays
+    assert board.held_papers(saved) == [held["paper"]]
+    with pytest.raises(ValueError, match="already exists"):
+        board.add_paper(tmp_path, {"kind": "note", "id": "n1", "text": "x"})  # its id is still taken
+    # its words, not an empty line, reach the models
+    assert "1. [note n1] 북측 일조" in board.ideas_block(saved)
+    # a caption can be written and the idea set aside, but the paper itself is never swapped
+    changed = board.update_idea(tmp_path, held["id"], {"text": "남쪽 마당", "paper": {"kind": "note", "id": "z"}})["idea"]
+    assert changed["text"] == "남쪽 마당" and changed["paper"]["id"] == "n1"
+
+    back = board.place_idea(tmp_path, held["id"], {"x": -40, "y": 55, "w": 9999})
+    assert back["paper"]["id"] == "n1" and (back["paper"]["x"], back["paper"]["y"]) == (-40, 55)
+    assert back["paper"]["w"] != 9999  # only the place changes
+    saved = board.load_board(tmp_path)
+    assert [p["id"] for p in saved["papers"]] == ["site", "mass-a", "n1"]
+    assert [i["id"] for i in saved["ideas"]] == [linked["id"]] and saved["ideas"][0]["papers"] == ["n1"]
+
+
+def test_an_idea_of_words_dragged_onto_the_table_becomes_a_note(tmp_path):
+    idea = board.add_idea(tmp_path, {"text": "길에서 마당이 보이게"})["idea"]
+    paper = board.place_idea(tmp_path, idea["id"], {"x": 5, "y": 6})["paper"]
+    assert paper["kind"] == "note" and paper["text"] == "길에서 마당이 보이게" and (paper["x"], paper["y"]) == (5, 6)
+    assert board.load_board(tmp_path)["ideas"] == []
+    with pytest.raises(board.IdeaNotFound):
+        board.place_idea(tmp_path, idea["id"], {})
+
+
+def test_the_site_stays_on_the_table_and_a_held_paper_comes_only_by_stowing(tmp_path):
+    with pytest.raises(ValueError, match="stays on the table"):
+        board.stow_paper(tmp_path, "site")
+    with pytest.raises(board.PaperNotFound):
+        board.stow_paper(tmp_path, "nope")
+    board.add_paper(tmp_path, {"kind": "note", "id": "n1", "text": "x"})
+    with pytest.raises(ValueError, match="whole number"):
+        board.stow_paper(tmp_path, "n1", at="first")
+    assert [p["id"] for p in board.load_board(tmp_path)["papers"]] == ["site", "n1"]  # nothing moved
+    # add_idea never takes a paper in by itself (that would copy it, not move it)
+    idea = board.add_idea(tmp_path, {"text": "x", "paper": {"kind": "note", "id": "n9", "text": "y"}})["idea"]
+    assert "paper" not in idea
+
+
+def test_a_held_photo_keeps_its_file(tmp_path):
+    folder = board.photo_dir(tmp_path)
+    folder.mkdir(parents=True)
+    (folder / "photo-aaaaaaaa.png").write_bytes(b"x")
+    data = json.loads(json.dumps(board._empty()))
+    data["ideas"] = [{"id": "idea-1", "text": "", "papers": [], "talk": None, "off": False,
+                      "paper": {"id": "photo-1", "kind": "photo", "file": "photo-aaaaaaaa.png", "x": 0, "y": 0, "w": 1, "h": 1}}]
+    board.board_path(tmp_path).write_text(json.dumps(data), encoding="utf-8")
+    old = time.time() - board.ORPHAN_SECONDS - 10
+    os.utime(folder / "photo-aaaaaaaa.png", (old, old))
+    board._prune_photos(folder, board.load_board(tmp_path))
+    assert (folder / "photo-aaaaaaaa.png").exists()
+    assert board.photo_file(tmp_path, "photo-1")[0].name == "photo-aaaaaaaa.png"
+
+
+def test_a_broken_held_paper_is_dropped_when_read(tmp_path):
+    data = json.loads(json.dumps(board._empty()))
+    data["ideas"] = [{"id": "idea-1", "text": "", "paper": {"kind": "bogus"}},
+                     {"id": "idea-2", "text": "말", "paper": "nope"}]
+    board.board_path(tmp_path).write_text(json.dumps(data), encoding="utf-8")
+    ideas = board.load_board(tmp_path)["ideas"]
+    assert [i["id"] for i in ideas] == ["idea-2"] and "paper" not in ideas[0]
 
 
 def test_the_ideas_block_lists_the_ideas_in_play_with_their_links(tmp_path):

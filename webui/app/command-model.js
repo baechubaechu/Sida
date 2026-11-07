@@ -36,7 +36,7 @@ export const COMMANDS = [
   { name: 'site', aliases: [], label: '대지 페이지 열기', group: 'panel' },
   { name: 'run', aliases: [], label: '전문가 실행', group: 'panel' },
   { name: 'talks', aliases: ['history'], label: 'Conductor 대화 목록 열고 닫기', group: 'panel' },
-  { name: 'idea', aliases: ['ideas'], label: '아이디어 보드 열기 (오른쪽 칸)', group: 'panel' },
+  { name: 'idea', aliases: ['ideas'], label: '아이디어 보드 펴기 (제도판 위 창)', group: 'panel' },
   { name: 'export', aliases: ['exp'], label: '내보내기: CAD(DXF)·라이노(3dm) 파일로', group: 'panel' },
   { name: 'vworld', aliases: ['vw'], label: '브이월드 3D 지도에 매스안 세워 보기 (건물을 누르면 숨김)', group: 'view' },
   { name: 'settings', aliases: ['options'], label: '설정 열기', group: 'panel' },

@@ -75,6 +75,7 @@ export class DraftingTable {
     this.pdfPages = new Map(); // PDF url → its number of pages
     this.history = createHistory(); // the designer's edits, for undo and redo (this session only)
     this.trayOpen = false;
+    this.carrying = ''; // a moved paper's circle: '' (none), 'on' (carried) or 'over' (over the idea board)
     this.form = null;
     this.numberEdit = null;
     this.gesture = null;
@@ -2321,8 +2322,13 @@ export class DraftingTable {
       this.resizeMove(g, e);
     } else if (g.kind === 'move') {
       const p = this.ground(e.clientX, e.clientY);
-      if (!p) return;
       if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 3) return;
+      // A paper on the move turns into a small circle under the pointer, which can be dropped
+      // into the idea board (2026-11-07 지훈); the screen draws the circle and says when it is over the board.
+      g.cx = e.clientX;
+      g.cy = e.clientY;
+      this.carry(g, this.hooks.carry?.({ x: e.clientX, y: e.clientY, ids: [...g.ids] }));
+      if (!p) return;
       g.moved = true;
       const dx = p.x - g.g0.x;
       const dy = p.y - g.g0.y;
@@ -2348,9 +2354,40 @@ export class DraftingTable {
     }
   }
 
+  // The moved papers fade while their circle is carried ('carry'); over the idea board ('over')
+  // they vanish. The screen answers '' when nothing it can take is moving (the site alone).
+  carry(g, answer) {
+    const state = g && answer === 'over' ? 'over' : g && answer === 'carry' ? 'on' : '';
+    if (g) g.over = state === 'over';
+    if (this.carrying === state) return;
+    this.carrying = state;
+    for (const [id, el] of this.slots) el.classList.toggle('is-carried', Boolean(g?.ids.has(id)) && Boolean(state));
+    this.root.classList.toggle('carrying', state === 'on');
+    this.root.classList.toggle('carrying-over', state === 'over');
+  }
+
   onUp(cancelled = false) {
     const g = this.gesture;
     this.gesture = null;
+    if (g?.kind === 'move') {
+      this.carry(null);
+      this.hooks.carry?.(null);
+      // Dropped on the idea board: the papers go in there and stay where they were on the table
+      // until the board comes back without them.
+      const ids = [...g.ids].filter((id) => this.papers.some((q) => q.id === id && q.kind !== 'site'));
+      if (!cancelled && g.over && ids.length) {
+        for (const q of this.papers) {
+          const f = g.ids.has(q.id) && g.from.get(q.id);
+          if (f) { q.x = f.x; q.y = f.y; this.gl?.objects.get(q.id)?.position.set(q.x, q.y, q.kind === 'tracing' ? 0.3 : 0.1); }
+        }
+        this.syncPapers();
+        this.invalidate();
+        if (this.selected.some((id) => ids.includes(id))) this.select(this.selected.filter((id) => !ids.includes(id)));
+        this.hooks.stow?.(ids);
+        if (!this.gesture && this.pending) { const view = this.pending; this.pending = null; this.setBoard(view); }
+        return;
+      }
+    }
     if (g?.kind === 'resize') {
       if (cancelled) {
         const p = this.papers.find((x) => x.id === g.id);
