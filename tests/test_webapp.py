@@ -686,6 +686,9 @@ def test_map_layers_give_the_browser_tile_addresses_without_the_domain(client, f
     # a browser sends a Referer; VWorld refuses the key when a domain comes with it
     assert "domain" not in {k.lower() for k in cadastral["params"]}
     assert cadastral["min_zoom"] == 18  # the 지적 layer is empty below this
+    # the VWorld WebGL 3D map: the browser loads VWorld's own script with the key
+    assert layers["webgl3d"] == {"script": "https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey=test-key",
+                                 "version": "3.0"}
     assert fake_vworld.calls == []  # nothing is fetched by the server
 
     monkeypatch.delenv("VWORLD_API_KEY")
@@ -1397,3 +1400,16 @@ def test_delete_talk_is_blocked_during_running_project_job(client, project):
     response = client.delete(f"/api/projects/{project.name}/talks/01")
     assert response.status_code == 409
     assert client.get(f"/api/projects/{project.name}/talks/01").status_code == 200
+
+
+def test_hidden_3d_buildings_are_kept_per_project_and_only_as_ids(client, project):
+    url = f"/api/projects/{project.name}/board/hidden"
+    body = client.put(url, json={"ids": ["B001DS53735237_00", "B001DS53925204_00", "B001DS53735237_00"]}).json()
+    assert body["hidden"] == ["B001DS53735237_00", "B001DS53925204_00"]  # once each, in the order hidden
+    assert client.get(f"/api/projects/{project.name}/board").json()["hidden"] == body["hidden"]
+    assert client.put(url, json={"ids": []}).json()["hidden"] == []  # 숨긴 건물 모두 보이기
+    for bad in ({"ids": "B001"}, {"ids": [""]}, {"ids": ["x" * 81]}, {"ids": [1]}, {}):
+        assert client.put(url, json=bad).status_code == 400
+    assert client.put(url, json={"ids": [f"m{i}" for i in range(301)]}).status_code == 400
+    assert client.put("/api/projects/nope/board/hidden", json={"ids": []}).status_code == 404
+

@@ -23,7 +23,7 @@
 
 | 메서드·경로 | 요청 | 응답 |
 |---|---|---|
-| `GET` | | `{rev, papers, tray, pins, ideas, site, figures}`. 아직 저장한 적 없으면 대지 종이 하나와 `rev: 0`. `site`와 `figures`는 화면이 그리라고 매번 계산하는 값이고 `board.json`에 저장되지 않습니다(아래) |
+| `GET` | | `{rev, papers, tray, pins, ideas, hidden, site, figures}`. 아직 저장한 적 없으면 대지 종이 하나와 `rev: 0`. `site`와 `figures`는 화면이 그리라고 매번 계산하는 값이고 `board.json`에 저장되지 않습니다(아래) |
 | `POST /papers` | 종이(`kind`는 `mass`·`note`·`tracing`, `id`는 없으면 서버가 만듦) | `201 {paper, rev}` |
 | `POST /photos` | `multipart/form-data`: `file`(사진 파일), 선택 `title`, `x`, `y`, `w`, `h` | `201 {paper, rev}`. 아래 "사진" |
 | `GET /photos/{id}` | | 그 사진 종이의 파일(`image/png`·`image/jpeg`·`image/gif`·`image/webp`). 사진 종이가 아니거나 제도판에 없으면 `404` |
@@ -35,6 +35,7 @@
 | `PATCH /ideas/{id}` | 바꿀 필드만(`text`, `papers`, `talk`, `off`) | `{idea, rev}` |
 | `DELETE /ideas/{id}` | | `{rev}` |
 | `PUT /ideas/order` | `{ids}`: 모든 아이디어 id를 새 순서대로 한 번씩 | `{ideas, rev}` |
+| `PUT /hidden` | `{ids}`: 브이월드 3D 지도에서 숨긴 건물의 모델 id(`MODEL_NAME`), 숨긴 순서대로. `[]`이면 모두 다시 보임 | `{hidden, rev}`. 같은 id는 한 번만, 300개까지, id는 1~80자(어기면 `400`). 아래 "브이월드 3D" |
 | `GET /export?format=dxf&active=mass-a` | `format`은 `dxf`(캐드) 또는 `3dm`(라이노), `active`는 선택(화면에 보이는 매스안 id) | 파일 내려받기(`Content-Disposition: attachment`, 파일 이름 `<프로젝트>_제도판.<format>`). 아래 "캐드·라이노로 내보내기". 다른 `format`이나 제도판에 없는 매스안 id는 `400` |
 | `GET /context?ids=a,b` | 고른 종이 id(쉼표로) | `{mode, papers, conductor, expert}`. 모델에게 실제로 가는 글. 화면에서 "AI에게 보이는 내용"을 보여 줄 때 |
 
@@ -70,6 +71,16 @@
 - 연결한 종이를 제도판에서 지우거나 AI 섹션에서 버리면 그 연결은 저절로 빠집니다. 대화 연결은 대화를 지워도 남고, 화면은 "지운 대화"로 보여 줍니다.
 - **AI가 받는 것**: `off`가 아닌 아이디어가 순서대로 "DESIGNER'S MAIN IDEAS"로 모든 Conductor 호출(연결이 `full`이든 `names`든)과 모든 전문가 실행·전문가 채팅에 갑니다(종이를 고르지 않아도). 연결한 종이 이름과 대화 id가 함께 가고, 잠시 뺀 아이디어는 개수만 알려 "적용하지 말라"고 합니다. AI에게는 아이디어를 바꾸는 도구가 없고, 프롬프트도 "추가·수정·순서 변경·삭제하지 말고, 충돌하면 어느 것과 왜 충돌하는지 말하라"고 합니다. `GET /context`의 `conductor`·`expert`에도 같은 글이 들어갑니다.
 - 제도판을 한 번도 저장하지 않은 프로젝트(`board.json` 없음)는 아무것도 더하지 않습니다. 아이디어를 넣으면 `board.json`이 생깁니다.
+
+## 브이월드 3D
+
+제도판 머리의 "브이월드 3D" 버튼(명령 `vworld`)은 지금 보는 매스안을 브이월드의 WebGL 3D 지도(3.0) 위에 세워 제도판 자리에 띄웁니다. 다시 누르거나 "제도판으로"를 누르면 제도판으로 돌아갑니다. 제도판(Three.js)과 내보내기는 바뀌지 않습니다.
+
+- 지도는 브이월드 공식 API로 브라우저가 직접 불러 브이월드 뷰어에 그립니다(`webui/app/vworld3d.html`, 스크립트 주소는 `GET /api/site/map`의 `webgl3d.script`). 3D 건물 모델과 타일은 저장하거나 꺼내 쓰지 않고, 내보내기에도 넣지 않습니다(브이월드 이용약관 제14조·제19조).
+- 매스안의 동마다 발자국을 대지 원점 기준으로 위경도로 바꿔(`board-model.js`의 `toLonLat`, `massPolygons`) 반투명 상자로 세웁니다. 높이는 층수 × 층고이고, 바닥은 브이월드 지형 위(지형 기준 높이)입니다.
+- 건물을 누르면 숨겨지고, 숨긴 건물은 모델 id로 `board.json`의 `hidden`에 남습니다(`PUT /hidden`). 같은 프로젝트를 다시 열면 그대로 숨겨집니다. "숨긴 건물 모두 보이기"는 목록을 비웁니다.
+- 브이월드 3D 건물에는 필지 번호(PNU)가 없고 `MODEL_NAME`, `TD_ID`만 있습니다. 그래서 "대지 위 건물 숨기기"는 대지 경계 안을 3m 간격으로 위에서 내려다보며 걸리는 건물을 숨깁니다(자리로 찾기). 숨긴 건물이 없는 프로젝트는 처음 열 때 한 번 이렇게 찾습니다.
+- `hidden`은 화면만 씁니다. AI에게 가지 않고 내보내기에도 영향이 없습니다.
 
 ## 캐드·라이노로 내보내기
 

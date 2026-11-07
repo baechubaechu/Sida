@@ -568,12 +568,16 @@ def parcel_at(lon: float, lat: float, *, http_get: HttpGet | None = None) -> dic
 #   TRANSPARENT=true, so the screen shows it from zoom 18 and half see-through.
 WMTS_BASE = "https://api.vworld.kr/req/wmts/1.0.0/{key}/Base/{z}/{y}/{x}.png"
 WMS_URL = "https://api.vworld.kr/req/wms"
+# VWorld's WebGL 3D map (3.0, on Cesium): the browser loads it and draws VWorld's 3D buildings in
+# VWorld's own viewer. Shown live only; nothing of it is kept (이용약관 제14조, 제19조).
+WEBGL3D_SCRIPT = "https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey={key}"
 CADASTRAL_MIN_ZOOM = 18
 
 
 def map_layers() -> dict:
     """
-    What a map screen needs to show the background and the 지적 lines, with the key filled in.
+    What a map screen needs to show the background and the 지적 lines, and the script address of
+    VWorld's WebGL 3D map (`webgl3d`), with the key filled in.
     The key is visible to the browser; fine while the web UI runs on the designer's own PC.
     Raises LandApiError('no_key') without a key.
     """
@@ -596,4 +600,5 @@ def map_layers() -> dict:
             "min_zoom": CADASTRAL_MIN_ZOOM,
             "opacity": 0.5,
         },
+        "webgl3d": {"script": WEBGL3D_SCRIPT.replace("{key}", key), "version": "3.0"},
     }
