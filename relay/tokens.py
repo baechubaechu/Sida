@@ -4,6 +4,10 @@ A key is shown once, when it is made (relay/admin.py); the database keeps only i
 Each key has a name (who it is for), a daily call limit, and may expire or be revoked.
 Usage is counted per key, per Korean day and per service, with how many calls failed:
 no addresses, parcel numbers or queries are kept.
+
+A person without a key can ask for one from the app (a key request: a name and how to reach
+them). The admin approves or refuses it (relay/admin.py); the app holds the request's claim
+code (sidareq_…, also kept only as a hash) and collects the key with it once, after approval.
 """
 
 from __future__ import annotations
@@ -18,7 +22,10 @@ from pathlib import Path
 
 KST = timezone(timedelta(hours=9))  # no daylight saving in Korea
 PREFIX = "sida_"
+CLAIM_PREFIX = "sidareq_"
 DEFAULT_DAILY_LIMIT = 3000
+MAX_PENDING_REQUESTS = 200  # requests nobody has answered yet; more are refused
+MAX_CONTACT = 120
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tokens (
@@ -39,7 +46,21 @@ CREATE TABLE IF NOT EXISTS usage (
     failed   INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (token_id, day, service)
 );
+CREATE TABLE IF NOT EXISTS requests (
+    id          TEXT PRIMARY KEY,
+    claim_hash  TEXT NOT NULL UNIQUE,
+    name        TEXT NOT NULL,
+    contact     TEXT NOT NULL,
+    created     TEXT NOT NULL,
+    state       TEXT NOT NULL,   -- pending | approved | refused | delivered
+    decided     TEXT,
+    daily_limit INTEGER,
+    days        INTEGER,
+    token_id    TEXT
+);
 """
+
+REQUEST_STATES = ("pending", "approved", "refused", "delivered")
 
 
 def korean_now() -> datetime:
@@ -64,6 +85,23 @@ class Token:
         return not self.revoked and (not self.expires or today.isoformat() <= self.expires)
 
 
+@dataclass(frozen=True)
+class KeyRequest:
+    id: str
+    name: str
+    contact: str
+    created: str
+    state: str
+    decided: str | None
+    daily_limit: int | None
+    days: int | None
+    token_id: str | None
+
+
+def _clean(text: str) -> str:
+    return " ".join((text or "").split())
+
+
 class TokenStore:
     def __init__(self, path: str | Path, *, now=korean_now):
         self.now = now
@@ -75,7 +113,7 @@ class TokenStore:
 
     def issue(self, name: str, *, daily_limit: int = DEFAULT_DAILY_LIMIT, days: int | None = None) -> tuple[str, Token]:
         """A new key for `name`: (the key itself, shown only now; its record)."""
-        name = " ".join((name or "").split())
+        name = _clean(name)
         if not name or len(name) > 80:
             raise ValueError("name must be 1-80 characters")
         if daily_limit < 1:
@@ -160,3 +198,79 @@ class TokenStore:
             " WHERE u.day >= ? ORDER BY u.day DESC, t.name, u.service",
             (since,),
         ).fetchall()
+
+    # -- key requests -------------------------------------------------------
+
+    def request(self, name: str, contact: str = "") -> tuple[str, KeyRequest]:
+        """A new key request: (its claim code, shown only to the app that asked; its record)."""
+        name, contact = _clean(name), _clean(contact)
+        if not name or len(name) > 80:
+            raise ValueError("name must be 1-80 characters")
+        if len(contact) > MAX_CONTACT:
+            raise ValueError(f"contact must be at most {MAX_CONTACT} characters")
+        claim = CLAIM_PREFIX + secrets.token_urlsafe(24)
+        request_id = secrets.token_hex(3)
+        with self._lock:
+            pending = self._db.execute("SELECT COUNT(*) FROM requests WHERE state = 'pending'").fetchone()[0]
+            if pending >= MAX_PENDING_REQUESTS:
+                raise OverflowError("too many key requests waiting")
+            self._db.execute(
+                "INSERT INTO requests (id, claim_hash, name, contact, created, state) VALUES (?, ?, ?, ?, ?, 'pending')",
+                (request_id, _hash(claim), name, contact, self.now().isoformat(timespec="seconds")),
+            )
+        return claim, self.get_request(request_id)
+
+    def get_request(self, request_id: str) -> KeyRequest | None:
+        row = self._db.execute(
+            "SELECT id, name, contact, created, state, decided, daily_limit, days, token_id FROM requests WHERE id = ?",
+            (request_id,),
+        ).fetchone()
+        return KeyRequest(*row) if row else None
+
+    def requests(self, state: str | None = None) -> list[KeyRequest]:
+        sql, args = "SELECT id FROM requests", ()
+        if state:
+            sql, args = sql + " WHERE state = ?", (state,)
+        rows = self._db.execute(sql + " ORDER BY created", args).fetchall()
+        return [self.get_request(r[0]) for r in rows]
+
+    def approve(self, request_id: str, *, daily_limit: int = DEFAULT_DAILY_LIMIT, days: int | None = None) -> bool:
+        """Approve a waiting request; the key is made when the app collects it."""
+        if daily_limit < 1:
+            raise ValueError("daily_limit must be at least 1")
+        return self._decide(request_id, "approved", daily_limit, days)
+
+    def refuse(self, request_id: str) -> bool:
+        return self._decide(request_id, "refused", None, None)
+
+    def _decide(self, request_id: str, state: str, daily_limit: int | None, days: int | None) -> bool:
+        with self._lock:
+            cur = self._db.execute(
+                "UPDATE requests SET state = ?, decided = ?, daily_limit = ?, days = ? WHERE id = ? AND state = 'pending'",
+                (state, self.now().isoformat(timespec="seconds"), daily_limit, days, request_id),
+            )
+        return cur.rowcount == 1
+
+    def collect(self, claim: str) -> tuple[KeyRequest, str | None] | None:
+        """
+        The request behind a claim code, and its key when it was approved and not yet
+        collected (made now, given once). None for an unknown claim code.
+        """
+        if not claim.startswith(CLAIM_PREFIX) or len(claim) > 100:
+            return None
+        row = self._db.execute("SELECT id FROM requests WHERE claim_hash = ?", (_hash(claim),)).fetchone()
+        if not row:
+            return None
+        record = self.get_request(row[0])
+        if record.state != "approved":
+            return record, None
+        token, made = self.issue(record.name, daily_limit=record.daily_limit or DEFAULT_DAILY_LIMIT, days=record.days)
+        with self._lock:
+            cur = self._db.execute(
+                "UPDATE requests SET state = 'delivered', token_id = ? WHERE id = ? AND state = 'approved'",
+                (made.id, record.id),
+            )
+        if cur.rowcount != 1:  # collected at the same moment by another call: keep only one key
+            self.revoke(made.id)
+            return self.get_request(record.id), None
+        return self.get_request(record.id), token

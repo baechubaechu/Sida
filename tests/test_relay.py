@@ -29,14 +29,17 @@ def test_access_keys_look_like_the_ones_the_relay_makes():
         assert not relay.valid_token(bad), bad
 
 
-def test_the_relay_is_used_only_with_both_an_address_and_a_key(monkeypatch):
+def test_the_relay_is_used_only_with_an_access_key(monkeypatch):
     assert relay.base_url() == ""  # tests start with no relay
-    monkeypatch.setenv(relay.ENV_NAME, " https://sida-kr.duckdns.org/ ")
+    assert relay.server_url() == relay.DEFAULT_URL  # the team's server when no address is set
+    monkeypatch.setenv(relay.ENV_NAME, " https://other-relay.example.kr/ ")
     assert relay.base_url() == ""  # no access key yet
     monkeypatch.setenv(relay.TOKEN_ENV, TOKEN)
-    assert relay.base_url() == "https://sida-kr.duckdns.org"
+    assert relay.base_url() == "https://other-relay.example.kr"
     monkeypatch.setenv(relay.ENV_NAME, "http://sida-kr.duckdns.org")  # plain http only for this PC
-    assert relay.base_url() == ""
+    assert relay.base_url() == "" and relay.server_url() == ""
+    monkeypatch.delenv(relay.ENV_NAME)
+    assert relay.base_url() == relay.DEFAULT_URL  # a key alone uses the team's server
 
 
 def test_the_access_key_goes_only_to_the_relay(relayed):

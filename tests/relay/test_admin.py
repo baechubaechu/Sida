@@ -48,3 +48,19 @@ def test_names_and_limits_are_checked(store):
         store.issue("  ")
     with pytest.raises(ValueError):
         store.issue("x", daily_limit=0)
+
+
+def test_key_requests_are_listed_approved_and_refused(store):
+    _claim, first = store.request("김철수 (OO대)", "kim@example.com")
+    _claim, second = store.request("모르는 사람")
+    code, text = run(store, "requests")
+    assert code == 0 and "김철수 (OO대)" in text and "kim@example.com" in text and "모르는 사람" in text
+    assert "기다리는 키 요청 2건" in run(store, "list")[1]
+    assert run(store, "approve", first.id, "--limit", "500", "--days", "30")[0] == 0
+    assert run(store, "approve", first.id)[0] == 1  # already answered
+    assert run(store, "refuse", second.id)[0] == 0
+    assert run(store, "refuse", "nope")[0] == 1
+    assert run(store, "requests")[1] == "기다리는 요청이 없습니다.\n"
+    everything = run(store, "requests", "--all")[1]
+    assert "승인(아직 안 받아 감)" in everything and "거절" in everything
+    assert (store.get_request(first.id).daily_limit, store.get_request(first.id).days) == (500, 30)

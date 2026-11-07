@@ -39,9 +39,29 @@ export const DATA_KEYS = [
   { id: 'data_go_kr', label: '공공데이터포털 키', secret: true },
   { id: 'law', label: '법제처 인증값(OC)', secret: true },
   // Used for the three above when this PC has no key of its own.
-  { id: 'relay_url', label: 'Sida 자료 서버 주소 (키가 없을 때)', secret: false },
-  { id: 'relay_token', label: 'Sida 자료 서버 키 (sida_…)', secret: true },
+  { id: 'relay_url', label: 'Sida 자료 서버 주소 (비우면 팀 서버)', secret: false },
+  { id: 'relay_token', label: 'Sida 키 (sida_…)', secret: true },
 ];
+
+// The "Sida 키 받기" part of the settings screen, from GET/POST /api/settings/relay-key and whether
+// a Sida key is saved: the note to show and whether to show the request form (`form`), the
+// waiting buttons (`waiting`) or only a "새로 요청" button (`offer`).
+export function relayKeyView(request, tokenSet) {
+  const state = request?.state || 'none';
+  const view = (tone, note, more = {}) => ({ tone, note, form: false, waiting: false, offer: false, ...more });
+  if (state === 'pending') {
+    const when = dateTime(request.requested);
+    return view(request.unreachable ? 'warn' : 'muted', request.unreachable
+      ? 'Sida 자료 서버에 연결하지 못해 승인됐는지 확인하지 못했습니다. 잠시 뒤 다시 확인해 주세요.'
+      : `'${request.name}' 이름으로 키를 요청했습니다${when ? `(${when})` : ''}. 팀이 승인하면 설정 창을 열 때 키가 저절로 들어옵니다.`,
+    { waiting: true });
+  }
+  if (state === 'approved') return view('success', 'Sida 키를 받아 저장했습니다. 이제 정부 키 없이 대지 조회와 법령 검색을 쓸 수 있습니다.');
+  if (state === 'refused') return view('warn', '키 요청이 거절됐습니다. 팀에 문의하거나 다시 요청해 주세요.', { form: true });
+  if (state === 'unknown') return view('warn', '서버에서 이 요청을 찾지 못했습니다. 다시 요청해 주세요.', { form: true });
+  if (tokenSet) return view('muted', '', { offer: true });
+  return view('muted', '정부 키가 없어도 Sida 키가 있으면 대지 조회와 법령 검색을 쓸 수 있습니다. 이름과 연락처를 보내면 팀이 확인한 뒤 키가 이 PC로 들어옵니다.', { form: true });
+}
 
 // The keys to save: [id, value] for each one typed in (a shown value only when it changed).
 export function keyChanges(draft, status = {}) {

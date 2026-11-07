@@ -16,6 +16,9 @@
 | `GET /api/settings` | | 지금 설정(아래) |
 | `PUT /api/settings` | 바꿀 항목만 담은 객체 | 저장한 뒤의 설정(`GET`과 같은 모양) |
 | `PUT /api/settings/keys/{key}` | `{value}` | `{key, env, set, hint, verified}` |
+| `GET /api/settings/relay-key` | | Sida 키 요청 상태(아래 "Sida 키 받기"). 기다리는 요청이 있으면 Sida 자료 서버에 승인됐는지 묻고, 승인됐으면 키를 받아 저장합니다 |
+| `POST /api/settings/relay-key` | `{name, contact}` | Sida 자료 서버에 키를 요청합니다. 상태(`pending`) |
+| `DELETE /api/settings/relay-key` | | 이 PC의 기다리는 요청을 잊습니다. `{state: "none"}` |
 
 ### `GET /api/settings`의 항목
 
@@ -29,6 +32,7 @@
 | `state_update` | 전문가 결과를 설계 상태에 반영하는 방식. `ask`(승인 받기), `auto`(바로 반영), `off`(안 함) |
 | `gpu` | 감지한 GPU `{name, vram_gb, recommended_profile}`. NVIDIA가 아니거나 없으면 `null`. `recommended_profile`이 `null`이면 클라우드를 권합니다 |
 | `keys` | 키마다 `{env, set, hint}`. `vworld_domain`과 `relay_url`은 비밀값이 아니라 `hint` 대신 `value`가 옵니다 |
+| `relay` | `{url, default_url}`. 지금 쓰는 Sida 자료 서버 주소(`relay_url`을 안 넣었으면 팀 서버 `default_url`)와 팀 서버 주소 |
 | `warnings` | `openrouter_key_missing`(클라우드를 쓰는데 OpenRouter 키 없음), `rag_key_missing`(법령 검색을 켰는데 법제처 인증값 없음), `chatgpt_signed_out`(Conductor나 전문가가 ChatGPT 구독인데 로그인 안 됨) |
 | `chatgpt` | ChatGPT 구독 로그인 상태와 Conductor·전문가 모델 `{signed_in, email, plan_usage, registered, model, worker_model}`. [chatgpt-login.md](chatgpt-login.md) |
 | `options` | 화면의 선택지: `modes`, `providers`, `conductor_providers`, `worker_providers`(역할별, `chatgpt` 포함), `local_profiles`, `state_update` |
@@ -58,13 +62,23 @@
 | `vworld_domain` | `VWORLD_DOMAIN` | 브이월드 키를 받을 때 등록한 주소(보통 `http://localhost:8765`) |
 | `data_go_kr` | `DATA_GO_KR_API_KEY` | 건축물대장, 행위제한, 근거 조문 |
 | `law` | `LAW_OPEN_API_OC` | 법령 검색, 조례 |
-| `relay_url` | `SIDA_RELAY_URL` | Sida 자료 서버 주소. 위 세 정부 키 중 이 PC에 없는 것은 이 서버를 거쳐 부릅니다(`relay/README.md`). `https://`만 받고(이 PC 시험용 `http://localhost`는 예외), 아니면 `400` |
-| `relay_token` | `SIDA_RELAY_TOKEN` | Sida 자료 서버 접속 키(`sida_…`, 사람마다 팀이 발급). 주소와 키가 둘 다 있어야 서버를 거칩니다. 모양이 다르면 `400` |
+| `relay_url` | `SIDA_RELAY_URL` | Sida 자료 서버 주소. 비워 두면 팀 서버(`relay.default_url`)입니다. 위 세 정부 키 중 이 PC에 없는 것은 이 서버를 거쳐 부릅니다(`relay/README.md`). `https://`만 받고(이 PC 시험용 `http://localhost`는 예외), 아니면 `400` |
+| `relay_token` | `SIDA_RELAY_TOKEN` | Sida 키(`sida_…`, 사람마다 하나). 아래 "Sida 키 받기"로 받거나 팀이 준 것을 넣습니다. 키가 있어야 서버를 거칩니다. 모양이 다르면 `400` |
 
 - OpenRouter와 OpenAI 키는 저장하기 전에 그 서비스에 확인합니다. 거부되면 `400`이고 저장하지 않습니다. 확인한 키는 응답의 `verified`가 `true`입니다.
 - 정부 키(브이월드, 공공데이터포털, 법제처)는 확인하지 않고 그대로 저장합니다(`verified: false`). 키가 틀리면 대지 조회나 법령 검색에서 오류 안내가 나옵니다.
 - 빈 값이나 여러 줄은 `400`, 표에 없는 `{key}`는 `404`입니다.
 - 키 칸은 비워 두고 `hint`(예: `…5678`)만 자리 표시로 보여 주세요. 새로 입력했을 때만 보내면 됩니다.
+
+### Sida 키 받기 (요청 후 승인)
+
+정부 키도 Sida 키도 없는 사람이 설정 창에서 키를 요청합니다.
+
+1. `POST /api/settings/relay-key` `{name: "홍길동 (OO대)", contact: "이메일이나 카톡 아이디(선택)"}` → Sida 자료 서버에 요청이 가고 `{state: "pending", name, requested}`가 옵니다. 서버가 준 받기 코드는 이 PC의 `~/Sida/relay_request.json`에만 두고 API로 돌려주지 않습니다.
+2. 팀이 서버에서 승인합니다(`relay.admin requests`, `approve <id>`; `relay/README.md`).
+3. `GET /api/settings/relay-key`(설정 창을 열 때, 앱을 켤 때) → 승인됐으면 키를 받아 `.env`의 `SIDA_RELAY_TOKEN`에 저장하고 `{state: "approved", key: {env, set, hint}}`. 키 자체는 돌려주지 않습니다.
+
+`state`는 `none`(요청 없음), `pending`(기다림, 서버에 연결 못 하면 `unreachable: true`), `approved`(방금 키를 받음), `refused`(거절됨), `unknown`(서버가 요청을 모름)입니다. `approved`·`refused`·`unknown`은 한 번만 오고 그다음은 `none`입니다. 이름이 비었거나 80자, 연락처가 120자를 넘으면 `400`, 한 주소에서 한 시간에 5번을 넘기면 `429`, 서버에 연결하지 못하면 `502`입니다.
 
 ## 예시
 

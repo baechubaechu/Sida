@@ -1,10 +1,11 @@
 """Sida's data server (중계 서버) for the government APIs, for installs without their own keys.
 
 Each government API module (VWorld, data.go.kr, 법제처) calls the service directly when this
-PC has its own key, as before. Without one, it calls the relay instead, when both its address
-(SIDA_RELAY_URL) and this person's access key (SIDA_RELAY_TOKEN, sida_…, given by the team)
-are set in .env from the settings screen. The relay adds the server's government key, calls the
-service and passes the answer back unchanged. The app sends the relay no government key.
+PC has its own key, as before. Without one, it calls the relay instead, when this person has an
+access key (SIDA_RELAY_TOKEN, sida_…): asked for from the settings screen (sida/relay_key.py) or
+given by the team. The relay is the team's server (DEFAULT_URL) unless SIDA_RELAY_URL names
+another. The relay adds the server's government key, calls the service and passes the answer
+back unchanged. The app sends the relay no government key.
 
 The relay server itself is in relay/ at the top of the repository (not part of this package).
 """
@@ -17,6 +18,7 @@ from urllib.parse import urlsplit
 ENV_NAME = "SIDA_RELAY_URL"
 TOKEN_ENV = "SIDA_RELAY_TOKEN"
 TOKEN_PARAM = "sida_token"  # map images: the browser can't send a header
+DEFAULT_URL = "https://sida-kr.duckdns.org"  # the team's server (a real domain before the CBT)
 _LOCAL_HOSTS = {"localhost", "127.0.0.1"}
 
 
@@ -39,13 +41,23 @@ def token() -> str:
     return value if valid_token(value) else ""
 
 
-def base_url() -> str:
+def server_url() -> str:
     """
-    The relay address from the environment, without a trailing slash; "" when no address or no
-    access key is set (or either is not valid). The API modules load .env before asking.
+    The relay address without a trailing slash: SIDA_RELAY_URL, or the team's server when it is
+    not set; "" when it is set but not valid.
     """
     value = os.environ.get(ENV_NAME, "").strip().rstrip("/")
-    return value if valid_url(value) and token() else ""
+    if not value:
+        return DEFAULT_URL
+    return value if valid_url(value) else ""
+
+
+def base_url() -> str:
+    """
+    The relay address the API modules call; "" when there is no access key (or no valid address).
+    The API modules load .env before asking.
+    """
+    return server_url() if token() else ""
 
 
 def headers(url: str) -> dict[str, str]:

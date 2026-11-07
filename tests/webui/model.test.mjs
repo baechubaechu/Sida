@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   escapeHtml, findProjects, relativeDate, projectSummary, visibleExperts, chatItems, eventNotice, expertStatus,
-  renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges, parseRoute, expertPath, dateTime,
+  renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges, relayKeyView, parseRoute, expertPath, dateTime,
   documentSections, listItems, itemTag, handoffs, questionAnswer, arrangeDocument, EXPERT_LAYOUTS, SECTION_LABELS,
   stateChangeView, phaseLabel, sitePath, sitePageFor, needsSiteFirst, areaText, zoneScope, siteHeadline, missingText, restrictionGroups,
   ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
@@ -211,6 +211,23 @@ test('only typed keys are saved, and the shown VWorld domain only when it change
   const relayed = { relay_url: { set: true, value: 'https://sida-kr.duckdns.org' } };
   assert.deepEqual(keyChanges({ relay_url: 'https://sida-kr.duckdns.org' }, relayed), []);
   assert.deepEqual(keyChanges({ relay_url: 'https://other.example' }, relayed), [['relay_url', 'https://other.example']]);
+});
+
+test('the Sida key part of settings follows the key request', () => {
+  const none = relayKeyView({ state: 'none' }, false);
+  assert.equal(none.form, true);
+  assert.match(none.note, /이름과 연락처/);
+  assert.deepEqual(relayKeyView({ state: 'none' }, true), { tone: 'muted', note: '', form: false, waiting: false, offer: true });
+  const waiting = relayKeyView({ state: 'pending', name: '김철수', requested: '' }, false);
+  assert.equal(waiting.waiting, true);
+  assert.equal(waiting.form, false);
+  assert.match(waiting.note, /'김철수' 이름으로 키를 요청했습니다\. 팀이 승인하면/);
+  const down = relayKeyView({ state: 'pending', name: '김철수', unreachable: true }, false);
+  assert.equal(down.tone, 'warn');
+  assert.match(down.note, /연결하지 못해/);
+  assert.equal(relayKeyView({ state: 'approved' }, true).tone, 'success');
+  for (const state of ['refused', 'unknown']) assert.equal(relayKeyView({ state }, false).form, true, state);
+  assert.equal(relayKeyView(null, false).form, true);
 });
 
 test('addresses open an expert on its result, analysis chat or earlier result', () => {

@@ -19,6 +19,7 @@ from sida import (  # noqa: E402
     i18n,
     providers,
     relay,
+    relay_key,
     runtime,
     settings,
     storage,
@@ -227,6 +228,9 @@ def isolated_settings(tmp_path, monkeypatch):
     # The Sida relay is off (the keys above are used directly). Tests that use it set both values.
     monkeypatch.delenv(relay.ENV_NAME, raising=False)
     monkeypatch.delenv(relay.TOKEN_ENV, raising=False)
+    # A key request (settings → "Sida 키 요청") is kept in a temporary folder and never sent.
+    monkeypatch.setattr(relay_key, "REQUEST_PATH", tmp_path / "relay_request.json")
+    monkeypatch.setattr(relay_key, "_http_post", lambda url, body: _no_network(url, body))
     # No real nvidia-smi calls: tests that need a GPU patch query_nvidia_smi themselves.
     monkeypatch.setattr(hardware, "query_nvidia_smi", lambda: None)
     settings_dir = tmp_path / "settings"
