@@ -902,3 +902,27 @@ test('the model base: step height, sheet size, the files request and the summary
   assert.match(modelSummaryText({ ...s, size: 'None', radius: '150.0', shape: 'square', buildings_left_out: 'True' }), /반경 150m, 정사각형\) · 실시간 건물은/);
   assert.equal(modelSummaryText({}), '');
 });
+
+test('the VWorld 3D frame opens the app page with the script, or the data server page without it', async () => {
+  const { vworldFrame } = await import('../../webui/app/board-model.js');
+  const origin = { lon: 126.978, lat: 37.566 };
+  const script = 'https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey=k-1';
+  const own = vworldFrame({ page: '/app/vworld3d.html', script, version: '3.0' }, origin, 'http://localhost:8765');
+  const [page, hash] = own.src.split('#');
+  assert.equal(page, '/app/vworld3d.html');
+  const at = new URLSearchParams(hash);
+  assert.equal(at.get('script'), script); // after #: never sent to a server
+  assert.equal(at.get('lon'), '126.978');
+  assert.equal(at.get('lat'), '37.566');
+  assert.equal(at.get('parent'), 'http://localhost:8765'); // the only page the map talks to
+  const relayPage = 'https://sida-kr.duckdns.org/relay/vworld3d?sida_token=sida_abc';
+  const relayed = vworldFrame({ page: relayPage, version: '3.0' }, origin, 'http://localhost:8765');
+  assert.ok(relayed.src.startsWith(`${relayPage}#`));
+  assert.equal(new URLSearchParams(relayed.src.split('#')[1]).get('script'), null); // the server fills it in
+  // a new page only when the page or the key changes, not when the site moves
+  assert.equal(vworldFrame({ page: relayPage }, { lon: 127, lat: 37 }, 'x').key, relayed.key);
+  assert.notEqual(relayed.key, own.key);
+  assert.equal(vworldFrame(null, origin, 'x'), null);
+  assert.equal(vworldFrame({ script }, origin, 'x'), null);
+  assert.equal(vworldFrame({ page: '/app/vworld3d.html' }, null, 'x'), null);
+});

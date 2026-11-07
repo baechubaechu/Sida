@@ -373,8 +373,9 @@ async function toggleVWorld(name, on = !ui.vworld) {
     return;
   }
   if (!ui.mapLayers.webgl3d) {
-    // Through the Sida data server there is no key in the browser, and VWorld's 3D map needs one.
-    toast('브이월드 3D 지도는 이 PC의 브이월드 키가 있어야 열립니다. 설정에서 브이월드 키를 넣어 주세요.', 'info');
+    toast(ui.mapLayers.relay
+      ? '브이월드 3D 지도가 아직 Sida 자료 서버에 준비되지 않았습니다. 이 PC에 브이월드 키를 넣으면 바로 열 수 있습니다.'
+      : '브이월드 3D 지도를 열 수 없습니다. 설정에서 브이월드 키나 Sida 자료 서버 키를 확인하세요.', 'info');
     return;
   }
   if (!vworldView) {
@@ -394,7 +395,7 @@ async function toggleVWorld(name, on = !ui.vworld) {
   const hidden = ui.board?.hidden || [];
   const firstTime = !hidden.length && !vworldAuto.has(name);
   vworldAuto.add(name);
-  await vworldView.show({ script: ui.mapLayers.webgl3d.script, plan, paper, hidden, firstTime });
+  await vworldView.show({ webgl3d: ui.mapLayers.webgl3d, plan, paper, hidden, firstTime });
 }
 
 // Ask about what is picked: the cursor goes to the command line, and a prepared question goes

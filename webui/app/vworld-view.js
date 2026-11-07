@@ -4,9 +4,15 @@
 // hides it after confirming ([이 건물 숨기기] or Delete; Esc cancels); Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y)
 // undo and redo the hiding steps. The board keeps which buildings are hidden by VWorld's model id
 // (PUT .../board/hidden). The board's own Three.js view and the export are unchanged.
+//
+// The map page is the app's own (this PC has a VWorld key) or the Sida data server's (it hasn't;
+// another origin), so the two talk only by postMessage (vworld3d-frame.js has the messages).
 import {
   massPolygons, siteRings, readLook, hideBuildings, startHistory, commitHistory, undoHistory, redoHistory, hideKey,
+  vworldFrame,
 } from './board-model.js';
+
+const TAG = 'vworld3d';
 
 // How this viewer likes the map (흰 모형, 바닥 사진 끄기, 건물 이름 끄기): kept for this page (closing
 // and opening the view keeps it), not in the project. The screen keeps nothing in browser storage
@@ -53,14 +59,47 @@ export class VWorldView {
       }
     }, true);
     this.plan = null;
-    this.script = '';
+    this.frameKey = '';
+    this.frameOrigin = '';
+    this.loaded = false;
+    this.calls = new Map(); // message id → { resolve, reject }
+    this.nextId = 1;
     this.look = pageLook;
     this.history = startHistory([]);
     this.picked = '';
+    window.addEventListener('message', (e) => this.onMessage(e));
+    // a drag of the map that ends over the board: the map can't listen here (another origin)
+    window.addEventListener('mouseup', () => { if (this.open) this.ask('mouseUp'); });
     this.drawBar();
   }
 
-  get page() { return this.frame.contentWindow?.sidaVWorld; }
+  // Ask the map page; resolves with its answer (null when no map page is loaded).
+  ask(method, ...args) {
+    if (!this.loaded || !this.frameOrigin) return Promise.resolve(null);
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      this.calls.set(id, { resolve, reject });
+      this.frame.contentWindow.postMessage({ sida: TAG, id, method, args }, this.frameOrigin);
+    });
+  }
+
+  // Answers and events from the map page only (its window and its origin).
+  onMessage(e) {
+    const m = e.data;
+    if (e.source !== this.frame.contentWindow || e.origin !== this.frameOrigin || m?.sida !== TAG) return;
+    if (m.event === 'pick') { this.onPick(typeof m.id === 'string' ? m.id : ''); return; }
+    if (m.event === 'key') { this.onKey({ key: String(m.key || ''), ctrl: Boolean(m.ctrl), meta: Boolean(m.meta), shift: Boolean(m.shift) }); return; }
+    const call = this.calls.get(m.id);
+    if (!call) return;
+    this.calls.delete(m.id);
+    if (m.error) call.reject(new Error(m.error)); else call.resolve(m.result);
+  }
+
+  // A new map page: the questions to the old one get no answer.
+  dropCalls() {
+    for (const call of this.calls.values()) call.resolve(null);
+    this.calls.clear();
+  }
 
   get open() { return !this.host.hidden; }
 
@@ -77,7 +116,7 @@ export class VWorldView {
     this.look = { ...this.look, [key]: !this.look[key] };
     pageLook = this.look;
     this.drawBar();
-    this.page?.setLook(this.look);
+    this.ask('setLook', this.look);
   }
 
   // Lay the view over this box (the board area), as the table host is.
@@ -87,31 +126,35 @@ export class VWorldView {
   }
 
   // Open over the board: the site's middle, the active scheme's masses and the hidden buildings.
-  async show({ script, plan, paper, hidden, firstTime }) {
+  // `webgl3d` is GET /api/site/map's: which map page to open (the app's or the data server's).
+  async show({ webgl3d, plan, paper, hidden, firstTime }) {
     this.plan = plan;
     this.host.hidden = false;
     this.history = startHistory(hidden || []);
     this.picked = '';
     this.drawBar();
-    if (this.script !== script) { // a new page only when the key changes; the map then stays loaded
-      this.script = script;
-      const at = new URLSearchParams({ script, lon: String(plan.origin.lon), lat: String(plan.origin.lat) });
-      this.frame.src = `/app/vworld3d.html#${at}`;
+    const frame = vworldFrame(webgl3d, plan.origin, window.location.origin);
+    if (!frame) { this.say('브이월드 3D 지도를 열 수 없습니다.'); return; }
+    if (this.frameKey !== frame.key) { // a new page only when the page or key changes; the map then stays loaded
+      this.frameKey = frame.key;
+      this.dropCalls();
+      this.loaded = false;
+      this.frameOrigin = new URL(frame.src, window.location.href).origin;
+      this.frame.src = frame.src;
       await new Promise((resolve) => this.frame.addEventListener('load', resolve, { once: true }));
+      this.loaded = true;
     }
-    const page = this.page;
     this.say('브이월드 3D 지도를 여는 중…');
-    const ok = page && await page.show({
+    const ok = await this.ask('show', {
       center: plan.origin, polygons: massPolygons(paper, plan), hidden: this.history.present, appearance: this.look,
-      onPick: (id) => this.onPick(id), onKey: (k) => this.onKey(k),
     });
-    if (!ok) { this.say(page?.failed() || '브이월드 3D 지도를 열지 못했습니다.'); return; }
+    if (!ok) { this.say((await this.ask('failed')) || '브이월드 3D 지도를 열지 못했습니다.'); return; }
     this.say(paper ? `${paper.title || '매스안'}을(를) 지반 위에 세웠습니다.` : '제도판에 매스안이 없습니다.');
     if (firstTime) await this.hideSite();
   }
 
   update(paper) {
-    if (this.open && this.plan) this.page?.setMasses(massPolygons(paper, this.plan));
+    if (this.open && this.plan) this.ask('setMasses', massPolygons(paper, this.plan));
   }
 
   // A hiding step: the new hidden list is drawn, kept for undo and saved in the project.
@@ -124,7 +167,7 @@ export class VWorldView {
 
   async apply(done) {
     this.picked = '';
-    this.page?.setHidden(this.history.present);
+    this.ask('setHidden', this.history.present);
     this.drawBar();
     try {
       await this.hooks.saveHidden(this.history.present);
@@ -135,9 +178,9 @@ export class VWorldView {
   }
 
   async hideSite() {
-    if (!this.page || !this.plan) return;
+    if (!this.loaded || !this.plan) return;
     this.say('대지 위 건물을 찾는 중…');
-    const ids = await this.page.findSite(siteRings(this.plan), this.plan.origin);
+    const ids = (await this.ask('findSite', siteRings(this.plan), this.plan.origin)) || [];
     if (!ids.length) { this.say('대지 위에서 숨길 건물을 찾지 못했습니다. 건물을 눌러 고른 뒤 숨기세요.'); return; }
     await this.change(hideBuildings(this.history.present, ids), `대지 위 건물 ${ids.length}개를 숨겼습니다. 되돌리려면 Ctrl+Z.`);
   }
@@ -154,7 +197,7 @@ export class VWorldView {
     this.change(hideBuildings(this.history.present, [this.picked]), `건물을 숨겼습니다 (숨긴 건물 ${n}개). 되돌리려면 Ctrl+Z.`);
   }
 
-  unpick() { this.picked = ''; this.page?.unpick(); this.drawBar(); }
+  unpick() { this.picked = ''; this.ask('unpick'); this.drawBar(); }
 
   undo() {
     const next = undoHistory(this.history);

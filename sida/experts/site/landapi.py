@@ -592,24 +592,33 @@ WMS_URL = "https://api.vworld.kr/req/wms"
 # VWorld's WebGL 3D map (3.0, on Cesium): the browser loads it and draws VWorld's 3D buildings in
 # VWorld's own viewer. Shown live only; nothing of it is kept (이용약관 제14조, 제19조).
 WEBGL3D_SCRIPT = "https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey={key}"
+WEBGL3D_PAGE = "/app/vworld3d.html"  # the app's own 3D page (webui/app/vworld3d.html)
 CADASTRAL_MIN_ZOOM = 18
 
 
 def map_layers() -> dict:
     """
-    What a map screen needs to show the background and the 지적 lines, and the script address of
-    VWorld's WebGL 3D map (`webgl3d`), with the key filled in.
-    The key is visible to the browser; fine while the web UI runs on the designer's own PC.
+    What a map screen needs to show the background and the 지적 lines, and the 3D map page
+    (`webgl3d`: {page, script, version}) for VWorld's WebGL 3D map.
+    With this PC's own key, the key is filled in and visible to the browser; fine while the web
+    UI runs on the designer's own PC, and the 3D page is the app's own with the script address.
     Without a key but with the Sida relay, the images come through the relay with this person's
-    access key (not a government key) as a parameter, and
-    `webgl3d` is None: VWorld's 3D script takes the key in the browser and checks the page's
-    address against it, so it can't go through the relay. `relay` says which way it is.
-    Raises LandApiError('no_key') with neither.
+    access key (not a government key) as a parameter, and the 3D page is the relay's: VWorld's
+    3D script takes the key in the browser and checks the page's address against it, so the
+    relay serves the page with its own 3D key in it (relay/app.py) and `script` is not given.
+    When the relay has no 3D key (GET /relay/health), `webgl3d` is None.
+    `relay` says which way it is. Raises LandApiError('no_key') with neither.
     """
     base, auth = _vworld_call()
     key = auth.get("key", "")
     # Through the relay the browser loads the images itself, so the access key rides along.
     token = "" if key else relay.token()
+    if key:
+        webgl3d = {"page": WEBGL3D_PAGE, "script": WEBGL3D_SCRIPT.replace("{key}", key), "version": "3.0"}
+    elif _relay_has_3d():
+        webgl3d = {"page": f"{relay.base_url()}/relay/vworld3d?{relay.TOKEN_PARAM}={token}", "version": "3.0"}
+    else:
+        webgl3d = None
     tiles = (WMTS_BASE.replace("{key}", key) if key
              else f"{base}/req/wmts/1.0.0/Base/{{z}}/{{y}}/{{x}}.png?{relay.TOKEN_PARAM}={token}")
     return {
@@ -631,5 +640,15 @@ def map_layers() -> dict:
             "min_zoom": CADASTRAL_MIN_ZOOM,
             "opacity": 0.5,
         },
-        "webgl3d": {"script": WEBGL3D_SCRIPT.replace("{key}", key), "version": "3.0"} if key else None,
+        "webgl3d": webgl3d,
     }
+
+
+def _relay_has_3d() -> bool:
+    """Whether the Sida relay serves the 3D map page (it has a 3D key of its own)."""
+    try:
+        health = _http_get(f"{relay.base_url()}/relay/health", {})
+    except LandApiError:
+        return False
+    services = health.get("services") if isinstance(health, dict) else None
+    return isinstance(services, dict) and services.get("vworld3d") is True

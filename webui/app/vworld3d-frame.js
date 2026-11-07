@@ -1,7 +1,14 @@
 // Inside vworld3d.html: VWorld's own WebGL 3D map (vw.Map on Cesium) with the board's masses on it.
-// The board (vworld-view.js) drives it through window.sidaVWorld (same origin). Only VWorld's
-// official API is used; none of its tiles or models are read out or kept. What the board keeps
-// (PUT .../board/hidden) is the list of VWorld buildings the designer hid, by model id (MODEL_NAME).
+// Only VWorld's official API is used; none of its tiles or models are read out or kept. What the
+// board keeps (PUT .../board/hidden) is the list of VWorld buildings the designer hid, by model id
+// (MODEL_NAME).
+//
+// The page is served by the Sida app itself, or by the Sida data server when this PC has no
+// VWorld key (relay/app.py, then on another origin). Either way the board (vworld-view.js) drives
+// it by postMessage: {sida: 'vworld3d', id, method, args} → {sida: 'vworld3d', id, result}, and the
+// page tells the board {sida: 'vworld3d', event: 'pick', id} and {event: 'key', key, ctrl, meta, shift}.
+// The board's origin comes after # (parent=); only the Sida app on this PC (localhost) or this
+// page's own origin is talked to, and messages from anywhere else are ignored.
 //
 // A click picks a building (tinted yellow); the board asks before hiding it, and keeps the hiding
 // steps for Ctrl+Z. Keys pressed while the map has the focus go to the board too.
@@ -13,13 +20,15 @@
   const PICKED = '#ffd23f'; // the building picked for hiding
   const GROUND = '#cfd3cf'; // the ground without the aerial photo
   const NAMES = 'POI_GROUP'; // VWorld's layer of place and building names (명칭)
+  const TAG = 'vworld3d';
   const state = {
     hidden: new Set(), picked: '', masses: [], version: 0, ready: false, failed: '',
-    look: { white: false, plain: false, noNames: false }, onPick: null, onKey: null,
+    look: { white: false, plain: false, noNames: false },
   };
   // where the map starts: the site's middle, from the board (after #), seen from the south
   const start = new URLSearchParams(location.hash.slice(1));
   const site = { lon: Number(start.get('lon')) || 126.978, lat: Number(start.get('lat')) || 37.566 };
+  const board = boardOrigin(start.get('parent'));
   const VIEW = { height: 190, pitch: -32 };
   const south = (height, pitch) => (height / Math.tan((-pitch * Math.PI) / 180)) / 110540; // degrees of latitude
   let map = null;
@@ -49,12 +58,37 @@
     };
   }
 
-  // Keys pressed while the map has the focus: the board decides (Esc, Delete, Ctrl+Z ...).
+  // The board's origin, when it may talk to this page: the Sida app on this PC (any port) or this
+  // page's own origin. Anything else gets no answers.
+  function boardOrigin(value) {
+    let url;
+    try { url = new URL(value || ''); } catch { return ''; }
+    if (url.origin === location.origin) return url.origin;
+    const local = url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1');
+    return local ? url.origin : '';
+  }
+
+  // The board's window (vworld3d.html keeps it: VWorld may be given this page as its parent).
+  const host = window.SIDA_BOARD || window.parent;
+
+  function tell(message) {
+    if (board && host !== window) host.postMessage({ sida: TAG, ...message }, board);
+  }
+
+  // Keys pressed while the map has the focus go to the board, which decides (board-model.js
+  // hideKey: Esc, Delete, Ctrl+Z ...). This page can't load the board's script (another origin),
+  // so it keeps the same few keys from the map: undo and redo always, the rest with a building picked.
+  function boardKey(e) {
+    const k = String(e.key || '').toLowerCase();
+    if (e.ctrlKey || e.metaKey) return k === 'z' || k === 'y';
+    return Boolean(state.picked) && (k === 'delete' || k === 'backspace' || k === 'escape');
+  }
+
   document.addEventListener('keydown', (e) => {
-    if (state.onKey && state.onKey({ key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, shift: e.shiftKey })) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
+    if (!boardKey(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    tell({ event: 'key', key: e.key, ctrl: e.ctrlKey, meta: e.metaKey, shift: e.shiftKey });
   }, true);
 
   function modelId(picked) {
@@ -72,7 +106,7 @@
     if (id === state.picked) return;
     state.picked = id;
     redraw();
-    if (state.onPick) state.onPick(id);
+    tell({ event: 'pick', id });
   }
 
   // Each building tileset, as its tiles come into view: hide the buildings on the hidden list,
@@ -188,14 +222,12 @@
     return [...found];
   }
 
-  window.sidaVWorld = {
-    ready,
+  // What the board can ask (by postMessage, below).
+  const api = {
     failed: () => state.failed,
     // the site, its masses and the buildings hidden so far; the camera looks at the site from the south
-    async show({ center, polygons, hidden, appearance, onPick, onKey }) {
+    async show({ center, polygons, hidden, appearance }) {
       if (!(await ready)) return false;
-      state.onPick = onPick || null;
-      state.onKey = onKey || null;
       state.hidden = new Set(hidden || []);
       state.picked = '';
       if (appearance) setLook(appearance); else redraw();
@@ -218,5 +250,25 @@
     async findSite(rings, center) { return state.ready ? buildingsOn(rings, center) : []; },
     hidden: () => [...state.hidden],
     setLook(look) { if (state.ready) setLook(look); },
+    // the mouse let go outside the map (on the board): end a drag of the map, as VWorld does
+    // itself when it may listen on the board's window
+    mouseUp() {
+      const control = state.ready ? ws3d.viewer.scene.screenSpaceCameraController : null;
+      if (!control?._aggregator || !Cesium.CameraEventAggregator) return;
+      control._aggregator.destroy();
+      control._aggregator = new Cesium.CameraEventAggregator(ws3d.viewer.scene.canvas);
+    },
   };
+
+  window.addEventListener('message', async (e) => {
+    const m = e.data;
+    if (!board || e.source !== host || e.origin !== board) return;
+    if (!m || m.sida !== TAG || typeof m.method !== 'string' || !Object.hasOwn(api, m.method)) return;
+    try {
+      const result = await api[m.method](...(Array.isArray(m.args) ? m.args : []));
+      tell({ id: m.id, result: result === undefined ? null : result });
+    } catch (error) {
+      tell({ id: m.id, error: String(error?.message || error) });
+    }
+  });
 })();

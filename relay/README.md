@@ -51,7 +51,9 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
 
 | 경로 | 보내는 곳 |
 |---|---|
-| `GET /relay/health` | `{"ok": true, "services": {"vworld", "datago", "law"}}` 서버에 키가 있는지 (접속 키 필요 없음) |
+| `GET /relay/health` | `{"ok": true, "services": {"vworld", "datago", "law", "vworld3d"}}` 서버에 키가 있는지 (접속 키 필요 없음) |
+| `GET /relay/vworld3d?sida_token=…` | 앱의 브이월드 3D 페이지(`static/vworld3d.html`)에 서버의 3D 스크립트 주소(`VWORLD_3D_API_KEY`)를 채워 돌려줌. 앱이 틀(iframe)로 엶. 하루 호출 수에 세지 않음. 3D 키가 없으면 503 |
+| `GET /relay/vworld3d-frame.js` | 위 페이지의 스크립트 (접속 키 필요 없음) |
 | `POST /relay/requests` `{name, contact}` | 키 요청. `201 {id, claim, state: "pending"}` (접속 키 필요 없음) |
 | `POST /relay/requests/claim` `{claim}` | 요청 상태 `{id, state}`. 승인 직후 한 번만 `key`가 붙음. 모르는 코드는 404 |
 | `GET /relay/vworld/req/search`, `req/data`, `ned/data/<이름>` | `api.vworld.kr`의 같은 경로 (키·도메인을 서버가 붙임) |
@@ -63,9 +65,19 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
 - 응답은 상태 코드·형식·본문을 그대로 돌려줍니다. **저장하지 않습니다**(캐시 없음, 브이월드 이용약관 제19조). 질의도 기록하지 않습니다(`--no-access-log`).
 - 앱이 보낸 `key`, `domain`, `apiKey`, `serviceKey`, `OC`, `sida_token`은 정부 서비스로 넘기지 않고 서버 것만 붙입니다. 응답에 서버 키가 섞여 오면 `***`로 가립니다.
 
+## 브이월드 3D 지도 (중계 대신 페이지를 내줌)
+
+브이월드 3D 지도(WebGL)는 브라우저가 브이월드 스크립트를 키와 함께 직접 불러야 하고, 브이월드가 페이지 주소를 키와 대조합니다. 그래서 응답을 대신 받아 주는 대신, 이 서버가 앱의 3D 페이지를 **자기 주소로** 내줍니다.
+
+- 키가 없는 PC의 앱은 `https://sida-kr.duckdns.org/relay/vworld3d?sida_token=…`을 틀(iframe)로 열고, 제도판과 `postMessage`로만 주고받습니다(`webui/app/vworld3d-frame.js`). 3D 타일은 사용자 PC가 브이월드에서 바로 받습니다(서버를 거치지 않음).
+- 브이월드에는 이 서버 주소가 페이지 주소로 보입니다(`Referrer-Policy: origin`이라 접속 키는 넘어가지 않음). 그래서 도메인을 엄격히 보는 **운영키로 바꿔도** 그대로 됩니다.
+- 이 페이지를 틀로 넣을 수 있는 곳은 이 PC의 Sida 앱(`http://localhost`, `http://127.0.0.1`)뿐입니다(`Content-Security-Policy: frame-ancestors`).
+- 3D 키는 보는 사람의 브라우저에 들어갑니다(웹 지도는 다 그렇고, 개발자 도구로 볼 수 있습니다). 그래서 **3D 지도 API만 고른 브이월드 키를 따로** 받아(서비스 URL `https://sida-kr.duckdns.org`) `relay.env`에 `VWORLD_3D_API_KEY=`로 넣습니다. 서버의 다른 조회에 쓰는 `VWORLD_API_KEY`는 절대 브라우저로 가지 않습니다. `VWORLD_3D_API_KEY`가 없으면 3D 페이지는 `503`이고 `/relay/health`의 `vworld3d`가 `false`라, 앱은 3D 지도 대신 "아직 Sida 자료 서버에 준비되지 않았습니다" 안내를 띄웁니다.
+- 3D 키가 새어 나가면 브이월드에서 그 키만 폐기하고 새로 받아 `relay.env`를 바꾼 뒤 `docker compose up -d relay`로 다시 켭니다. 개발키는 도메인 확인이 느슨해 다른 곳에서도 쓰일 수 있고, 운영키는 도메인을 엄격히 봅니다.
+- 페이지와 스크립트는 `webui/app/`의 것을 `relay/static/`에 복사해 둡니다(서버 이미지는 `relay/`만으로 만들기 때문). 둘이 다르면 테스트가 실패하니, `webui/app/vworld3d.html`이나 `vworld3d-frame.js`를 고치면 `relay/static/`에도 복사합니다.
+
 ## 앱에서 이 서버로 안 되는 것
 
-- **브이월드 3D 지도(WebGL)**: 브라우저가 브이월드 스크립트를 키와 함께 직접 불러야 하고, 브이월드가 페이지 주소를 키와 대조합니다. 중계로는 안 되어 키가 없는 PC에서는 3D 지도 버튼이 안내만 띄웁니다.
 - 법제처 별표 파일 내려받기는 원래 키가 필요 없어 계속 직접 받습니다.
 
 ## 설치 (국내 서버)
@@ -73,7 +85,7 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
 `/opt/sida-kr`에 이미 `caddy`가 있다는 전제입니다(`compose.yaml`, `Caddyfile`).
 
 1. 서버용 정부 키를 받습니다. 브이월드는 **이 서버 주소**(`https://sida-kr.duckdns.org`)로 키를 받아야 합니다(개발키는 6개월, 운영키는 심사). 공공데이터포털·법제처도 서버용으로 따로 받는 것을 권합니다.
-2. 이 폴더의 `Dockerfile`, `requirements.txt`, `__init__.py`, `app.py`, `tokens.py`, `admin.py`를 서버의 `/opt/sida-kr/relay/`에 복사합니다.
+2. 이 폴더의 `Dockerfile`, `requirements.txt`, `__init__.py`, `app.py`, `tokens.py`, `admin.py`와 `static/` 폴더를 서버의 `/opt/sida-kr/relay/`에 복사합니다(예: `git archive origin/main relay | ssh 서버 "tar -x -C /tmp"`).
 3. `/opt/sida-kr/relay.env`를 만듭니다(권한 600, 저장소에 넣지 않음).
 
    ```
@@ -81,6 +93,8 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
    VWORLD_DOMAIN=https://sida-kr.duckdns.org
    DATA_GO_KR_API_KEY=...
    LAW_OPEN_API_OC=...
+   # 3D 지도 API만 고른 브이월드 키 (서비스 URL https://sida-kr.duckdns.org). 없으면 3D 지도는 꺼짐
+   VWORLD_3D_API_KEY=...
    ```
 
 4. `compose.yaml`에 서비스와 볼륨을 더합니다. 키 목록은 볼륨 `relay-data`에 남습니다.

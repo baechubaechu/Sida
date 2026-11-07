@@ -1150,6 +1150,20 @@ export function hideBuildings(hidden, ids) {
   return [...new Set([...(hidden || []), ...(ids || []).filter((id) => typeof id === 'string' && id)])].slice(0, MAX_HIDDEN);
 }
 
+// The address of the VWorld 3D page for a frame (GET /api/site/map `webgl3d`): the app's own page
+// with VWorld's script address after # when this PC has a VWorld key, or the Sida data server's
+// page (the access key in its address) when it hasn't. After # also the site's middle (where the
+// map starts) and the board's origin (`parent`, the only page the map talks to). `key` names
+// the page and script, so the board loads a new page only when they change. Null without a page.
+export function vworldFrame(webgl3d, origin, parent) {
+  const page = typeof webgl3d?.page === 'string' ? webgl3d.page : '';
+  if (!page || !origin) return null;
+  const script = typeof webgl3d.script === 'string' ? webgl3d.script : '';
+  const at = new URLSearchParams({ lon: String(origin.lon), lat: String(origin.lat), parent: String(parent || '') });
+  if (script) at.set('script', script);
+  return { src: `${page}#${at}`, key: `${page} ${script}` };
+}
+
 // How the viewer likes the VWorld map (vworld-view.js keeps it for the page, not the project):
 // white: buildings as a white model, plain: the ground without the aerial photo, noNames:
 // VWorld's name labels off. Anything unreadable is the default (photos and names on).

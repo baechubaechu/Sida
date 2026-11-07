@@ -686,21 +686,29 @@ def test_map_layers_give_the_browser_tile_addresses_without_the_domain(client, f
     # a browser sends a Referer; VWorld refuses the key when a domain comes with it
     assert "domain" not in {k.lower() for k in cadastral["params"]}
     assert cadastral["min_zoom"] == 18  # the 지적 layer is empty below this
-    # the VWorld WebGL 3D map: the browser loads VWorld's own script with the key
-    assert layers["webgl3d"] == {"script": "https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey=test-key",
+    # the VWorld WebGL 3D map: the app's own page, and the browser loads VWorld's script with the key
+    assert layers["webgl3d"] == {"page": "/app/vworld3d.html",
+                                 "script": "https://map.vworld.kr/js/webglMapInit.js.do?version=3.0&apiKey=test-key",
                                  "version": "3.0"}
+    assert client.get(layers["webgl3d"]["page"]).status_code == 200
     assert fake_vworld.calls == []  # nothing is fetched by the server
 
     monkeypatch.delenv("VWORLD_API_KEY")
     assert client.get("/api/site/map").status_code == 503
 
 
-def test_map_layers_through_the_sida_relay_have_no_key_and_no_3d_map(client, fake_vworld, monkeypatch):
+def test_map_layers_through_the_sida_relay_have_no_key_and_the_relays_3d_page(client, fake_vworld, monkeypatch):
     monkeypatch.delenv("VWORLD_API_KEY")
     monkeypatch.setenv("SIDA_RELAY_URL", "https://sida-kr.duckdns.org")
     monkeypatch.setenv("SIDA_RELAY_TOKEN", "sida_test-access-key-0001")
+    fake_vworld.overrides["health"] = {"ok": True, "services": {"vworld": True, "vworld3d": True}}
     layers = client.get("/api/site/map").json()
-    assert layers["relay"] is True and layers["webgl3d"] is None
+    assert layers["relay"] is True
+    assert layers["webgl3d"] == {"page": "https://sida-kr.duckdns.org/relay/vworld3d?sida_token=sida_test-access-key-0001",
+                                 "version": "3.0"}
+    # a relay without a 3D key of its own: no 3D map (the screen says so)
+    fake_vworld.overrides["health"] = {"ok": True, "services": {"vworld": True, "vworld3d": False}}
+    assert client.get("/api/site/map").json()["webgl3d"] is None
     assert layers["base"]["url"].startswith("https://sida-kr.duckdns.org/relay/vworld/")
     assert "test-key" not in str(layers)
 
