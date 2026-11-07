@@ -699,3 +699,29 @@ test('a click on a building around the site says where its height and outline ca
   assert.match(buildingInfo({ name: 'x', height: 9.9, height_source: 'estimate', match: null }), /대장과 짝지은 외곽선 아님/);
   assert.equal(buildingInfo(null), '');
 });
+
+test('the board masses go on the VWorld 3D map as lon/lat polygons standing on the ground', async () => {
+  const { toLonLat, massPolygons, siteRings, hideBuildings, EARTH_RADIUS, MAX_HIDDEN } = await import('../../webui/app/board-model.js');
+  const origin = { lon: 126.9787396, lat: 37.56782459 };
+  const k = Math.PI / 180;
+  const [lon, lat] = toLonLat(origin, 100, 50); // 100 m east, 50 m north
+  close((lon - origin.lon) * EARTH_RADIUS * k * Math.cos(origin.lat * k), 100, 1e-6);
+  close((lat - origin.lat) * EARTH_RADIUS * k, 50, 1e-6);
+  assert.deepEqual(toLonLat(origin, 0, 0), [origin.lon, origin.lat]);
+
+  const plan = { origin, frame: { x: 0, y: 0, angle: 0 }, parcels: [{ rings: [[[-10, -10], [10, -10], [10, 10], [-10, 10]]] }] };
+  const paper = { floor_height: 3, blocks: [{ u: 0, v: 0, w: 20, d: 30, floors: 10 }, { u: 30, v: 0, w: 10, d: 10, floors: 2 }] };
+  const [a, b] = massPolygons(paper, plan);
+  assert.equal(a.height, 30) ; assert.equal(b.height, 6); assert.equal(a.floors, 10);
+  assert.equal(a.ring.length, 4);
+  close((a.ring[1][0] - a.ring[0][0]) * EARTH_RADIUS * k * Math.cos(origin.lat * k), 20, 1e-6); // 20 m wide
+  close((a.ring[2][1] - a.ring[1][1]) * EARTH_RADIUS * k, 30, 1e-6); // 30 m deep
+  assert.equal(massPolygons({ blocks: [{ u: 0, v: 0, w: 1, d: 1, floors: 1 }] }, plan)[0].height, 4.2); // default storey
+  assert.deepEqual(massPolygons(paper, { parcels: [] }), []); // no site boundary: nowhere to stand
+  assert.deepEqual(massPolygons(null, plan), []);
+  assert.equal(siteRings(plan)[0].length, 4);
+  close(siteRings(plan)[0][2][1], toLonLat(origin, 10, 10)[1], 1e-12);
+
+  assert.deepEqual(hideBuildings(['a'], ['b', 'a', '', null]), ['a', 'b']);
+  assert.equal(hideBuildings([], Array.from({ length: 400 }, (_, i) => `m${i}`)).length, MAX_HIDDEN);
+});

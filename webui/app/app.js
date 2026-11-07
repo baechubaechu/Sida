@@ -18,6 +18,7 @@ import {
   COMMANDS, GROUP_LABELS, readLine, suggest, pickOption, addHistory, remember, HISTORY_LINES,
 } from './command-model.js';
 import { talkPanel, talkMenu, initialTalk, panelShown, panelWidths, resizePanel } from './talk-panel-model.js';
+import { VWorldView } from './vworld-view.js';
 
 const app = document.querySelector('#app');
 const announcer = document.querySelector('#announcer');
@@ -26,6 +27,8 @@ const settingsDialog = document.querySelector('#settings-dialog');
 const settingsBody = document.querySelector('#settings-body');
 const settingsForm = document.querySelector('#settings-form');
 const tableHost = document.querySelector('#table-host');
+let vworldView = null; // the board's masses on VWorld's 3D map, over the board area (vworld-view.js)
+const vworldAuto = new Set(); // projects whose site buildings were looked for this session
 const deleteDialog = document.querySelector('#delete-dialog');
 const deleteError = document.querySelector('#delete-error');
 const deleteConfirm = document.querySelector('#delete-confirm');
@@ -47,7 +50,7 @@ const ui = {
   chat: null, chatMissing: false, module: null, moduleMissing: false, openExperts: new Set(),
   versions: null, version: null, versionMissing: false, showRaw: false, checks: new Set(), feedback: {},
   job: null, live: [], pending: null,
-  revisionOpen: false, creating: false, newDraft: {},
+  revisionOpen: false, creating: false, newDraft: {}, vworld: false,
   // The workspace: the drafting table, and beside it the experts, the site page or an expert's
   // page. Conductor conversations open in a collapsible left panel.
   expertsCollapsed: false, conductor: { open: true, active: null, list: false },
@@ -334,6 +337,44 @@ function placeTable() {
   tableHost.hidden = false;
   Object.assign(tableHost.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
   table.resize();
+  if (vworldView?.open) vworldView.place(r);
+}
+
+// The "브이월드 3D" view (command vworld): the active scheme's masses on VWorld's live 3D map over
+// the board area; leaving it shows the board again. Needs a looked-up site (its middle and frame).
+async function toggleVWorld(name, on = !ui.vworld) {
+  if (!on) {
+    ui.vworld = false;
+    vworldView?.hide();
+    render(false);
+    return;
+  }
+  const plan = table?.site?.plan || ui.board?.site?.plan;
+  if (!plan?.origin) { toast('먼저 대지를 조회하세요. 대지 경계가 있어야 브이월드 3D 지도에 매스안을 세울 수 있습니다.', 'info'); return; }
+  try {
+    if (!ui.mapLayers) ui.mapLayers = await api('/api/site/map');
+  } catch (error) {
+    toast(`브이월드 3D 지도를 열 수 없습니다. ${error.message}`, 'error');
+    return;
+  }
+  if (!vworldView) {
+    vworldView = new VWorldView({
+      saveHidden: async (ids) => {
+        const saved = await api(`${projectApi(currentRoute.name)}/board/hidden`, { method: 'PUT', body: { ids } });
+        if (ui.board) ui.board.hidden = saved.hidden;
+      },
+      close: () => toggleVWorld(currentRoute.name, false),
+    });
+  }
+  ui.vworld = true;
+  render(false);
+  placeTable();
+  const masses = (table?.papers || ui.board?.papers || []).filter((p) => p.kind === 'mass');
+  const paper = masses.find((p) => p.id === table?.active) || masses[0] || null;
+  const hidden = ui.board?.hidden || [];
+  const firstTime = !hidden.length && !vworldAuto.has(name);
+  vworldAuto.add(name);
+  await vworldView.show({ script: ui.mapLayers.webgl3d.script, plan, paper, hidden, firstTime });
 }
 
 // Ask about what is picked: the cursor goes to the command line, and a prepared question goes
@@ -358,6 +399,9 @@ async function navigate() {
   else if (previous.agent || previous.site) ui.pane = 'board';
   ui.revisionOpen = false;
   if (!currentRoute.site) ui.siteFirst = false; // left the site page without saving a site
+  if (currentRoute.page !== 'project' || previous.name !== currentRoute.name || currentRoute.site) {
+    if (ui.vworld) { ui.vworld = false; vworldView?.hide(); }
+  }
   if (currentRoute.page !== 'project') {
     table?.destroy();
     table = null;
@@ -1513,6 +1557,7 @@ function boardHead(name, site, agent) {
       <div class="panel-toggles">
         <button type="button" class="panel-toggle" data-action="conductor-toggle" aria-controls="conductor-panel" aria-expanded="${shown}" aria-label="Conductor 대화 ${shown ? '접기' : '열기'}">대화</button>
         ${site || agent || !ui.expertsCollapsed ? '' : `<button type="button" class="panel-toggle" data-action="toggle-experts-panel" aria-controls="experts-panel" aria-expanded="false"><span aria-hidden="true">‹</span> ${ui.sideTab === 'ideas' ? '아이디어' : '전문가'}</button>`}
+        ${site ? '' : `<button type="button" class="panel-toggle" data-action="vworld-3d" aria-pressed="${Boolean(ui.vworld)}" title="브이월드 3D 지도에 매스안 세워 보기 (vworld)">브이월드 3D</button>`}
         <details class="export-menu"><summary class="panel-toggle" title="CAD·라이노 파일로 내보내기 (export)">내보내기</summary>
           <div class="export-options">${EXPORT_FORMATS.map((f) => `<button type="button" data-action="export-board" data-format="${f.key}">${f.label}</button>`).join('')}
           <p class="muted">대지 경계·매스안·트레이싱 선이 레이어별로 들어갑니다. 이 PC에 지도 묶음이 있으면 대지 주변 지형·등고선·건물도 '대지 주변' 레이어로 들어갑니다. 단위 m, 원점은 대지 가운데.</p></div></details>
@@ -1989,6 +2034,10 @@ function runCommand(name, command) {
         options: EXPORT_FORMATS.map((f) => ({ key: f.key, label: f.label })),
         answer: (option) => { downloadBoard(name, option.key); },
       };
+      break;
+    case 'vworld':
+      toggleVWorld(name);
+      say(ui.vworld ? 'vworld — 제도판으로 돌아갑니다.' : 'vworld — 브이월드 3D 지도에 매스안을 세웁니다. 건물을 누르면 숨겨집니다.');
       break;
     case 'settings':
       openSettings();
@@ -2633,6 +2682,7 @@ app.addEventListener('click', (event) => {
   const { name, agent } = currentRoute;
   if (action === 'settings') openSettings();
   if (action === 'export-board') { button.closest('details')?.removeAttribute('open'); downloadBoard(name, button.dataset.format); }
+  if (action === 'vworld-3d') toggleVWorld(name);
   if (action === 'sample') createSample();
   if (action === 'delete-project') askDelete(button.dataset.project);
   if (action === 'project-info') openProjectInfo(button.dataset.project);

@@ -93,3 +93,11 @@ test('idea opens the idea board', () => {
   assert.equal(readLine('ㅑㅇㄷㅁ').command.name, 'idea'); // typed with the Korean keyboard on
   assert.deepEqual(readLine('idea 하나 더'), { kind: 'ask', text: 'idea 하나 더' });
 });
+
+test('vworld (vw) opens the masses on the VWorld 3D map; typed with the Korean keyboard too', () => {
+  assert.equal(readLine('vworld').command.name, 'vworld');
+  assert.equal(readLine('VW').command.name, 'vworld');
+  assert.equal(readLine('ㅍㅈ').command.name, 'vworld'); // vw with the Korean keyboard on
+  assert.equal(findCommand('vworld').command.group, 'view');
+  assert.deepEqual(readLine('vworld 켜 줘'), { kind: 'ask', text: 'vworld 켜 줘' });
+});
