@@ -175,9 +175,8 @@ html.keep-side::view-transition-new(side) { animation: none; }
 .project-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; margin-top: auto; padding-top: 16px; }
 .project-footer .icon { color: var(--brand); }
 .empty { color: var(--muted); padding: 60px 12px; text-align: center; grid-column: 1 / -1; }
-/* New project: the list's frame, the way back right above the form. */
-.new-home .back-link { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; color: var(--brand); font-size: 14px; font-weight: 600; }
-.new-project { max-width: 640px; margin-top: 8px; padding: 32px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+/* New project: the list's frame around one form. */
+.new-project { max-width: 640px; padding: 32px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
 .new-project h1 { font-size: 28px; line-height: 40px; letter-spacing: -.8px; margin: 0; }
 .new-project label { display: block; margin-top: 24px; font-size: 14px; font-weight: 600; line-height: 20px; }
 .new-project input, .new-project textarea { display: block; width: 100%; margin-top: 8px; padding: 8px 16px; border-radius: 8px; font-size: 16px; }

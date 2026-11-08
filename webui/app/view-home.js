@@ -135,14 +135,13 @@ export function homeView() {
     </main></div>`;
 }
 
-// The new-project page keeps the list's sidebar; the way back sits right above the form, paired
-// with "취소" at its foot. The site address comes second: it is what Sida works from.
+// The new-project page keeps the list's sidebar (its "프로젝트" and the form's "취소" lead back).
+// The site address comes second: it is what Sida works from.
 export function newView() {
   const d = ui.newDraft;
   const value = (key) => escape(d[key] || '');
   return `<div class="app-shell">${sidebar(false)}
     <main class="home new-home" id="main" tabindex="-1">
-      <a class="back-link" href="#/">${icon('back')}프로젝트</a>
       <form class="new-project" id="new-project-form" novalidate>
         <h1>새 프로젝트 만들기</h1>
         <label for="project-name">프로젝트 이름</label><input id="project-name" name="name" data-focus="new-name" value="${value('name')}" placeholder="예: 무교동 근린생활시설" required maxlength="80" autocomplete="off">
