@@ -1,10 +1,10 @@
 // Project list actions: the info dialog, deleting, the sample project.
 
-import { escapeHtml as escape, projectPath as projectUrl } from './model.js';
+import { escapeHtml as escape, findProjects, projectPath as projectUrl } from './model.js';
 import { api, projectApi } from './api.js';
 import { loadProjects } from './jobs.js';
 import { render } from './render.js';
-import { announce, currentProjectLabel, currentRoute, deleteConfirm, deleteDialog, deleteError, openingTried, projectInfoBody, projectInfoDialog, toast, ui } from './state.js';
+import { announce, app, currentProjectLabel, currentRoute, deleteConfirm, deleteDialog, deleteError, keepProjectList, openingTried, projectInfoBody, projectInfoDialog, toast, ui } from './state.js';
 
 let projectInfoEdit = null;
 
@@ -91,3 +91,68 @@ export async function createSample() {
 }
 
 deleteConfirm.addEventListener('click', deleteProject);
+
+// Dragging a project card to another place: the other cards make way as it passes (each slides
+// from where it was), and dropping keeps that order as the "사용자 설정" sort. Only over the whole
+// list (cards are not draggable while searching).
+let dragged = null;
+let dropped = false; // let go over the list (not cancelled with Esc or outside it)
+
+function makeWay(grid, move) {
+  const cards = [...grid.querySelectorAll('.project-card')];
+  const before = new Map(cards.map((card) => [card, card.getBoundingClientRect()]));
+  move();
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  for (const card of cards) {
+    if (card === dragged) continue;
+    const was = before.get(card);
+    const now = card.getBoundingClientRect();
+    const dx = was.left - now.left;
+    const dy = was.top - now.top;
+    if (dx || dy) card.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 200, easing: 'cubic-bezier(.16, 1, .3, 1)' });
+  }
+}
+
+app.addEventListener('dragstart', (event) => {
+  const card = event.target.closest?.('.project-card[draggable="true"]');
+  if (!card) return;
+  dragged = card;
+  dropped = false;
+  event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('text/plain', card.dataset.project);
+  requestAnimationFrame(() => card.classList.add('dragging'));
+});
+
+app.addEventListener('dragover', (event) => {
+  if (!dragged || !dragged.parentElement?.contains(event.target)) return;
+  event.preventDefault(); // a drop is allowed anywhere in the list
+  const over = event.target.closest('.project-card');
+  if (!over || over === dragged || over.getAnimations().length) return; // wait until it has made way
+  const r = over.getBoundingClientRect();
+  const after = event.clientX > r.left + r.width / 2;
+  if (after ? over.nextElementSibling === dragged : over.previousElementSibling === dragged) return;
+  makeWay(dragged.parentElement, () => over.parentElement.insertBefore(dragged, after ? over.nextElementSibling : over));
+});
+
+app.addEventListener('drop', (event) => {
+  if (!dragged) return;
+  event.preventDefault();
+  dropped = true;
+});
+
+app.addEventListener('dragend', () => {
+  if (!dragged) return;
+  const grid = dragged.parentElement;
+  dragged.classList.remove('dragging');
+  dragged = null;
+  if (!dropped) { render(false); return; } // cancelled (Esc, or let go outside the list): back as it was
+  const order = [...grid.querySelectorAll('.project-card')].map((card) => card.dataset.project);
+  const shown = findProjects(ui.projects, '', ui.sort, ui.customOrder).map((p) => p.name);
+  if (order.join('\n') === shown.join('\n')) return;
+  ui.customOrder = order;
+  ui.sort = 'custom';
+  keepProjectList();
+  const select = app.querySelector('#project-sort');
+  if (select) select.value = 'custom';
+  announce('프로젝트 순서를 바꿨습니다. 정렬: 사용자 설정');
+});

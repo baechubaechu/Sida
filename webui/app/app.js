@@ -17,7 +17,7 @@ import { askDelete, createSample, openProjectInfo } from './projects.js';
 import { render } from './render.js';
 import { checkRelayKey, loadSettings, openSettings } from './settings.js';
 import { checkUse, chooseRegion, findLot, prepareFind, removeUse, saveSite, searchAddress, searchUses, setOrdinanceOption, togglePick } from './site.js';
-import { app, conductorScrolls, currentRoute, deferred, draftFor, newProjectDialog, drafts, freshFind, freshUseFind, jobRunning, openingTried, route, setCurrentRoute, talkViewById, toast, ui } from './state.js';
+import { app, conductorScrolls, currentRoute, deferred, draftFor, keepProjectList, newProjectDialog, drafts, freshFind, freshUseFind, jobRunning, openingTried, route, setCurrentRoute, talkViewById, toast, ui } from './state.js';
 import { askDeleteTalk, askFromLine, changeConductor, dismissTalkMenu, loadTalk, openTalk, sendTalk } from './talks.js';
 import { updateCommandLine } from './view-command.js';
 import { projectList } from './view-home.js';
@@ -309,6 +309,7 @@ app.addEventListener('input', (event) => {
 app.addEventListener('change', (event) => {
   if (event.target.id === 'project-sort') {
     ui.sort = event.target.value;
+    keepProjectList();
     swapProjectList();
   }
   const { region, pick, lot } = event.target.dataset || {};

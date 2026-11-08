@@ -135,13 +135,17 @@ function stamp(value) {
   return Number.isFinite(time) ? time : 0;
 }
 
-export function findProjects(projects, query = '', sort = 'recent') {
+// `sort`: 'recent', 'name' or 'custom' (the order the designer dragged the cards into, `order`:
+// folder names). Projects missing from that order (made since) come first, newest first.
+export function findProjects(projects, query = '', sort = 'recent', order = []) {
   const term = query.trim().toLocaleLowerCase('ko');
+  const place = new Map(order.map((name, i) => [name, i]));
+  const recent = (a, b) => stamp(b.updated_at) - stamp(a.updated_at);
+  const custom = (a, b) => (place.get(a.name) ?? -1) - (place.get(b.name) ?? -1) || recent(a, b);
   return projects
     .filter((p) => `${p.display_name || p.name} ${p.project_type || ''}`.toLocaleLowerCase('ko').includes(term))
-    .sort((a, b) => (sort === 'name'
-      ? (a.display_name || a.name).localeCompare(b.display_name || b.name, 'ko')
-      : stamp(b.updated_at) - stamp(a.updated_at)));
+    .sort(sort === 'name' ? (a, b) => (a.display_name || a.name).localeCompare(b.display_name || b.name, 'ko')
+      : sort === 'custom' ? custom : recent);
 }
 
 export function relativeDate(value, now = new Date()) {

@@ -92,7 +92,8 @@ export function projectCards() {
       <div class="empty-actions"><a class="primary" href="#/new">${icon('plus')}새 프로젝트</a>
       <button class="secondary" type="button" data-action="sample">예시 프로젝트 열기</button></div></div>`;
   }
-  const projects = findProjects(ui.projects, ui.query, ui.sort);
+  const projects = findProjects(ui.projects, ui.query, ui.sort, ui.customOrder);
+  const movable = !ui.query.trim(); // cards are dragged into a custom order over the whole list only
   if (!projects.length) return '<p class="empty" role="status">검색 결과가 없습니다. 다른 프로젝트 이름으로 검색해 보세요.</p>';
   // A dashed "new project" card ends the list, so a short list does not leave an empty row.
   const add = ui.query.trim() ? '' : `<a class="project-new" href="#/new" data-open-project style="view-transition-name: project-new">${icon('plus', 'icon icon-large')}새 프로젝트</a>`;
@@ -102,7 +103,7 @@ export function projectCards() {
     const line = siteLine(card, p);
     // Over the empty drawing (outside the card's own link): what to do about the missing site.
     const site = siteSlot(entry) === 'none' ? `<div class="drawing-cta"><a class="secondary" href="${sitePath(p.name, 'find')}" aria-label="${escape(projectLabel(p))} 대지 정하기">대지 정하기</a></div>` : '';
-    return `<article class="project-card" data-project="${escape(p.name)}" style="view-transition-name: ${transitionName(p)}"><a class="project-open" href="${projectUrl(p.name)}" data-open-project aria-label="${escape(projectLabel(p))} 프로젝트 열기">
+    return `<article class="project-card" data-project="${escape(p.name)}" ${movable ? 'draggable="true"' : ''} style="view-transition-name: ${transitionName(p)}"><a class="project-open" href="${projectUrl(p.name)}" data-open-project draggable="false" aria-label="${escape(projectLabel(p))} 프로젝트 열기">
     <div class="project-drawing">${siteDrawing(entry, 240, 180)}</div>
     <h3>${escape(projectLabel(p))}</h3>
     ${line ? `<p class="project-type">${line}</p>` : ''}
@@ -128,7 +129,7 @@ export function homeView() {
         <div class="project-tools">
           <label class="search-box">${icon('search')}<span class="sr-only">프로젝트 검색</span><input id="project-search" data-focus="project-search" type="search" placeholder="프로젝트 검색" value="${escape(ui.query)}" autocomplete="off"></label>
           <label class="sr-only" for="project-sort">프로젝트 정렬</label>
-          <select id="project-sort"><option value="recent" ${ui.sort === 'recent' ? 'selected' : ''}>최근 수정순</option><option value="name" ${ui.sort === 'name' ? 'selected' : ''}>이름순</option></select>
+          <select id="project-sort"><option value="recent" ${ui.sort === 'recent' ? 'selected' : ''}>최근 수정순</option><option value="name" ${ui.sort === 'name' ? 'selected' : ''}>이름순</option><option value="custom" ${ui.sort === 'custom' ? 'selected' : ''}>사용자 설정</option></select>
         </div>
         <a class="primary" href="#/new" data-open-project>${icon('plus')}새 프로젝트</a></header>
       <div id="project-list">${projectList()}</div>

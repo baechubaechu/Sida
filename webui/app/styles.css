@@ -103,6 +103,8 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; }
 .project-card { position: relative; border: 1px solid var(--line); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
 .project-card:hover { border-color: #acbac6; box-shadow: 0 3px 14px #24344308; }
+/* The card being dragged into a new place: its spot stays as a faint outline. */
+.project-card.dragging { opacity: .35; }
 /* The site outline across the card's top edge. */
 .project-drawing { aspect-ratio: 4 / 3; margin: -24px -24px 16px; background: var(--surface-subtle); border-bottom: 1px solid var(--line); }
 .project-drawing .site-drawing { display: block; width: 100%; height: 100%; }

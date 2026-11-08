@@ -712,3 +712,12 @@ test('a project made without a name gets the first free 무제 number', () => {
   assert.equal(untitledName(null), '무제1');
   assert.equal(untitledName([{ name: '무제1' }, { name: 'x', display_name: '무제2' }, { name: '무제4' }]), '무제3');
 });
+
+test('a custom order keeps the dragged order and puts projects made since first', () => {
+  const list = [
+    { name: 'a', updated_at: '2026-10-01T00:00:00Z' }, { name: 'b', updated_at: '2026-10-03T00:00:00Z' },
+    { name: 'c', updated_at: '2026-10-02T00:00:00Z' }, { name: 'new', updated_at: '2026-11-01T00:00:00Z' },
+  ];
+  assert.deepEqual(findProjects(list, '', 'custom', ['c', 'a', 'b']).map((p) => p.name), ['new', 'c', 'a', 'b']);
+  assert.deepEqual(findProjects(list, '', 'custom', []).map((p) => p.name), ['new', 'b', 'c', 'a']);
+});
