@@ -8,14 +8,14 @@ import { projectLabel, ui } from './state.js';
 // The list itself is the page, so the sidebar does not repeat it or the "new project" button;
 // it shows whether Sida can work on this PC (AI and government data), each line opening the
 // settings part that fixes it.
-function sidebar() {
+function sidebar(current = true) {
   const status = readiness(ui.settings, ui.relayKey).map((s) => `<button type="button" class="status-row" data-action="settings" data-target="${escape(s.target)}">
       <span class="status-dot ${s.ok ? 'ok' : 'bad'}" aria-hidden="true"></span>
       <span class="status-text"><span class="status-label">${escape(s.label)}</span><span class="status-value">${escape(s.text)}${s.ok ? '' : '<span class="sr-only"> (설정에서 확인)</span>'}</span></span></button>`).join('');
   return `<aside class="sidebar" aria-label="프로젝트 탐색">
     <a class="brand" href="#/" aria-label="Sida 프로젝트 홈">Sida</a>
     <nav class="nav-main" aria-label="주 메뉴">
-      <a class="nav-link active" href="#/" aria-current="page">${icon('projects')}프로젝트</a>
+      <a class="nav-link${current ? ' active' : ''}"${current ? ' aria-current="page"' : ''} href="#/">${icon('projects')}프로젝트</a>
       <button type="button" class="nav-link" data-action="sample">${icon('sample')}예시 프로젝트 열기</button>
     </nav>
     <div class="sidebar-bottom">
@@ -95,7 +95,7 @@ export function projectCards() {
   const projects = findProjects(ui.projects, ui.query, ui.sort);
   if (!projects.length) return '<p class="empty" role="status">검색 결과가 없습니다. 다른 프로젝트 이름으로 검색해 보세요.</p>';
   // A dashed "new project" card ends the list, so a short list does not leave an empty row.
-  const add = ui.query.trim() ? '' : `<a class="project-new" href="#/new" style="view-transition-name: project-new">${icon('plus', 'icon icon-large')}새 프로젝트</a>`;
+  const add = ui.query.trim() ? '' : `<a class="project-new" href="#/new" data-open-project style="view-transition-name: project-new">${icon('plus', 'icon icon-large')}새 프로젝트</a>`;
   return projects.map((p) => {
     const entry = ui.projectSites.get(p.name);
     const card = entry?.card;
@@ -130,24 +130,28 @@ export function homeView() {
           <label class="sr-only" for="project-sort">프로젝트 정렬</label>
           <select id="project-sort"><option value="recent" ${ui.sort === 'recent' ? 'selected' : ''}>최근 수정순</option><option value="name" ${ui.sort === 'name' ? 'selected' : ''}>이름순</option></select>
         </div>
-        <a class="primary" href="#/new">${icon('plus')}새 프로젝트</a></header>
+        <a class="primary" href="#/new" data-open-project>${icon('plus')}새 프로젝트</a></header>
       <div id="project-list">${projectList()}</div>
     </main></div>`;
 }
 
+// The new-project page keeps the list's sidebar; the way back sits right above the form, paired
+// with "취소" at its foot. The site address comes second: it is what Sida works from.
 export function newView() {
   const d = ui.newDraft;
   const value = (key) => escape(d[key] || '');
-  return `<main class="new-page" id="main" tabindex="-1">
-    <header class="new-topbar"><a class="brand" href="#/">sida</a><a class="back-link" href="#/">← 프로젝트로 돌아가기</a></header>
-    <form class="new-project" id="new-project-form" novalidate>
-      <h1>새 프로젝트 만들기</h1><p class="intro">새 건축 설계 작업 공간을 만듭니다.</p>
-      <label for="project-name">프로젝트 이름</label><input id="project-name" name="name" data-focus="new-name" value="${value('name')}" placeholder="제목 없는 프로젝트" required maxlength="80" autocomplete="off">
-      <label for="project-type">프로젝트 유형</label><input id="project-type" name="type" data-focus="new-type" value="${value('type')}" placeholder="예: 미술관, 단독주택 (선택)" maxlength="200" autocomplete="off">
-      <label for="project-site">대지 주소</label><input id="project-site" name="site" data-focus="new-site" value="${value('site')}" placeholder="지번 또는 도로명 주소 (선택)" maxlength="300" autocomplete="off">
-      <label for="project-description">설명</label><textarea id="project-description" name="intention" data-focus="new-intention" placeholder="설계할 프로젝트와 지금 고민하는 점 (선택)" maxlength="4000">${value('intention')}</textarea>
-      <p class="form-note">대지 주소는 번지까지 정확히 적어 주세요. 다른 설계 조건은 Conductor와 대화하며 정리합니다.</p>
-      <p class="form-error error-text" id="new-project-error" role="alert"></p>
-      <div class="form-actions"><a class="secondary" href="#/">취소</a><button class="primary" type="submit" ${ui.creating ? 'disabled' : ''}>프로젝트 만들기</button></div>
-    </form></main>`;
+  return `<div class="app-shell">${sidebar(false)}
+    <main class="home new-home" id="main" tabindex="-1">
+      <a class="back-link" href="#/">${icon('back')}프로젝트</a>
+      <form class="new-project" id="new-project-form" novalidate>
+        <h1>새 프로젝트 만들기</h1>
+        <label for="project-name">프로젝트 이름</label><input id="project-name" name="name" data-focus="new-name" value="${value('name')}" placeholder="예: 무교동 근린생활시설" required maxlength="80" autocomplete="off">
+        <label for="project-site">대지 주소 (선택)</label><input id="project-site" name="site" data-focus="new-site" value="${value('site')}" placeholder="예: 서울 중구 무교동 45" maxlength="300" autocomplete="off" aria-describedby="project-site-hint">
+        <p class="field-hint" id="project-site-hint">번지까지 정확히 적어 주세요. 비워 두면 나중에 대지 화면에서 정할 수 있어요.</p>
+        <label for="project-type">프로젝트 유형 (선택)</label><input id="project-type" name="type" data-focus="new-type" value="${value('type')}" placeholder="예: 미술관, 단독주택" maxlength="200" autocomplete="off">
+        <label for="project-description">설명 (선택)</label><textarea id="project-description" name="intention" data-focus="new-intention" placeholder="설계할 프로젝트와 지금 고민하는 점" maxlength="4000" aria-describedby="project-description-hint">${value('intention')}</textarea>
+        <p class="field-hint" id="project-description-hint">다른 설계 조건은 Conductor와 대화하며 정리합니다.</p>
+        <p class="form-error error-text" id="new-project-error" role="alert"></p>
+        <div class="form-actions"><a class="secondary" href="#/">취소</a><button class="primary" type="submit" ${ui.creating ? 'disabled' : ''}>프로젝트 만들기</button></div>
+      </form></main></div>`;
 }

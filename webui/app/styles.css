@@ -151,7 +151,7 @@ html.list-moving::view-transition-old(*), html.list-moving::view-transition-new(
 /* A project's card and its work screen as one shape (named in app.js): opening, the card grows into
    the work screen's frame with the work screen showing through it, cropped; closing, the reverse.
    The screen being left fades quickly, the one arriving a little slower. */
-html.project-morph .studio { view-transition-name: project-frame; }
+html.project-morph .studio, html.project-morph .new-project { view-transition-name: project-frame; }
 html.project-morph::view-transition-group(*) { animation-duration: var(--motion-300); animation-timing-function: var(--ease-out); }
 html.project-morph::view-transition-image-pair(project-frame) { overflow: hidden; border-radius: var(--radius); }
 html.project-morph::view-transition-old(project-frame), html.project-morph::view-transition-new(project-frame) { width: 100%; height: 100%; object-fit: cover; object-position: center top; }
@@ -159,6 +159,10 @@ html.project-morph.opening::view-transition-old(project-frame) { animation-durat
 html.project-morph.closing::view-transition-old(project-frame) { animation-duration: var(--motion-150); }
 html.project-morph::view-transition-new(project-frame) { animation-duration: var(--motion-200); }
 html.project-morph::view-transition-old(root) { animation-duration: var(--motion-150); animation-timing-function: var(--ease-in); }
+/* Between the list and the new-project form the sidebar is the same: it does not move or fade. */
+html.keep-side .sidebar { view-transition-name: side; }
+html.keep-side::view-transition-old(side) { display: none; }
+html.keep-side::view-transition-new(side) { animation: none; }
 .project-name-edit { font: inherit; text-align: left; color: var(--brand); }
 .project-name-edit:hover { text-decoration: underline; }
 #project-info-body { display: grid; gap: 10px; }
@@ -171,18 +175,19 @@ html.project-morph::view-transition-old(root) { animation-duration: var(--motion
 .project-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; margin-top: auto; padding-top: 16px; }
 .project-footer .icon { color: var(--brand); }
 .empty { color: var(--muted); padding: 60px 12px; text-align: center; grid-column: 1 / -1; }
-.new-page { min-height: 100dvh; background: var(--surface-subtle); padding: 24px 50px 70px; }
-.new-topbar { display: flex; align-items: center; gap: 166px; }
-.new-topbar .brand { margin: 0; }
-.back-link { color: var(--brand); font-size: 15px; }
-.new-project { max-width: 720px; min-height: 650px; margin: 73px auto 0; padding: 46px 50px 48px; background: white; border-radius: 16px; }
-.new-project h1 { font-size: 29px; line-height: 44px; }
-.new-project .intro { color: var(--muted); margin-top: 13px; }
-.new-project label { display: block; color: var(--muted); font-size: 13px; font-weight: 700; margin-top: 32px; }
-.new-project input, .new-project textarea { display: block; width: 100%; background: var(--surface-subtle); border-color: transparent; padding: 18px 20px; margin-top: 10px; font-size: 16px; }
-.new-project input { height: 61px; }
-.new-project textarea { min-height: 114px; font-size: 15px; }
-.new-project .form-note { color: var(--muted); font-size: 14px; margin-top: 34px; }
+/* New project: the list's frame, the way back right above the form. */
+.new-home .back-link { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; color: var(--brand); font-size: 14px; font-weight: 600; }
+.new-project { max-width: 640px; margin-top: 8px; padding: 32px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.new-project h1 { font-size: 28px; line-height: 40px; letter-spacing: -.8px; margin: 0; }
+.new-project label { display: block; margin-top: 24px; font-size: 14px; font-weight: 600; line-height: 20px; }
+.new-project input, .new-project textarea { display: block; width: 100%; margin-top: 8px; padding: 8px 16px; border-radius: 8px; font-size: 16px; }
+.new-project input { height: 48px; }
+.new-project textarea { min-height: 120px; line-height: 24px; }
+.new-project .field-hint { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 16px; }
+.new-project .form-error:empty { display: none; }
+.new-project .form-error { margin: 16px 0 0; font-size: 14px; }
+.new-project .form-actions { gap: 8px; margin-top: 32px; }
+.new-project .form-actions .primary, .new-project .form-actions .secondary { min-width: 0; min-height: 44px; padding: 8px 24px; font-size: 14px; }
 .form-actions { display: flex; justify-content: flex-end; gap: 14px; margin-top: 30px; }
 .form-actions .secondary { min-width: 132px; }
 .form-actions .primary { min-width: 189px; }
@@ -871,7 +876,6 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
   .continue { grid-template-columns: minmax(0, 1fr); }
   .project-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
   .continue-drawing { height: 240px; border-right: 0; border-bottom: 1px solid var(--line); }
-  .new-topbar { gap: 70px; }
 }
 @media (max-width: 640px) {
   :root { --home-gutter: 20px; }
@@ -891,12 +895,7 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
   .search-box span { left: 13px; }
   .project-tools select { width: 125px; padding: 0 9px; font-size: 12px; }
   .project-new { display: none; }
-  .new-page { padding: 20px 20px 40px; }
-  .new-topbar { gap: 0; justify-content: space-between; }
-  .back-link { font-size: 13px; }
-  .new-project { padding: 30px 24px; margin-top: 36px; min-height: 0; }
-  .new-project h1 { font-size: 24px; }
-  .new-project label { margin-top: 36px; }
+  .new-project { padding: 24px 16px; }
   .form-actions { gap: 10px; }
   .form-actions .primary, .form-actions .secondary { min-width: 0; padding: 12px 18px; font-size: 14px; }
   .chat-scroll { padding: 20px 16px; }

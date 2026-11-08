@@ -111,15 +111,17 @@ function nameMorphCard(card) {
 
 // `change` draws the next screen (navigate draws before its first wait). Redraws while the shape
 // moves would cut the animation short, so they wait until it ends (data arriving meanwhile).
-function morphProject(direction, change) {
+// `keepSide`: both screens have the list's sidebar (list ↔ new-project form); it then stays still.
+function morphProject(direction, change, keepSide = false) {
   const root = document.documentElement;
   root.classList.add('project-morph', direction);
+  root.classList.toggle('keep-side', keepSide);
   const morph = transition(() => {
     change();
     deferred.growing = true;
   });
   morph.finished.finally(() => {
-    root.classList.remove('project-morph', direction);
+    root.classList.remove('project-morph', direction, 'keep-side');
     deferred.growing = false;
     if (deferred.render) { deferred.render = false; render(false); }
   });
@@ -130,27 +132,35 @@ function morphProject(direction, change) {
 function openProjectGrowing(event) {
   const link = event.target.closest('a[data-open-project]');
   if (!link || event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || !canMorph()) return false;
-  const card = link.closest('.project-card, .continue');
+  // A project's card, or for a new project the dashed card or the heading's button (it grows into the form).
+  const card = link.closest('.project-card, .continue, .project-new') || (link.closest('.home-heading') ? link : null);
   if (!card) return false;
   event.preventDefault();
   nameMorphCard(card);
   morphProject('opening', () => {
     history.pushState(null, '', link.getAttribute('href')); // no hashchange: navigate is called here
     navigate();
-  });
+  }, link.getAttribute('href') === '#/new');
   return true;
 }
 
 // Back to the list (a link or the browser's back): the work screen shrinks into its project's
 // card, the "이어서 하기" one when it is the latest.
+// The new-project form shrinks back into the dashed card the same way, and grows into the work
+// screen once the project is made.
 function onHashChange() {
-  const leaving = currentRoute.page === 'project' ? currentRoute.name : '';
-  if (!leaving || route().page !== 'home' || !canMorph()) { navigate(); return; }
+  const from = currentRoute.page;
+  const to = route().page;
+  if (!canMorph()) { navigate(); return; }
+  if (from === 'new' && to === 'project') { morphProject('opening', navigate); return; }
+  if (to !== 'home' || (from !== 'project' && from !== 'new')) { navigate(); return; }
+  const leaving = currentRoute.name;
   morphProject('closing', () => {
     navigate();
-    const named = `[data-project="${CSS.escape(leaving)}"]`;
-    nameMorphCard(app.querySelector(`.continue${named}`) || app.querySelector(`.project-card${named}`));
-  });
+    const named = `[data-project="${CSS.escape(leaving || '')}"]`;
+    nameMorphCard(from === 'new' ? app.querySelector('.project-new')
+      : app.querySelector(`.continue${named}`) || app.querySelector(`.project-card${named}`));
+  }, from === 'new');
 }
 
 app.addEventListener('click', (event) => {
