@@ -167,31 +167,61 @@ export async function loadSettings() {
   }
 }
 
-async function loadChatgptModels() {
-  if (!ui.settings?.chatgpt.signed_in) { ui.chatgptModels = null; return; }
-  try { ui.chatgptModels = (await api('/api/settings/chatgpt/models')).models; }
-  catch (error) { ui.chatgptModels = null; ui.chatgptNote = `모델 목록을 받지 못했습니다. ${error.message}`; }
+// The ChatGPT model list takes about a second (OpenAI is asked), so it is kept while the app is
+// open and asked again only for another account or after signing in again (`fresh`).
+let modelsAccount = null;
+async function loadChatgptModels({ fresh = false } = {}) {
+  if (!ui.settings?.chatgpt.signed_in) { ui.chatgptModels = null; modelsAccount = null; return; }
+  const account = ui.settings.chatgpt.email || '';
+  if (!fresh && ui.chatgptModels?.length && modelsAccount === account) return;
+  try {
+    ui.chatgptModels = (await api('/api/settings/chatgpt/models')).models;
+    modelsAccount = account;
+  } catch (error) { ui.chatgptModels = null; ui.chatgptNote = `모델 목록을 받지 못했습니다. ${error.message}`; }
 }
 
-// `target`: a selector in the settings form to scroll to and focus once it is drawn (the sidebar's
-// status lines open the part that needs attention).
+// Put the arrived model list into the model menus without redrawing the form, so a field being
+// typed in keeps its focus.
+function fillModelMenus() {
+  if (!ui.chatgptModels?.length || !ui.settingsDraft || !settingsDialog.open) return;
+  for (const select of settingsBody.querySelectorAll('#set-chatgpt-model, #set-worker-chatgpt-model')) {
+    const value = ui.settingsDraft[select.dataset.field];
+    select.innerHTML = ui.chatgptModels.map((m) => optionTag(m.slug, m.display_name || m.slug, value)).join('');
+  }
+}
+
+function showPart(target) {
+  const part = target && settingsBody.querySelector(target);
+  if (!part) return;
+  part.scrollIntoView({ block: 'center' });
+  // A group gets the focus itself, so Enter cannot press one of its buttons by accident.
+  if (!part.matches('input, select')) part.tabIndex = -1;
+  part.focus({ preventScroll: true });
+}
+
+// The form is drawn at once from the settings the app already has, then again if fresh ones (a
+// few hundredths of a second later) differ; the ChatGPT model menus fill in when the list arrives.
+// `target`: a selector in the form to scroll to and focus (the sidebar's status lines open the
+// part that needs attention).
 export async function openSettings(target = '') {
   ui.settingsError = '';
   ui.chatgptNote = '';
+  if (ui.settings) ui.settingsDraft = draftFromSettings(ui.settings);
   renderSettings();
   if (!settingsDialog.open) settingsDialog.showModal();
+  showPart(target);
+  const shown = JSON.stringify([ui.settings, ui.relayKey]);
   await loadSettings();
   if (ui.settings && await checkRelayKey()) await loadSettings();
-  if (ui.settings) ui.settingsDraft = draftFromSettings(ui.settings);
-  await loadChatgptModels();
-  renderSettings();
-  const part = target && settingsBody.querySelector(target);
-  if (part) {
-    part.scrollIntoView({ block: 'center' });
-    // A group gets the focus itself, so Enter cannot press one of its buttons by accident.
-    if (!part.matches('input, select')) part.tabIndex = -1;
-    part.focus({ preventScroll: true });
+  // Redraw only when something changed, so a field clicked meanwhile keeps its focus.
+  if (JSON.stringify([ui.settings, ui.relayKey]) !== shown || ui.settingsError) {
+    if (ui.settings) ui.settingsDraft = draftFromSettings(ui.settings);
+    renderSettings();
+    showPart(target);
   }
+  await loadChatgptModels();
+  if (ui.chatgptNote) renderSettings(); // the list could not be fetched: show why
+  else fillModelMenus();
 }
 
 async function saveSettings() {
@@ -300,7 +330,7 @@ window.addEventListener('focus', async () => {
   ui.settingsDraft = { ...draft };
   if (ui.settings.chatgpt.signed_in !== before) {
     ui.chatgptNote = ui.settings.chatgpt.signed_in ? 'ChatGPT 로그인을 확인했습니다.' : '';
-    await loadChatgptModels();
+    await loadChatgptModels({ fresh: true });
   }
   renderSettings();
 });
