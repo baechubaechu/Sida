@@ -326,6 +326,15 @@ dialog::backdrop { opacity: 0; transition: opacity var(--motion-150) var(--ease-
 dialog[open]::backdrop { opacity: 1; transition-duration: var(--motion-200); }
 @starting-style { dialog[open]::backdrop { opacity: 0; } }
 .dialog-heading { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+.dialog-heading h2 { line-height: 32px; }
+.dialog-heading .icon-button { flex: none; width: 32px; height: 32px; margin-right: -6px; }
+.dialog-heading .icon-button .icon { width: 20px; height: 20px; }
+/* A dialog with a heading (settings, project info): the heading stays put and only the body
+   scrolls, inside the rounded frame, so the scroll bar never squares off the right corners. */
+dialog:has(> form > .dialog-heading) { padding: 0; overflow: hidden; }
+dialog > form:has(> .dialog-heading) { display: flex; flex-direction: column; max-height: calc(100dvh - 34px); }
+dialog > form > .dialog-heading { flex: none; padding: 24px 28px 8px; }
+#settings-body, #project-info-body { min-height: 0; overflow-y: auto; padding: 0 28px 28px; }
 dialog h2 { font-size: 21px; }
 dialog p { margin: 18px 0; }
 dialog .primary { margin-top: 10px; }
