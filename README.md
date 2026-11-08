@@ -2,7 +2,7 @@
 
 A local web app (LLM workflow) for architectural design reasoning.
 
-**시다**는 한국 건축 현장에서 조수·보조를 부르는 말입니다.  
+**시다**는 한국 건축 학계에서 후배나 조수·보조를 부르는 말입니다.  
 이 도구도 건물을 대신 설계하지 않고, 설계자의 추론을 옆에서 돕는 조수처럼 동작합니다.
 
 Instead of using one model as a general generator, the workflow divides design reasoning into ten narrow **experts** — site, program, regulation, precedent, concept, spatial review, systems, critique, representation, presentation — coordinated by a Conductor. Experts are independent lenses: any of them can run alone, in any order, and the Conductor lays out the conditions, conflicts, and decisions they add up to. See `docs/experts.md`.
