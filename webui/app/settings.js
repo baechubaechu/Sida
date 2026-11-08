@@ -123,7 +123,28 @@ function updateFooter() {
   const dirty = settingsDirty(ui.settings, ui.settingsDraft);
   settingsFooter.querySelector('#settings-dirty').textContent = dirty ? '저장 안 한 변경 있음' : '';
   settingsFooter.querySelector('#settings-error').textContent = ui.settingsError || '';
+  if (!dirty) settingsFooter.querySelector('#settings-discard').hidden = true;
 }
+
+// Closing (X, Esc, a click outside the panel) with nothing unsaved closes at once. With unsaved
+// changes the panel stays: the note gives a small shake and "변경 버리기" appears beside it, so a
+// stray click cannot lose them; saving or discarding closes it.
+function requestClose() {
+  if (!settingsDirty(ui.settings, ui.settingsDraft)) { settingsDialog.close(); return; }
+  settingsFooter.querySelector('#settings-discard').hidden = false;
+  const note = settingsFooter.querySelector('#settings-dirty');
+  note.classList.remove('nudge');
+  void note.offsetWidth; // restart the shake
+  note.classList.add('nudge');
+}
+
+settingsDialog.addEventListener('cancel', (event) => { // Esc
+  event.preventDefault();
+  requestClose();
+});
+settingsDialog.addEventListener('click', (event) => {
+  if (event.target === settingsDialog) requestClose(); // the backdrop: the form fills the panel
+});
 
 // "Sida 키 받기": ask the team's relay for a key, then wait for the team to approve it.
 function relayKeyPart(s) {
@@ -322,7 +343,11 @@ settingsDialog.addEventListener('click', async (event) => {
   if (!button) return;
   const action = button.dataset.settings;
   if (action === 'save') saveSettings();
-  if (action === 'close') settingsDialog.close();
+  if (action === 'close') requestClose();
+  if (action === 'discard') {
+    ui.settingsDraft = draftFromSettings(ui.settings);
+    settingsDialog.close();
+  }
   if (['relay-ask', 'relay-check', 'relay-cancel'].includes(action)) relayKeyAction(action);
   if (action === 'relay-offer') { ui.relayKeyOpen = true; renderSettings(); }
   if (action === 'chatgpt-login') {

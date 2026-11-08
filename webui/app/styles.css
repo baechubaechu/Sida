@@ -479,6 +479,11 @@ section.settings-section:first-of-type { border-top: 0; padding-top: 8px; }
 .settings-footer p { margin: 0; font-size: 14px; }
 .settings-dirty { margin-right: auto !important; color: #8a5a00; font-weight: 600; }
 .settings-footer .error-text:empty { display: none; }
+.settings-footer .secondary { min-height: 40px; padding: 8px 16px; font-size: 14px; }
+.settings-footer [hidden] { display: none; }
+.settings-dirty.nudge { animation: nudge var(--motion-300) var(--ease-out); }
+@keyframes nudge { 20% { transform: translateX(-4px); } 50% { transform: translateX(4px); } 80% { transform: translateX(-2px); } }
+@media (prefers-reduced-motion: reduce) { .settings-dirty.nudge { animation: none; } }
 .settings-footer .primary { min-height: 40px; margin: 0; padding: 8px 24px; font-size: 14px; }
 dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; }
 /* ---- drafting table (제도판, table.js): WebGL below, paper (CSS3D) above, controls at the edges */
