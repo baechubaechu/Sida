@@ -7,7 +7,7 @@ import {
   stateChangeView, phaseLabel, sitePath, sitePageFor, needsSiteFirst, areaText, zoneScope, siteHeadline, missingText, restrictionGroups,
   ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
   buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
-  togglePicked, shapesToFetch, shapesBounds, MAX_SHAPES, EXPORT_FORMATS, boardExport,
+  togglePicked, shapesToFetch, shapesBounds, siteCard, parcelOutline, MAX_SHAPES, EXPORT_FORMATS, boardExport,
 } from '../../webui/app/model.js';
 import { readFileSync, readdirSync } from 'node:fs';
 
@@ -603,4 +603,51 @@ test('the representation planner: its site model recommendation is read and the 
   assert.deepEqual(expertPageTabs('representation_planner'), [{ id: 'model', label: '모형' }]);
   assert.deepEqual(expertPageTabs('site_reader'), []);
   assert.equal(parseRoute(expertPath('가', 'representation_planner', 'model')).tab, 'model');
+});
+
+test('a project card shows the saved site address, zones, area and the one zone statutory caps', () => {
+  const site = {
+    available: true, query: '서울특별시 중구 무교동 45',
+    parcels: [{ address: '서울특별시 중구 무교동 45', shape: { type: 'Polygon', coordinates: [[[127, 37], [127.001, 37], [127.001, 37.001], [127, 37]]] } }, { address: 'x', shape: null }],
+    summary: { total_area_m2: 412.5, zoning: [{ zone: '일반상업지역', bcr_max: 80, far_max: 1300 }] },
+  };
+  const card = siteCard(site);
+  assert.equal(card.address, '서울특별시 중구 무교동 45');
+  assert.deepEqual(card.zones, ['일반상업지역']);
+  assert.equal(card.area, '412.5㎡');
+  assert.equal(card.bcr, 80);
+  assert.equal(card.far, 1300);
+  assert.equal(card.shapes.length, 1);
+  // Two zones: no single cap to show.
+  const split = siteCard({ ...site, summary: { ...site.summary, zoning: [{ zone: 'a', bcr_max: 60, far_max: 200 }, { zone: 'b', bcr_max: 80, far_max: 1300 }] } });
+  assert.equal(split.bcr, null);
+  assert.equal(split.far, null);
+  assert.equal(siteCard({ available: false }), null);
+  assert.equal(siteCard(null), null);
+});
+
+test('a parcel outline is drawn north-up at true proportions inside the box with a round scale bar', () => {
+  // About 8.8 m east-west by 11 m north-south at latitude 37.5.
+  const square = { type: 'Polygon', coordinates: [[[127, 37.5], [127.0001, 37.5], [127.0001, 37.5001], [127, 37.5001], [127, 37.5]]] };
+  const out = parcelOutline([square, null], 200, 100, 10);
+  assert.equal(out.paths.length, 1);
+  const pts = [...out.paths[0].matchAll(/[ML]([\d.]+) ([\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+  for (const [x, y] of pts) {
+    assert.ok(x >= 10 - 0.1 && x <= 190 + 0.1, `x ${x} inside`);
+    assert.ok(y >= 10 - 0.1 && y <= 90 + 0.1, `y ${y} inside`);
+  }
+  assert.ok(out.paths[0].endsWith('Z'));
+  // The first corner is the south-west one: bottom-left on screen.
+  assert.ok(pts[0][1] > pts[2][1], 'south is drawn below north');
+  // Taller than wide, so the height (80 px for ~11 m) sets the scale; 2 m fits in 30% of 200 px.
+  const height = Math.max(...pts.map((p) => p[1])) - Math.min(...pts.map((p) => p[1]));
+  const width = Math.max(...pts.map((p) => p[0])) - Math.min(...pts.map((p) => p[0]));
+  assert.ok(Math.abs(height - 80) < 0.3);
+  assert.ok(Math.abs(width / height - 8.83 / 11.05) < 0.02);
+  assert.equal(out.bar.m, 5);
+  assert.ok(Math.abs(out.bar.px - 5 * (80 / 11.054)) < 0.3);
+  const multi = { type: 'MultiPolygon', coordinates: [square.coordinates, square.coordinates.map((ring) => ring.map(([x, y]) => [x + 0.0002, y]))] };
+  assert.equal(parcelOutline([multi], 200, 100).paths.length, 2);
+  assert.equal(parcelOutline([null, {}], 200, 100), null);
+  assert.equal(parcelOutline([{ type: 'Point', coordinates: [127, 37] }], 200, 100), null);
 });

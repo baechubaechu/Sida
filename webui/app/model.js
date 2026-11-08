@@ -799,6 +799,52 @@ export function shapesBounds(shapes) {
   return box;
 }
 
+// The few site facts a project card shows, from a saved site (GET .../site); null before a site is
+// saved. Coverage and FAR are the zone's statutory caps, given only when the whole site is in one zone.
+export function siteCard(site) {
+  if (!site?.available) return null;
+  const zones = site.summary?.zoning || [];
+  const one = zones.length === 1 ? zones[0] : null;
+  return {
+    address: site.query || site.parcels?.[0]?.address || '',
+    zones: zones.map((z) => z.zone),
+    area: areaText(site.summary?.total_area_m2),
+    bcr: one?.bcr_max ?? null,
+    far: one?.far_max ?? null,
+    shapes: (site.parcels || []).map((p) => p.shape).filter(Boolean),
+  };
+}
+
+// SVG path data drawing GeoJSON parcel outlines ([lon, lat]) north-up at true proportions, fitted
+// and centred in width × height, plus a scale bar of a round length in metres. null without outlines.
+export function parcelOutline(shapes, width, height, pad = 8) {
+  const rings = [];
+  const visit = (c) => {
+    if (typeof c?.[0]?.[0] === 'number') rings.push(c);
+    else if (Array.isArray(c)) c.forEach(visit);
+  };
+  for (const shape of shapes || []) if (shape?.coordinates) visit(shape.coordinates);
+  if (!rings.length) return null;
+  const points = rings.flat();
+  const lat0 = points.reduce((sum, p) => sum + p[1], 0) / points.length;
+  const kx = 111320 * Math.cos((lat0 * Math.PI) / 180); // metres per degree of longitude here
+  const ky = 110540; // metres per degree of latitude
+  const local = rings.map((ring) => ring.map(([lon, lat]) => [lon * kx, lat * ky]));
+  const xs = local.flat().map((p) => p[0]);
+  const ys = local.flat().map((p) => p[1]);
+  const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const dx = maxX - minX;
+  const dy = maxY - minY;
+  if (!(dx > 0 && dy > 0)) return null;
+  const scale = Math.min((width - 2 * pad) / dx, (height - 2 * pad) / dy); // px per metre
+  const ox = (width - dx * scale) / 2;
+  const oy = (height - dy * scale) / 2;
+  const r = (v) => Math.round(v * 10) / 10;
+  const paths = local.map((ring) => `${ring.map(([x, y], i) => `${i ? 'L' : 'M'}${r(ox + (x - minX) * scale)} ${r(oy + (maxY - y) * scale)}`).join('')}Z`);
+  const metres = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000].filter((m) => m * scale <= width * 0.3).pop() ?? 1;
+  return { paths, bar: { m: metres, px: r(metres * scale) } };
+}
+
 // PUT .../site body. Parcels that all came from the last address search are sent with that
 // search (the server checks them against it); parcels chosen any other way go by number alone.
 export function lookupBody(picked, search) {

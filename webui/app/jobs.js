@@ -1,7 +1,7 @@
 // Loading a project's session, site and expert results, and following a job (a Conductor turn or
 // an expert run) on the server until it ends.
 
-import { eventNotice, sitePageFor } from './model.js';
+import { eventNotice, siteCard, sitePageFor } from './model.js';
 import { addHistory } from './command-model.js';
 import { initialTalk } from './talk-panel-model.js';
 import { ApiError, api, projectApi, sleep } from './api.js';
@@ -22,6 +22,20 @@ export async function loadProjects() {
   } catch (error) {
     ui.projectsError = error.message;
   }
+}
+
+// The saved site of each listed project (address, zone, outline) for the project cards. Asked once
+// per project change; a project without a site, or a failed request, simply shows no site.
+const SITE_CARDS_MAX = 40;
+export async function loadProjectSites() {
+  const wanted = (ui.projects || []).slice(0, SITE_CARDS_MAX).filter((p) => ui.projectSites.get(p.name)?.stamp !== p.updated_at);
+  if (!wanted.length) return false;
+  await Promise.all(wanted.map(async (p) => {
+    let card = null;
+    try { card = siteCard(await api(`${projectApi(p.name)}/site`)); } catch { /* no site shown */ }
+    ui.projectSites.set(p.name, { stamp: p.updated_at, card });
+  }));
+  return true;
 }
 
 export async function loadSession(name) {

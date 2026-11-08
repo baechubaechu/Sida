@@ -11,7 +11,7 @@ import { applyModelRecommendation, askAbout, closeTable, downloadBoard, hideVWor
 import { commandKey, focusCommandLine, runCommandLine } from './commands.js';
 import { decideProposal, newChat, runExpert, send, sendFeedback } from './experts.js';
 import { addTypedIdea, ideaAction, placeIdeaFloat, saveIdea } from './ideas.js';
-import { clearExpert, loadExpert, loadOrdinance, loadProjects, loadSession, loadSite, resetTracking, start, track } from './jobs.js';
+import { clearExpert, loadExpert, loadOrdinance, loadProjectSites, loadProjects, loadSession, loadSite, resetTracking, start, track } from './jobs.js';
 import { syncPanelWidths } from './panels.js';
 import { askDelete, createSample, openProjectInfo } from './projects.js';
 import { render } from './render.js';
@@ -20,7 +20,7 @@ import { checkUse, chooseRegion, findLot, prepareFind, removeUse, saveSite, sear
 import { app, conductorScrolls, currentRoute, draftFor, drafts, freshFind, freshUseFind, jobRunning, openingTried, route, setCurrentRoute, talkViewById, toast, ui } from './state.js';
 import { askDeleteTalk, askFromLine, changeConductor, dismissTalkMenu, loadTalk, openTalk, sendTalk } from './talks.js';
 import { updateCommandLine } from './view-command.js';
-import { projectCards } from './view-home.js';
+import { projectList } from './view-home.js';
 
 // ------------------------------------------------------------------ routing
 
@@ -38,6 +38,9 @@ async function navigate() {
   if (currentRoute.page === 'home') {
     render();
     await loadProjects();
+    render();
+    if (await loadProjectSites() && currentRoute.page === 'home') render(false);
+    return;
   } else if (currentRoute.page === 'project') {
     const { name, agent } = currentRoute;
     if (previous.page !== 'project' || previous.name !== name) {
@@ -160,11 +163,29 @@ app.addEventListener('click', (event) => {
   if (action === 'use-remove') removeUse(name, button.dataset.use);
 });
 
+// Redraw the project cards after a search or a new order. Cards that stay slide to their new place,
+// new ones fade in and dropped ones fade out (a view transition of the named cards only, so the
+// search field stays live while typing). Instant when the browser lacks it or motion is reduced.
+function swapProjectList() {
+  const list = document.querySelector('#project-list');
+  if (!list) return;
+  const swap = () => { list.innerHTML = projectList(); };
+  if (!document.startViewTransition || matchMedia('(prefers-reduced-motion: reduce)').matches) { swap(); return; }
+  const root = document.documentElement;
+  listMoves += 1;
+  root.classList.add('list-moving');
+  document.startViewTransition(swap).finished.finally(() => {
+    listMoves -= 1;
+    if (!listMoves) root.classList.remove('list-moving');
+  });
+}
+let listMoves = 0; // transitions still running; a newer one may start before an older one ends
+
 app.addEventListener('input', (event) => {
   const { target } = event;
   if (target.id === 'project-search') {
     ui.query = target.value;
-    document.querySelector('#project-grid').innerHTML = projectCards();
+    swapProjectList();
   }
   if (target.form?.id === 'new-project-form') ui.newDraft = keepNewDraft(ui.newDraft, target.name, target.value);
   if (target.matches('.composer textarea')) drafts.set(target.closest('form').dataset.composer, target.value);
@@ -184,7 +205,7 @@ app.addEventListener('input', (event) => {
 app.addEventListener('change', (event) => {
   if (event.target.id === 'project-sort') {
     ui.sort = event.target.value;
-    document.querySelector('#project-grid').innerHTML = projectCards();
+    swapProjectList();
   }
   const { region, pick, lot } = event.target.dataset || {};
   if (region) chooseRegion(region, event.target.value);

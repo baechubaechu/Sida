@@ -30,6 +30,8 @@ export const ui = {
   // answer, the form, and whether a "새로 요청" form was opened although a key is saved.
   relayKey: null, relayKeyDraft: { name: '', contact: '' }, relayKeyOpen: false, relayKeyBusy: false,
   projects: null, projectsError: '', query: '', sort: 'recent',
+  // Saved site of each listed project, for the cards: name → { stamp: updated_at, card: siteCard() }.
+  projectSites: new Map(),
   project: '', session: null, sessionError: '',
   chat: null, chatMissing: false, module: null, moduleMissing: false, openExperts: new Set(),
   versions: null, version: null, versionMissing: false, showRaw: false, checks: new Set(), feedback: {},

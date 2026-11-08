@@ -1,6 +1,6 @@
 // The project list and the new-project form (HTML strings from `ui`).
 
-import { escapeHtml as escape, findProjects, relativeDate, projectSummary, projectPath as projectUrl } from './model.js';
+import { escapeHtml as escape, findProjects, parcelOutline, relativeDate, projectSummary, projectPath as projectUrl, sitePath } from './model.js';
 import { projectLabel, ui } from './state.js';
 
 // The project list's sidebar. Inside a project the Conductor panel links back here instead.
@@ -14,6 +14,55 @@ function sidebar() {
     </nav>
     <button class="nav-link sidebar-bottom" data-action="settings">설정${warned ? ' <span class="warn-dot" aria-label="확인할 설정 있음">●</span>' : ''}</button>
   </aside>`;
+}
+
+// A project's saved site drawn as a north-up line drawing (with a scale bar when `bar`), or a quiet
+// note when no site is saved yet. The SVG is decorative: the address next to it says the same.
+function siteDrawing(card, width, height, bar = false) {
+  const outline = card && card.shapes.length ? parcelOutline(card.shapes, width, height, bar ? 28 : 10) : null;
+  if (!outline) return `<div class="site-drawing empty-drawing" aria-hidden="true"><span>${card ? '필지 경계 미확인' : '대지 미정'}</span></div>`;
+  const scale = bar ? `<g class="drawing-scale"><path d="M16 ${height - 14}h${outline.bar.px}"/><text x="${16 + outline.bar.px + 6}" y="${height - 10}">${outline.bar.m}m</text></g>
+    <g class="drawing-north" transform="translate(${width - 22} 24)"><path d="M0 -10L5 6L0 3L-5 6Z"/><text y="18">N</text></g>` : '';
+  return `<svg class="site-drawing" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
+    ${outline.paths.map((d) => `<path class="drawing-parcel" d="${d}"/>`).join('')}${scale}</svg>`;
+}
+
+function siteLine(card, project) {
+  if (!card) return escape(project.project_type || '');
+  return escape([card.address, card.zones.join(', ')].filter(Boolean).join(' · '));
+}
+
+// Expert progress as dots: filled for each finished expert, out of those shown on the board.
+function expertDots(project) {
+  const total = project.visible_expert_count ?? project.expert_count ?? 0;
+  const done = (project.visible_completed ?? project.completed ?? []).length;
+  if (!total) return '';
+  const dots = Array.from({ length: total }, (_, i) => `<i class="${i < done ? 'on' : ''}"></i>`).join('');
+  return `<span class="expert-dots" aria-hidden="true">${dots}</span>`;
+}
+
+// Inline name for a project card in view transitions: stable per project while the list is open.
+function transitionName(project) {
+  return `project-${ui.projects.indexOf(project)}`;
+}
+
+// The latest project, large, to pick up where the designer left off. Hidden while searching.
+function continueCard(project) {
+  const card = ui.projectSites.get(project.name)?.card;
+  const label = escape(projectLabel(project));
+  const caps = card && card.bcr !== null ? ` · 법정 건폐율 ${card.bcr}% · 용적률 ${card.far}% 이하` : '';
+  const facts = card ? `<p class="continue-facts">대지 ${escape(card.area)}${caps}</p>` : '<p class="continue-facts muted">아직 대지를 정하지 않았어요.</p>';
+  const site = card ? '' : `<a class="secondary" href="${sitePath(project.name, 'find')}">대지 정하기</a>`;
+  return `<section class="continue" aria-labelledby="continue-title" style="view-transition-name: project-continue">
+    <a class="continue-drawing" href="${projectUrl(project.name)}" tabindex="-1" aria-hidden="true">${siteDrawing(card, 320, 200, true)}</a>
+    <div class="continue-body">
+      <p class="continue-label">이어서 하기</p>
+      <h2 id="continue-title">${label}</h2>
+      ${card || project.project_type ? `<p class="continue-site">${siteLine(card, project)}</p>` : ''}
+      ${facts}
+      <p class="continue-progress">${expertDots(project)}<span>${escape(projectSummary(project))}</span><span class="muted">· ${escape(relativeDate(project.updated_at))}</span></p>
+      <div class="continue-actions">${site}<a class="primary" href="${projectUrl(project.name)}" aria-label="${label} 프로젝트 열기">열기</a></div>
+    </div></section>`;
 }
 
 export function projectCards() {
@@ -30,27 +79,40 @@ export function projectCards() {
   const projects = findProjects(ui.projects, ui.query, ui.sort);
   if (!projects.length) return '<p class="empty" role="status">검색 결과가 없습니다. 다른 프로젝트 이름으로 검색해 보세요.</p>';
   // A dashed "new project" card ends the list, so a short list does not leave an empty row.
-  const add = ui.query.trim() ? '' : '<a class="project-new" href="#/new"><span aria-hidden="true">＋</span>새 프로젝트</a>';
-  return projects.map((p) => `<article class="project-card"><a class="project-open" href="${projectUrl(p.name)}" aria-label="${escape(projectLabel(p))} 프로젝트 열기">
+  const add = ui.query.trim() ? '' : '<a class="project-new" href="#/new" style="view-transition-name: project-new"><span aria-hidden="true">＋</span>새 프로젝트</a>';
+  return projects.map((p) => {
+    const card = ui.projectSites.get(p.name)?.card;
+    const line = siteLine(card, p);
+    return `<article class="project-card" style="view-transition-name: ${transitionName(p)}"><a class="project-open" href="${projectUrl(p.name)}" aria-label="${escape(projectLabel(p))} 프로젝트 열기">
+    <div class="project-drawing">${siteDrawing(card, 240, 96)}</div>
     <h3>${escape(projectLabel(p))}</h3>
-    ${p.project_type ? `<p class="project-type">${escape(p.project_type)}</p>` : ''}
-    <p class="project-summary">${escape(projectSummary(p))}</p>
+    ${line ? `<p class="project-type">${line}</p>` : ''}
+    <p class="project-summary">${expertDots(p)}<span>${escape(projectSummary(p))}</span></p>
     <div class="project-footer"><span>${escape(relativeDate(p.updated_at))}</span><span aria-hidden="true">↗</span></div>
   </a><div class="project-card-actions"><button type="button" data-action="project-info" data-project="${escape(p.name)}" aria-label="${escape(projectLabel(p))} 프로젝트 정보 수정">정보 수정</button>
-    <button type="button" class="card-delete" data-action="delete-project" data-project="${escape(p.name)}" aria-label="${escape(projectLabel(p))} 프로젝트 삭제" title="프로젝트 삭제">삭제</button></div></article>`).join('') + add;
+    <button type="button" class="card-delete" data-action="delete-project" data-project="${escape(p.name)}" aria-label="${escape(projectLabel(p))} 프로젝트 삭제" title="프로젝트 삭제">삭제</button></div></article>`;
+  }).join('') + add;
+}
+
+// Everything below the heading: the continue card (unless searching) and the cards. Redrawn alone
+// when the search or the order changes.
+export function projectList() {
+  const latest = ui.projects?.length && !ui.query.trim() ? findProjects(ui.projects, '', 'recent')[0] : null;
+  return `${latest ? continueCard(latest) : ''}
+    <h2 class="list-label">모든 프로젝트</h2><div class="project-grid" id="project-grid">${projectCards()}</div>`;
 }
 
 export function homeView() {
   return `<div class="app-shell">${sidebar()}
     <main class="home" id="main" tabindex="-1">
-      <header class="home-heading"><div><h1>프로젝트</h1><p>건축 설계 프로젝트를 관리하고 이전 작업을 이어가세요.</p></div>
+      <header class="home-heading"><h1>프로젝트</h1>
+        <div class="project-tools">
+          <label class="search-box"><span aria-hidden="true">⌕</span><span class="sr-only">프로젝트 검색</span><input id="project-search" data-focus="project-search" type="search" placeholder="프로젝트 검색" value="${escape(ui.query)}" autocomplete="off"></label>
+          <label class="sr-only" for="project-sort">프로젝트 정렬</label>
+          <select id="project-sort"><option value="recent" ${ui.sort === 'recent' ? 'selected' : ''}>최근 수정순</option><option value="name" ${ui.sort === 'name' ? 'selected' : ''}>이름순</option></select>
+        </div>
         <a class="primary" href="#/new">＋&nbsp; 새 프로젝트</a></header>
-      <div class="project-tools">
-        <label class="search-box"><span aria-hidden="true">⌕</span><span class="sr-only">프로젝트 검색</span><input id="project-search" type="search" placeholder="프로젝트 검색" value="${escape(ui.query)}" autocomplete="off"></label>
-        <label class="sr-only" for="project-sort">프로젝트 정렬</label>
-        <select id="project-sort"><option value="recent" ${ui.sort === 'recent' ? 'selected' : ''}>최근 수정순</option><option value="name" ${ui.sort === 'name' ? 'selected' : ''}>이름순</option></select>
-      </div>
-      <h2 class="sr-only">내 프로젝트</h2><div class="project-grid" id="project-grid">${projectCards()}</div>
+      <div id="project-list">${projectList()}</div>
     </main></div>`;
 }
 
