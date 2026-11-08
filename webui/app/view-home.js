@@ -19,7 +19,7 @@ function sidebar() {
 // A project's saved site drawn as a north-up line drawing (with a scale bar when `bar`), or a quiet
 // note when no site is saved yet. The SVG is decorative: the address next to it says the same.
 function siteDrawing(card, width, height, bar = false) {
-  const outline = card && card.shapes.length ? parcelOutline(card.shapes, width, height, bar ? 28 : 10) : null;
+  const outline = card && card.shapes.length ? parcelOutline(card.shapes, width, height, bar ? 36 : 24) : null;
   if (!outline) return `<div class="site-drawing empty-drawing" aria-hidden="true"><span>${card ? '필지 경계 미확인' : '대지 미정'}</span></div>`;
   const scale = bar ? `<g class="drawing-scale"><path d="M16 ${height - 14}h${outline.bar.px}"/><text x="${16 + outline.bar.px + 6}" y="${height - 10}">${outline.bar.m}m</text></g>
     <g class="drawing-north" transform="translate(${width - 22} 24)"><path d="M0 -10L5 6L0 3L-5 6Z"/><text y="18">N</text></g>` : '';
@@ -54,7 +54,7 @@ function continueCard(project) {
   const facts = card ? `<p class="continue-facts">대지 ${escape(card.area)}${caps}</p>` : '<p class="continue-facts muted">아직 대지를 정하지 않았어요.</p>';
   const site = card ? '' : `<a class="secondary" href="${sitePath(project.name, 'find')}">대지 정하기</a>`;
   return `<section class="continue" aria-labelledby="continue-title" style="view-transition-name: project-continue">
-    <a class="continue-drawing" href="${projectUrl(project.name)}" tabindex="-1" aria-hidden="true">${siteDrawing(card, 320, 240, true)}</a>
+    <a class="continue-drawing" href="${projectUrl(project.name)}" tabindex="-1" aria-hidden="true">${siteDrawing(card, 400, 300, true)}</a>
     <div class="continue-body">
       <p class="continue-label">이어서 하기</p>
       <h2 id="continue-title">${label}</h2>
@@ -84,7 +84,7 @@ export function projectCards() {
     const card = ui.projectSites.get(p.name)?.card;
     const line = siteLine(card, p);
     return `<article class="project-card" style="view-transition-name: ${transitionName(p)}"><a class="project-open" href="${projectUrl(p.name)}" aria-label="${escape(projectLabel(p))} 프로젝트 열기">
-    <div class="project-drawing">${siteDrawing(card, 240, 96)}</div>
+    <div class="project-drawing">${siteDrawing(card, 240, 180)}</div>
     <h3>${escape(projectLabel(p))}</h3>
     ${line ? `<p class="project-type">${line}</p>` : ''}
     <p class="project-summary">${expertDots(p)}<span>${escape(projectSummary(p))}</span></p>
