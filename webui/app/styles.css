@@ -160,7 +160,11 @@ html.project-morph::view-transition-old(project-frame), html.project-morph::view
 html.project-morph.opening::view-transition-old(project-frame) { animation-duration: var(--motion-100); }
 html.project-morph.closing::view-transition-old(project-frame) { animation-duration: var(--motion-150); }
 html.project-morph::view-transition-new(project-frame) { animation-duration: var(--motion-200); }
-html.project-morph::view-transition-old(root) { animation-duration: var(--motion-150); animation-timing-function: var(--ease-in); }
+/* The page behind: the screen being left stays fully drawn and the arriving one fades in over it.
+   (Fading both at once let the white page show through in the middle, a flash.) */
+html.project-morph::view-transition-old(root) { animation: none; }
+html.project-morph::view-transition-new(root) { animation: morph-root-in var(--motion-200) var(--ease-out) both; mix-blend-mode: normal; }
+@keyframes morph-root-in { from { opacity: 0; } }
 /* Back to the "새 프로젝트" button: the white form shrinks all the way, then the button fades in. */
 html.to-button::view-transition-old(project-frame) { animation: morph-hold-out var(--motion-300) linear both; }
 html.to-button::view-transition-new(project-frame) { animation: morph-late-in var(--motion-300) linear both; }
