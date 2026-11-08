@@ -1,18 +1,28 @@
 // The project list and the new-project form (HTML strings from `ui`).
 
-import { escapeHtml as escape, findProjects, parcelOutline, relativeDate, projectSummary, projectPath as projectUrl, sitePath } from './model.js';
+import { escapeHtml as escape, findProjects, parcelOutline, readiness, relativeDate, projectSummary, projectPath as projectUrl, sitePath } from './model.js';
 import { projectLabel, ui } from './state.js';
 
+const GEAR = '<svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M8.6 2h2.8l.4 2.2 1.5.8 2-1 2 2-1 2 .7 1.6 2.1.5v2.8l-2.2.4-.7 1.6 1.1 2-2 2-2-1.1-1.5.7-.4 2.2H8.6l-.4-2.2-1.6-.7-2 1.1-2-2 1.1-2-.7-1.6L.8 11.4V8.6l2.2-.5.7-1.6-1-2 2-2 2 1 1.5-.8z"/><circle cx="10" cy="10" r="2.6"/></svg>';
+
 // The project list's sidebar. Inside a project the Conductor panel links back here instead.
-// The list itself is the page, so the sidebar does not repeat it or the "new project" button.
+// The list itself is the page, so the sidebar does not repeat it or the "new project" button;
+// it shows whether Sida can work on this PC (AI and government data), each line opening the
+// settings part that fixes it.
 function sidebar() {
-  const warned = ui.settings && Object.values(ui.settings.warnings || {}).some(Boolean);
+  const status = readiness(ui.settings, ui.relayKey).map((s) => `<button type="button" class="status-row" data-action="settings" data-target="${escape(s.target)}">
+      <span class="status-dot ${s.ok ? 'ok' : 'bad'}" aria-hidden="true"></span>
+      <span class="status-text"><span class="status-label">${escape(s.label)}</span><span class="status-value">${escape(s.text)}${s.ok ? '' : '<span class="sr-only"> (설정에서 확인)</span>'}</span></span></button>`).join('');
   return `<aside class="sidebar" aria-label="프로젝트 탐색">
     <a class="brand" href="#/" aria-label="Sida 프로젝트 홈">Sida</a>
     <nav class="nav-main" aria-label="주 메뉴">
       <a class="nav-link active" href="#/" aria-current="page">▦&nbsp; 프로젝트</a>
+      <button type="button" class="nav-link" data-action="sample">◇&nbsp; 예시 프로젝트 열기</button>
     </nav>
-    <button class="nav-link sidebar-bottom" data-action="settings">설정${warned ? ' <span class="warn-dot" aria-label="확인할 설정 있음">●</span>' : ''}</button>
+    <div class="sidebar-bottom">
+      ${status ? `<section class="side-status" aria-label="연결 상태">${status}</section>` : ''}
+      <button type="button" class="nav-link side-settings" data-action="settings">${GEAR}설정</button>
+    </div>
   </aside>`;
 }
 

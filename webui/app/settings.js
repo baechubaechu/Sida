@@ -44,7 +44,7 @@ function renderSettings() {
     <select id="${id}" data-field="${field}">${(ui.chatgptModels?.length ? models : [{ slug: value, display_name: value }])
       .map((m) => optionTag(m.slug, m.display_name || m.slug, value)).join('')}</select>`;
   const chatgptBlock = d.conductor_provider === 'chatgpt' || d.worker_provider === 'chatgpt' || chatgpt.signed_in
-    ? `<fieldset class="settings-group"><legend>ChatGPT 구독</legend>
+    ? `<fieldset class="settings-group" id="settings-chatgpt"><legend>ChatGPT 구독</legend>
         <p>${chatgpt.signed_in ? `로그인됨: ${escape(chatgpt.email || 'ChatGPT')}` : '로그인되어 있지 않습니다.'}</p>
         ${chatgpt.signed_in && !chatgpt.plan_usage ? '<p class="error-text">구독 사용을 허용하지 않아 Sida가 쓸 수 없습니다. 다시 로그인해 주세요.</p>' : ''}
         <div class="settings-buttons">
@@ -98,7 +98,7 @@ function relayKeyBlock(s) {
   const form = view.form || (view.offer && ui.relayKeyOpen);
   const d = ui.relayKeyDraft;
   const busy = ui.relayKeyBusy ? 'disabled' : '';
-  return `<fieldset class="settings-group"><legend>Sida 키 받기</legend>
+  return `<fieldset class="settings-group" id="settings-relay"><legend>Sida 키 받기</legend>
     ${view.note ? `<p class="${view.tone === 'muted' ? 'muted small-text' : `event-note ${view.tone}`}">${escape(view.note)}</p>` : ''}
     ${view.offer && !ui.relayKeyOpen ? `<p class="muted small-text">Sida 키가 저장되어 있습니다.</p>
       <div class="settings-buttons"><button type="button" class="secondary small" data-settings="relay-offer">키 새로 요청</button></div>` : ''}
@@ -173,7 +173,9 @@ async function loadChatgptModels() {
   catch (error) { ui.chatgptModels = null; ui.chatgptNote = `모델 목록을 받지 못했습니다. ${error.message}`; }
 }
 
-export async function openSettings() {
+// `target`: a selector in the settings form to scroll to and focus once it is drawn (the sidebar's
+// status lines open the part that needs attention).
+export async function openSettings(target = '') {
   ui.settingsError = '';
   ui.chatgptNote = '';
   renderSettings();
@@ -183,6 +185,13 @@ export async function openSettings() {
   if (ui.settings) ui.settingsDraft = draftFromSettings(ui.settings);
   await loadChatgptModels();
   renderSettings();
+  const part = target && settingsBody.querySelector(target);
+  if (part) {
+    part.scrollIntoView({ block: 'center' });
+    // A group gets the focus itself, so Enter cannot press one of its buttons by accident.
+    if (!part.matches('input, select')) part.tabIndex = -1;
+    part.focus({ preventScroll: true });
+  }
 }
 
 async function saveSettings() {

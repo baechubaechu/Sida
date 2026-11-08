@@ -63,6 +63,35 @@ export function relayKeyView(request, tokenSet) {
   return view('muted', '정부 키가 없어도 Sida 키가 있으면 대지 조회와 법령 검색을 쓸 수 있습니다. 이름과 연락처를 보내면 팀이 확인한 뒤 키가 이 PC로 들어옵니다.', { form: true });
 }
 
+// The two "is Sida ready" lines in the project list's sidebar, from GET /api/settings and the
+// Sida key request (GET /api/settings/relay-key). Each: {id, label, text, ok, target}, where
+// `target` is the settings field to bring into view. [] before the settings arrive.
+export function readiness(settings, relayRequest = null) {
+  if (!settings) return [];
+  const keys = settings.keys || {};
+  const chatgpt = settings.chatgpt || {};
+  const roles = [settings.conductor?.provider, settings.worker?.provider];
+  let ai;
+  if (roles.includes('chatgpt') && !chatgpt.signed_in) ai = { ok: false, text: 'ChatGPT 로그인 필요', target: '#settings-chatgpt' };
+  else if (roles.includes('chatgpt') && !chatgpt.plan_usage) ai = { ok: false, text: 'ChatGPT 다시 로그인 필요', target: '#settings-chatgpt' };
+  else if (roles.includes('openrouter') && !keys.openrouter?.set) ai = { ok: false, text: 'OpenRouter 키 필요', target: '#set-openrouter' };
+  else {
+    const provider = settings.conductor?.provider;
+    const model = provider === 'chatgpt' ? chatgpt.model : settings.conductor?.model;
+    const name = { chatgpt: 'ChatGPT', openrouter: 'OpenRouter', ollama: '이 PC 모델' }[provider] || provider || '';
+    ai = { ok: true, text: [name, model].filter(Boolean).join(' · '), target: provider === 'chatgpt' ? '#settings-chatgpt' : '#set-conductor' };
+  }
+  let data;
+  if (keys.relay_token?.set) data = { ok: true, text: 'Sida 키로 연결됨' };
+  else if (keys.vworld?.set && keys.data_go_kr?.set) data = { ok: true, text: '이 PC의 정부 키로 연결됨' };
+  else if (relayRequest?.state === 'pending') data = { ok: false, text: 'Sida 키 승인 기다리는 중' };
+  else data = { ok: false, text: 'Sida 키 필요' };
+  return [
+    { id: 'ai', label: 'AI 연결', ...ai },
+    { id: 'data', label: '정부 자료', target: '#settings-relay', ...data },
+  ];
+}
+
 // The keys to save: [id, value] for each one typed in (a shown value only when it changed).
 export function keyChanges(draft, status = {}) {
   return DATA_KEYS

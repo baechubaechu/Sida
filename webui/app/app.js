@@ -104,7 +104,7 @@ app.addEventListener('click', (event) => {
   if (!button) return;
   const { action } = button.dataset;
   const { name, agent } = currentRoute;
-  if (action === 'settings') openSettings();
+  if (action === 'settings') openSettings(button.dataset.target);
   if (action === 'export-board') { button.closest('details')?.removeAttribute('open'); downloadBoard(name, button.dataset.format); }
   if (action === 'vworld-3d') toggleVWorld(name);
   if (action === 'sample') createSample();
@@ -174,7 +174,9 @@ function swapProjectList() {
   const root = document.documentElement;
   listMoves += 1;
   root.classList.add('list-moving');
-  document.startViewTransition(swap).finished.finally(() => {
+  const moving = document.startViewTransition(swap);
+  moving.ready.catch(() => {}); // a newer search skips this one; that is expected
+  moving.finished.finally(() => {
     listMoves -= 1;
     if (!listMoves) root.classList.remove('list-moving');
   });
