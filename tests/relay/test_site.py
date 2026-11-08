@@ -62,3 +62,10 @@ def test_page_loads_nothing_from_other_sites():
     assert _parse().scripts == []
     assert not re.search(r'(src|href)="https?://[^"]+\.(js|css|woff2?)', text)
     assert "@import" not in text
+
+
+def test_page_does_not_point_at_the_private_repository():
+    # The code repository is private until the CBT; the page offers e-mail instead.
+    text = PAGE.read_text(encoding="utf-8").lower()
+    assert "github.com" not in text
+    assert "git clone" not in text
