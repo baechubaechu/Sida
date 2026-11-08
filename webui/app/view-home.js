@@ -1,6 +1,6 @@
 // The project list and the new-project form (HTML strings from `ui`).
 
-import { escapeHtml as escape, findProjects, parcelOutline, readiness, relativeDate, projectSummary, projectPath as projectUrl, sitePath, siteSlot } from './model.js';
+import { escapeHtml as escape, findProjects, parcelOutline, readiness, relativeDate, projectSummary, projectPath as projectUrl, sitePath, siteSlot, untitledName } from './model.js';
 import { icon } from './icons.js';
 import { projectLabel, ui } from './state.js';
 
@@ -143,7 +143,8 @@ export function newView() {
   return `<form class="new-project" id="new-project-form" novalidate>
         <h1 id="new-project-title">새 프로젝트 만들기</h1>
         <p class="new-intro">모든 항목은 나중에 바꿀 수 있어요.</p>
-        <label for="project-name">프로젝트 이름</label><input id="project-name" name="name" data-focus="new-name" value="${value('name')}" required maxlength="80" autocomplete="off">
+        <label for="project-name">프로젝트 이름</label><input id="project-name" name="name" data-focus="new-name" value="${value('name')}" placeholder="${escape(untitledName(ui.projects))}" maxlength="80" autocomplete="off" aria-describedby="project-name-hint">
+        <p class="field-hint" id="project-name-hint">비워 두면 "${escape(untitledName(ui.projects))}"로 만들어요.</p>
         <label for="project-site">대지 주소 (선택)</label><input id="project-site" name="site" data-focus="new-site" value="${value('site')}" maxlength="300" autocomplete="off" aria-describedby="project-site-hint">
         <p class="field-hint" id="project-site-hint">번지까지 정확히 적어 주세요. 비워 두면 대지 화면에서 정할 수 있어요.</p>
         <label for="project-type">프로젝트 유형 (선택)</label><input id="project-type" name="type" data-focus="new-type" value="${value('type')}" maxlength="200" autocomplete="off">

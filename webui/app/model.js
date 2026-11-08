@@ -923,6 +923,15 @@ export function briefSite(brief) {
   return text === '-' ? '' : text;
 }
 
+// The name a new project gets when none is typed: 무제1, 무제2, … the first not taken by a listed
+// project (by its shown name or folder name).
+export function untitledName(projects) {
+  const taken = new Set((projects || []).flatMap((p) => [p.display_name, p.name]).filter(Boolean));
+  let n = 1;
+  while (taken.has(`무제${n}`)) n += 1;
+  return `무제${n}`;
+}
+
 // What the designer has typed on the new-project page, kept outside the page so a redraw (the
 // project list arriving right after the page opens) does not wipe it. Unknown fields are ignored.
 export const NEW_PROJECT_FIELDS = ['name', 'type', 'site', 'intention'];

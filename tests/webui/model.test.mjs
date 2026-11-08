@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   escapeHtml, findProjects, relativeDate, projectSummary, visibleExperts, chatItems, eventNotice, expertStatus,
-  renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges, relayKeyView, settingsChanges, settingsDirty, parseRoute, expertPath, dateTime,
+  renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges, relayKeyView, settingsChanges, settingsDirty, untitledName, parseRoute, expertPath, dateTime,
   documentSections, listItems, itemTag, handoffs, questionAnswer, arrangeDocument, EXPERT_LAYOUTS, SECTION_LABELS,
   stateChangeView, phaseLabel, sitePath, sitePageFor, needsSiteFirst, areaText, zoneScope, siteHeadline, missingText, restrictionGroups,
   ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
@@ -705,4 +705,10 @@ test('the settings form knows what saving would change and whether anything is u
   assert.equal(settingsDirty(settings, { ...draft, keys: { ...draft.keys, law: 'oc' } }), true);
   assert.equal(settingsDirty(settings, { ...draft, keys: { ...draft.keys, vworld_domain: 'localhost' } }), false);
   assert.equal(settingsDirty(null, draft), false);
+});
+
+test('a project made without a name gets the first free 무제 number', () => {
+  assert.equal(untitledName([]), '무제1');
+  assert.equal(untitledName(null), '무제1');
+  assert.equal(untitledName([{ name: '무제1' }, { name: 'x', display_name: '무제2' }, { name: '무제4' }]), '무제3');
 });

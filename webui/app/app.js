@@ -3,7 +3,7 @@
 // This file routes (the address bar), wires the page's events to the actions, and starts up;
 // the state is in state.js, the HTML in view-*.js and render.js, the actions in the other files.
 
-import { projectPath as projectUrl, keepNewDraft } from './model.js';
+import { projectPath as projectUrl, keepNewDraft, untitledName } from './model.js';
 import { COMPARE_QUESTION } from './board-model.js';
 import { talkMenu } from './talk-panel-model.js';
 import { api, expertUrl, projectApi } from './api.js';
@@ -340,9 +340,8 @@ async function onSubmit(event) {
   event.preventDefault();
   const form = event.target;
   if (form.id === 'new-project-form') {
-    const name = form.elements.name.value.trim();
+    const name = form.elements.name.value.trim() || untitledName(ui.projects); // 비워 두면 무제1, 무제2, …
     const error = form.querySelector('#new-project-error');
-    if (!name) { error.textContent = '프로젝트 이름을 입력해 주세요.'; form.elements.name.focus(); return; }
     const fields = {};
     for (const key of ['type', 'site', 'intention']) {
       const value = form.elements[key].value.trim();
