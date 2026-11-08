@@ -144,12 +144,13 @@ export function newView() {
     <main class="home new-home" id="main" tabindex="-1">
       <form class="new-project" id="new-project-form" novalidate>
         <h1>새 프로젝트 만들기</h1>
-        <label for="project-name">프로젝트 이름</label><input id="project-name" name="name" data-focus="new-name" value="${value('name')}" placeholder="예: 무교동 근린생활시설" required maxlength="80" autocomplete="off">
-        <label for="project-site">대지 주소 (선택)</label><input id="project-site" name="site" data-focus="new-site" value="${value('site')}" placeholder="예: 서울 중구 무교동 45" maxlength="300" autocomplete="off" aria-describedby="project-site-hint">
-        <p class="field-hint" id="project-site-hint">번지까지 정확히 적어 주세요. 비워 두면 나중에 대지 화면에서 정할 수 있어요.</p>
-        <label for="project-type">프로젝트 유형 (선택)</label><input id="project-type" name="type" data-focus="new-type" value="${value('type')}" placeholder="예: 미술관, 단독주택" maxlength="200" autocomplete="off">
-        <label for="project-description">설명 (선택)</label><textarea id="project-description" name="intention" data-focus="new-intention" placeholder="설계할 프로젝트와 지금 고민하는 점" maxlength="4000" aria-describedby="project-description-hint">${value('intention')}</textarea>
-        <p class="field-hint" id="project-description-hint">다른 설계 조건은 Conductor와 대화하며 정리합니다.</p>
+        <p class="new-intro">모든 항목은 나중에 바꿀 수 있어요.</p>
+        <label for="project-name">프로젝트 이름</label><input id="project-name" name="name" data-focus="new-name" value="${value('name')}" required maxlength="80" autocomplete="off">
+        <label for="project-site">대지 주소 (선택)</label><input id="project-site" name="site" data-focus="new-site" value="${value('site')}" maxlength="300" autocomplete="off" aria-describedby="project-site-hint">
+        <p class="field-hint" id="project-site-hint">번지까지 정확히 적어 주세요. 비워 두면 대지 화면에서 정할 수 있어요.</p>
+        <label for="project-type">프로젝트 유형 (선택)</label><input id="project-type" name="type" data-focus="new-type" value="${value('type')}" maxlength="200" autocomplete="off">
+        <label for="project-description">설명 (선택)</label><textarea id="project-description" name="intention" data-focus="new-intention" maxlength="4000" aria-describedby="project-description-hint">${value('intention')}</textarea>
+        <p class="field-hint" id="project-description-hint">설계할 프로젝트와 지금 고민하는 점. 다른 설계 조건은 Conductor와 대화하며 정리합니다.</p>
         <p class="form-error error-text" id="new-project-error" role="alert"></p>
         <div class="form-actions"><a class="secondary" href="#/">취소</a><button class="primary" type="submit" ${ui.creating ? 'disabled' : ''}>프로젝트 만들기</button></div>
       </form></main></div>`;
