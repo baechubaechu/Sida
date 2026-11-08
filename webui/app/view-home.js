@@ -8,14 +8,14 @@ import { projectLabel, ui } from './state.js';
 // The list itself is the page, so the sidebar does not repeat it or the "new project" button;
 // it shows whether Sida can work on this PC (AI and government data), each line opening the
 // settings part that fixes it.
-function sidebar(current = true) {
+function sidebar() {
   const status = readiness(ui.settings, ui.relayKey).map((s) => `<button type="button" class="status-row" data-action="settings" data-target="${escape(s.target)}">
       <span class="status-dot ${s.ok ? 'ok' : 'bad'}" aria-hidden="true"></span>
       <span class="status-text"><span class="status-label">${escape(s.label)}</span><span class="status-value">${escape(s.text)}${s.ok ? '' : '<span class="sr-only"> (설정에서 확인)</span>'}</span></span></button>`).join('');
   return `<aside class="sidebar" aria-label="프로젝트 탐색">
     <a class="brand" href="#/" aria-label="Sida 프로젝트 홈">Sida</a>
     <nav class="nav-main" aria-label="주 메뉴">
-      <a class="nav-link${current ? ' active' : ''}"${current ? ' aria-current="page"' : ''} href="#/">${icon('projects')}프로젝트</a>
+      <a class="nav-link active" aria-current="page" href="#/">${icon('projects')}프로젝트</a>
       <button type="button" class="nav-link" data-action="sample">${icon('sample')}예시 프로젝트 열기</button>
     </nav>
     <div class="sidebar-bottom">
@@ -135,15 +135,13 @@ export function homeView() {
     </main></div>`;
 }
 
-// The new-project page keeps the list's sidebar (its "프로젝트" and the form's "취소" lead back).
-// The site address comes second: it is what Sida works from.
+// The new-project form, shown in a dialog over the project list (render.js). The site address
+// comes second: it is what Sida works from.
 export function newView() {
   const d = ui.newDraft;
   const value = (key) => escape(d[key] || '');
-  return `<div class="app-shell">${sidebar(false)}
-    <main class="home new-home" id="main" tabindex="-1">
-      <form class="new-project" id="new-project-form" novalidate>
-        <h1>새 프로젝트 만들기</h1>
+  return `<form class="new-project" id="new-project-form" novalidate>
+        <h1 id="new-project-title">새 프로젝트 만들기</h1>
         <p class="new-intro">모든 항목은 나중에 바꿀 수 있어요.</p>
         <label for="project-name">프로젝트 이름</label><input id="project-name" name="name" data-focus="new-name" value="${value('name')}" required maxlength="80" autocomplete="off">
         <label for="project-site">대지 주소 (선택)</label><input id="project-site" name="site" data-focus="new-site" value="${value('site')}" maxlength="300" autocomplete="off" aria-describedby="project-site-hint">
@@ -152,6 +150,6 @@ export function newView() {
         <label for="project-description">설명 (선택)</label><textarea id="project-description" name="intention" data-focus="new-intention" maxlength="4000" aria-describedby="project-description-hint">${value('intention')}</textarea>
         <p class="field-hint" id="project-description-hint">설계할 프로젝트와 지금 고민하는 점. 다른 설계 조건은 Conductor와 대화하며 정리합니다.</p>
         <p class="form-error error-text" id="new-project-error" role="alert"></p>
-        <div class="form-actions"><a class="secondary" href="#/">취소</a><button class="primary" type="submit" ${ui.creating ? 'disabled' : ''}>프로젝트 만들기</button></div>
-      </form></main></div>`;
+        <div class="form-actions"><button type="button" class="secondary" data-new="cancel">취소</button><button class="primary" type="submit" ${ui.creating ? 'disabled' : ''}>프로젝트 만들기</button></div>
+      </form>`;
 }

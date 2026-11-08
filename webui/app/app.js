@@ -17,7 +17,7 @@ import { askDelete, createSample, openProjectInfo } from './projects.js';
 import { render } from './render.js';
 import { checkRelayKey, loadSettings, openSettings } from './settings.js';
 import { checkUse, chooseRegion, findLot, prepareFind, removeUse, saveSite, searchAddress, searchUses, setOrdinanceOption, togglePick } from './site.js';
-import { app, conductorScrolls, currentRoute, deferred, draftFor, drafts, freshFind, freshUseFind, jobRunning, openingTried, route, setCurrentRoute, talkViewById, toast, ui } from './state.js';
+import { app, conductorScrolls, currentRoute, deferred, draftFor, newProjectDialog, drafts, freshFind, freshUseFind, jobRunning, openingTried, route, setCurrentRoute, talkViewById, toast, ui } from './state.js';
 import { askDeleteTalk, askFromLine, changeConductor, dismissTalkMenu, loadTalk, openTalk, sendTalk } from './talks.js';
 import { updateCommandLine } from './view-command.js';
 import { projectList } from './view-home.js';
@@ -35,7 +35,7 @@ async function navigate() {
     if (ui.vworld) { ui.vworld = false; hideVWorld(); }
   }
   if (currentRoute.page !== 'project') closeTable();
-  if (currentRoute.page === 'home') {
+  if (currentRoute.page === 'home' || currentRoute.page === 'new') { // the new-project form floats over the list
     render();
     await loadProjects();
     render();
@@ -111,20 +111,22 @@ function nameMorphCard(card) {
 
 // `change` draws the next screen (navigate draws before its first wait). Redraws while the shape
 // moves would cut the animation short, so they wait until it ends (data arriving meanwhile).
-// `keepSide`: both screens have the list's sidebar (list ↔ new-project form); it then stays still.
-// `toButton`: the shape ends as the list's "새 프로젝트" button; it stays the form until it has
-// shrunk there and only then turns into the blue button.
-function morphProject(direction, change, keepSide = false, toButton = false) {
+// Only the moving shape (project-frame) is named in either state; the other cards fade with the
+// page. `toButton`: the shape ends as the list's "새 프로젝트" button; it stays the form until it
+// has shrunk there and only then turns into the blue button.
+function morphProject(direction, change, toButton = false) {
   const root = document.documentElement;
   root.classList.add('project-morph', direction);
-  root.classList.toggle('keep-side', keepSide);
   root.classList.toggle('to-button', toButton);
   const morph = transition(() => {
     change();
+    for (const el of app.querySelectorAll('#project-list [style*="view-transition-name"]')) {
+      if (el.style.viewTransitionName !== 'project-frame') el.style.viewTransitionName = 'none';
+    }
     deferred.growing = true;
   });
   morph.finished.finally(() => {
-    root.classList.remove('project-morph', direction, 'keep-side', 'to-button');
+    root.classList.remove('project-morph', direction, 'to-button');
     deferred.growing = false;
     if (deferred.render) { deferred.render = false; render(false); }
   });
@@ -144,9 +146,24 @@ function openProjectGrowing(event) {
   morphProject('opening', () => {
     history.pushState(null, '', link.getAttribute('href')); // no hashchange: navigate is called here
     navigate();
-  }, link.getAttribute('href') === '#/new');
+  });
   return true;
 }
+
+// The new-project dialog: typing keeps a draft (it survives closing), the backdrop and Esc go back
+// to the list keeping it, "취소" goes back and forgets it.
+newProjectDialog.addEventListener('input', (event) => {
+  const { target } = event;
+  if (target.form?.id === 'new-project-form') ui.newDraft = keepNewDraft(ui.newDraft, target.name, target.value);
+});
+newProjectDialog.addEventListener('click', (event) => {
+  if (event.target === newProjectDialog) location.hash = '#/'; // the backdrop
+  if (event.target.closest('[data-new="cancel"]')) { ui.newDraft = {}; location.hash = '#/'; }
+});
+newProjectDialog.addEventListener('cancel', (event) => { // Esc: close through the route, so it animates
+  event.preventDefault();
+  location.hash = '#/';
+});
 
 // What the new-project form grew from (the dashed card or the heading's button): it shrinks back there.
 let newFormFrom = 'card';
@@ -159,16 +176,17 @@ function onHashChange() {
   const from = currentRoute.page;
   const to = route().page;
   if (!canMorph()) { navigate(); return; }
-  if (from === 'new' && to === 'project') { morphProject('opening', navigate); return; }
+  if (from === 'new' && to === 'project') { nameMorphCard(null); morphProject('opening', navigate); return; }
   if (to !== 'home' || (from !== 'project' && from !== 'new')) { navigate(); return; }
   const leaving = currentRoute.name;
+  nameMorphCard(null); // the list under the new-project form: nothing there moves on its own
   morphProject('closing', () => {
     navigate();
     const named = `[data-project="${CSS.escape(leaving || '')}"]`;
     const newHome = newFormFrom === 'button' ? '.home-heading .primary' : '.project-new';
     nameMorphCard(from === 'new' ? app.querySelector(newHome) || app.querySelector('.home-heading .primary')
       : app.querySelector(`.continue${named}`) || app.querySelector(`.project-card${named}`));
-  }, from === 'new', from === 'new' && newFormFrom === 'button');
+  }, from === 'new' && newFormFrom === 'button');
 }
 
 app.addEventListener('click', (event) => {
@@ -274,7 +292,6 @@ app.addEventListener('input', (event) => {
     ui.query = target.value;
     swapProjectList();
   }
-  if (target.form?.id === 'new-project-form') ui.newDraft = keepNewDraft(ui.newDraft, target.name, target.value);
   if (target.matches('.composer textarea')) drafts.set(target.closest('form').dataset.composer, target.value);
   if (target.id === 'command-input') {
     drafts.set('command', target.value);
@@ -319,7 +336,7 @@ app.addEventListener('toggle', (event) => {
   else ui.openExperts.delete(row.dataset.agent);
 }, true);
 
-app.addEventListener('submit', async (event) => {
+async function onSubmit(event) {
   event.preventDefault();
   const form = event.target;
   if (form.id === 'new-project-form') {
@@ -376,7 +393,9 @@ app.addEventListener('submit', async (event) => {
     ui.revisionOpen = false;
     start(name, `${projectApi(name)}/session/experts/${encodeURIComponent(agent)}/run`, { revision, context: takePicked().ids });
   }
-});
+}
+app.addEventListener('submit', onSubmit);
+newProjectDialog.addEventListener('submit', onSubmit);
 
 app.addEventListener('keydown', (event) => {
   if (event.target.id === 'command-input') { commandKey(event); return; }

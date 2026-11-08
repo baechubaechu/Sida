@@ -151,7 +151,9 @@ html.list-moving::view-transition-old(*), html.list-moving::view-transition-new(
 /* A project's card and its work screen as one shape (named in app.js): opening, the card grows into
    the work screen's frame with the work screen showing through it, cropped; closing, the reverse.
    The screen being left fades quickly, the one arriving a little slower. */
-html.project-morph .studio, html.project-morph .new-project { view-transition-name: project-frame; }
+html.project-morph .studio, html.project-morph #new-project-dialog { view-transition-name: project-frame; }
+/* While the shape moves, the dialog's own fade-in would be caught half-done: it appears at once. */
+html.project-morph #new-project-dialog, html.project-morph #new-project-dialog::backdrop { transition: none; }
 html.project-morph::view-transition-group(*) { animation-duration: var(--motion-300); animation-timing-function: var(--ease-out); }
 html.project-morph::view-transition-image-pair(project-frame) { overflow: hidden; border-radius: var(--radius); }
 html.project-morph::view-transition-old(project-frame), html.project-morph::view-transition-new(project-frame) { width: 100%; height: 100%; object-fit: cover; object-position: center top; }
@@ -164,10 +166,6 @@ html.to-button::view-transition-old(project-frame) { animation: morph-hold-out v
 html.to-button::view-transition-new(project-frame) { animation: morph-late-in var(--motion-300) linear both; }
 @keyframes morph-hold-out { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes morph-late-in { 0%, 70% { opacity: 0; } 100% { opacity: 1; } }
-/* Between the list and the new-project form the sidebar is the same: it does not move or fade. */
-html.keep-side .sidebar { view-transition-name: side; }
-html.keep-side::view-transition-old(side) { display: none; }
-html.keep-side::view-transition-new(side) { animation: none; }
 .project-name-edit { font: inherit; text-align: left; color: var(--brand); }
 .project-name-edit:hover { text-decoration: underline; }
 #project-info-body { display: grid; gap: 10px; }
@@ -180,8 +178,8 @@ html.keep-side::view-transition-new(side) { animation: none; }
 .project-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; margin-top: auto; padding-top: 16px; }
 .project-footer .icon { color: var(--brand); }
 .empty { color: var(--muted); padding: 60px 12px; text-align: center; grid-column: 1 / -1; }
-/* New project: the list's frame around one form. */
-.new-project { max-width: 640px; margin: 0 auto; padding: 32px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+/* New project: a dialog over the dimmed list. */
+#new-project-dialog { width: min(640px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); padding: 32px; border-radius: var(--radius); overflow-y: auto; }
 .new-project h1 { font-size: 28px; line-height: 40px; letter-spacing: -.8px; margin: 0; }
 .new-project .new-intro { margin: 8px 0 0; color: var(--muted); font-size: 14px; line-height: 20px; }
 .new-project label { display: block; margin-top: 24px; font-size: 14px; font-weight: 600; line-height: 20px; }
@@ -192,7 +190,7 @@ html.keep-side::view-transition-new(side) { animation: none; }
 .new-project .form-error:empty { display: none; }
 .new-project .form-error { margin: 16px 0 0; font-size: 14px; }
 .new-project .form-actions { gap: 8px; margin-top: 32px; }
-.new-project .form-actions .primary, .new-project .form-actions .secondary { min-width: 0; min-height: 44px; padding: 8px 24px; font-size: 14px; }
+.new-project .form-actions .primary, .new-project .form-actions .secondary { min-width: 0; min-height: 44px; margin: 0; padding: 8px 24px; font-size: 14px; }
 .form-actions { display: flex; justify-content: flex-end; gap: 14px; margin-top: 30px; }
 .form-actions .secondary { min-width: 132px; }
 .form-actions .primary { min-width: 189px; }
@@ -900,7 +898,6 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
   .search-box span { left: 13px; }
   .project-tools select { width: 125px; padding: 0 9px; font-size: 12px; }
   .project-new { display: none; }
-  .new-project { padding: 24px 16px; }
   .form-actions { gap: 10px; }
   .form-actions .primary, .form-actions .secondary { min-width: 0; padding: 12px 18px; font-size: 14px; }
   .chat-scroll { padding: 20px 16px; }

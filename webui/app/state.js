@@ -10,6 +10,7 @@ const toasts = document.querySelector('#toasts');
 export const settingsDialog = document.querySelector('#settings-dialog');
 export const settingsBody = document.querySelector('#settings-body');
 export const settingsFooter = document.querySelector('#settings-footer');
+export const newProjectDialog = document.querySelector('#new-project-dialog');
 export const settingsForm = document.querySelector('#settings-form');
 export const tableHost = document.querySelector('#table-host');
 export const deleteDialog = document.querySelector('#delete-dialog');
