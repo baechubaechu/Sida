@@ -13,6 +13,18 @@
   --font: Inter, "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
   --radius: 12px;
   --home-gutter: 54px;
+  /* Motion tokens: use only these durations. */
+  --motion-100: 100ms;
+  --motion-150: 150ms;
+  --motion-200: 200ms;
+  --motion-300: 300ms;
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ease-in: cubic-bezier(.7, 0, .84, 0);
+  /* Damped spring (zeta .5): overshoots about 16% once, then settles. For press release only. */
+  --ease-spring: cubic-bezier(.34, 1.4, .64, 1);
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  :root { --ease-spring: linear(0, .094 5%, .31 10%, .565 15%, .799 20%, .981 25%, 1.097 30%, 1.153 35%, 1.161 40%, 1.139 45%, 1.1 50%, 1.059 55%, 1.023 60%, .996 65%, .98 70%, .974 75%, .974 80%, .979 85%, .986 90%, .992 95%, 1); }
 }
 * { box-sizing: border-box; }
 body { margin: 0; color: var(--text); background: var(--surface); font: 15px/1.5 var(--font); }
@@ -35,6 +47,10 @@ h1, h2, h3, p { margin: 0; }
 .primary { background: var(--brand); color: white; font-weight: 700; }
 .secondary { background: var(--surface-subtle); }
 .icon-button { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 6px; font-size: 25px; }
+/* Press feedback: squash quickly on press, spring back on release. Transform only, so layout never moves. */
+.primary, .secondary, .icon-button { transition: transform var(--motion-300) var(--ease-spring); }
+.primary:active:not(:disabled), .secondary:active:not(:disabled), .icon-button:active:not(:disabled) { transform: scale(.95); transition: transform var(--motion-100) var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .primary, .secondary, .icon-button { transform: none !important; } }
 .app-shell { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); min-height: 100dvh; }
 .sidebar { height: 100dvh; position: sticky; top: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 17px 14px 28px; background: var(--surface-subtle); }
 .brand { display: inline-block; align-self: flex-start; margin-left: 14px; font-size: 30px; line-height: 45px; font-weight: 700; letter-spacing: -.9px; }
