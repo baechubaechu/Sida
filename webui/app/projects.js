@@ -4,7 +4,7 @@ import { escapeHtml as escape, findProjects, projectPath as projectUrl } from '.
 import { api, projectApi } from './api.js';
 import { loadProjects } from './jobs.js';
 import { render } from './render.js';
-import { announce, app, currentProjectLabel, currentRoute, deleteConfirm, deleteDialog, deleteError, keepProjectList, openingTried, projectInfoBody, projectInfoDialog, toast, ui } from './state.js';
+import { announce, app, currentProjectLabel, currentRoute, deleteConfirm, deleteDialog, deleteError, openingTried, projectInfoBody, projectInfoDialog, toast, ui } from './state.js';
 
 let projectInfoEdit = null;
 
@@ -91,6 +91,12 @@ export async function createSample() {
 }
 
 deleteConfirm.addEventListener('click', deleteProject);
+
+// Keep the list's sort and dragged order on this PC (the server's projects folder), for next time.
+export function keepProjectList() {
+  ui.listKept = true;
+  api('/api/projects/list', { method: 'PUT', body: { sort: ui.sort, order: ui.customOrder } }).catch(() => {});
+}
 
 // Dragging a project card to another place: the other cards make way as it passes (each slides
 // from where it was), and dropping keeps that order as the "사용자 설정" sort. Only over the whole

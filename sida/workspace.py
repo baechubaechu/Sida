@@ -31,6 +31,7 @@ from sida.project import (
     slugify,
 )
 from sida.project_documents import read_document, save_document
+from sida.storage import atomic_write_text
 from sida.worker import MODULE_HISTORY_DIRNAME
 
 SAMPLE_BRIEF = ROOT / "data" / "briefs" / "sample_brief.md"
@@ -38,6 +39,38 @@ SAMPLE_BRIEF = ROOT / "data" / "briefs" / "sample_brief.md"
 
 class ProjectNotFound(LookupError):
     pass
+
+
+# How the designer keeps the project list: the chosen sort and the order the cards were dragged
+# into (folder names), in the projects folder (not a project: it has no brief).
+LIST_FILE = ".project_list.json"
+LIST_SORTS = ("recent", "name", "custom")
+LIST_MAX = 5000
+
+
+def load_list_order(config: dict) -> dict:
+    """{"sort", "order"}; a missing or unreadable file gives the default (recent, no order)."""
+    try:
+        data = json.loads((ensure_projects_root(config) / LIST_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    order = data.get("order") if isinstance(data.get("order"), list) else []
+    return {
+        "sort": data.get("sort") if data.get("sort") in LIST_SORTS else "recent",
+        "order": [name for name in order if isinstance(name, str)][:LIST_MAX],
+    }
+
+
+def save_list_order(config: dict, sort: str, order: list[str]) -> dict:
+    """Keep the list's sort and custom order. Raises ValueError for an unknown sort."""
+    if sort not in LIST_SORTS:
+        raise ValueError(f"unknown sort: {sort}")
+    names = list(dict.fromkeys(name for name in order if isinstance(name, str) and name.strip()))[:LIST_MAX]
+    kept = {"sort": sort, "order": names}
+    atomic_write_text(ensure_projects_root(config) / LIST_FILE, json.dumps(kept, ensure_ascii=False))
+    return kept
 
 
 def _updated_at(path: Path) -> str:

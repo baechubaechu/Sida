@@ -13,11 +13,11 @@ import { decideProposal, newChat, runExpert, send, sendFeedback } from './expert
 import { addTypedIdea, ideaAction, placeIdeaFloat, saveIdea } from './ideas.js';
 import { clearExpert, loadExpert, loadOrdinance, loadProjectSites, loadProjects, loadSession, loadSite, resetTracking, start, track } from './jobs.js';
 import { syncPanelWidths } from './panels.js';
-import { askDelete, createSample, openProjectInfo } from './projects.js';
+import { askDelete, createSample, keepProjectList, openProjectInfo } from './projects.js';
 import { render } from './render.js';
 import { checkRelayKey, loadSettings, openSettings } from './settings.js';
 import { checkUse, chooseRegion, findLot, prepareFind, removeUse, saveSite, searchAddress, searchUses, setOrdinanceOption, togglePick } from './site.js';
-import { app, conductorScrolls, currentRoute, deferred, draftFor, keepProjectList, newProjectDialog, drafts, freshFind, freshUseFind, jobRunning, openingTried, route, setCurrentRoute, talkViewById, toast, ui } from './state.js';
+import { app, conductorScrolls, currentRoute, deferred, draftFor, newProjectDialog, drafts, freshFind, freshUseFind, jobRunning, openingTried, route, setCurrentRoute, talkViewById, toast, ui } from './state.js';
 import { askDeleteTalk, askFromLine, changeConductor, dismissTalkMenu, loadTalk, openTalk, sendTalk } from './talks.js';
 import { updateCommandLine } from './view-command.js';
 import { projectList } from './view-home.js';

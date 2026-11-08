@@ -58,6 +58,11 @@ class NewProject(BaseModel):
     fields: dict[str, str] = Field(default_factory=dict)
 
 
+class ListOrder(BaseModel):
+    sort: str
+    order: list[str] = Field(default_factory=list)
+
+
 class ProjectInfoEdit(BaseModel):
     fields: dict[str, str]
     expected_revision: str
@@ -193,7 +198,15 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
         return {
             "root": str(core(workspace.ensure_projects_root, config)),
             "projects": core(workspace.list_project_summaries, config),
+            "list": core(workspace.load_list_order, config),
         }
+
+    @app.put("/api/projects/list")
+    def api_project_list(body: ListOrder) -> dict:
+        try:
+            return core(workspace.save_list_order, load_config(), body.sort, body.order)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/projects")
     def api_create_project(body: NewProject) -> JSONResponse:

@@ -6,17 +6,6 @@ import { floatState } from './board-model.js';
 
 export const app = document.querySelector('#app');
 
-// The project list's order, kept in this browser between visits: the chosen sort and the order the
-// cards were last dragged into (folder names). Storage can be missing or refused; then it is not kept.
-const LIST_KEY = 'sida.projectList';
-const SORTS = ['recent', 'name', 'custom'];
-function storedList() {
-  try { return JSON.parse(localStorage.getItem(LIST_KEY)) || {}; } catch { return {}; }
-}
-export function keepProjectList() {
-  try { localStorage.setItem(LIST_KEY, JSON.stringify({ sort: ui.sort, order: ui.customOrder })); } catch { /* not kept */ }
-}
-const listPrefs = storedList();
 const announcer = document.querySelector('#announcer');
 const toasts = document.querySelector('#toasts');
 export const settingsDialog = document.querySelector('#settings-dialog');
@@ -44,8 +33,8 @@ export const ui = {
   // answer, the form, and whether a "새로 요청" form was opened although a key is saved.
   relayKey: null, relayKeyDraft: { name: '', contact: '' }, relayKeyOpen: false, relayKeyBusy: false,
   projects: null, projectsError: '', query: '',
-  sort: SORTS.includes(listPrefs.sort) ? listPrefs.sort : 'recent',
-  customOrder: Array.isArray(listPrefs.order) ? listPrefs.order.filter((name) => typeof name === 'string') : [],
+  // The list's sort and dragged order (folder names), kept on this PC by the server (GET/PUT /api/projects…).
+  sort: 'recent', customOrder: [], listKept: false,
   // Saved site of each listed project, for the cards: name → { stamp: updated_at, card: siteCard() }.
   projectSites: new Map(),
   project: '', session: null, sessionError: '',

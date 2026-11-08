@@ -17,8 +17,14 @@ export function resetTracking() { trackToken += 1; trackingId = null; }
 
 export async function loadProjects() {
   try {
-    ui.projects = (await api('/api/projects')).projects;
+    const answer = await api('/api/projects');
+    ui.projects = answer.projects;
     ui.projectsError = '';
+    if (answer.list && !ui.listKept) { // taken once; later changes on this screen are the newer ones
+      ui.sort = answer.list.sort;
+      ui.customOrder = answer.list.order;
+      ui.listKept = true;
+    }
   } catch (error) {
     ui.projectsError = error.message;
   }

@@ -30,7 +30,7 @@
 
 | 화면 | 쓰는 API |
 |---|---|
-| 프로젝트 목록 (`#/`) | `GET /api/projects`, 카드의 대지(주소·용도지역·필지 윤곽, 맨 위 "이어서 하기"의 대지면적·법정 건폐율·용적률)는 프로젝트마다 `GET /api/projects/{name}/site`, 예시 프로젝트 `POST /api/projects/sample`, 삭제 `DELETE /api/projects/{name}`(카드의 "삭제" → 확인 창, 실행 중인 작업이 있으면 409) |
+| 프로젝트 목록 (`#/`) | `GET /api/projects`(정렬과 끌어서 정한 순서 `list` 포함, 바꾸면 `PUT /api/projects/list`, 프로젝트 폴더의 `.project_list.json`), 카드의 대지(주소·용도지역·필지 윤곽, 맨 위 "이어서 하기"의 대지면적·법정 건폐율·용적률)는 프로젝트마다 `GET /api/projects/{name}/site`, 예시 프로젝트 `POST /api/projects/sample`, 삭제 `DELETE /api/projects/{name}`(카드의 "삭제" → 확인 창, 실행 중인 작업이 있으면 409) |
 | 새 프로젝트 (`#/new`, 목록 위에 뜨는 창) | `POST /api/projects` (`name`, `fields.type`·`site`·`intention`) |
 | Conductor 대화 (`#/project/<이름>`, 왼쪽 대화 패널과 아래 명령창) | `GET .../session`(대화 목록 `talks`), 첫 인사 `POST .../session/opening`, 새 대화 `POST .../talks`, 대화 `GET .../talks/{id}`, 메시지 `POST .../talks/{id}/messages`, 진행 `GET .../session/jobs/{id}` |
 | 전문가 페이지 (`#/project/<이름>/expert/<id>` 결과, `.../chat/<채팅 id>` 분석 채팅, `.../versions/<버전 id>` 이전 버전) | 결과 문서 `GET .../modules/{agent}`, 이전 버전 `GET .../modules/{agent}/versions`, `.../versions/{id}`, 실행·수정 요청 `POST .../session/experts/{agent}/run`, 분석 채팅 목록과 새 채팅 `GET`/`POST .../experts/{agent}/chats`, 채팅 `GET .../experts/{agent}/chats/{chat_id}`, 메시지 `POST .../chats/{chat_id}/messages`, 평가 `POST .../experts/{agent}/feedback` |
