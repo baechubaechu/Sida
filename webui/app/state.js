@@ -62,8 +62,8 @@ export let currentRoute = { page: 'home' };
 export function setCurrentRoute(next) { currentRoute = next; }
 // A redraw asked for while a pointer is held (a panel, the idea window or a circle being dragged)
 // waits until release; the drag's finish redraws then.
-// `growing`: a project is opening with its card growing into the work screen (app.js); a redraw
-// then would end that animation, so it waits like one during a drag.
+// `growing`: a project's card is growing into its work screen or shrinking back (app.js); a
+// redraw then would end that animation, so it waits like one during a drag.
 export const deferred = { render: false, growing: false };
 
 // ------------------------------------------------------------------ helpers

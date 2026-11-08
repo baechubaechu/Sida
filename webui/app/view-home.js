@@ -63,7 +63,7 @@ function continueCard(project) {
   const caps = card && card.bcr !== null ? ` · 법정 건폐율 ${card.bcr}% · 용적률 ${card.far}% 이하` : '';
   const facts = card ? `<p class="continue-facts">대지 ${escape(card.area)}${caps}</p>` : '<p class="continue-facts muted">아직 대지를 정하지 않았어요.</p>';
   const site = card ? '' : `<a class="secondary" href="${sitePath(project.name, 'find')}">대지 정하기</a>`;
-  return `<section class="continue" aria-labelledby="continue-title" style="view-transition-name: project-continue">
+  return `<section class="continue" data-project="${escape(project.name)}" aria-labelledby="continue-title" style="view-transition-name: project-continue">
     <a class="continue-drawing" href="${projectUrl(project.name)}" data-open-project tabindex="-1" aria-hidden="true">${siteDrawing(card, 400, 300, true)}</a>
     <div class="continue-body">
       <p class="continue-label">이어서 하기</p>
@@ -93,7 +93,7 @@ export function projectCards() {
   return projects.map((p) => {
     const card = ui.projectSites.get(p.name)?.card;
     const line = siteLine(card, p);
-    return `<article class="project-card" style="view-transition-name: ${transitionName(p)}"><a class="project-open" href="${projectUrl(p.name)}" data-open-project aria-label="${escape(projectLabel(p))} 프로젝트 열기">
+    return `<article class="project-card" data-project="${escape(p.name)}" style="view-transition-name: ${transitionName(p)}"><a class="project-open" href="${projectUrl(p.name)}" data-open-project aria-label="${escape(projectLabel(p))} 프로젝트 열기">
     <div class="project-drawing">${siteDrawing(card, 240, 180)}</div>
     <h3>${escape(projectLabel(p))}</h3>
     ${line ? `<p class="project-type">${line}</p>` : ''}

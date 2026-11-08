@@ -98,32 +98,59 @@ async function navigate() {
 
 // ------------------------------------------------------------------ the page's events
 
-// Opening a project from the list: the pressed card grows into the work screen's frame (a view
-// transition; the 3D table appears once it is full size). A plain link where the browser lacks
-// view transitions, motion is reduced, or a modifier key asks for a new tab.
-function openProjectGrowing(event) {
-  const link = event.target.closest('a[data-open-project]');
-  if (!link || event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return false;
-  if (!document.startViewTransition || matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
-  const card = link.closest('.project-card, .continue');
-  if (!card) return false;
-  event.preventDefault();
-  // Only the pressed card moves; the other cards fade with the rest of the list behind it.
+// A project's card and its work screen are one shape that grows and shrinks (a view transition
+// pairing the card with the work screen's frame, named project-frame). Off where the browser
+// lacks view transitions or motion is reduced.
+const canMorph = () => Boolean(document.startViewTransition) && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Only the given card moves; the other cards fade with the rest of the list behind it.
+function nameMorphCard(card) {
   for (const other of app.querySelectorAll('#project-list [style*="view-transition-name"]')) other.style.viewTransitionName = 'none';
-  card.style.viewTransitionName = 'project-frame';
+  if (card) card.style.viewTransitionName = 'project-frame';
+}
+
+// `change` draws the next screen (navigate draws before its first wait). Redraws while the shape
+// moves would cut the animation short, so they wait until it ends (data arriving meanwhile).
+function morphProject(direction, change) {
   const root = document.documentElement;
-  root.classList.add('opening-project');
-  const opening = transition(() => {
-    history.pushState(null, '', link.getAttribute('href')); // no hashchange: navigate is called here
-    navigate(); // draws the work screen before its first wait, so the new frame is ready now
-    deferred.growing = true; // the project's data arriving meanwhile is drawn once it has grown
+  root.classList.add('project-morph', direction);
+  const morph = transition(() => {
+    change();
+    deferred.growing = true;
   });
-  opening.finished.finally(() => {
-    root.classList.remove('opening-project');
+  morph.finished.finally(() => {
+    root.classList.remove('project-morph', direction);
     deferred.growing = false;
     if (deferred.render) { deferred.render = false; render(false); }
   });
+}
+
+// Opening a project from the list: the pressed card grows into the work screen (the 3D table
+// appears once it is full size). A plain link with a modifier key (a new tab) or without motion.
+function openProjectGrowing(event) {
+  const link = event.target.closest('a[data-open-project]');
+  if (!link || event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || !canMorph()) return false;
+  const card = link.closest('.project-card, .continue');
+  if (!card) return false;
+  event.preventDefault();
+  nameMorphCard(card);
+  morphProject('opening', () => {
+    history.pushState(null, '', link.getAttribute('href')); // no hashchange: navigate is called here
+    navigate();
+  });
   return true;
+}
+
+// Back to the list (a link or the browser's back): the work screen shrinks into its project's
+// card, the "이어서 하기" one when it is the latest.
+function onHashChange() {
+  const leaving = currentRoute.page === 'project' ? currentRoute.name : '';
+  if (!leaving || route().page !== 'home' || !canMorph()) { navigate(); return; }
+  morphProject('closing', () => {
+    navigate();
+    const named = `[data-project="${CSS.escape(leaving)}"]`;
+    nameMorphCard(app.querySelector(`.continue${named}`) || app.querySelector(`.project-card${named}`));
+  });
 }
 
 app.addEventListener('click', (event) => {
@@ -370,7 +397,7 @@ window.addEventListener('keydown', (event) => {
 
 // ------------------------------------------------------------------ start
 
-window.addEventListener('hashchange', navigate);
+window.addEventListener('hashchange', onHashChange);
 window.addEventListener('resize', () => { syncPanelWidths(); placeTable(); placeIdeaFloat(); });
 matchMedia('(max-width: 900px)').addEventListener('change', () => {
   if (currentRoute.page === 'project') render(false);
