@@ -235,13 +235,18 @@ function showPart(target) {
 // The form is drawn at once from the settings the app already has, then again if fresh ones (a
 // few hundredths of a second later) differ; the ChatGPT model menus fill in when the list arrives.
 // `target`: a selector in the form to scroll to and focus (the sidebar's status lines open the
-// part that needs attention).
-export async function openSettings(target = '') {
+// part that needs attention). `opener`: the button pressed; the panel comes out on its side (the
+// list's sidebar is on the left, the work screen's gear on the right; the right without one).
+export async function openSettings(target = '', opener = null) {
   ui.settingsError = '';
   ui.chatgptNote = '';
   if (ui.settings) ui.settingsDraft = draftFromSettings(ui.settings);
   renderSettings();
-  if (!settingsDialog.open) settingsDialog.showModal();
+  if (!settingsDialog.open) {
+    const r = opener?.getBoundingClientRect();
+    settingsDialog.classList.toggle('from-left', Boolean(r && r.left + r.width / 2 < innerWidth / 2));
+    settingsDialog.showModal();
+  }
   showPart(target);
   const shown = JSON.stringify([ui.settings, ui.relayKey]);
   await loadSettings();

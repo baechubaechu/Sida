@@ -445,6 +445,10 @@ button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 #settings-dialog { inset: 12px 12px 12px auto; margin: 0; width: min(480px, calc(100vw - 24px)); max-width: none; height: calc(100dvh - 24px); max-height: none; transform: translateX(24px); }
 #settings-dialog[open] { transform: none; }
 @starting-style { #settings-dialog[open] { opacity: 0; transform: translateX(24px); } }
+/* Opened from the list's sidebar (left): out from the left, beside the sidebar, not over it. */
+#settings-dialog.from-left { inset: 12px auto 12px calc(var(--sidebar-width) + 12px); width: min(480px, calc(100vw - var(--sidebar-width) - 24px)); transform: translateX(-24px); }
+#settings-dialog.from-left[open] { transform: none; }
+@starting-style { #settings-dialog.from-left[open] { opacity: 0; transform: translateX(-24px); } }
 #settings-form { height: 100%; max-height: none; }
 #settings-body { flex: 1; padding-bottom: 8px; }
 #settings-body p:not([class]) { margin: 0; }

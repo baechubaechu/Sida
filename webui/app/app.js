@@ -160,7 +160,7 @@ app.addEventListener('click', (event) => {
   if (!button) return;
   const { action } = button.dataset;
   const { name, agent } = currentRoute;
-  if (action === 'settings') openSettings(button.dataset.target);
+  if (action === 'settings') openSettings(button.dataset.target, button);
   if (action === 'export-board') { button.closest('details')?.removeAttribute('open'); downloadBoard(name, button.dataset.format); }
   if (action === 'vworld-3d') toggleVWorld(name);
   if (action === 'sample') createSample();
