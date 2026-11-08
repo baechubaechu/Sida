@@ -440,16 +440,42 @@ button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 .markdown th { background: var(--surface-subtle); }
 .message-list .assistant-copy.markdown { white-space: normal; line-height: 1.75; }
 .doc { font-size: 14px; line-height: 1.7; margin-top: 12px; }
-#settings-body label { display: block; margin-top: 16px; font-size: 13px; font-weight: 700; color: var(--muted); }
-#settings-body select, #settings-body input:not([type="checkbox"]) { display: block; width: 100%; margin-top: 6px; padding: 9px 12px; }
-#settings-body label.check { display: flex; align-items: center; gap: 8px; font-weight: 400; color: var(--text); font-size: 14px; }
-#settings-body .form-actions { margin-top: 22px; }
-#settings-body .form-actions .primary, #settings-body .form-actions .secondary { min-width: 0; }
-.settings-intro { margin: 16px 0 0; font-weight: 700; }
-.settings-group { margin: 18px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
-.settings-group legend { padding: 0 6px; font-size: 13px; font-weight: 700; }
-.settings-group p { margin: 6px 0; font-size: 14px; }
-.settings-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+/* Settings: a panel that slides in from the right (VectorLab: long settings belong in a side
+   panel, not a centred dialog), its parts divided by hairlines, the save button always in reach. */
+#settings-dialog { inset: 12px 12px 12px auto; margin: 0; width: min(480px, calc(100vw - 24px)); max-width: none; height: calc(100dvh - 24px); max-height: none; transform: translateX(24px); }
+#settings-dialog[open] { transform: none; }
+@starting-style { #settings-dialog[open] { opacity: 0; transform: translateX(24px); } }
+#settings-form { height: 100%; max-height: none; }
+#settings-body { flex: 1; padding-bottom: 8px; }
+#settings-body p:not([class]) { margin: 0; }
+#settings-body label { display: block; margin-top: 16px; font-size: 14px; font-weight: 600; color: var(--text); }
+#settings-body select, #settings-body input:not([type="checkbox"]) { display: block; width: 100%; height: 40px; margin-top: 8px; padding: 8px 12px; border-radius: 8px; font-size: 14px; }
+#settings-body select { appearance: none; padding-right: 36px; background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='m6 8 4 4 4-4' fill='none' stroke='%23616b77' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 12px center / 16px; }
+#settings-body label.check { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+#settings-body .event-note { margin: 16px 0 0; }
+.settings-intro { margin: 8px 0 0; font-weight: 700; }
+.settings-section { padding: 24px 0; border-top: 1px solid var(--line); }
+section.settings-section:first-of-type { border-top: 0; padding-top: 8px; }
+.settings-section h3 { font-size: 16px; line-height: 24px; }
+.settings-note { margin: 4px 0 0; color: var(--muted); font-size: 14px; line-height: 20px; }
+.settings-hint { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 16px; }
+.settings-ok { margin: 12px 0 0; font-size: 14px; }
+.settings-sub { margin-top: 16px; padding: 16px; border-radius: 8px; background: var(--surface-subtle); }
+.settings-sub > p { font-size: 14px; line-height: 20px; }
+.settings-sub .secondary { background: var(--surface); border: 1px solid var(--line); }
+.settings-sub-title { margin: 16px 0 0; font-size: 14px; font-weight: 700; }
+.settings-sub > .settings-sub-title { margin: 0 0 4px; }
+.settings-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.settings-advanced summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; list-style: none; cursor: pointer; }
+.settings-advanced summary::-webkit-details-marker { display: none; }
+.settings-advanced summary::before { content: ""; width: 8px; height: 8px; margin-right: 4px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); transition: transform var(--motion-150) var(--ease-out); align-self: center; }
+.settings-advanced[open] summary::before { transform: rotate(45deg); }
+.settings-advanced summary .settings-note { margin: 0; }
+.settings-footer { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 16px; padding: 16px 28px; border-top: 1px solid var(--line); background: var(--surface); }
+.settings-footer p { margin: 0; font-size: 14px; }
+.settings-dirty { margin-right: auto !important; color: #8a5a00; font-weight: 600; }
+.settings-footer .error-text:empty { display: none; }
+.settings-footer .primary { min-height: 40px; margin: 0; padding: 8px 24px; font-size: 14px; }
 dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; }
 /* ---- drafting table (제도판, table.js): WebGL below, paper (CSS3D) above, controls at the edges */
 :root { --table: #f0f2f4; --table-grid: #dde2e7; --paper: #ffffff; --trace-paper: rgb(255 255 255 / .68); --pen: #36536b; --lot: #cf3f2e; --mass: #e8ebee; --select: #36536b; --pick: #e3a008; --note: #faf3dc; --note-ink: #69572f; --ok: #2f7d4f; }

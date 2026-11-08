@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   escapeHtml, findProjects, relativeDate, projectSummary, visibleExperts, chatItems, eventNotice, expertStatus,
-  renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges, relayKeyView, parseRoute, expertPath, dateTime,
+  renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges, relayKeyView, settingsChanges, settingsDirty, parseRoute, expertPath, dateTime,
   documentSections, listItems, itemTag, handoffs, questionAnswer, arrangeDocument, EXPERT_LAYOUTS, SECTION_LABELS,
   stateChangeView, phaseLabel, sitePath, sitePageFor, needsSiteFirst, areaText, zoneScope, siteHeadline, missingText, restrictionGroups,
   ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
@@ -682,4 +682,27 @@ test('a card says "no site" only once the site was asked and none is saved', () 
   assert.equal(siteSlot({ card: null }), 'none');
   assert.equal(siteSlot({ card: { shapes: [] } }), 'unmapped');
   assert.equal(siteSlot({ card: { shapes: [{}] } }), 'drawn');
+});
+
+test('the settings form knows what saving would change and whether anything is unsaved', () => {
+  const settings = {
+    mode: 'custom', local_profile: 'local', conductor: { provider: 'chatgpt' }, worker: { provider: 'chatgpt' },
+    chatgpt: { model: 'a', worker_model: 'b' }, rag_enabled: true, state_update: 'ask', telemetry_enabled: false,
+    keys: { vworld_domain: { value: 'localhost' } },
+  };
+  const draft = {
+    mode: 'custom', local_profile: 'local', conductor_provider: 'chatgpt', worker_provider: 'chatgpt',
+    chatgpt_model: 'a', worker_chatgpt_model: 'b', rag_enabled: true, state_update: 'ask', telemetry_enabled: false,
+    openrouter_key: '', keys: { vworld: '', vworld_domain: 'localhost', data_go_kr: '', law: '', relay_url: '', relay_token: '' },
+  };
+  assert.deepEqual(settingsChanges(settings, draft), {});
+  assert.equal(settingsDirty(settings, draft), false);
+  assert.deepEqual(settingsChanges(settings, { ...draft, telemetry_enabled: true, chatgpt_model: 'c' }), { telemetry_enabled: true, chatgpt_model: 'c' });
+  assert.deepEqual(settingsChanges(settings, { ...draft, mode: 'cloud', conductor_provider: 'openrouter', worker_provider: 'openrouter' }),
+    { mode: 'cloud', conductor_provider: 'openrouter', worker_provider: 'openrouter' });
+  assert.equal(settingsDirty(settings, { ...draft, state_update: 'auto' }), true);
+  assert.equal(settingsDirty(settings, { ...draft, openrouter_key: ' sk-1 ' }), true);
+  assert.equal(settingsDirty(settings, { ...draft, keys: { ...draft.keys, law: 'oc' } }), true);
+  assert.equal(settingsDirty(settings, { ...draft, keys: { ...draft.keys, vworld_domain: 'localhost' } }), false);
+  assert.equal(settingsDirty(null, draft), false);
 });

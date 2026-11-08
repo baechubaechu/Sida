@@ -22,13 +22,13 @@ export const STATUS_LABELS = {
 };
 
 export const PROVIDER_LABELS = {
-  openrouter: 'OpenRouter (API 키)', ollama: 'Ollama (이 PC)', chatgpt: 'ChatGPT 구독',
+  openrouter: 'OpenRouter (API 키)', ollama: '이 PC의 모델 (Ollama)', chatgpt: 'ChatGPT 구독',
 };
 
-export const MODE_LABELS = { cloud: '클라우드', local: '로컬', custom: '사용자 지정' };
+export const MODE_LABELS = { cloud: '둘 다 OpenRouter', local: '둘 다 이 PC의 모델', custom: '따로 고름' };
 
 export const STATE_UPDATE_LABELS = {
-  ask: '승인 받고 반영', auto: '바로 반영', off: '반영 안 함',
+  ask: '반영 전에 확인', auto: '바로 반영', off: '반영하지 않음',
 };
 
 // Government data keys on the settings screen (ids of PUT /api/settings/keys/{key}).
@@ -90,6 +90,29 @@ export function readiness(settings, relayRequest = null) {
     { id: 'ai', label: 'AI 연결', ...ai },
     { id: 'data', label: '정부 자료', target: '#settings-relay', ...data },
   ];
+}
+
+// What saving the settings form would change (PUT /api/settings body), from the settings shown
+// (GET /api/settings) and the form's draft. A 'custom' mode is not sent: it only follows the roles.
+export function settingsChanges(settings, draft) {
+  const changes = {};
+  const pairs = [
+    ['local_profile', settings.local_profile], ['conductor_provider', settings.conductor.provider],
+    ['worker_provider', settings.worker.provider], ['rag_enabled', settings.rag_enabled],
+    ['state_update', settings.state_update], ['telemetry_enabled', settings.telemetry_enabled],
+  ];
+  if (draft.mode !== settings.mode && draft.mode !== 'custom') changes.mode = draft.mode;
+  for (const [key, saved] of pairs) if (draft[key] !== saved) changes[key] = draft[key];
+  if (draft.chatgpt_model && draft.chatgpt_model !== settings.chatgpt.model) changes.chatgpt_model = draft.chatgpt_model;
+  if (draft.worker_chatgpt_model && draft.worker_chatgpt_model !== settings.chatgpt.worker_model) changes.worker_chatgpt_model = draft.worker_chatgpt_model;
+  return changes;
+}
+
+// Whether the form holds anything unsaved: a setting, an OpenRouter key or a government key typed in.
+export function settingsDirty(settings, draft) {
+  if (!settings || !draft) return false;
+  return Object.keys(settingsChanges(settings, draft)).length > 0
+    || Boolean(String(draft.openrouter_key || '').trim()) || keyChanges(draft.keys, settings.keys).length > 0;
 }
 
 // The keys to save: [id, value] for each one typed in (a shown value only when it changed).

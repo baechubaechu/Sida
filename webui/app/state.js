@@ -9,6 +9,7 @@ const announcer = document.querySelector('#announcer');
 const toasts = document.querySelector('#toasts');
 export const settingsDialog = document.querySelector('#settings-dialog');
 export const settingsBody = document.querySelector('#settings-body');
+export const settingsFooter = document.querySelector('#settings-footer');
 export const settingsForm = document.querySelector('#settings-form');
 export const tableHost = document.querySelector('#table-host');
 export const deleteDialog = document.querySelector('#delete-dialog');
@@ -45,7 +46,7 @@ export const ui = {
   ideaFloat: floatState(null), ideaEdit: '', ideaConfirm: '', ideaBusy: false, ideaDrag: '', ideaLinkNew: true,
   pane: 'board', focusComposer: false, creatingTalk: false, talkMenu: '',
   panelRatios: { left: .27, right: .21, detail: .38 },
-  settings: null, settingsDraft: null, settingsError: '', chatgptModels: null, chatgptNote: '',
+  settings: null, settingsDraft: null, settingsError: '', settingsAdvancedOpen: false, chatgptModels: null, chatgptNote: '',
   board: null, selected: [], 
   site: null, siteError: '', showSiteLines: false, find: null, siteFirst: false,
   ordinance: null, ordinanceError: '', ordinanceBusy: '', useFind: null, mapLayers: null, mapError: '', mapErrorStatus: 0,
