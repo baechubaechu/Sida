@@ -133,3 +133,24 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
 8. 첫 접속 키를 만들고(`relay.admin issue`), 앱 설정 창에 주소와 키를 넣어 대지 조회가 되는지 봅니다.
 
 서버는 1GB 메모리라 `mem_limit`을 작게 둡니다. 지도 이미지가 가장 많이 오가므로 사용자가 늘면 이 부분부터 봅니다. 백업은 볼륨의 `relay.db` 하나면 됩니다(키 원문은 없음).
+
+## 소개 페이지 (`/`)
+
+`https://sida-kr.duckdns.org/`에는 Sida를 소개하는 한 장짜리 페이지가 있습니다(`site/`: `index.html`과 로고 두 개, 순수 HTML/CSS). 중계 서버(`relay`)가 아니라 Caddy가 바로 내주므로, 페이지를 고쳐도 `relay`를 다시 만들 필요가 없습니다. `/relay/*`와 `/health`는 그대로이고, 페이지 파일이 아닌 다른 경로는 계속 404입니다.
+
+1. `site/` 폴더를 서버의 `/opt/sida-kr/site/`에 복사합니다(예: `git archive origin/main relay/site | ssh 서버 "mkdir -p /opt/sida-kr/site && tar -x --strip-components=2 -C /opt/sida-kr/site"`).
+2. `compose.yaml`의 `caddy` 서비스 `volumes`에 `- ./site:/srv/site:ro`를 더합니다.
+3. `Caddyfile`에서 `handle { respond 404 }` 앞에 다음을 넣습니다.
+
+   ```
+   	@site path / /index.html /sida-logo.svg /sida-logo-dark.svg
+   	handle @site {
+   		root * /srv/site
+   		file_server
+   	}
+   ```
+
+4. `docker compose up -d caddy` (볼륨이 바뀌어 컨테이너를 다시 만듦). 이후 페이지만 고칠 때는 1번만 하면 됩니다.
+5. 확인: `/`가 200, `/health`가 `ok`, `/relay/health`가 그대로, `/아무거나`가 404인지 봅니다.
+
+페이지는 다른 사이트의 글꼴·스크립트를 불러오지 않습니다. 개인정보 처리방침에 접속 기록을 남기지 않는다고 적었기 때문이고, `tests/relay/test_site.py`가 확인합니다.
