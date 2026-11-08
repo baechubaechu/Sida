@@ -136,6 +136,7 @@ function openProjectGrowing(event) {
   const card = link.closest('.project-card, .continue, .project-new') || (link.closest('.home-heading') ? link : null);
   if (!card) return false;
   event.preventDefault();
+  if (link.getAttribute('href') === '#/new') newFormFrom = link.closest('.home-heading') ? 'button' : 'card';
   nameMorphCard(card);
   morphProject('opening', () => {
     history.pushState(null, '', link.getAttribute('href')); // no hashchange: navigate is called here
@@ -143,6 +144,9 @@ function openProjectGrowing(event) {
   }, link.getAttribute('href') === '#/new');
   return true;
 }
+
+// What the new-project form grew from (the dashed card or the heading's button): it shrinks back there.
+let newFormFrom = 'card';
 
 // Back to the list (a link or the browser's back): the work screen shrinks into its project's
 // card, the "이어서 하기" one when it is the latest.
@@ -158,7 +162,8 @@ function onHashChange() {
   morphProject('closing', () => {
     navigate();
     const named = `[data-project="${CSS.escape(leaving || '')}"]`;
-    nameMorphCard(from === 'new' ? app.querySelector('.project-new')
+    const newHome = newFormFrom === 'button' ? '.home-heading .primary' : '.project-new';
+    nameMorphCard(from === 'new' ? app.querySelector(newHome) || app.querySelector('.home-heading .primary')
       : app.querySelector(`.continue${named}`) || app.querySelector(`.project-card${named}`));
   }, from === 'new');
 }
