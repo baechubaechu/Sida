@@ -723,7 +723,7 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .site-run a { color: var(--brand); text-decoration: underline; margin-left: 6px; }
 .site-run.waiting { background: #eef3f7; border-color: #c9d6e2; }
 .picked-lots .form-actions .primary { min-height: 40px; min-width: 0; padding: 8px 18px; }
-@media (min-width: 1800px) { .home { max-width: 1500px; width: 100%; margin: auto; } }
+@media (min-width: 1800px) { .home { max-width: 1500px; width: 100%; margin: 0 auto; } }
 @media (max-width: 1200px) {
   :root { --sidebar-width: 210px; --expert-width: 290px; --home-gutter: 32px; }
   .project-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
