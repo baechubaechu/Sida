@@ -17,7 +17,7 @@ import { askDelete, createSample, openProjectInfo } from './projects.js';
 import { render } from './render.js';
 import { checkRelayKey, loadSettings, openSettings } from './settings.js';
 import { checkUse, chooseRegion, findLot, prepareFind, removeUse, saveSite, searchAddress, searchUses, setOrdinanceOption, togglePick } from './site.js';
-import { app, conductorScrolls, currentRoute, draftFor, drafts, freshFind, freshUseFind, jobRunning, openingTried, route, setCurrentRoute, talkViewById, toast, ui } from './state.js';
+import { app, conductorScrolls, currentRoute, deferred, draftFor, drafts, freshFind, freshUseFind, jobRunning, openingTried, route, setCurrentRoute, talkViewById, toast, ui } from './state.js';
 import { askDeleteTalk, askFromLine, changeConductor, dismissTalkMenu, loadTalk, openTalk, sendTalk } from './talks.js';
 import { updateCommandLine } from './view-command.js';
 import { projectList } from './view-home.js';
@@ -98,7 +98,36 @@ async function navigate() {
 
 // ------------------------------------------------------------------ the page's events
 
+// Opening a project from the list: the pressed card grows into the work screen's frame (a view
+// transition; the 3D table appears once it is full size). A plain link where the browser lacks
+// view transitions, motion is reduced, or a modifier key asks for a new tab.
+function openProjectGrowing(event) {
+  const link = event.target.closest('a[data-open-project]');
+  if (!link || event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return false;
+  if (!document.startViewTransition || matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+  const card = link.closest('.project-card, .continue');
+  if (!card) return false;
+  event.preventDefault();
+  // Only the pressed card moves; the other cards fade with the rest of the list behind it.
+  for (const other of app.querySelectorAll('#project-list [style*="view-transition-name"]')) other.style.viewTransitionName = 'none';
+  card.style.viewTransitionName = 'project-frame';
+  const root = document.documentElement;
+  root.classList.add('opening-project');
+  const opening = transition(() => {
+    history.pushState(null, '', link.getAttribute('href')); // no hashchange: navigate is called here
+    navigate(); // draws the work screen before its first wait, so the new frame is ready now
+    deferred.growing = true; // the project's data arriving meanwhile is drawn once it has grown
+  });
+  opening.finished.finally(() => {
+    root.classList.remove('opening-project');
+    deferred.growing = false;
+    if (deferred.render) { deferred.render = false; render(false); }
+  });
+  return true;
+}
+
 app.addEventListener('click', (event) => {
+  if (openProjectGrowing(event)) return;
   if (!event.target.closest('.talk-more')) dismissTalkMenu();
   const button = event.target.closest('[data-action]');
   if (!button) return;
@@ -174,14 +203,25 @@ function swapProjectList() {
   const root = document.documentElement;
   listMoves += 1;
   root.classList.add('list-moving');
-  const moving = document.startViewTransition(swap);
-  moving.ready.catch(() => {}); // a newer search skips this one; that is expected
+  const moving = transition(swap);
   moving.finished.finally(() => {
     listMoves -= 1;
     if (!listMoves) root.classList.remove('list-moving');
   });
 }
 let listMoves = 0; // transitions still running; a newer one may start before an older one ends
+
+// A view transition that never holds the change back: the browser waits for a drawn frame before
+// it calls `update`, and a window that is not being drawn (minimised, covered) gives none, so after
+// a moment the animation is dropped and the change happens at once. Skipping is expected, so its
+// rejection is not reported.
+function transition(update) {
+  let ran = false;
+  const t = document.startViewTransition(() => { ran = true; return update(); });
+  t.ready.catch(() => {});
+  setTimeout(() => { if (!ran) t.skipTransition(); }, 300);
+  return t;
+}
 
 app.addEventListener('input', (event) => {
   const { target } = event;

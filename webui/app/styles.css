@@ -133,6 +133,15 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 html.list-moving { view-transition-name: none; }
 html.list-moving::view-transition-group(*) { animation-duration: var(--motion-200); animation-timing-function: var(--ease-out); }
 html.list-moving::view-transition-old(*), html.list-moving::view-transition-new(*) { animation-duration: var(--motion-150); }
+/* Opening a project: the pressed card (named in app.js) grows into the work screen's frame, the
+   work screen showing through it, cropped, as it grows; the list behind fades away. */
+html.opening-project .studio { view-transition-name: project-frame; }
+html.opening-project::view-transition-group(*) { animation-duration: var(--motion-300); animation-timing-function: var(--ease-out); }
+html.opening-project::view-transition-image-pair(project-frame) { overflow: hidden; border-radius: var(--radius); }
+html.opening-project::view-transition-old(project-frame), html.opening-project::view-transition-new(project-frame) { width: 100%; height: 100%; object-fit: cover; object-position: center top; }
+html.opening-project::view-transition-old(project-frame) { animation-duration: var(--motion-100); }
+html.opening-project::view-transition-new(project-frame) { animation-duration: var(--motion-200); }
+html.opening-project::view-transition-old(root) { animation-duration: var(--motion-150); animation-timing-function: var(--ease-in); }
 .project-name-edit { font: inherit; text-align: left; color: var(--brand); }
 .project-name-edit:hover { text-decoration: underline; }
 #project-info-body { display: grid; gap: 10px; }

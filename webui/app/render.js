@@ -79,7 +79,7 @@ function workspaceView() {
 }
 
 export function render(fresh = true) {
-  if (panelResizing() || ideaDragging()) { deferred.render = true; return; } // Keep the captured handle until release.
+  if (panelResizing() || ideaDragging() || deferred.growing) { deferred.render = true; return; } // Keep the captured handle until release.
   // Keep typing and reading positions across redraws.
   const focused = document.activeElement?.dataset?.focus;
   const selection = focused ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;

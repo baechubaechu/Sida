@@ -64,14 +64,14 @@ function continueCard(project) {
   const facts = card ? `<p class="continue-facts">대지 ${escape(card.area)}${caps}</p>` : '<p class="continue-facts muted">아직 대지를 정하지 않았어요.</p>';
   const site = card ? '' : `<a class="secondary" href="${sitePath(project.name, 'find')}">대지 정하기</a>`;
   return `<section class="continue" aria-labelledby="continue-title" style="view-transition-name: project-continue">
-    <a class="continue-drawing" href="${projectUrl(project.name)}" tabindex="-1" aria-hidden="true">${siteDrawing(card, 400, 300, true)}</a>
+    <a class="continue-drawing" href="${projectUrl(project.name)}" data-open-project tabindex="-1" aria-hidden="true">${siteDrawing(card, 400, 300, true)}</a>
     <div class="continue-body">
       <p class="continue-label">이어서 하기</p>
       <h2 id="continue-title">${label}</h2>
       ${card || project.project_type ? `<p class="continue-site">${siteLine(card, project)}</p>` : ''}
       ${facts}
       <p class="continue-progress">${expertDots(project)}<span>${escape(projectSummary(project))}</span><span class="muted">· ${escape(relativeDate(project.updated_at))}</span></p>
-      <div class="continue-actions">${site}<a class="primary" href="${projectUrl(project.name)}" aria-label="${label} 프로젝트 열기">열기</a></div>
+      <div class="continue-actions">${site}<a class="primary" href="${projectUrl(project.name)}" data-open-project aria-label="${label} 프로젝트 열기">열기</a></div>
     </div></section>`;
 }
 
@@ -93,7 +93,7 @@ export function projectCards() {
   return projects.map((p) => {
     const card = ui.projectSites.get(p.name)?.card;
     const line = siteLine(card, p);
-    return `<article class="project-card" style="view-transition-name: ${transitionName(p)}"><a class="project-open" href="${projectUrl(p.name)}" aria-label="${escape(projectLabel(p))} 프로젝트 열기">
+    return `<article class="project-card" style="view-transition-name: ${transitionName(p)}"><a class="project-open" href="${projectUrl(p.name)}" data-open-project aria-label="${escape(projectLabel(p))} 프로젝트 열기">
     <div class="project-drawing">${siteDrawing(card, 240, 180)}</div>
     <h3>${escape(projectLabel(p))}</h3>
     ${line ? `<p class="project-type">${line}</p>` : ''}
