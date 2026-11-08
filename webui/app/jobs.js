@@ -25,15 +25,17 @@ export async function loadProjects() {
 }
 
 // The saved site of each listed project (address, zone, outline) for the project cards. Asked once
-// per project change; a project without a site, or a failed request, simply shows no site.
+// per project change; a failed request is kept as such, so the card does not claim "no site".
 const SITE_CARDS_MAX = 40;
 export async function loadProjectSites() {
   const wanted = (ui.projects || []).slice(0, SITE_CARDS_MAX).filter((p) => ui.projectSites.get(p.name)?.stamp !== p.updated_at);
   if (!wanted.length) return false;
   await Promise.all(wanted.map(async (p) => {
-    let card = null;
-    try { card = siteCard(await api(`${projectApi(p.name)}/site`)); } catch { /* no site shown */ }
-    ui.projectSites.set(p.name, { stamp: p.updated_at, card });
+    try {
+      ui.projectSites.set(p.name, { stamp: p.updated_at, card: siteCard(await api(`${projectApi(p.name)}/site`)) });
+    } catch {
+      ui.projectSites.set(p.name, { stamp: p.updated_at, card: null, failed: true }); // shown as unknown, not "no site"
+    }
   }));
   return true;
 }

@@ -53,77 +53,91 @@ h1, h2, h3, p { margin: 0; }
 .primary:active:not(:disabled), .secondary:active:not(:disabled), .icon-button:active:not(:disabled) { transform: scale(.95); transition: transform var(--motion-100) var(--ease-out); }
 @media (prefers-reduced-motion: reduce) { .primary, .secondary, .icon-button, .nav-link, .status-row { transform: none !important; } }
 .app-shell { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); min-height: 100dvh; }
-.sidebar { height: 100dvh; position: sticky; top: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 17px 14px 28px; background: var(--surface-subtle); }
-.brand { display: inline-block; align-self: flex-start; margin-left: 14px; font-size: 30px; line-height: 45px; font-weight: 700; letter-spacing: -.9px; }
-.nav-main { margin-top: 43px; }
-.nav-link { display: flex; align-items: center; min-height: 46px; padding: 10px 14px; border-radius: 7px; font-size: 14px; text-align: left; width: 100%; }
+.sidebar { height: 100dvh; position: sticky; top: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 16px 16px 24px; background: var(--surface-subtle); }
+.brand { display: inline-block; align-self: flex-start; margin-left: 16px; font-size: 28px; line-height: 40px; font-weight: 700; letter-spacing: -.8px; }
+.nav-main { margin-top: 40px; }
+.nav-link { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 12px 16px; border-radius: 8px; font-size: 14px; text-align: left; width: 100%; }
 .nav-link.active { background: var(--line); color: var(--brand); font-weight: 700; }
 .card-delete:hover { color: #a83232; background: #a832320f; }
-.sidebar-bottom { display: grid; gap: 6px; margin-top: auto; padding-top: 40px; }
+.sidebar-bottom { display: grid; gap: 8px; margin-top: auto; padding-top: 40px; }
 /* Whether Sida can work on this PC: one line each for the AI and the government data. */
-.side-status { display: grid; gap: 2px; padding-top: 10px; border-top: 1px solid var(--line); }
-.status-row { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 8px 14px; border-radius: 7px; text-align: left; }
+.side-status { display: grid; gap: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+.status-row { display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 8px 16px; border-radius: 8px; text-align: left; }
 .status-row:hover, .side-settings:hover { background: #e6e9ec; filter: none; }
-.status-dot { flex: none; width: 8px; height: 8px; margin-top: 7px; border-radius: 50%; }
+.status-dot { flex: none; width: 8px; height: 8px; margin-top: 4px; border-radius: 50%; }
 .status-dot.ok { background: #2f7d4f; }
 .status-dot.bad { background: #b7791f; }
 .status-text { display: grid; min-width: 0; }
-.status-label { color: var(--muted); font-size: 12px; line-height: 18px; }
-.status-value { font-size: 13px; font-weight: 600; line-height: 20px; overflow-wrap: anywhere; }
-.side-settings { gap: 10px; font-weight: 600; }
-.nav-icon { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linejoin: round; }
+.status-label { color: var(--muted); font-size: 12px; line-height: 16px; }
+.status-value { font-size: 14px; font-weight: 600; line-height: 20px; overflow-wrap: anywhere; }
+.side-settings { font-weight: 600; }
+/* Line icons (icons.js): one size and stroke, in the text colour. */
+.icon { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.icon-large { width: 28px; height: 28px; stroke-width: 1.2; }
 .home { width: 100%; max-width: calc(1280px + 2 * var(--home-gutter)); margin: 0 auto; padding: 64px var(--home-gutter) 64px; }
 /* Heading on one line: title, search and order, new project. */
 .home-heading { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.home h1 { font-size: 30px; line-height: 44px; letter-spacing: -.8px; margin-right: auto; }
-.home-heading .primary { min-height: 44px; padding: 10px 20px; }
+.home h1 { font-size: 28px; line-height: 40px; letter-spacing: -.8px; margin-right: auto; }
+.home-heading .primary { gap: 8px; min-height: 44px; padding: 8px 20px 8px 16px; }
 .project-tools { display: flex; flex: 0 1 auto; gap: 8px; height: 44px; }
 .search-box { position: relative; flex: 0 1 340px; min-width: 160px; }
-.search-box span { position: absolute; left: 15px; top: 8px; color: var(--muted); font-size: 20px; }
-.search-box input { width: 100%; height: 44px; padding: 10px 15px 10px 41px; font-size: 14px; }
+.search-box .icon { position: absolute; left: 14px; top: 13px; color: var(--muted); pointer-events: none; }
+.search-box input { width: 100%; height: 44px; padding: 8px 16px 8px 40px; font-size: 14px; }
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 .project-tools select { width: 140px; padding: 0 12px; font-size: 14px; }
 /* The latest project ("이어서 하기"), its site drawn on the left. */
 .continue { display: grid; grid-template-columns: 400px minmax(0, 1fr); margin-top: 32px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .continue-drawing { display: grid; height: 300px; /* 4:3 with the 400px column */ background: var(--surface-subtle); border-right: 1px solid var(--line); }
 .continue-drawing .site-drawing { display: block; width: 100%; height: 100%; }
-.continue-body { display: flex; flex-direction: column; gap: 6px; padding: 24px 28px 22px; }
-.continue-label { color: var(--muted); font-size: 13px; }
-.continue h2 { font-size: 24px; line-height: 34px; letter-spacing: -.4px; overflow-wrap: anywhere; }
-.continue-site { font-size: 15px; }
-.continue-facts { font-size: 14px; }
-.continue-progress { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; font-size: 13px; }
+.continue-body { display: flex; flex-direction: column; gap: 8px; padding: 24px 32px; }
+.continue-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+.continue h2 { font-size: 20px; line-height: 28px; letter-spacing: -.3px; overflow-wrap: anywhere; }
+.continue-tag { color: var(--muted); font-size: 12px; line-height: 16px; }
+.continue-site { font-size: 16px; line-height: 24px; }
+.continue-facts { font-size: 14px; line-height: 20px; }
+.continue-progress { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; font-size: 14px; }
 .continue-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: auto; padding-top: 16px; }
-.continue-actions .primary, .continue-actions .secondary { min-height: 42px; padding: 9px 22px; }
-.list-label { margin: 56px 0 16px; font-size: 15px; font-weight: 700; }
-.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
+.continue-actions .primary, .continue-actions .secondary { min-height: 40px; padding: 8px 24px; font-size: 14px; }
+.list-label { margin: 56px 0 16px; font-size: 16px; line-height: 24px; font-weight: 700; }
+.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; }
 .project-card { position: relative; border: 1px solid var(--line); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
 .project-card:hover { border-color: #acbac6; box-shadow: 0 3px 14px #24344308; }
 /* The site outline across the card's top edge. */
-.project-drawing { aspect-ratio: 4 / 3; margin: -22px -23px 16px; background: var(--surface-subtle); border-bottom: 1px solid var(--line); }
+.project-drawing { aspect-ratio: 4 / 3; margin: -24px -24px 16px; background: var(--surface-subtle); border-bottom: 1px solid var(--line); }
 .project-drawing .site-drawing { display: block; width: 100%; height: 100%; }
-.site-drawing.empty-drawing { display: grid; place-items: center; height: 100%; color: var(--muted); font-size: 12px; }
+/* No site yet: an empty dashed parcel and a note; the card adds a "대지 정하기" button under it. */
+.site-drawing.empty-drawing { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; color: var(--muted); font-size: 12px; line-height: 16px; }
+.empty-parcel { width: 48px; height: 48px; fill: none; stroke: #9aa5b1; stroke-width: 1; stroke-linejoin: round; }
+.project-card:has(.drawing-cta) .empty-drawing { padding-bottom: 48px; }
+.drawing-cta { position: absolute; top: 0; left: 0; right: 0; aspect-ratio: 4 / 3; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 24px; pointer-events: none; }
+.drawing-cta a { pointer-events: auto; min-height: 40px; padding: 8px 16px; font-size: 14px; background: var(--surface); border: 1px solid var(--line); }
+/* Before the site arrives the drawing stays a blank box (nothing claimed yet). */
+.site-drawing.pending-drawing { height: 100%; }
 .drawing-parcel { fill: var(--selected); stroke: var(--brand); stroke-width: 1.5px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .drawing-scale path { stroke: var(--text); stroke-width: 2px; }
 .drawing-scale text, .drawing-north text { fill: var(--muted); font-size: 11px; }
 .drawing-north path { fill: var(--text); }
 .drawing-north text { text-anchor: middle; }
-.expert-dots { display: inline-flex; gap: 3px; }
-.expert-dots i { width: 7px; height: 7px; border: 1px solid var(--brand); border-radius: 50%; }
+.expert-dots { display: inline-flex; gap: 4px; }
+.expert-dots i { width: 8px; height: 8px; border: 1px solid var(--brand); border-radius: 50%; }
 .expert-dots i.on { background: var(--brand); }
-.project-open { display: flex; flex-direction: column; flex: 1; padding: 22px 23px 20px; }
-.project-card h3 { font-size: 19px; line-height: 28px; overflow-wrap: anywhere; padding-right: 36px; }
+.project-open { display: flex; flex-direction: column; flex: 1; padding: 24px 24px 16px; }
+.project-card h3 { font-size: 16px; line-height: 24px; overflow-wrap: anywhere; }
 .card-delete { position: absolute; top: 14px; right: 14px; padding: 6px 9px; border-radius: 6px; color: var(--muted); font-size: 12px; opacity: 0; }
 .project-card:hover .card-delete, .project-card:focus-within .card-delete { opacity: 1; }
-.project-card-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 16px 12px; }
-.project-card-actions button { padding: 6px 9px; border-radius: 6px; color: var(--muted); font-size: 12px; }
+.project-card-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 16px 16px; }
+.project-card-actions button { min-height: 40px; padding: 8px 12px; border-radius: 8px; color: var(--muted); font-size: 12px; }
 .project-card-actions button:hover { background: var(--surface-subtle); color: var(--brand); }
 .project-card-actions .card-delete { position: static; opacity: 1; }
 /* Card buttons show on hover or keyboard focus; touch screens without hover always show them. */
 @media (hover: hover) { .project-card-actions { opacity: 0; transition: opacity var(--motion-150) var(--ease-out); } .project-card:hover .project-card-actions, .project-card:focus-within .project-card-actions { opacity: 1; } }
-.project-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 230px; border: 1.5px dashed #c3cbd3; border-radius: var(--radius); color: var(--muted); font-size: 14px; transition: border-color var(--motion-150) var(--ease-out), color var(--motion-150) var(--ease-out); }
-.project-new span { font-size: 26px; line-height: 1; }
+.project-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 240px; border: 1.5px dashed #c3cbd3; border-radius: var(--radius); color: var(--muted); font-size: 14px; transition: border-color var(--motion-150) var(--ease-out), color var(--motion-150) var(--ease-out); }
 .project-new:hover { border-color: var(--brand); color: var(--brand); filter: none; }
+.card-placeholder { padding: 24px 24px 32px; }
+.card-placeholder i { display: block; height: 12px; margin-top: 12px; border-radius: 4px; background: var(--surface-subtle); }
+.card-placeholder i:nth-of-type(1) { width: 60%; height: 16px; }
+.card-placeholder i:nth-of-type(2) { width: 85%; }
+.card-placeholder i:nth-of-type(3) { width: 40%; }
 /* Cards squash a little while pressed and spring back, like the buttons. */
 .project-card { transition: transform var(--motion-300) var(--ease-spring), border-color var(--motion-150) var(--ease-out), box-shadow var(--motion-150) var(--ease-out); }
 .project-new { transition: transform var(--motion-300) var(--ease-spring), border-color var(--motion-150) var(--ease-out), color var(--motion-150) var(--ease-out); }
@@ -151,10 +165,10 @@ html.project-morph::view-transition-old(root) { animation-duration: var(--motion
 #project-info-body input, #project-info-body textarea { width: 100%; padding: 9px 12px; }
 #project-info-body .form-actions { margin-top: 12px; }
 @media (hover: none) { .nav-delete, .card-delete { opacity: 1; } }
-.project-type { color: var(--muted); font-size: 13px; margin-top: 4px; overflow-wrap: anywhere; }
-.project-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px; margin-top: 14px; }
-.project-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; margin-top: auto; padding-top: 18px; }
-.project-footer span:last-child { color: var(--brand); font-size: 18px; line-height: 20px; }
+.project-type { color: var(--muted); font-size: 14px; line-height: 20px; margin-top: 4px; overflow-wrap: anywhere; }
+.project-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 14px; line-height: 20px; margin-top: 16px; }
+.project-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; margin-top: auto; padding-top: 16px; }
+.project-footer .icon { color: var(--brand); }
 .empty { color: var(--muted); padding: 60px 12px; text-align: center; grid-column: 1 / -1; }
 .new-page { min-height: 100dvh; background: var(--surface-subtle); padding: 24px 50px 70px; }
 .new-topbar { display: flex; align-items: center; gap: 166px; }

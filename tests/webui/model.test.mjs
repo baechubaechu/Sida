@@ -7,7 +7,7 @@ import {
   stateChangeView, phaseLabel, sitePath, sitePageFor, needsSiteFirst, areaText, zoneScope, siteHeadline, missingText, restrictionGroups,
   ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
   buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
-  togglePicked, shapesToFetch, shapesBounds, siteCard, parcelOutline, readiness, MAX_SHAPES, EXPORT_FORMATS, boardExport,
+  togglePicked, shapesToFetch, shapesBounds, siteCard, siteSlot, parcelOutline, readiness, MAX_SHAPES, EXPORT_FORMATS, boardExport,
 } from '../../webui/app/model.js';
 import { readFileSync, readdirSync } from 'node:fs';
 
@@ -674,4 +674,12 @@ test('the sidebar says whether the AI and the government data are ready, and whe
   const none = readiness({ ...base, keys: { vworld: { set: true } } })[1];
   assert.deepEqual([none.ok, none.text], [false, 'Sida 키 필요']);
   assert.deepEqual(readiness(null), []);
+});
+
+test('a card says "no site" only once the site was asked and none is saved', () => {
+  assert.equal(siteSlot(undefined), 'loading');
+  assert.equal(siteSlot({ card: null, failed: true }), 'unknown');
+  assert.equal(siteSlot({ card: null }), 'none');
+  assert.equal(siteSlot({ card: { shapes: [] } }), 'unmapped');
+  assert.equal(siteSlot({ card: { shapes: [{}] } }), 'drawn');
 });

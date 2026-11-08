@@ -1,9 +1,8 @@
 // The project list and the new-project form (HTML strings from `ui`).
 
-import { escapeHtml as escape, findProjects, parcelOutline, readiness, relativeDate, projectSummary, projectPath as projectUrl, sitePath } from './model.js';
+import { escapeHtml as escape, findProjects, parcelOutline, readiness, relativeDate, projectSummary, projectPath as projectUrl, sitePath, siteSlot } from './model.js';
+import { icon } from './icons.js';
 import { projectLabel, ui } from './state.js';
-
-const GEAR = '<svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M8.6 2h2.8l.4 2.2 1.5.8 2-1 2 2-1 2 .7 1.6 2.1.5v2.8l-2.2.4-.7 1.6 1.1 2-2 2-2-1.1-1.5.7-.4 2.2H8.6l-.4-2.2-1.6-.7-2 1.1-2-2 1.1-2-.7-1.6L.8 11.4V8.6l2.2-.5.7-1.6-1-2 2-2 2 1 1.5-.8z"/><circle cx="10" cy="10" r="2.6"/></svg>';
 
 // The project list's sidebar. Inside a project the Conductor panel links back here instead.
 // The list itself is the page, so the sidebar does not repeat it or the "new project" button;
@@ -16,21 +15,26 @@ function sidebar() {
   return `<aside class="sidebar" aria-label="프로젝트 탐색">
     <a class="brand" href="#/" aria-label="Sida 프로젝트 홈">Sida</a>
     <nav class="nav-main" aria-label="주 메뉴">
-      <a class="nav-link active" href="#/" aria-current="page">▦&nbsp; 프로젝트</a>
-      <button type="button" class="nav-link" data-action="sample">◇&nbsp; 예시 프로젝트 열기</button>
+      <a class="nav-link active" href="#/" aria-current="page">${icon('projects')}프로젝트</a>
+      <button type="button" class="nav-link" data-action="sample">${icon('sample')}예시 프로젝트 열기</button>
     </nav>
     <div class="sidebar-bottom">
       ${status ? `<section class="side-status" aria-label="연결 상태">${status}</section>` : ''}
-      <button type="button" class="nav-link side-settings" data-action="settings">${GEAR}설정</button>
+      <button type="button" class="nav-link side-settings" data-action="settings">${icon('settings')}설정</button>
     </div>
   </aside>`;
 }
 
-// A project's saved site drawn as a north-up line drawing (with a scale bar when `bar`), or a quiet
-// note when no site is saved yet. The SVG is decorative: the address next to it says the same.
-function siteDrawing(card, width, height, bar = false) {
-  const outline = card && card.shapes.length ? parcelOutline(card.shapes, width, height, bar ? 36 : 24) : null;
-  if (!outline) return `<div class="site-drawing empty-drawing" aria-hidden="true"><span>${card ? '필지 경계 미확인' : '대지 미정'}</span></div>`;
+// A project's saved site drawn as a north-up line drawing (with a scale bar when `bar`). Before the
+// site arrives (or when asking failed) the box stays blank; without a site it shows an empty
+// parcel and says so. Decorative: the text beside it says the same.
+function siteDrawing(entry, width, height, bar = false) {
+  const slot = siteSlot(entry);
+  if (slot === 'loading' || slot === 'unknown') return '<div class="site-drawing pending-drawing" aria-hidden="true"></div>';
+  if (slot !== 'drawn') {
+    return `<div class="site-drawing empty-drawing" aria-hidden="true">${icon('parcel', 'empty-parcel')}<span>${slot === 'none' ? '대지 미정' : '필지 경계 미확인'}</span></div>`;
+  }
+  const outline = parcelOutline(entry.card.shapes, width, height, bar ? 36 : 24);
   const scale = bar ? `<g class="drawing-scale"><path d="M16 ${height - 14}h${outline.bar.px}"/><text x="${16 + outline.bar.px + 6}" y="${height - 10}">${outline.bar.m}m</text></g>
     <g class="drawing-north" transform="translate(${width - 22} 24)"><path d="M0 -10L5 6L0 3L-5 6Z"/><text y="18">N</text></g>` : '';
   return `<svg class="site-drawing" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
@@ -58,16 +62,18 @@ function transitionName(project) {
 
 // The latest project, large, to pick up where the designer left off. Hidden while searching.
 function continueCard(project) {
-  const card = ui.projectSites.get(project.name)?.card;
+  const entry = ui.projectSites.get(project.name);
+  const card = entry?.card;
+  const noSite = siteSlot(entry) === 'none';
   const label = escape(projectLabel(project));
   const caps = card && card.bcr !== null ? ` · 법정 건폐율 ${card.bcr}% · 용적률 ${card.far}% 이하` : '';
-  const facts = card ? `<p class="continue-facts">대지 ${escape(card.area)}${caps}</p>` : '<p class="continue-facts muted">아직 대지를 정하지 않았어요.</p>';
-  const site = card ? '' : `<a class="secondary" href="${sitePath(project.name, 'find')}">대지 정하기</a>`;
+  const facts = card ? `<p class="continue-facts">대지 ${escape(card.area)}${caps}</p>`
+    : noSite ? '<p class="continue-facts muted">아직 대지를 정하지 않았어요.</p>' : '';
+  const site = noSite ? `<a class="secondary" href="${sitePath(project.name, 'find')}">대지 정하기</a>` : '';
   return `<section class="continue" data-project="${escape(project.name)}" aria-labelledby="continue-title" style="view-transition-name: project-continue">
-    <a class="continue-drawing" href="${projectUrl(project.name)}" data-open-project tabindex="-1" aria-hidden="true">${siteDrawing(card, 400, 300, true)}</a>
+    <a class="continue-drawing" href="${projectUrl(project.name)}" data-open-project tabindex="-1" aria-hidden="true">${siteDrawing(entry, 400, 300, true)}</a>
     <div class="continue-body">
-      <p class="continue-label">이어서 하기</p>
-      <h2 id="continue-title">${label}</h2>
+      <div class="continue-title"><h2 id="continue-title">${label}</h2><span class="continue-tag">최근 작업</span></div>
       ${card || project.project_type ? `<p class="continue-site">${siteLine(card, project)}</p>` : ''}
       ${facts}
       <p class="continue-progress">${expertDots(project)}<span>${escape(projectSummary(project))}</span><span class="muted">· ${escape(relativeDate(project.updated_at))}</span></p>
@@ -77,29 +83,32 @@ function continueCard(project) {
 
 export function projectCards() {
   if (ui.projects === null) {
-    return ui.projectsError
-      ? `<p class="empty error-text" role="alert">${escape(ui.projectsError)}</p>`
-      : '<p class="empty" role="status">프로젝트를 불러오는 중입니다.</p>';
+    if (ui.projectsError) return `<p class="empty error-text" role="alert">${escape(ui.projectsError)}</p>`;
+    // Card-shaped placeholders while the list loads (static: nothing moves).
+    return `<span class="sr-only" role="status">프로젝트를 불러오는 중입니다.</span>${'<div class="project-card card-placeholder" aria-hidden="true"><div class="project-drawing"></div><i></i><i></i><i></i></div>'.repeat(3)}`;
   }
   if (!ui.projects.length) {
     return `<div class="empty"><p>아직 프로젝트가 없습니다.</p><p>새 프로젝트를 만들거나 예시 프로젝트로 시작해 보세요.</p>
-      <div class="empty-actions"><a class="primary" href="#/new">＋ 새 프로젝트</a>
+      <div class="empty-actions"><a class="primary" href="#/new">${icon('plus')}새 프로젝트</a>
       <button class="secondary" type="button" data-action="sample">예시 프로젝트 열기</button></div></div>`;
   }
   const projects = findProjects(ui.projects, ui.query, ui.sort);
   if (!projects.length) return '<p class="empty" role="status">검색 결과가 없습니다. 다른 프로젝트 이름으로 검색해 보세요.</p>';
   // A dashed "new project" card ends the list, so a short list does not leave an empty row.
-  const add = ui.query.trim() ? '' : '<a class="project-new" href="#/new" style="view-transition-name: project-new"><span aria-hidden="true">＋</span>새 프로젝트</a>';
+  const add = ui.query.trim() ? '' : `<a class="project-new" href="#/new" style="view-transition-name: project-new">${icon('plus', 'icon icon-large')}새 프로젝트</a>`;
   return projects.map((p) => {
-    const card = ui.projectSites.get(p.name)?.card;
+    const entry = ui.projectSites.get(p.name);
+    const card = entry?.card;
     const line = siteLine(card, p);
+    // Over the empty drawing (outside the card's own link): what to do about the missing site.
+    const site = siteSlot(entry) === 'none' ? `<div class="drawing-cta"><a class="secondary" href="${sitePath(p.name, 'find')}" aria-label="${escape(projectLabel(p))} 대지 정하기">대지 정하기</a></div>` : '';
     return `<article class="project-card" data-project="${escape(p.name)}" style="view-transition-name: ${transitionName(p)}"><a class="project-open" href="${projectUrl(p.name)}" data-open-project aria-label="${escape(projectLabel(p))} 프로젝트 열기">
-    <div class="project-drawing">${siteDrawing(card, 240, 180)}</div>
+    <div class="project-drawing">${siteDrawing(entry, 240, 180)}</div>
     <h3>${escape(projectLabel(p))}</h3>
     ${line ? `<p class="project-type">${line}</p>` : ''}
     <p class="project-summary">${expertDots(p)}<span>${escape(projectSummary(p))}</span></p>
-    <div class="project-footer"><span>${escape(relativeDate(p.updated_at))}</span><span aria-hidden="true">↗</span></div>
-  </a><div class="project-card-actions"><button type="button" data-action="project-info" data-project="${escape(p.name)}" aria-label="${escape(projectLabel(p))} 프로젝트 정보 수정">정보 수정</button>
+    <div class="project-footer"><span>${escape(relativeDate(p.updated_at))}</span>${icon('open')}</div>
+  </a>${site}<div class="project-card-actions"><button type="button" data-action="project-info" data-project="${escape(p.name)}" aria-label="${escape(projectLabel(p))} 프로젝트 정보 수정">정보 수정</button>
     <button type="button" class="card-delete" data-action="delete-project" data-project="${escape(p.name)}" aria-label="${escape(projectLabel(p))} 프로젝트 삭제" title="프로젝트 삭제">삭제</button></div></article>`;
   }).join('') + add;
 }
@@ -117,11 +126,11 @@ export function homeView() {
     <main class="home" id="main" tabindex="-1">
       <header class="home-heading"><h1>프로젝트</h1>
         <div class="project-tools">
-          <label class="search-box"><span aria-hidden="true">⌕</span><span class="sr-only">프로젝트 검색</span><input id="project-search" data-focus="project-search" type="search" placeholder="프로젝트 검색" value="${escape(ui.query)}" autocomplete="off"></label>
+          <label class="search-box">${icon('search')}<span class="sr-only">프로젝트 검색</span><input id="project-search" data-focus="project-search" type="search" placeholder="프로젝트 검색" value="${escape(ui.query)}" autocomplete="off"></label>
           <label class="sr-only" for="project-sort">프로젝트 정렬</label>
           <select id="project-sort"><option value="recent" ${ui.sort === 'recent' ? 'selected' : ''}>최근 수정순</option><option value="name" ${ui.sort === 'name' ? 'selected' : ''}>이름순</option></select>
         </div>
-        <a class="primary" href="#/new">＋&nbsp; 새 프로젝트</a></header>
+        <a class="primary" href="#/new">${icon('plus')}새 프로젝트</a></header>
       <div id="project-list">${projectList()}</div>
     </main></div>`;
 }

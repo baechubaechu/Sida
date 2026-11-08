@@ -844,6 +844,17 @@ export function siteCard(site) {
   };
 }
 
+// What a project card's site drawing shows, from its entry in the list's site cache ({card} or
+// {failed}, see jobs.loadProjectSites): 'loading' before the site was asked, 'unknown' when asking
+// failed (nothing is claimed), 'none' with no saved site, 'unmapped' for a site without a parcel
+// outline, 'drawn' otherwise.
+export function siteSlot(entry) {
+  if (!entry) return 'loading';
+  if (entry.failed) return 'unknown';
+  if (!entry.card) return 'none';
+  return entry.card.shapes.length ? 'drawn' : 'unmapped';
+}
+
 // SVG path data drawing GeoJSON parcel outlines ([lon, lat]) north-up at true proportions, fitted
 // and centred in width × height, plus a scale bar of a round length in metres. null without outlines.
 export function parcelOutline(shapes, width, height, pad = 8) {
