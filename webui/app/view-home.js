@@ -54,7 +54,7 @@ function continueCard(project) {
   const facts = card ? `<p class="continue-facts">대지 ${escape(card.area)}${caps}</p>` : '<p class="continue-facts muted">아직 대지를 정하지 않았어요.</p>';
   const site = card ? '' : `<a class="secondary" href="${sitePath(project.name, 'find')}">대지 정하기</a>`;
   return `<section class="continue" aria-labelledby="continue-title" style="view-transition-name: project-continue">
-    <a class="continue-drawing" href="${projectUrl(project.name)}" tabindex="-1" aria-hidden="true">${siteDrawing(card, 320, 200, true)}</a>
+    <a class="continue-drawing" href="${projectUrl(project.name)}" tabindex="-1" aria-hidden="true">${siteDrawing(card, 320, 240, true)}</a>
     <div class="continue-body">
       <p class="continue-label">이어서 하기</p>
       <h2 id="continue-title">${label}</h2>
