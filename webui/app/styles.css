@@ -159,6 +159,11 @@ html.project-morph.opening::view-transition-old(project-frame) { animation-durat
 html.project-morph.closing::view-transition-old(project-frame) { animation-duration: var(--motion-150); }
 html.project-morph::view-transition-new(project-frame) { animation-duration: var(--motion-200); }
 html.project-morph::view-transition-old(root) { animation-duration: var(--motion-150); animation-timing-function: var(--ease-in); }
+/* Back to the "새 프로젝트" button: the white form shrinks all the way, then the button fades in. */
+html.to-button::view-transition-old(project-frame) { animation: morph-hold-out var(--motion-300) linear both; }
+html.to-button::view-transition-new(project-frame) { animation: morph-late-in var(--motion-300) linear both; }
+@keyframes morph-hold-out { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes morph-late-in { 0%, 70% { opacity: 0; } 100% { opacity: 1; } }
 /* Between the list and the new-project form the sidebar is the same: it does not move or fade. */
 html.keep-side .sidebar { view-transition-name: side; }
 html.keep-side::view-transition-old(side) { display: none; }

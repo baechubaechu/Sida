@@ -112,16 +112,19 @@ function nameMorphCard(card) {
 // `change` draws the next screen (navigate draws before its first wait). Redraws while the shape
 // moves would cut the animation short, so they wait until it ends (data arriving meanwhile).
 // `keepSide`: both screens have the list's sidebar (list ↔ new-project form); it then stays still.
-function morphProject(direction, change, keepSide = false) {
+// `toButton`: the shape ends as the list's "새 프로젝트" button; it stays the form until it has
+// shrunk there and only then turns into the blue button.
+function morphProject(direction, change, keepSide = false, toButton = false) {
   const root = document.documentElement;
   root.classList.add('project-morph', direction);
   root.classList.toggle('keep-side', keepSide);
+  root.classList.toggle('to-button', toButton);
   const morph = transition(() => {
     change();
     deferred.growing = true;
   });
   morph.finished.finally(() => {
-    root.classList.remove('project-morph', direction, 'keep-side');
+    root.classList.remove('project-morph', direction, 'keep-side', 'to-button');
     deferred.growing = false;
     if (deferred.render) { deferred.render = false; render(false); }
   });
@@ -165,7 +168,7 @@ function onHashChange() {
     const newHome = newFormFrom === 'button' ? '.home-heading .primary' : '.project-new';
     nameMorphCard(from === 'new' ? app.querySelector(newHome) || app.querySelector('.home-heading .primary')
       : app.querySelector(`.continue${named}`) || app.querySelector(`.project-card${named}`));
-  }, from === 'new');
+  }, from === 'new', from === 'new' && newFormFrom === 'button');
 }
 
 app.addEventListener('click', (event) => {
