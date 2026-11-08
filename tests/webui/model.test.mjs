@@ -2,12 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   escapeHtml, findProjects, relativeDate, projectSummary, visibleExperts, chatItems, eventNotice, expertStatus,
-  renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges, relayKeyView, parseRoute, expertPath, dateTime,
+  renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges, relayKeyView, settingsChanges, settingsDirty, untitledName, parseRoute, expertPath, dateTime,
   documentSections, listItems, itemTag, handoffs, questionAnswer, arrangeDocument, EXPERT_LAYOUTS, SECTION_LABELS,
   stateChangeView, phaseLabel, sitePath, sitePageFor, needsSiteFirst, areaText, zoneScope, siteHeadline, missingText, restrictionGroups,
   ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
   buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
-  togglePicked, shapesToFetch, shapesBounds, MAX_SHAPES, EXPORT_FORMATS, boardExport,
+  togglePicked, shapesToFetch, shapesBounds, siteCard, siteSlot, parcelOutline, readiness, MAX_SHAPES, EXPORT_FORMATS, boardExport,
 } from '../../webui/app/model.js';
 import { readFileSync, readdirSync } from 'node:fs';
 
@@ -603,4 +603,121 @@ test('the representation planner: its site model recommendation is read and the 
   assert.deepEqual(expertPageTabs('representation_planner'), [{ id: 'model', label: '모형' }]);
   assert.deepEqual(expertPageTabs('site_reader'), []);
   assert.equal(parseRoute(expertPath('가', 'representation_planner', 'model')).tab, 'model');
+});
+
+test('a project card shows the saved site address, zones, area and the one zone statutory caps', () => {
+  const site = {
+    available: true, query: '서울특별시 중구 무교동 45',
+    parcels: [{ address: '서울특별시 중구 무교동 45', shape: { type: 'Polygon', coordinates: [[[127, 37], [127.001, 37], [127.001, 37.001], [127, 37]]] } }, { address: 'x', shape: null }],
+    summary: { total_area_m2: 412.5, zoning: [{ zone: '일반상업지역', bcr_max: 80, far_max: 1300 }] },
+  };
+  const card = siteCard(site);
+  assert.equal(card.address, '서울특별시 중구 무교동 45');
+  assert.deepEqual(card.zones, ['일반상업지역']);
+  assert.equal(card.area, '412.5㎡');
+  assert.equal(card.bcr, 80);
+  assert.equal(card.far, 1300);
+  assert.equal(card.shapes.length, 1);
+  // Two zones: no single cap to show.
+  const split = siteCard({ ...site, summary: { ...site.summary, zoning: [{ zone: 'a', bcr_max: 60, far_max: 200 }, { zone: 'b', bcr_max: 80, far_max: 1300 }] } });
+  assert.equal(split.bcr, null);
+  assert.equal(split.far, null);
+  assert.equal(siteCard({ available: false }), null);
+  assert.equal(siteCard(null), null);
+});
+
+test('a parcel outline is drawn north-up at true proportions inside the box with a round scale bar', () => {
+  // About 8.8 m east-west by 11 m north-south at latitude 37.5.
+  const square = { type: 'Polygon', coordinates: [[[127, 37.5], [127.0001, 37.5], [127.0001, 37.5001], [127, 37.5001], [127, 37.5]]] };
+  const out = parcelOutline([square, null], 200, 100, 10);
+  assert.equal(out.paths.length, 1);
+  const pts = [...out.paths[0].matchAll(/[ML]([\d.]+) ([\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+  for (const [x, y] of pts) {
+    assert.ok(x >= 10 - 0.1 && x <= 190 + 0.1, `x ${x} inside`);
+    assert.ok(y >= 10 - 0.1 && y <= 90 + 0.1, `y ${y} inside`);
+  }
+  assert.ok(out.paths[0].endsWith('Z'));
+  // The first corner is the south-west one: bottom-left on screen.
+  assert.ok(pts[0][1] > pts[2][1], 'south is drawn below north');
+  // Taller than wide, so the height (80 px for ~11 m) sets the scale; 2 m fits in 30% of 200 px.
+  const height = Math.max(...pts.map((p) => p[1])) - Math.min(...pts.map((p) => p[1]));
+  const width = Math.max(...pts.map((p) => p[0])) - Math.min(...pts.map((p) => p[0]));
+  assert.ok(Math.abs(height - 80) < 0.3);
+  assert.ok(Math.abs(width / height - 8.83 / 11.05) < 0.02);
+  assert.equal(out.bar.m, 5);
+  assert.ok(Math.abs(out.bar.px - 5 * (80 / 11.054)) < 0.3);
+  const multi = { type: 'MultiPolygon', coordinates: [square.coordinates, square.coordinates.map((ring) => ring.map(([x, y]) => [x + 0.0002, y]))] };
+  assert.equal(parcelOutline([multi], 200, 100).paths.length, 2);
+  assert.equal(parcelOutline([null, {}], 200, 100), null);
+  assert.equal(parcelOutline([{ type: 'Point', coordinates: [127, 37] }], 200, 100), null);
+});
+
+test('the sidebar says whether the AI and the government data are ready, and where to fix them', () => {
+  const base = {
+    conductor: { provider: 'chatgpt', model: 'x' }, worker: { provider: 'chatgpt', model: 'x' },
+    chatgpt: { signed_in: true, plan_usage: true, model: 'gpt-5.5' }, keys: { relay_token: { set: true } },
+  };
+  const [ai, data] = readiness(base);
+  assert.deepEqual([ai.id, ai.ok, ai.text, ai.target], ['ai', true, 'ChatGPT · gpt-5.5', '#settings-chatgpt']);
+  assert.deepEqual([data.id, data.ok, data.text, data.target], ['data', true, 'Sida 키로 연결됨', '#settings-relay']);
+
+  const signedOut = readiness({ ...base, worker: { provider: 'openrouter' }, chatgpt: { signed_in: false } })[0];
+  assert.deepEqual([signedOut.ok, signedOut.text], [false, 'ChatGPT 로그인 필요']);
+  assert.equal(readiness({ ...base, chatgpt: { signed_in: true, plan_usage: false } })[0].text, 'ChatGPT 다시 로그인 필요');
+  const noKey = readiness({ ...base, conductor: { provider: 'openrouter', model: 'm' }, worker: { provider: 'ollama' }, keys: {} })[0];
+  assert.deepEqual([noKey.ok, noKey.text, noKey.target], [false, 'OpenRouter 키 필요', '#set-openrouter']);
+  const local = readiness({ ...base, conductor: { provider: 'ollama', model: 'qwen' }, worker: { provider: 'ollama' } })[0];
+  assert.deepEqual([local.ok, local.text, local.target], [true, '이 PC 모델 · qwen', '#set-conductor']);
+
+  assert.equal(readiness({ ...base, keys: { vworld: { set: true }, data_go_kr: { set: true } } })[1].text, '이 PC의 정부 키로 연결됨');
+  assert.deepEqual(readiness({ ...base, keys: {} }, { state: 'pending' })[1].text, 'Sida 키 승인 기다리는 중');
+  const none = readiness({ ...base, keys: { vworld: { set: true } } })[1];
+  assert.deepEqual([none.ok, none.text], [false, 'Sida 키 필요']);
+  assert.deepEqual(readiness(null), []);
+});
+
+test('a card says "no site" only once the site was asked and none is saved', () => {
+  assert.equal(siteSlot(undefined), 'loading');
+  assert.equal(siteSlot({ card: null, failed: true }), 'unknown');
+  assert.equal(siteSlot({ card: null }), 'none');
+  assert.equal(siteSlot({ card: { shapes: [] } }), 'unmapped');
+  assert.equal(siteSlot({ card: { shapes: [{}] } }), 'drawn');
+});
+
+test('the settings form knows what saving would change and whether anything is unsaved', () => {
+  const settings = {
+    mode: 'custom', local_profile: 'local', conductor: { provider: 'chatgpt' }, worker: { provider: 'chatgpt' },
+    chatgpt: { model: 'a', worker_model: 'b' }, rag_enabled: true, state_update: 'ask', telemetry_enabled: false,
+    keys: { vworld_domain: { value: 'localhost' } },
+  };
+  const draft = {
+    mode: 'custom', local_profile: 'local', conductor_provider: 'chatgpt', worker_provider: 'chatgpt',
+    chatgpt_model: 'a', worker_chatgpt_model: 'b', rag_enabled: true, state_update: 'ask', telemetry_enabled: false,
+    openrouter_key: '', keys: { vworld: '', vworld_domain: 'localhost', data_go_kr: '', law: '', relay_url: '', relay_token: '' },
+  };
+  assert.deepEqual(settingsChanges(settings, draft), {});
+  assert.equal(settingsDirty(settings, draft), false);
+  assert.deepEqual(settingsChanges(settings, { ...draft, telemetry_enabled: true, chatgpt_model: 'c' }), { telemetry_enabled: true, chatgpt_model: 'c' });
+  assert.deepEqual(settingsChanges(settings, { ...draft, mode: 'cloud', conductor_provider: 'openrouter', worker_provider: 'openrouter' }),
+    { mode: 'cloud', conductor_provider: 'openrouter', worker_provider: 'openrouter' });
+  assert.equal(settingsDirty(settings, { ...draft, state_update: 'auto' }), true);
+  assert.equal(settingsDirty(settings, { ...draft, openrouter_key: ' sk-1 ' }), true);
+  assert.equal(settingsDirty(settings, { ...draft, keys: { ...draft.keys, law: 'oc' } }), true);
+  assert.equal(settingsDirty(settings, { ...draft, keys: { ...draft.keys, vworld_domain: 'localhost' } }), false);
+  assert.equal(settingsDirty(null, draft), false);
+});
+
+test('a project made without a name gets the first free 무제 number', () => {
+  assert.equal(untitledName([]), '무제1');
+  assert.equal(untitledName(null), '무제1');
+  assert.equal(untitledName([{ name: '무제1' }, { name: 'x', display_name: '무제2' }, { name: '무제4' }]), '무제3');
+});
+
+test('a custom order keeps the dragged order and puts projects made since first', () => {
+  const list = [
+    { name: 'a', updated_at: '2026-10-01T00:00:00Z' }, { name: 'b', updated_at: '2026-10-03T00:00:00Z' },
+    { name: 'c', updated_at: '2026-10-02T00:00:00Z' }, { name: 'new', updated_at: '2026-11-01T00:00:00Z' },
+  ];
+  assert.deepEqual(findProjects(list, '', 'custom', ['c', 'a', 'b']).map((p) => p.name), ['new', 'c', 'a', 'b']);
+  assert.deepEqual(findProjects(list, '', 'custom', []).map((p) => p.name), ['new', 'b', 'c', 'a']);
 });

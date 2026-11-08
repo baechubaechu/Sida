@@ -9,7 +9,7 @@ import { placeModelMaker, placeTable } from './board.js';
 import { ideaDragging, placeIdeaFloat } from './ideas.js';
 import { panelResizing, syncPanelWidths } from './panels.js';
 import { placeSiteMap } from './site.js';
-import { app, conductorScrolls, currentProjectLabel, currentRoute, deferred, expertById, settingsWarned, ui } from './state.js';
+import { app, conductorScrolls, currentProjectLabel, currentRoute, deferred, expertById, newProjectDialog, settingsWarned, ui } from './state.js';
 import { commandBar } from './view-command.js';
 import { conductorPanel } from './view-conductor.js';
 import { expertPage, expertsPanel } from './view-experts.js';
@@ -78,8 +78,21 @@ function workspaceView() {
     </main>`;
 }
 
+// The new-project form floats over the list while the route is #/new. It is filled once when it
+// opens (so redraws of the list underneath do not disturb typing) and closed when the route leaves.
+function syncNewProject(open) {
+  if (!open) { if (newProjectDialog.open) newProjectDialog.close(); return; }
+  if (newProjectDialog.open) {
+    newProjectDialog.querySelector('[type="submit"]').disabled = ui.creating;
+    return;
+  }
+  newProjectDialog.innerHTML = newView();
+  newProjectDialog.showModal();
+  newProjectDialog.querySelector('#project-name').focus({ preventScroll: true });
+}
+
 export function render(fresh = true) {
-  if (panelResizing() || ideaDragging()) { deferred.render = true; return; } // Keep the captured handle until release.
+  if (panelResizing() || ideaDragging() || deferred.growing) { deferred.render = true; return; } // Keep the captured handle until release.
   // Keep typing and reading positions across redraws.
   const focused = document.activeElement?.dataset?.focus;
   const selection = focused ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
@@ -91,7 +104,8 @@ export function render(fresh = true) {
     if (el.closest('.conductor-panel')) conductorScrolls.set(el.dataset.scroll, position);
   }
   const page = currentRoute.page;
-  app.innerHTML = page === 'home' ? homeView() : page === 'new' ? newView() : workspaceView();
+  app.innerHTML = page === 'home' || page === 'new' ? homeView() : workspaceView();
+  syncNewProject(page === 'new');
   syncPanelWidths();
   document.title = `Sida · ${page === 'project' ? currentProjectLabel(currentRoute.name) : page === 'new' ? '새 프로젝트' : '프로젝트'}`;
   for (const el of app.querySelectorAll('[data-scroll]')) {

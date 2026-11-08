@@ -5,10 +5,13 @@ import { latestChat, parseRoute } from './model.js';
 import { floatState } from './board-model.js';
 
 export const app = document.querySelector('#app');
+
 const announcer = document.querySelector('#announcer');
 const toasts = document.querySelector('#toasts');
 export const settingsDialog = document.querySelector('#settings-dialog');
 export const settingsBody = document.querySelector('#settings-body');
+export const settingsFooter = document.querySelector('#settings-footer');
+export const newProjectDialog = document.querySelector('#new-project-dialog');
 export const settingsForm = document.querySelector('#settings-form');
 export const tableHost = document.querySelector('#table-host');
 export const deleteDialog = document.querySelector('#delete-dialog');
@@ -29,7 +32,11 @@ export const ui = {
   // Asking the Sida relay for a key from settings (GET/POST /api/settings/relay-key): the last
   // answer, the form, and whether a "새로 요청" form was opened although a key is saved.
   relayKey: null, relayKeyDraft: { name: '', contact: '' }, relayKeyOpen: false, relayKeyBusy: false,
-  projects: null, projectsError: '', query: '', sort: 'recent',
+  projects: null, projectsError: '', query: '',
+  // The list's sort and dragged order (folder names), kept on this PC by the server (GET/PUT /api/projects…).
+  sort: 'recent', customOrder: [], listKept: false,
+  // Saved site of each listed project, for the cards: name → { stamp: updated_at, card: siteCard() }.
+  projectSites: new Map(),
   project: '', session: null, sessionError: '',
   chat: null, chatMissing: false, module: null, moduleMissing: false, openExperts: new Set(),
   versions: null, version: null, versionMissing: false, showRaw: false, checks: new Set(), feedback: {},
@@ -43,7 +50,7 @@ export const ui = {
   ideaFloat: floatState(null), ideaEdit: '', ideaConfirm: '', ideaBusy: false, ideaDrag: '', ideaLinkNew: true,
   pane: 'board', focusComposer: false, creatingTalk: false, talkMenu: '',
   panelRatios: { left: .27, right: .21, detail: .38 },
-  settings: null, settingsDraft: null, settingsError: '', chatgptModels: null, chatgptNote: '',
+  settings: null, settingsDraft: null, settingsError: '', settingsAdvancedOpen: false, chatgptModels: null, chatgptNote: '',
   board: null, selected: [], 
   site: null, siteError: '', showSiteLines: false, find: null, siteFirst: false,
   ordinance: null, ordinanceError: '', ordinanceBusy: '', useFind: null, mapLayers: null, mapError: '', mapErrorStatus: 0,
@@ -60,7 +67,9 @@ export let currentRoute = { page: 'home' };
 export function setCurrentRoute(next) { currentRoute = next; }
 // A redraw asked for while a pointer is held (a panel, the idea window or a circle being dragged)
 // waits until release; the drag's finish redraws then.
-export const deferred = { render: false };
+// `growing`: a project's card is growing into its work screen or shrinking back (app.js); a
+// redraw then would end that animation, so it waits like one during a drag.
+export const deferred = { render: false, growing: false };
 
 // ------------------------------------------------------------------ helpers
 

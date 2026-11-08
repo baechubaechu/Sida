@@ -22,13 +22,13 @@ export const STATUS_LABELS = {
 };
 
 export const PROVIDER_LABELS = {
-  openrouter: 'OpenRouter (API 키)', ollama: 'Ollama (이 PC)', chatgpt: 'ChatGPT 구독',
+  openrouter: 'OpenRouter (API 키)', ollama: '이 PC의 모델 (Ollama)', chatgpt: 'ChatGPT 구독',
 };
 
-export const MODE_LABELS = { cloud: '클라우드', local: '로컬', custom: '사용자 지정' };
+export const MODE_LABELS = { cloud: '둘 다 OpenRouter', local: '둘 다 이 PC의 모델', custom: '따로 고름' };
 
 export const STATE_UPDATE_LABELS = {
-  ask: '승인 받고 반영', auto: '바로 반영', off: '반영 안 함',
+  ask: '반영 전에 확인', auto: '바로 반영', off: '반영하지 않음',
 };
 
 // Government data keys on the settings screen (ids of PUT /api/settings/keys/{key}).
@@ -63,6 +63,58 @@ export function relayKeyView(request, tokenSet) {
   return view('muted', '정부 키가 없어도 Sida 키가 있으면 대지 조회와 법령 검색을 쓸 수 있습니다. 이름과 연락처를 보내면 팀이 확인한 뒤 키가 이 PC로 들어옵니다.', { form: true });
 }
 
+// The two "is Sida ready" lines in the project list's sidebar, from GET /api/settings and the
+// Sida key request (GET /api/settings/relay-key). Each: {id, label, text, ok, target}, where
+// `target` is the settings field to bring into view. [] before the settings arrive.
+export function readiness(settings, relayRequest = null) {
+  if (!settings) return [];
+  const keys = settings.keys || {};
+  const chatgpt = settings.chatgpt || {};
+  const roles = [settings.conductor?.provider, settings.worker?.provider];
+  let ai;
+  if (roles.includes('chatgpt') && !chatgpt.signed_in) ai = { ok: false, text: 'ChatGPT 로그인 필요', target: '#settings-chatgpt' };
+  else if (roles.includes('chatgpt') && !chatgpt.plan_usage) ai = { ok: false, text: 'ChatGPT 다시 로그인 필요', target: '#settings-chatgpt' };
+  else if (roles.includes('openrouter') && !keys.openrouter?.set) ai = { ok: false, text: 'OpenRouter 키 필요', target: '#set-openrouter' };
+  else {
+    const provider = settings.conductor?.provider;
+    const model = provider === 'chatgpt' ? chatgpt.model : settings.conductor?.model;
+    const name = { chatgpt: 'ChatGPT', openrouter: 'OpenRouter', ollama: '이 PC 모델' }[provider] || provider || '';
+    ai = { ok: true, text: [name, model].filter(Boolean).join(' · '), target: provider === 'chatgpt' ? '#settings-chatgpt' : '#set-conductor' };
+  }
+  let data;
+  if (keys.relay_token?.set) data = { ok: true, text: 'Sida 키로 연결됨' };
+  else if (keys.vworld?.set && keys.data_go_kr?.set) data = { ok: true, text: '이 PC의 정부 키로 연결됨' };
+  else if (relayRequest?.state === 'pending') data = { ok: false, text: 'Sida 키 승인 기다리는 중' };
+  else data = { ok: false, text: 'Sida 키 필요' };
+  return [
+    { id: 'ai', label: 'AI 연결', ...ai },
+    { id: 'data', label: '정부 자료', target: '#settings-relay', ...data },
+  ];
+}
+
+// What saving the settings form would change (PUT /api/settings body), from the settings shown
+// (GET /api/settings) and the form's draft. A 'custom' mode is not sent: it only follows the roles.
+export function settingsChanges(settings, draft) {
+  const changes = {};
+  const pairs = [
+    ['local_profile', settings.local_profile], ['conductor_provider', settings.conductor.provider],
+    ['worker_provider', settings.worker.provider], ['rag_enabled', settings.rag_enabled],
+    ['state_update', settings.state_update], ['telemetry_enabled', settings.telemetry_enabled],
+  ];
+  if (draft.mode !== settings.mode && draft.mode !== 'custom') changes.mode = draft.mode;
+  for (const [key, saved] of pairs) if (draft[key] !== saved) changes[key] = draft[key];
+  if (draft.chatgpt_model && draft.chatgpt_model !== settings.chatgpt.model) changes.chatgpt_model = draft.chatgpt_model;
+  if (draft.worker_chatgpt_model && draft.worker_chatgpt_model !== settings.chatgpt.worker_model) changes.worker_chatgpt_model = draft.worker_chatgpt_model;
+  return changes;
+}
+
+// Whether the form holds anything unsaved: a setting, an OpenRouter key or a government key typed in.
+export function settingsDirty(settings, draft) {
+  if (!settings || !draft) return false;
+  return Object.keys(settingsChanges(settings, draft)).length > 0
+    || Boolean(String(draft.openrouter_key || '').trim()) || keyChanges(draft.keys, settings.keys).length > 0;
+}
+
 // The keys to save: [id, value] for each one typed in (a shown value only when it changed).
 export function keyChanges(draft, status = {}) {
   return DATA_KEYS
@@ -83,13 +135,17 @@ function stamp(value) {
   return Number.isFinite(time) ? time : 0;
 }
 
-export function findProjects(projects, query = '', sort = 'recent') {
+// `sort`: 'recent', 'name' or 'custom' (the order the designer dragged the cards into, `order`:
+// folder names). Projects missing from that order (made since) come first, newest first.
+export function findProjects(projects, query = '', sort = 'recent', order = []) {
   const term = query.trim().toLocaleLowerCase('ko');
+  const place = new Map(order.map((name, i) => [name, i]));
+  const recent = (a, b) => stamp(b.updated_at) - stamp(a.updated_at);
+  const custom = (a, b) => (place.get(a.name) ?? -1) - (place.get(b.name) ?? -1) || recent(a, b);
   return projects
     .filter((p) => `${p.display_name || p.name} ${p.project_type || ''}`.toLocaleLowerCase('ko').includes(term))
-    .sort((a, b) => (sort === 'name'
-      ? (a.display_name || a.name).localeCompare(b.display_name || b.name, 'ko')
-      : stamp(b.updated_at) - stamp(a.updated_at)));
+    .sort(sort === 'name' ? (a, b) => (a.display_name || a.name).localeCompare(b.display_name || b.name, 'ko')
+      : sort === 'custom' ? custom : recent);
 }
 
 export function relativeDate(value, now = new Date()) {
@@ -799,6 +855,63 @@ export function shapesBounds(shapes) {
   return box;
 }
 
+// The few site facts a project card shows, from a saved site (GET .../site); null before a site is
+// saved. Coverage and FAR are the zone's statutory caps, given only when the whole site is in one zone.
+export function siteCard(site) {
+  if (!site?.available) return null;
+  const zones = site.summary?.zoning || [];
+  const one = zones.length === 1 ? zones[0] : null;
+  return {
+    address: site.query || site.parcels?.[0]?.address || '',
+    zones: zones.map((z) => z.zone),
+    area: areaText(site.summary?.total_area_m2),
+    bcr: one?.bcr_max ?? null,
+    far: one?.far_max ?? null,
+    shapes: (site.parcels || []).map((p) => p.shape).filter(Boolean),
+  };
+}
+
+// What a project card's site drawing shows, from its entry in the list's site cache ({card} or
+// {failed}, see jobs.loadProjectSites): 'loading' before the site was asked, 'unknown' when asking
+// failed (nothing is claimed), 'none' with no saved site, 'unmapped' for a site without a parcel
+// outline, 'drawn' otherwise.
+export function siteSlot(entry) {
+  if (!entry) return 'loading';
+  if (entry.failed) return 'unknown';
+  if (!entry.card) return 'none';
+  return entry.card.shapes.length ? 'drawn' : 'unmapped';
+}
+
+// SVG path data drawing GeoJSON parcel outlines ([lon, lat]) north-up at true proportions, fitted
+// and centred in width × height, plus a scale bar of a round length in metres. null without outlines.
+export function parcelOutline(shapes, width, height, pad = 8) {
+  const rings = [];
+  const visit = (c) => {
+    if (typeof c?.[0]?.[0] === 'number') rings.push(c);
+    else if (Array.isArray(c)) c.forEach(visit);
+  };
+  for (const shape of shapes || []) if (shape?.coordinates) visit(shape.coordinates);
+  if (!rings.length) return null;
+  const points = rings.flat();
+  const lat0 = points.reduce((sum, p) => sum + p[1], 0) / points.length;
+  const kx = 111320 * Math.cos((lat0 * Math.PI) / 180); // metres per degree of longitude here
+  const ky = 110540; // metres per degree of latitude
+  const local = rings.map((ring) => ring.map(([lon, lat]) => [lon * kx, lat * ky]));
+  const xs = local.flat().map((p) => p[0]);
+  const ys = local.flat().map((p) => p[1]);
+  const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const dx = maxX - minX;
+  const dy = maxY - minY;
+  if (!(dx > 0 && dy > 0)) return null;
+  const scale = Math.min((width - 2 * pad) / dx, (height - 2 * pad) / dy); // px per metre
+  const ox = (width - dx * scale) / 2;
+  const oy = (height - dy * scale) / 2;
+  const r = (v) => Math.round(v * 10) / 10;
+  const paths = local.map((ring) => `${ring.map(([x, y], i) => `${i ? 'L' : 'M'}${r(ox + (x - minX) * scale)} ${r(oy + (maxY - y) * scale)}`).join('')}Z`);
+  const metres = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000].filter((m) => m * scale <= width * 0.3).pop() ?? 1;
+  return { paths, bar: { m: metres, px: r(metres * scale) } };
+}
+
 // PUT .../site body. Parcels that all came from the last address search are sent with that
 // search (the server checks them against it); parcels chosen any other way go by number alone.
 export function lookupBody(picked, search) {
@@ -812,6 +925,15 @@ export function briefSite(brief) {
   const site = documentSections(brief).sections.find((s) => s.key === 'site');
   const text = (site?.body || '').trim();
   return text === '-' ? '' : text;
+}
+
+// The name a new project gets when none is typed: 무제1, 무제2, … the first not taken by a listed
+// project (by its shown name or folder name).
+export function untitledName(projects) {
+  const taken = new Set((projects || []).flatMap((p) => [p.display_name, p.name]).filter(Boolean));
+  let n = 1;
+  while (taken.has(`무제${n}`)) n += 1;
+  return `무제${n}`;
 }
 
 // What the designer has typed on the new-project page, kept outside the page so a redraw (the

@@ -11,7 +11,7 @@
 | `webui/app/index.html` | 뼈대, 설정 창 |
 | `webui/app/app.js` | 시작점: 주소(`#/...`)에 따라 화면을 고르고, 페이지의 클릭·입력·제출을 아래 동작 파일로 잇습니다(2026-11-08에 한 파일을 나눔) |
 | `webui/app/state.js`, `api.js` | 화면이 기억하는 것(`ui`, 작성 중인 글, 현재 주소)과 index.html의 고정 요소 · 서버 JSON API 호출 한 함수(`api`)와 주소 도우미 |
-| `webui/app/render.js`, `view-*.js` | HTML 문자열을 만드는 쪽. `render.js`가 작업 공간(Conductor·제도판·전문가·명령창)을 그리고 포커스·스크롤 위치를 지키며, `view-home.js`(프로젝트 목록·새 프로젝트), `view-conductor.js`(대화 패널), `view-command.js`(명령창), `view-experts.js`(전문가 목록·전문가 페이지), `view-site.js`(대지 페이지), `view-ideas.js`(아이디어 보드)가 각 부분을 만듭니다 |
+| `webui/app/render.js`, `view-*.js` | HTML 문자열을 만드는 쪽. `render.js`가 작업 공간(Conductor·제도판·전문가·명령창)을 그리고 포커스·스크롤 위치를 지키며, `view-home.js`(프로젝트 목록·새 프로젝트), `view-conductor.js`(대화 패널), `view-command.js`(명령창), `view-experts.js`(전문가 목록·전문가 페이지), `view-site.js`(대지 페이지), `view-ideas.js`(아이디어 보드)가 각 부분을 만듭니다. 선 아이콘은 `icons.js` 한 곳에서 같은 굵기로 그립니다 |
 | `webui/app/jobs.js`, `talks.js`, `experts.js`, `site.js`, `ideas.js`, `commands.js`, `projects.js`, `settings.js`, `panels.js`, `board.js` | 동작 쪽. 세션·작업 따라가기, Conductor 대화, 전문가 실행·채팅·평가, 대지 페이지, 아이디어 보드, 명령창, 프로젝트 정보·삭제, 설정 창, 패널 너비, 제도판·브이월드 3D·모형 판을 페이지에 올리기 |
 | `webui/app/model.js` | DOM과 `fetch`를 쓰지 않는 도우미 함수(검색·정렬, 대화 항목, 이벤트 알림 문구, Markdown, 저장할 정부 데이터 키, 화면 주소, 전문가별 결과 배치 `EXPERT_LAYOUTS`). `tests/webui/model.test.mjs`가 확인합니다 |
 | `webui/app/table.js`, `table-*.js` | 제도판(`DraftingTable`). `table.js`에 장면·보기·되돌리기·조작 막대가 있고, `table-papers.js`(종이·핀·AI 섹션·사진·PDF), `table-blocks.js`(동 편집·검볼·스케치업 도구·매스안 입력), `table-around.js`(대지 주변 3D·범위·계단식 지형), `table-detail.js`(종이 상세 창), `table-pointer.js`(마우스·휠·키), `table-shared.js`(도구 목록 등 공용 값)가 메서드를 보탭니다(`Object.assign(DraftingTable.prototype, ...)`). 프로젝트를 열 때만 불러옵니다 |
@@ -30,8 +30,8 @@
 
 | 화면 | 쓰는 API |
 |---|---|
-| 프로젝트 목록 (`#/`) | `GET /api/projects`, 예시 프로젝트 `POST /api/projects/sample`, 삭제 `DELETE /api/projects/{name}`(카드·왼쪽 목록의 "삭제" → 확인 창, 실행 중인 작업이 있으면 409) |
-| 새 프로젝트 (`#/new`) | `POST /api/projects` (`name`, `fields.type`·`site`·`intention`) |
+| 프로젝트 목록 (`#/`) | `GET /api/projects`(정렬과 끌어서 정한 순서 `list` 포함, 바꾸면 `PUT /api/projects/list`, 프로젝트 폴더의 `.project_list.json`), 카드의 대지(주소·용도지역·필지 윤곽, 맨 위 "이어서 하기"의 대지면적·법정 건폐율·용적률)는 프로젝트마다 `GET /api/projects/{name}/site`, 예시 프로젝트 `POST /api/projects/sample`, 삭제 `DELETE /api/projects/{name}`(카드의 "삭제" → 확인 창, 실행 중인 작업이 있으면 409) |
+| 새 프로젝트 (`#/new`, 목록 위에 뜨는 창) | `POST /api/projects` (`name`, `fields.type`·`site`·`intention`) |
 | Conductor 대화 (`#/project/<이름>`, 왼쪽 대화 패널과 아래 명령창) | `GET .../session`(대화 목록 `talks`), 첫 인사 `POST .../session/opening`, 새 대화 `POST .../talks`, 대화 `GET .../talks/{id}`, 메시지 `POST .../talks/{id}/messages`, 진행 `GET .../session/jobs/{id}` |
 | 전문가 페이지 (`#/project/<이름>/expert/<id>` 결과, `.../chat/<채팅 id>` 분석 채팅, `.../versions/<버전 id>` 이전 버전) | 결과 문서 `GET .../modules/{agent}`, 이전 버전 `GET .../modules/{agent}/versions`, `.../versions/{id}`, 실행·수정 요청 `POST .../session/experts/{agent}/run`, 분석 채팅 목록과 새 채팅 `GET`/`POST .../experts/{agent}/chats`, 채팅 `GET .../experts/{agent}/chats/{chat_id}`, 메시지 `POST .../chats/{chat_id}/messages`, 평가 `POST .../experts/{agent}/feedback` |
 | 대지 페이지 (`#/project/<이름>/site` 대지 사실, `.../site/ordinance` 조례, `.../site/uses` 계획 용도, `.../site/find` 찾기) | 대지 사실 `GET .../site`, 조례 `GET .../site/ordinance`와 조문 선택 `PUT .../site/ordinance/options/{id}`, 용도 이름 찾기 `GET /api/site/uses`, 계획 용도 조회·지우기 `POST`/`DELETE .../site/uses...`, 지역 목록 `GET /api/site/regions`, 지번으로 찾기 `GET /api/site/lots`, 주소로 찾기 `POST .../site/parcels`, 조회해 저장 `PUT .../site`, 지도 `GET /api/site/map`·`GET /api/site/parcel-at`·`GET /api/site/shapes`, 브리프의 대지 주소 `GET /api/projects/{name}` |
@@ -92,6 +92,7 @@ API의 자세한 내용은 [session-api.md](session-api.md), [site-ordinance.md]
 - 종이를 Shift+클릭(AI 섹션은 "대화에 보내기")으로 고르면 입력창 위 "함께 보낼 자료"에 칩이 생기고, 다음 메시지·전문가 실행·수정 요청에 함께 갑니다(8장까지). 칩의 ×로 빼고, 이름을 누르면 상세 창이 열립니다. 보낸 메시지 위에도 칩이 남습니다.
 - 화면은 1초마다 다시 그려지지만 제도판은 그 밖(`#table-host`)에 있어서 3D 장면, 끌기, 입력 중인 메모가 끊기지 않습니다. 서버가 0, 0에 둔 새 종이는 화면이 대지 옆 빈자리에 놓고 그 위치를 저장합니다.
 - 처음 실행(`config.local.yaml` 없음)이면 설정 창이 먼저 뜹니다. 저장을 누르면 다음부터는 뜨지 않습니다.
+- 설정 창은 오른쪽에서 나오는 패널이고, AI 연결 → 정부 자료(Sida 키) → 작업 방식 → 개인정보 → 접힌 고급(실행 모드, API 키, 정부 키 직접 넣기) 순서입니다. 저장 버튼은 아래에 고정되고, 저장 안 한 변경이 있으면 그 옆에 알립니다(`model.js`의 `settingsChanges`, `settingsDirty`).
 - 설정 창에서 Conductor를 "ChatGPT 구독"으로 고르면 로그인 버튼이 나옵니다. 새 창에서 로그인을 마치고 돌아오면 상태와 모델 목록이 바뀝니다.
 
 ## 목업에서 뺀 것
