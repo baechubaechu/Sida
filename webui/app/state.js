@@ -49,7 +49,7 @@ export const ui = {
   // beside the experts before. Where it sits is kept for this visit only (no browser storage).
   ideaFloat: floatState(null), ideaEdit: '', ideaConfirm: '', ideaBusy: false, ideaDrag: '', ideaLinkNew: true,
   pane: 'board', focusComposer: false, creatingTalk: false, talkMenu: '',
-  panelRatios: { left: .27, right: .21, detail: .38 },
+  panelRatios: { left: .24, right: .24, detail: .38 }, // the two side panels start equally wide
   settings: null, settingsDraft: null, settingsError: '', settingsAdvancedOpen: false, chatgptModels: null, chatgptNote: '',
   board: null, selected: [], 
   site: null, siteError: '', showSiteLines: false, find: null, siteFirst: false,

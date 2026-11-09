@@ -32,13 +32,11 @@ function boardHead(name, site, agent) {
       <div class="selection-items">${picked.map((p) => `<button type="button" data-action="inspect-paper" data-id="${escape(p.id)}" title="상세 보기">${escape(p.name)} ↗</button>`).join('')}</div>
       <button type="button" class="selection-ask" data-action="ask-selection" data-compare="${compare}">${compare ? '두 안 비교 질문 →' : '이 자료로 질문 →'}</button>
       <button type="button" class="selection-clear" data-action="clear-selection" aria-label="선택 모두 해제">×</button>`
-    : `<span class="selection-guide">종이 클릭: 상세 보기 · Shift+클릭: 여러 장 골라 대화에 보내기</span>
-      ${masses.length ? '<button type="button" class="selection-ask" data-action="select-masses">매스안 선택</button>' : ''}`;
+    : masses.length ? '<button type="button" class="selection-ask" data-action="select-masses">매스안 선택</button>' : '';
   // The experts panel folds with its own › (2026-11-01 지훈): the head only offers it back once folded.
   return `<header class="board-head">
-      <div class="board-heading"><span class="eyebrow"><a href="#/">프로젝트</a><span aria-hidden="true">/</span><button type="button" class="project-name-edit" data-action="project-info" data-project="${escape(name)}" title="프로젝트 정보 수정">${escape(currentProjectLabel(name))} ✎</button><span aria-hidden="true">/</span>${site ? '대지' : '디자인'}</span><h1>제도판</h1></div>
+      <div class="board-heading"><h1 class="sr-only">제도판</h1><nav class="crumbs" aria-label="현재 위치"><a href="#/">프로젝트</a><span aria-hidden="true">/</span><button type="button" class="project-name-edit" data-action="project-info" data-project="${escape(name)}" title="프로젝트 정보 수정">${escape(currentProjectLabel(name))} ✎</button>${site ? '<span aria-hidden="true">/</span><span>대지</span>' : ''}</nav></div>
       <div class="panel-toggles">
-        <button type="button" class="panel-toggle" data-action="conductor-toggle" aria-controls="conductor-panel" aria-expanded="${shown}" aria-label="Conductor 대화 ${shown ? '접기' : '열기'}">대화</button>
         ${site || agent || !ui.expertsCollapsed ? '' : `<button type="button" class="panel-toggle" data-action="toggle-experts-panel" aria-controls="experts-panel" aria-expanded="false"><span aria-hidden="true">‹</span> 전문가</button>`}
         ${site ? '' : `<button type="button" class="panel-toggle" data-action="vworld-3d" aria-pressed="${Boolean(ui.vworld)}" title="브이월드 3D 지도에 매스안 세워 보기 (vworld)">브이월드 3D</button>`}
         <details class="export-menu"><summary class="panel-toggle" title="CAD·라이노 파일로 내보내기 (export)">내보내기</summary>
@@ -46,9 +44,8 @@ function boardHead(name, site, agent) {
           <p class="muted">대지 경계·매스안·트레이싱 선이 레이어별로 들어갑니다. 이 PC에 지도 묶음이 있으면 대지 주변 지형·등고선·건물도 '대지 주변' 레이어로 들어갑니다. 단위 m, 원점은 대지 가운데.</p></div></details>
         <button type="button" class="ghost settings-button" data-action="settings" aria-label="설정" title="설정">⚙${settingsWarned() ? '<span class="warn-dot" aria-label="확인할 설정 있음">●</span>' : ''}</button>
       </div>
-      <p class="board-hint">기울이면 배치도가 3D가 됩니다 · 트레이싱지는 대지 위에 덮고, 옆으로 끌어내면 떼어집니다</p>
     </header>
-    <div class="selection-bar ${picked.length ? 'has-selection' : ''}" aria-label="고른 종이">${selection}</div>`;
+    ${selection ? `<div class="selection-bar ${picked.length ? 'has-selection' : ''}" aria-label="고른 종이">${selection}</div>` : ''}`;
 }
 
 function panelSplitter(side) {

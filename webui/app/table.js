@@ -9,6 +9,7 @@
 // the pointer handling to the class. Saving goes through the callbacks board.js gives (which
 // call the JSON API, docs/board-api.md), and figures come from the server. The table keeps its
 // own element, which render.js lays over a slot in the page, so redraws of the page leave it be.
+import { icon } from './icons.js';
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
 import { PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewName, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS } from './board-model.js';
@@ -84,11 +85,9 @@ export class DraftingTable {
         <rect data-gumball="free" class="gb-free" width="14" height="14"/>
       </svg></div>
       <div class="table-ui ui-left"><div class="ui-history" role="group" aria-label="편집 기록"></div>
-        <div class="ui-tools" role="toolbar" aria-orientation="vertical" aria-label="제도판 도구"></div></div>
+        <div class="ui-tools" role="toolbar" aria-label="제도판 도구"></div></div>
       <div class="table-ui ui-scheme"></div>
-      <div class="table-ui ui-tilt" aria-label="기울기"></div>
-      <div class="table-ui ui-zoom"></div>
-      <p class="table-ui ui-help">왼쪽 끌기: 선택 상자(→ 안에 든 것, ← 걸친 것, Shift 더하기, Ctrl 빼기) · 건물 클릭: 그 동만 고르기(끌면 옮김, 검볼, Delete 지우기) · 스케치업 도구는 명령으로: rect pushpull move copy rotate scale eraser dist (제도판에서 글자를 치면 명령창으로) · Ctrl+C/V 복사·붙여넣기, Ctrl+A 모든 동 · 고른 이름표 끌기: 종이 옮기기 · 휠: 커서 기준 확대 · 우클릭 끌기: 돌리기 · Shift+우클릭·가운데 버튼 끌기: 이동 · Ctrl+Z: 되돌리기 · 사진·PDF: 파일을 끌어다 놓거나 붙여넣기(photo) · 종이 모서리 끌기: 크기 조절</p>
+      <div class="table-ui ui-view"><div class="ui-tilt" role="group" aria-label="보는 각도"></div><div class="ui-zoom"></div></div>
       <p class="table-ui ui-hint" role="status" hidden></p>
       <section class="table-ui around-note" aria-label="주변 3D 자료 출처" hidden></section>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
@@ -432,8 +431,8 @@ export class DraftingTable {
   }
 
   drawHistory() {
-    this.ui.history.innerHTML = `<button type="button" data-ui="undo" aria-label="실행 취소" title="실행 취소 (Ctrl/⌘+Z)" ${this.history.past.length ? '' : 'disabled'}>↶</button>
-      <button type="button" data-ui="redo" aria-label="다시 실행" title="다시 실행 (Ctrl/⌘+Shift+Z, Ctrl+Y)" ${this.history.future.length ? '' : 'disabled'}>↷</button>`;
+    this.ui.history.innerHTML = `<button type="button" data-ui="undo" aria-label="실행 취소" title="실행 취소 (Ctrl/⌘+Z)" ${this.history.past.length ? '' : 'disabled'}>${icon('undo')}</button>
+      <button type="button" data-ui="redo" aria-label="다시 실행" title="다시 실행 (Ctrl/⌘+Shift+Z, Ctrl+Y)" ${this.history.future.length ? '' : 'disabled'}>${icon('redo')}</button>`;
   }
 
   async travel(direction) {
@@ -485,27 +484,29 @@ export class DraftingTable {
     this.drawHistory();
     const v = this.view;
     const masses = this.papers.filter((p) => p.kind === 'mass');
-    const toolButton = (t) => `<button type="button" data-tool="${t.id}" aria-pressed="${this.tool === t.id}" title="${t.label} (명령: ${t.cmd})${t.hint ? ` — ${t.hint}` : ''}"><span aria-hidden="true">${t.icon}</span> ${t.label}</button>`;
+    // An icon each; the name, the command and how to use it show on hover (and are read out).
+    const toolButton = (t) => `<button type="button" class="tool" data-tool="${t.id}" aria-pressed="${this.tool === t.id}" aria-label="${t.label}" title="${t.label} (명령: ${t.cmd})${t.hint ? ` — ${t.hint}` : ''}">${icon(t.id)}</button>`;
     this.ui.tools.innerHTML = `${TOOLS.filter((t) => !t.group).slice(0, 1).map(toolButton).join('')}
       <span class="sep"></span>${TOOLS.filter((t) => t.group === 'model').map(toolButton).join('')}
       <span class="sep"></span>${TOOLS.filter((t) => !t.group).slice(1).map(toolButton).join('')}
       <span class="sep"></span>
-      <button type="button" data-ui="scheme-new" title="숫자로 매스안 만들기">＋ 매스안</button>
-      <button type="button" data-ui="trace" title="트레이싱지 덮기 (명령: trace)">트레이싱지 덮기</button>
-      <button type="button" data-ui="photo" title="사진·PDF 올리기 (명령: photo) — 사진이나 PDF 도면을 제도판에 끌어다 놓거나 붙여넣어도 됩니다">사진·PDF 올리기</button>
-      <button type="button" data-ui="around" aria-pressed="${this.aroundOn}" ${this.site?.plan && !this.aroundBusy ? '' : 'disabled'} title="대지 주변(옆에서 고른 범위·모양)의 지형과 건물을 3D로 보기 (공공 자료로 만든 참고용 모형)">${this.aroundBusy ? '주변 불러오는 중…' : '주변 3D'}</button>
+      <button type="button" class="tool" data-ui="scheme-new" aria-label="매스안 만들기" title="숫자로 매스안 만들기">${icon('mass')}</button>
+      <button type="button" class="tool" data-ui="trace" aria-label="트레이싱지 덮기" title="트레이싱지 덮기 (명령: trace) — 대지 위에 덮고, 옆으로 끌어내면 떼어집니다">${icon('trace')}</button>
+      <button type="button" class="tool" data-ui="photo" aria-label="사진·PDF 올리기" title="사진·PDF 올리기 (명령: photo) — 사진이나 PDF 도면을 제도판에 끌어다 놓거나 붙여넣어도 됩니다">${icon('photo')}</button>
+      <span class="sep"></span>
+      <button type="button" class="tool" data-ui="around" aria-pressed="${this.aroundOn}" aria-label="${this.aroundBusy ? '주변 불러오는 중' : '주변 3D'}" ${this.site?.plan && !this.aroundBusy ? '' : 'disabled'} title="주변 3D — 대지 주변(옆에서 고른 범위·모양)의 지형과 건물을 3D로 보기 (공공 자료로 만든 참고용 모형)">${icon('around')}</button>
       ${this.site?.plan ? this.rangeSelects() : ''}
       ${this.aroundOn && this.around?.terrain ? `<label class="check">등고선 <select data-ui="contour-step" aria-label="등고선 간격">${CONTOUR_STEPS.map((s) => `<option value="${s}" ${s === this.contourStep ? 'selected' : ''}>${s}m</option>`).join('')}</select></label>` : ''}
-      <button type="button" data-ui="delete" ${this.selected.some((id) => this.papers.some((p) => p.id === id && p.kind !== 'site')) ? '' : 'disabled'} title="삭제 (Delete)">삭제</button>
+      <button type="button" class="tool" data-ui="delete" aria-label="삭제" ${this.selected.some((id) => this.papers.some((p) => p.id === id && p.kind !== 'site')) ? '' : 'disabled'} title="삭제 (Delete)">${icon('trash')}</button>
       <span class="sep"></span>
-      <button type="button" data-ui="tray" aria-pressed="${this.trayOpen}">AI 섹션${this.tray.length ? ` <b>${this.tray.length}</b>` : ''}</button>`;
+      <button type="button" class="tool tray-button" data-ui="tray" aria-pressed="${this.trayOpen}" aria-label="AI 섹션${this.tray.length ? ` ${this.tray.length}개` : ''}" title="AI 섹션 — 전문가 결과가 놓이는 곳">${icon('tray')}${this.tray.length ? `<b>${this.tray.length}</b>` : ''}</button>`;
     this.ui.scheme.hidden = !masses.length;
     this.ui.scheme.innerHTML = masses.length ? `<div class="seg" role="group" aria-label="3D로 볼 매스안">
         ${masses.map((p) => `<button type="button" data-active="${escape(p.id)}" aria-pressed="${this.active === p.id}">${escape(paperName(p))}</button>`).join('')}</div>
       ${masses.length > 1 ? `<label class="check"><input type="checkbox" data-ui="ghost" ${this.ghost ? 'checked' : ''}> 다른 안 겹쳐 보기</label>` : ''}` : '';
-    this.ui.tilt.innerHTML = `<div class="seg vertical" role="group" aria-label="보는 각도">
+    this.ui.tilt.innerHTML = `<div class="seg" role="group" aria-label="평면 또는 3D">
         ${[['plan', '평면', 'plan'], ['3d', '3D', 'persp']].map(([id, label, k]) => `<button type="button" data-tilt="${id}" title="${label} (명령: ${k})" aria-pressed="${viewName(v.tilt) === id}">${label}</button>`).join('')}</div>
-      <input type="range" min="0" max="${MAX_TILT}" value="${Math.round(v.tilt)}" aria-label="기울기 각도" data-ui="tilt-range">
+      <input type="range" min="0" max="${MAX_TILT}" value="${Math.round(v.tilt)}" aria-label="기울기 각도" title="기울이면 배치도가 3D가 됩니다" data-ui="tilt-range">
       <span class="num tilt-read">${Math.round(v.tilt)}°</span>
       <button type="button" class="compass" data-ui="north" title="북쪽을 위로"><span style="transform: rotate(${-v.turn}deg)" aria-hidden="true">▲</span><small>N</small></button>`;
     this.ui.zoom.innerHTML = `<span class="scale-readout">${this.scaleReadout()}</span>

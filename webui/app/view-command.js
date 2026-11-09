@@ -35,6 +35,8 @@ function helpCard() {
   return `<section class="command-help" aria-label="명령 목록"><header><strong>명령</strong>
       <button type="button" class="ghost" data-action="cmd-help" aria-label="명령 목록 닫기">×</button></header>
       <p class="muted">띄어쓰기 없는 영어 한 단어가 명령입니다. 그 밖의 글은 모두 Conductor에게 갑니다. Enter 실행 · Shift+Enter 줄 바꿈 · 빈 칸에서 Enter는 직전 명령 반복 · Esc 취소</p>
+      <p class="muted">조작: 왼쪽 끌기 선택 상자(→ 안에 든 것, ← 걸친 것, Shift 더하기, Ctrl 빼기) · 건물 클릭 그 동만 고르기(끌면 옮김, 검볼, Delete 지우기) · Ctrl+C/V 복사·붙여넣기, Ctrl+A 모든 동 · 고른 이름표 끌기 종이 옮기기 · 휠 커서 기준 확대 · 우클릭 끌기 돌리기 · Shift+우클릭·가운데 버튼 끌기 이동 · Ctrl+Z 되돌리기 · 사진·PDF는 끌어다 놓거나 붙여넣기 · 종이 모서리 끌기 크기 조절 · 제도판에서 글자를 치면 명령창으로</p>
+      <p class="muted">제도판: 종이 클릭은 상세 보기, Shift+클릭은 여러 장 골라 대화에 보내기 · 기울이면 배치도가 3D가 됩니다 · 트레이싱지는 대지 위에 덮고, 옆으로 끌어내면 떼어집니다 · 도구 이름과 단축키는 아이콘에 마우스를 올리면 보입니다</p>
       <div class="command-help-groups">${groups}</div></section>`;
 }
 

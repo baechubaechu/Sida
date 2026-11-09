@@ -25,7 +25,7 @@ function runsBlock() {
   if (running) {
     return `<p class="working" role="status"><span class="spinner" aria-hidden="true"></span><span><b>${escape(running.name)}</b> 실행 중입니다. 결과는 제도판의 AI 섹션에 놓입니다.</span></p>`;
   }
-  return '<p class="runs-empty">전문가를 실행하면 결과가 제도판의 AI 섹션에 놓이고, 여기서 결과 문서와 분석 채팅을 엽니다.</p>';
+  return '';
 }
 
 export function expertsPanel() {
@@ -53,7 +53,7 @@ export function expertsPanel() {
         <div class="expert-threads"><button data-action="open-expert" data-agent="${id}">결과 문서 보기</button>${threads}</div></details>
       <button type="button" class="mini" data-action="run-expert" data-agent="${id}" ${busy ? 'disabled' : ''} title="${e.done ? '다시 실행' : '실행'}${picked ? ` (고른 종이 ${picked}장과 함께)` : ''}">${status === 'running' ? '실행 중' : e.done ? '다시' : '실행'}</button></li>`;
   }).join('')}</ul></div>
-    <section class="runs" aria-label="검토 진행"><h3>검토 진행</h3>${runsBlock()}</section></aside>`;
+    ${runsBlock() ? `<section class="runs" aria-label="검토 진행"><h3>검토 진행</h3>${runsBlock()}</section>` : ''}</aside>`;
 }
 
 function proposalBlock(agent) {

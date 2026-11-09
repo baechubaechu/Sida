@@ -1230,7 +1230,7 @@ export function hideKey({ key, ctrl, meta, shift }, picked) {
 // open or close and the table changes size. `dx`, `dy` are the gaps to that corner's two edges.
 
 export const IDEA_FLOAT = {
-  corner: 'tr', dx: 76, dy: 16, width: 320, height: 440, // beside the table's view buttons (top right)
+  corner: 'bl', dx: 16, dy: 16, width: 320, height: 440, // bottom left: the tools run along the top, the view controls sit bottom right
   minWidth: 240, minHeight: 180, margin: 6,
 };
 
