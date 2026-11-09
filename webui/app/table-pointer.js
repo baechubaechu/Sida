@@ -2,7 +2,7 @@
 // tools' gestures, dragging papers and blocks, carrying papers to the idea board.
 // Methods of DraftingTable (table.js adds them to its prototype).
 
-import { PX, PAPER_SIZE, zoomAround, dragMode, wheelZoom, panBy, EDGE_TILT, isOverlaid, blockCorners, paperName, toggleSelected, boxPick, boxMode, parseBlockKey, fmt, frameDelta, editBlocks, axisDrag, blockKey, toFrame, rectBlock, pushBlock, copyBlocks, turnBlocks, scaleBlocks, snapAngle, MAX_BLOCKS, numericToolClick, isPdfFile, buildingInfo } from './board-model.js';
+import { PX, PAPER_SIZE, zoomAround, dragMode, wheelZoom, orbitBy, panBy, EDGE_TILT, isOverlaid, blockCorners, paperName, toggleSelected, boxPick, boxMode, parseBlockKey, fmt, frameDelta, editBlocks, axisDrag, blockKey, toFrame, rectBlock, pushBlock, copyBlocks, turnBlocks, scaleBlocks, snapAngle, MAX_BLOCKS, numericToolClick, isPdfFile, buildingInfo } from './board-model.js';
 import { SNAP, typing, MODEL_TOOLS, cm, strokePath } from './table-shared.js';
 
 export const pointerMethods = {

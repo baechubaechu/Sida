@@ -2,7 +2,7 @@
 // between the table and the board, and every change through the ideas API.
 
 import { escapeHtml as escape } from './model.js';
-import { ideaText, moveIdea, dropIdea, sameOrder, linkPapers, pickedNotes, floatPlace, ideaShape } from './board-model.js';
+import { ideaText, moveIdea, dropIdea, sameOrder, linkPapers, pickedNotes, floatAnchor, floatPlace, ideaShape } from './board-model.js';
 import { api, projectApi } from './api.js';
 import { boardCall, loadBoard, table } from './board.js';
 import { render } from './render.js';
