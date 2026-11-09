@@ -746,7 +746,7 @@ export function propertiesOf(papers, site = null, blocks = [], layers = DEFAULT_
     if (p.kind === 'expert' && p.title) rows.push(['이름', p.title]);
     if (p.kind === 'note' || p.kind === 'expert') rows.push(['글자', `${String(p.text || '').length}자`]);
     if (p.kind === 'tracing') rows.push(['선', `${(p.strokes || []).length}개`]);
-    if (p.w && p.h) rows.push(['크기', `${round1(p.w)} × ${round1(p.h)}m`]);
+    if (p.w && p.h) rows.push(['크기', `${round1(p.w * PX)} × ${round1(p.h * PX)}m`]); // paper px to metres
   }
   return { title: paperName(p), rows, note };
 }

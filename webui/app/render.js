@@ -38,6 +38,7 @@ function boardHead(name, site, agent) {
     : `<button type="button" class="panel-toggle dock-unfold" data-action="dock-open" data-side="${side}" aria-expanded="false" title="${side === 'left' ? '왼쪽' : '오른쪽'} 패널 펴기">${side === 'left' ? '' : '<span aria-hidden="true">‹</span> '}<span class="dock-unfold-label">${escape(sideTitle(ui.dock, side))}</span>${side === 'left' ? ' <span aria-hidden="true">›</span>' : ''}</button>`);
   return `<header class="board-head">
       ${unfold('left')}<div class="board-heading"><h1 class="sr-only">제도판</h1><nav class="crumbs" aria-label="현재 위치"><a href="#/">프로젝트</a><span aria-hidden="true">/</span><button type="button" class="project-name-edit" data-action="project-info" data-project="${escape(name)}" title="프로젝트 정보 수정">${escape(currentProjectLabel(name))} ✎</button>${site ? '<span aria-hidden="true">/</span><span>대지</span>' : ''}</nav></div>
+      ${selection ? `<div class="selection-bar ${picked.length ? 'has-selection' : ''}" aria-label="고른 종이">${selection}</div>` : '<span class="selection-bar" aria-hidden="true"></span>'}
       <div class="panel-toggles">
         ${unfold('right')}
         ${site ? '' : `<button type="button" class="panel-toggle" data-action="vworld-3d" aria-pressed="${Boolean(ui.vworld)}" title="브이월드 3D 지도에 매스안 세워 보기 (vworld)">브이월드 3D</button>`}
@@ -46,8 +47,7 @@ function boardHead(name, site, agent) {
           <p class="muted">대지 경계·매스안·트레이싱 선이 레이어별로 들어갑니다. 이 PC에 지도 묶음이 있으면 대지 주변 지형·등고선·건물도 '대지 주변' 레이어로 들어갑니다. 단위 m, 원점은 대지 가운데.</p></div></details>
         <button type="button" class="ghost settings-button" data-action="settings" aria-label="설정" title="설정">⚙${settingsWarned() ? '<span class="warn-dot" aria-label="확인할 설정 있음">●</span>' : ''}</button>
       </div>
-    </header>
-    ${selection ? `<div class="selection-bar ${picked.length ? 'has-selection' : ''}" aria-label="고른 종이">${selection}</div>` : ''}`;
+    </header>`;
 }
 
 function panelSplitter(side) {

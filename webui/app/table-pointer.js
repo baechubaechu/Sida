@@ -512,6 +512,15 @@ export const pointerMethods = {
       const p = this.papers.find((q) => q.id === g.id);
       if (p && this.selected.length > 1) this.select([p.id]);
       if (p && p.kind !== 'note') this.inspect(p.id);
+      // A second click on the same note soon after: write it in place.
+      const now = performance.now();
+      if (p?.kind === 'note' && this.lastNoteClick?.id === p.id && now - this.lastNoteClick.at < 450) {
+        this.lastNoteClick = null;
+        this.editing = p.id;
+        this.drawPaper(p);
+      } else {
+        this.lastNoteClick = p?.kind === 'note' ? { id: p.id, at: now } : null;
+      }
     }
     if (g?.kind === 'draw') {
       const draft = this.slot(g.id).querySelector('.draft');
