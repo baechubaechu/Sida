@@ -1206,3 +1206,16 @@ test('the surroundings get a sublayer for each part they have', async () => {
   assert.equal(layerRows({ papers: [] }, { around: true, aroundHidden: true, aroundParts: [{ id: 'ground', count: 1 }] }).at(-1).parentHidden, true);
   assert.equal(layerRows({ papers: [] }, { around: false, aroundParts: [{ id: 'ground', count: 1 }] }).some((r) => r.id.startsWith('around')), false);
 });
+
+test('a folded layer hides its sublayers at any depth, and only those', async () => {
+  const { foldedRows } = await import('../../webui/app/board-model.js');
+  const rows = [
+    { id: 'mass', depth: 0, children: true }, { id: 'tower', depth: 1, children: true }, { id: 'top', depth: 2 },
+    { id: 'low', depth: 1 }, { id: 'note', depth: 0 }, { id: 'around', depth: 0, children: true }, { id: 'around:ground', depth: 1 },
+  ];
+  const ids = (folded) => foldedRows(rows, new Set(folded)).map((r) => r.id);
+  assert.deepEqual(ids([]), rows.map((r) => r.id));
+  assert.deepEqual(ids(['mass']), ['mass', 'note', 'around', 'around:ground']);
+  assert.deepEqual(ids(['tower']), ['mass', 'tower', 'low', 'note', 'around', 'around:ground']);
+  assert.deepEqual(ids(['around', 'note']), ['mass', 'tower', 'top', 'low', 'note', 'around']);
+});

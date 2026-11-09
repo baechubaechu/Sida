@@ -56,7 +56,8 @@ export const ui = {
   // The 레이어 panel (layers.js): the row picked for its tools, the layer being renamed (and what is
   // typed), the current layer new papers go onto ('' = their kind's), and the surroundings hidden.
   // `layersSaving`: layer saves still on their way.
-  layerPick: '', layerRename: '', layerRenameText: '', currentLayer: '', aroundHidden: false, layersSaving: 0,
+  // `layerFolded`: layers whose sublayers are folded away in the panel (this visit).
+  layerPick: '', layerRename: '', layerRenameText: '', currentLayer: '', aroundHidden: false, layersSaving: 0, layerFolded: new Set(),
   settings: null, settingsDraft: null, settingsError: '', settingsAdvancedOpen: false, chatgptModels: null, chatgptNote: '',
   // The papers selected on the table, the buildings picked on their own (paperId#index), and a
   // value the 속성 panel refused ({key, text}).

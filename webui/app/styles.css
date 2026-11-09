@@ -467,16 +467,22 @@ button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 .layer-tool { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 6px; color: var(--text); }
 .layer-tool:hover:not(:disabled) { background: var(--surface-subtle); color: var(--brand); }
 .layer-tool:disabled { opacity: .35; }
-.layer-table { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0; }
-.layer-row { display: grid; grid-template-columns: minmax(0, 1fr) 32px 32px 32px 32px; align-items: center; min-height: 36px; padding: 0 8px 0 0; font-size: 14px; }
+.layer-table { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0; container-type: inline-size; }
+/* A narrow panel keeps the names readable: the counts give way. */
+@container (max-width: 320px) { .layer-count { display: none; } }
+.layer-row { display: grid; grid-template-columns: minmax(0, 1fr) 28px 28px 28px 28px; align-items: center; min-height: 36px; padding: 0 8px 0 0; font-size: 14px; }
 .layer-row:not(.layer-header):hover { background: var(--surface-subtle); }
 .layer-row.is-picked { background: var(--selected); }
 .layer-header { position: sticky; top: -4px; z-index: 1; min-height: 28px; background: var(--surface); color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
 .layer-header span:first-child { padding-left: 16px; }
 .layer-header span:not(:first-child) { text-align: center; }
 .layer-row > span:not(.layer-name) { display: grid; place-items: center; }
-.layer-name { display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: calc(8px + var(--depth, 0) * 16px); }
-.layer-label { flex: 1; min-width: 0; min-height: 32px; padding: 0 8px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 6px; }
+.layer-name { display: flex; align-items: center; gap: 2px; min-width: 0; padding-left: calc(4px + var(--depth, 0) * 16px); }
+.layer-caret { flex-shrink: 0; display: grid; place-items: center; width: 20px; height: 24px; border-radius: 4px; color: var(--muted); }
+button.layer-caret:hover { background: var(--surface); color: var(--text); }
+.layer-caret .icon { width: 14px; height: 14px; transition: transform var(--motion-150) var(--ease-out); }
+.layer-caret[aria-expanded="true"] .icon { transform: rotate(90deg); }
+.layer-label { flex: 1; min-width: 0; min-height: 32px; padding: 0 4px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 6px; }
 .layer-row.is-off .layer-label, .layer-row.is-off .layer-count { color: var(--muted); }
 .layer-rename { flex: 1; min-width: 0; min-height: 30px; padding: 0 8px; font: inherit; border: 1px solid var(--brand); border-radius: 6px; }
 .layer-count { color: var(--muted); font-size: 12px; }

@@ -62,7 +62,7 @@ async function navigate() {
       ui.selected = [];
       ui.picked = [];
       followSelection(false);
-      Object.assign(ui, { layerPick: '', layerRename: '', layerRenameText: '', currentLayer: '', aroundHidden: false });
+      Object.assign(ui, { layerPick: '', layerRename: '', layerRenameText: '', currentLayer: '', aroundHidden: false, layerFolded: new Set() });
       ui.talks = new Map();
       ui.talkViews = [];
       ui.talkMenu = '';

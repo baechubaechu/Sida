@@ -651,6 +651,20 @@ export function layerRows(board, { around = false, aroundHidden = false, current
   return rows;
 }
 
+// The rows still on view in the 레이어 panel: the sublayers of a folded layer (`folded`: a Set of
+// ids), at any depth, are left out.
+export function foldedRows(rows, folded = new Set()) {
+  const out = [];
+  let under = Infinity; // the depth of a folded layer whose sublayers are being skipped
+  for (const r of rows) {
+    if (r.depth > under) continue;
+    under = Infinity;
+    out.push(r);
+    if (r.children && folded.has(r.id)) under = r.depth;
+  }
+  return out;
+}
+
 // The next free "레이어 n".
 export function nextLayerName(layers) {
   let n = 1;

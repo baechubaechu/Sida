@@ -32,6 +32,11 @@ export function layerAction(action, button) {
   const layers = boardLayers(ui.board);
   const id = button.dataset.layer || ui.layerPick;
   if (action === 'layer-pick') { ui.layerPick = id; render(false); return true; }
+  if (action === 'layer-fold') {
+    if (ui.layerFolded.has(id)) ui.layerFolded.delete(id); else ui.layerFolded.add(id);
+    render(false);
+    return true;
+  }
   if (action === 'layer-add' || action === 'layer-add-sub') {
     const made = newId();
     ui.layerPick = made;
