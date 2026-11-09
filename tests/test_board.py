@@ -26,7 +26,8 @@ SITE = [("site", SimpleNamespace(board_site=lambda path: {"area_m2": 1000.0, "li
 
 
 def test_a_new_table_holds_only_the_site_and_papers_are_saved_one_by_one(tmp_path):
-    assert board.load_board(tmp_path) == {"rev": 0, "papers": [board._site_paper()], "tray": [], "pins": [], "ideas": [], "hidden": []}
+    assert board.load_board(tmp_path) == {"rev": 0, "papers": [board._site_paper()], "tray": [], "pins": [], "ideas": [], "hidden": [],
+                                          "layers": board.default_layers()}
     assert not board.board_path(tmp_path).exists()  # reading saves nothing
 
     mass = board.add_paper(tmp_path, {**MASS, "id": "mass-a", "x": 40, "y": 10, "w": 300, "h": 210})
@@ -453,7 +454,7 @@ def test_the_view_adds_the_site_and_each_schemes_figures(tmp_path):
     tray_id = got["tray"][0]["id"]
     assert got["figures"][tray_id]["floor_area_m2"] == 200.0
     assert got["site"]["lines"] == ["대지: 필지 1개"] and len(got["site"]["plan"]["parcels"]) == 1
-    assert board.load_board(tmp_path).keys() == {"rev", "papers", "tray", "pins", "ideas", "hidden"}  # nothing derived is saved
+    assert board.load_board(tmp_path).keys() == {"rev", "papers", "tray", "pins", "ideas", "hidden", "layers"}  # nothing derived is saved
 
     bare = board.view(tmp_path, hooks=[("site", SimpleNamespace(board_site=lambda path: None))])
     assert bare["site"] is None and bare["figures"]["mass-a"]["coverage_pct"] is None
@@ -758,3 +759,51 @@ def test_a_damaged_board_does_not_stop_the_conductor_or_an_expert_run(make_sessi
     assert board.read_board(table.path) is None
     with pytest.raises(SidaError):  # an edit still refuses to replace it
         board.add_idea(table.path, {"text": "new"})
+
+
+def test_layers_start_one_per_kind_and_are_replaced_whole(tmp_path):
+    assert [x["id"] for x in board.load_board(tmp_path)["layers"]] == ["site", "mass", "tracing", "note", "photo", "expert"]
+    layers = [*board.default_layers(), {"id": "layer-tower", "name": "타워", "parent": "mass", "visible": False, "color": "#AABBCC"}]
+    saved = board.set_layers(tmp_path, layers)["layers"]
+    assert saved[-1] == {"id": "layer-tower", "name": "타워", "parent": "mass", "visible": False, "locked": False, "color": "#aabbcc"}
+    assert board.load_board(tmp_path)["layers"] == saved
+
+
+@pytest.mark.parametrize(
+    ("layers", "message"),
+    [
+        ([], "1 to"),
+        ([{"id": "a", "name": "A"}, {"id": "a", "name": "B"}], "unique"),
+        ([{"id": "a", "name": " "}], "name"),
+        ([{"id": "a", "name": "A", "parent": "b"}], "no parent"),
+        ([{"id": "a", "name": "A", "parent": "b"}, {"id": "b", "name": "B", "parent": "a"}], "inside itself"),
+        ([{"id": "a", "name": "A", "color": "red"}], "#rrggbb"),
+    ],
+    ids=["empty", "same-id", "no-name", "no-parent", "loop", "colour"],
+)
+def test_bad_layers_are_refused(tmp_path, layers, message):
+    with pytest.raises(ValueError, match=message):
+        board.set_layers(tmp_path, layers)
+
+
+def test_taking_a_layer_away_moves_what_was_on_it_up(tmp_path):
+    layers = [*board.default_layers(), {"id": "tower", "name": "타워", "parent": "mass"}, {"id": "top", "name": "옥탑", "parent": "tower"}]
+    board.set_layers(tmp_path, layers)
+    mass = {**MASS, "id": "mass-a", "layer": "top", "group": "g1"}
+    mass["blocks"] = [{**mass["blocks"][0], "layer": "tower", "group": "g1"}]
+    board.add_paper(tmp_path, mass)
+    note = board.add_paper(tmp_path, {"kind": "note", "text": "x", "layer": "top"})["paper"]
+    kept = [x for x in layers if x["id"] != "tower" and x["id"] != "top"] + [{"id": "top", "name": "옥탑", "parent": ""}]
+    board.set_layers(tmp_path, [x for x in kept if x["id"] != "top"])
+    saved = {p["id"]: p for p in board.load_board(tmp_path)["papers"]}
+    assert saved["mass-a"]["layer"] == "mass" and saved["mass-a"]["blocks"][0]["layer"] == "mass"
+    assert saved["mass-a"]["group"] == "g1" and saved["mass-a"]["blocks"][0]["group"] == "g1"
+    # A note whose layer has no ancestor left goes back to its kind's layer.
+    board.set_layers(tmp_path, board.default_layers()[:1])
+    saved = {p["id"]: p for p in board.load_board(tmp_path)["papers"]}
+    assert "layer" not in saved[note["id"]] and "layer" not in saved["mass-a"]
+    # The site and expert papers may change layer and group (and still only move otherwise).
+    board.set_layers(tmp_path, board.default_layers())
+    assert board.update_paper(tmp_path, "site", {"layer": "note", "group": "g1"})["paper"]["layer"] == "note"
+    with pytest.raises(ValueError, match="id"):
+        board.update_paper(tmp_path, "mass-a", {"layer": "bad id!"})

@@ -53,8 +53,10 @@ export const ui = {
   ideaFloat: floatState(null), ideaEdit: '', ideaConfirm: '', ideaBusy: false, ideaDrag: '', ideaLinkNew: true,
   pane: 'board', focusComposer: false, creatingTalk: false, talkMenu: '',
   panelRatios: { ...DEFAULT_PANEL_RATIOS }, // the sides' widths as shares (dragged, kept with the layout)
-  // The layers turned off on the table (the 레이어 panel).
-  hiddenLayers: new Set(),
+  // The 레이어 panel (layers.js): the row picked for its tools, the layer being renamed (and what is
+  // typed), the current layer new papers go onto ('' = their kind's), and the surroundings hidden.
+  // `layersSaving`: layer saves still on their way.
+  layerPick: '', layerRename: '', layerRenameText: '', currentLayer: '', aroundHidden: false, layersSaving: 0,
   settings: null, settingsDraft: null, settingsError: '', settingsAdvancedOpen: false, chatgptModels: null, chatgptNote: '',
   // The papers selected on the table, the buildings picked on their own (paperId#index), and a
   // value the 속성 panel refused ({key, text}).

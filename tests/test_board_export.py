@@ -223,3 +223,19 @@ def test_a_round_ground_goes_out_as_only_the_cells_inside_the_circle(tmp_path):
     assert max(abs(box.Min.X), abs(box.Max.X), abs(box.Min.Y), abs(box.Max.Y)) <= 30.0 + 1e-6
     # a mass still stands on the ground of a round range
     assert board_export.mass_base([[-5, -5], [5, -5], [5, 5], [-5, 5]], surface) == pytest.approx(1.0)
+
+
+def test_blocks_and_sheets_on_the_designers_own_layers_go_out_on_layers_of_those_names(tmp_path):
+    board.set_layers(tmp_path, [*board.default_layers(), {"id": "tower", "name": "타워", "parent": "mass", "color": "#c0504d"}])
+    board.add_paper(tmp_path, {"kind": "mass", "id": "m1", "title": "안", "blocks": [
+        {"w": 10, "d": 10, "floors": 2}, {"w": 5, "d": 5, "floors": 9, "layer": "tower"}]})
+    board.add_paper(tmp_path, {"kind": "mass", "id": "m2", "title": "탑", "layer": "tower", "blocks": [{"w": 4, "d": 4, "floors": 3}]})
+    board.add_paper(tmp_path, {"kind": "tracing", "id": "t1", "title": "선", "layer": "tower", "strokes": [[[0, 0], [1, 1]]]})
+    scene = board_export.export_scene(tmp_path, hooks=[])
+    by_name = {x["name"]: x for x in scene["layers"]}
+    assert len(by_name["매스 - 타워"]["solids"]) == 2  # one block of m1 and all of m2
+    assert by_name["매스 - 타워"]["color"] == (192, 80, 77)
+    assert len(by_name["매스 - 타워"]["curves"]) == 1
+    scheme = next(x for x in scene["layers"] if x["name"].endswith("안"))
+    assert len(scheme["solids"]) == 1
+    assert not any(x["name"].endswith("탑") for x in scene["layers"])  # nothing left on its own layer

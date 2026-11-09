@@ -2,7 +2,7 @@
 // when a project opens, fed from the board API, and laid over the redrawn page.
 
 import { expertPath, parseRecommendation, boardExport } from './model.js';
-import { keepSelected, pickedNames, addQuestion, readModelSummary, rangeQuery, pickedBlocks, propertyChange } from './board-model.js';
+import { keepSelected, pickedNames, addQuestion, readModelSummary, rangeQuery, pickedBlocks, propertyChange, boardLayers } from './board-model.js';
 import { VWorldView } from './vworld-view.js';
 import { api, expertUrl, projectApi } from './api.js';
 import { say } from './commands.js';
@@ -24,6 +24,8 @@ export async function loadBoard(name) {
   try {
     const board = await api(`${projectApi(name)}/board`);
     if (ui.project !== name) return;
+    // Layers being saved one after another (layers.js): the screen's newer ones win until the last is in.
+    if (ui.layersSaving && ui.board?.layers) board.layers = ui.board.layers;
     ui.board = board;
     ui.selected = keepSelected(ui.selected, board);
     table?.setBoard(board);
@@ -64,9 +66,11 @@ function modelHooks(name) {
 function tableHooks(name) {
   const paperUrl = (id) => `${projectApi(name)}/board/papers/${encodeURIComponent(id)}`;
   return {
-    add: (paper) => boardCall(name, () => api(`${projectApi(name)}/board/papers`, { method: 'POST', body: paper }), true),
+    // A new paper goes onto the current layer (the 레이어 panel's ✓), if one is chosen.
+    add: (paper) => boardCall(name, () => api(`${projectApi(name)}/board/papers`, { method: 'POST',
+      body: ui.currentLayer && !paper.layer ? { ...paper, layer: ui.currentLayer } : paper }), true),
     update: (id, changes) => boardCall(name, () => api(paperUrl(id), { method: 'PATCH', body: changes }),
-      ['blocks', 'floor_height', 'title', 'text'].some((key) => key in changes)),
+      ['blocks', 'floor_height', 'title', 'text', 'layer', 'group'].some((key) => key in changes)),
     remove: (id) => boardCall(name, () => api(paperUrl(id), { method: 'DELETE' })),
     // A photo goes up as a file (multipart); fields: title, x, y, w, h.
     addPhoto: (blob, fileName, fields) => boardCall(name, () => {
@@ -307,7 +311,7 @@ export function editProperty(key, raw) {
   if (!table) return;
   const papers = table.papers.filter((p) => ui.selected.includes(p.id));
   const blocks = papers.length ? [] : pickedBlocks(table.papers, ui.picked);
-  const out = propertyChange(papers, blocks, key, raw);
+  const out = propertyChange(papers, blocks, key, raw, boardLayers(ui.board));
   ui.propError = out.error ? { key, text: out.error } : null;
   if (!out.error) {
     table.editPapers(out);

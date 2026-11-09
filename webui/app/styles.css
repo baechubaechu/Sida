@@ -449,13 +449,34 @@ button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 .prop-input:focus { outline: none; }
 .prop-unit { color: var(--muted); font-size: 12px; }
 .prop-error { display: block; margin-top: 8px; color: #b42318; font-size: 12px; line-height: 16px; }
-.layers { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.layer { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 8px; border-radius: 8px; font-size: 14px; }
-.layer:hover { background: var(--surface-subtle); }
-.layer.is-off .layer-name, .layer.is-off .layer-count { color: var(--muted); opacity: .6; }
-.layer-eye { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; color: var(--brand); font-size: 12px; }
-.layer-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+/* The 레이어 panel, as Rhino's: tools over a table (name | current | visible | lock | colour). */
+.layer-tools { display: flex; align-items: center; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.layer-tools-gap { flex: 1; }
+.layer-tool { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 6px; color: var(--text); }
+.layer-tool:hover:not(:disabled) { background: var(--surface-subtle); color: var(--brand); }
+.layer-tool:disabled { opacity: .35; }
+.layer-table { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0; }
+.layer-row { display: grid; grid-template-columns: minmax(0, 1fr) 32px 32px 32px 32px; align-items: center; min-height: 36px; padding: 0 8px 0 0; font-size: 14px; }
+.layer-row:not(.layer-header):hover { background: var(--surface-subtle); }
+.layer-row.is-picked { background: var(--selected); }
+.layer-header { position: sticky; top: -4px; z-index: 1; min-height: 28px; background: var(--surface); color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
+.layer-header span:first-child { padding-left: 16px; }
+.layer-header span:not(:first-child) { text-align: center; }
+.layer-row > span:not(.layer-name) { display: grid; place-items: center; }
+.layer-name { display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: calc(8px + var(--depth, 0) * 16px); }
+.layer-label { flex: 1; min-width: 0; min-height: 32px; padding: 0 8px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 6px; }
+.layer-row.is-off .layer-label, .layer-row.is-off .layer-count { color: var(--muted); }
+.layer-rename { flex: 1; min-width: 0; min-height: 30px; padding: 0 8px; font: inherit; border: 1px solid var(--brand); border-radius: 6px; }
 .layer-count { color: var(--muted); font-size: 12px; }
+.layer-note { margin: 12px 16px 8px; }
+.layer-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; color: var(--brand); }
+.layer-mark.is-off { color: var(--muted); }
+.layer-current.is-off { opacity: .25; }
+.layer-mark:hover { background: var(--surface); }
+.layer-swatch { position: relative; display: block; width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--line); background: var(--swatch); cursor: pointer; }
+.layer-swatch.is-empty { background: linear-gradient(135deg, transparent 45%, var(--line) 45%, var(--line) 55%, transparent 55%); }
+.layer-swatch input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.layer-row.layer-header > span:first-child { display: block; text-align: left; }
 .expert-count { display: inline-grid; place-items: center; min-width: 22px; height: 22px; margin-left: 4px; padding: 0 5px; border-radius: 6px; background: var(--surface-subtle); color: var(--muted); font-size: 11px; vertical-align: middle; }
 .panel-label { margin: 16px 8px 8px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .02em; }
 .expert-list { list-style: none; margin: 0; padding: 0; }

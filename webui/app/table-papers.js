@@ -74,7 +74,7 @@ export const papersMethods = {
     g.traces.clear();
     const mat = new THREE.LineBasicMaterial({ color: this.colors.pen });
     for (const p of this.papers) {
-      if (!isOverlaid(p, this.home)) continue;
+      if (!isOverlaid(p, this.home) || this.layerHidden(p)) continue;
       for (const s of p.strokes || []) {
         g.traces.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(s.map(([x, y]) => new THREE.Vector3(x, y, 0.15))), mat));
       }

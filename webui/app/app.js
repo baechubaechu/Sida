@@ -14,6 +14,7 @@ import { addTypedIdea, ideaAction, placeIdeaFloat, saveIdea } from './ideas.js';
 import { clearExpert, loadExpert, loadOrdinance, loadProjectSites, loadProjects, loadSession, loadSite, resetTracking, start, track } from './jobs.js';
 import { syncPanelWidths } from './panels.js';
 import { dockAction, followSelection, loadDock } from './dock.js';
+import { layerAction } from './layers.js';
 import { askDelete, createSample, keepProjectList, openProjectInfo } from './projects.js';
 import { render } from './render.js';
 import { checkRelayKey, loadSettings, openSettings } from './settings.js';
@@ -61,7 +62,7 @@ async function navigate() {
       ui.selected = [];
       ui.picked = [];
       followSelection(false);
-      ui.hiddenLayers = new Set();
+      Object.assign(ui, { layerPick: '', layerRename: '', layerRenameText: '', currentLayer: '', aroundHidden: false });
       ui.talks = new Map();
       ui.talkViews = [];
       ui.talkMenu = '';
@@ -214,12 +215,7 @@ app.addEventListener('click', (event) => {
   if (action === 'talk-new') { changeConductor('new'); app.querySelector('[data-focus="conductor-new"]')?.focus({ preventScroll: true }); }
   if (action.startsWith('dock-')) dockAction(action, button);
   if (action === 'inspect-paper') table?.inspect(button.dataset.id);
-  if (action === 'layer-toggle') {
-    const key = button.dataset.layer;
-    if (ui.hiddenLayers.has(key)) ui.hiddenLayers.delete(key); else ui.hiddenLayers.add(key);
-    table?.setHiddenLayers(ui.hiddenLayers);
-    render(false);
-  }
+  if (action.startsWith('layer-')) layerAction(action, button);
   if (action === 'clear-selection') { ui.selected = []; followSelection(false); table?.setSelected([]); render(false); }
   if (action === 'select-masses') table?.selectMasses();
   if (action === 'ask-selection') askAbout(button.dataset.compare === 'true' ? COMPARE_QUESTION : '');

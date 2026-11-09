@@ -4,7 +4,7 @@
 
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { PX, PAPER_SIZE, riseFor, groundFor, scaleSpan, isOverlaid, blockCorners, freeSpot, folded, foldedInPlan, paperName, readScheme, schemeRows, parseBlockKey, fmt, GUMBALL_PX, GUMBALL_SCALE_PX, editBlocks, blocksCenter, blockKey, pickedBlocks, toFrame, MAX_BLOCKS, numericPushBlock, numericScaleBlocks, snapTape, massIds, changedFields } from './board-model.js';
+import { blockLayer, PX, PAPER_SIZE, riseFor, groundFor, scaleSpan, isOverlaid, blockCorners, freeSpot, folded, foldedInPlan, paperName, readScheme, schemeRows, parseBlockKey, fmt, GUMBALL_PX, GUMBALL_SCALE_PX, editBlocks, blocksCenter, blockKey, pickedBlocks, toFrame, MAX_BLOCKS, numericPushBlock, numericScaleBlocks, snapTape, massIds, changedFields } from './board-model.js';
 
 export const blocksMethods = {
   // The picked blocks, grouped by scheme, of the schemes that stand on the site.
@@ -12,6 +12,7 @@ export const blocksMethods = {
     return pickedBlocks(this.papers, this.picked).filter((g) => g.paper.id === this.active || this.ghost);
   },
   pickBlocks(keys) {
+    keys = keys.filter((key) => pickedBlocks(this.papers, [key]).every((g) => g.indices.every((i) => this.blockFree(g.paper, g.paper.blocks[i]))));
     this.picked = keys;
     this.hooks.pick?.(keys);
     this.drawMasses();
@@ -324,16 +325,19 @@ export const blocksMethods = {
     const ink = new THREE.Color(this.colors.ink);
     const pick = new THREE.Color(this.colors.pick);
     const build = (paper, faint, tint) => {
-      if (!tint && this.layerHidden(paper)) return; // its layer is turned off
       for (const [index, b] of (paper.blocks || []).entries()) {
+        const layer = blockLayer(paper, b, this.layers);
+        if (!tint && this.layerFlags.hidden.has(layer)) continue; // the block's own layer is off
         const h = b.floors * (paper.floor_height || 4.2);
         const base = this.blockBase(frame, b);
         const geom = new THREE.BoxGeometry(b.w, b.d, h);
-        // A click or a selection box on a building picks that block (not an AI scheme in preview).
-        const own = tint ? {} : { paper: paper.id, index };
+        // A click or a selection box on a building picks that block (not an AI scheme in preview,
+        // nor one on a locked layer). A layer with a colour paints its buildings.
+        const own = tint || this.layerFlags.locked.has(layer) ? {} : { paper: paper.id, index };
+        const fill = (!tint && this.layerFlags.color.get(layer)) || this.colors.mass;
         const picked = !tint && this.picked.includes(blockKey(paper.id, index));
         if (!faint) {
-          const box = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ color: picked ? pick.clone().lerp(new THREE.Color(this.colors.mass), 0.55) : this.colors.mass }));
+          const box = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ color: picked ? pick.clone().lerp(new THREE.Color(fill), 0.55) : fill }));
           box.position.set(b.u, b.v, base + h / 2);
           box.rotation.z = ((b.a || 0) * Math.PI) / 180;
           box.castShadow = true;

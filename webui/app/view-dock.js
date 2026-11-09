@@ -5,7 +5,7 @@
 // shows) and 전문가 (the experts), as in Rhino or CAD. On a narrow screen (≤900px) the tabs at the
 // bottom show one side at a time and the layout is fixed: 대화 alone, the rest in one group.
 
-import { layerList, pickedBlocks, propertiesOf } from './board-model.js';
+import { boardLayers, layerRows, pickedBlocks, propertiesOf } from './board-model.js';
 import { DOCK_PANELS, sideShown } from './dock-model.js';
 import { escapeHtml as escape, siteCard } from './model.js';
 import { icon } from './icons.js';
@@ -16,7 +16,7 @@ import { expertsBody } from './view-experts.js';
 function propsBody() {
   const all = ui.board?.papers || [];
   const papers = all.filter((p) => ui.selected.includes(p.id));
-  const props = propertiesOf(papers, siteCard(ui.site), papers.length ? [] : pickedBlocks(all, ui.picked));
+  const props = propertiesOf(papers, siteCard(ui.site), papers.length ? [] : pickedBlocks(all, ui.picked), boardLayers(ui.board));
   const inner = props
     ? `<h3 class="side-title">${escape(props.title)}</h3>
       <dl class="props">${props.rows.map(([label, value, field]) => `<dt>${field ? `<label for="prop-${field.key}">${escape(label)}</label>` : escape(label)}</dt><dd>${field ? propField(field, value) : escape(value)}</dd>`).join('')}</dl>
@@ -29,6 +29,14 @@ function propsBody() {
 // typed is kept in `drafts` (prop:key) so a redraw meanwhile does not wipe it.
 function propField(field, value) {
   const error = ui.propError?.key === field.key ? ui.propError.text : '';
+  if (field.type === 'layer') {
+    // The layers as a tree; '' when the selection is on several.
+    const rows = layerRows(ui.board);
+    return `<span class="prop-field"><select id="prop-layer" class="prop-input" data-prop="layer" data-focus="prop-layer">
+        ${value === '' ? '<option value="" selected disabled>여러 레이어</option>' : ''}
+        ${rows.map((r) => `<option value="${escape(r.id)}" ${r.id === value ? 'selected' : ''}>${'\u2003'.repeat(r.depth)}${escape(r.name)}</option>`).join('')}</select></span>
+      ${error ? `<span class="prop-error" role="alert">${escape(error)}</span>` : ''}`;
+  }
   const number = field.type === 'number';
   const shown = drafts.get(`prop:${field.key}`) ?? value;
   return `<span class="prop-field ${error ? 'has-error' : ''}"><input id="prop-${field.key}" class="prop-input" data-prop="${field.key}" data-focus="prop-${field.key}"
@@ -37,12 +45,32 @@ function propField(field, value) {
     ${error ? `<span class="prop-error" id="prop-error" role="alert">${escape(error)}</span>` : ''}`;
 }
 
+// The 레이어 panel, as Rhino's: a row of tools (new layer, sublayer, delete, up, down) over a tree
+// of layers with the current mark, visibility, lock and colour (layers.js does the buttons).
+// Double-clicking a name renames it.
 function layersBody(around) {
-  const rows = layerList(ui.board, ui.hiddenLayers, { around });
-  return `<div class="dock-body" role="tabpanel" aria-label="레이어"><div class="experts-scroll side-body"><ul class="layers">${rows.map((r) => `<li class="layer ${r.visible ? '' : 'is-off'}">
-      <button type="button" class="layer-eye" data-action="layer-toggle" data-layer="${escape(r.key)}" aria-pressed="${r.visible}" aria-label="${escape(r.label)} ${r.visible ? '숨기기' : '보이기'}" title="${r.visible ? '숨기기' : '보이기'}">${icon(r.visible ? 'eye' : 'eyeOff')}</button>
-      <span class="layer-name">${escape(r.label)}</span>${r.count ? `<span class="layer-count">${r.count}${escape(r.unit)}</span>` : ''}</li>`).join('')}</ul>
-    <p class="side-note">숨긴 레이어는 제도판에서만 가려집니다. 내보내기와 전문가 검토에는 그대로 들어갑니다.</p></div></div>`;
+  const rows = layerRows(ui.board, { around, aroundHidden: ui.aroundHidden, current: ui.currentLayer });
+  const pick = rows.find((r) => r.id === ui.layerPick && !r.system);
+  const tool = (action, name, label, off = false) => `<button type="button" class="layer-tool" data-action="${action}" aria-label="${label}" title="${label}" ${off ? 'disabled' : ''}>${icon(name)}</button>`;
+  const mark = (r, action, on, onIcon, offIcon, label) => `<button type="button" class="layer-mark ${on ? '' : 'is-off'}" data-action="${action}" data-layer="${escape(r.id)}" aria-pressed="${on}" aria-label="${escape(r.name)} ${label}" title="${label}">${icon(on ? onIcon : offIcon)}</button>`;
+  return `<div class="dock-body" role="tabpanel" aria-label="레이어">
+    <div class="layer-tools" role="toolbar" aria-label="레이어 도구">
+      ${tool('layer-add', 'layerNew', '새 레이어')}${tool('layer-add-sub', 'layerSub', pick ? `${pick.name} 아래에 하위 레이어` : '하위 레이어 (먼저 레이어를 고르세요)', !pick)}
+      ${tool('layer-remove', 'trash', pick ? `${pick.name} 지우기 (안의 것은 위 레이어로)` : '레이어 지우기 (먼저 레이어를 고르세요)', !pick || rows.filter((r) => !r.system).length < 2)}
+      <span class="layer-tools-gap"></span>${tool('layer-up', 'up', '위로', !pick)}${tool('layer-down', 'down', '아래로', !pick)}</div>
+    <div class="layer-table" role="grid" aria-label="레이어">
+      <div class="layer-row layer-header" role="row"><span role="columnheader">레이어</span><span role="columnheader" title="새로 만드는 것이 들어갈 레이어">현재</span><span role="columnheader">보기</span><span role="columnheader">잠금</span><span role="columnheader">색</span></div>
+      ${rows.map((r) => `<div class="layer-row ${r.id === ui.layerPick ? 'is-picked' : ''} ${!r.visible || r.parentHidden ? 'is-off' : ''}" role="row" data-layer-row="${escape(r.id)}" aria-selected="${r.id === ui.layerPick}">
+        <span class="layer-name" role="gridcell" style="--depth: ${r.depth}">${ui.layerRename === r.id
+          ? `<input class="layer-rename" data-layer-rename="${escape(r.id)}" data-focus="layer-rename" value="${escape(ui.layerRenameText || r.name)}" maxlength="60" aria-label="레이어 이름">`
+          : `<button type="button" class="layer-label" data-action="layer-pick" data-layer="${escape(r.id)}" title="${r.system ? '' : '두 번 누르면 이름 바꾸기'}">${escape(r.name)}</button>`}${r.count ? `<span class="layer-count">${r.count}</span>` : ''}</span>
+        <span role="gridcell">${r.system ? '' : `<button type="button" class="layer-mark layer-current ${r.current ? '' : 'is-off'}" data-action="layer-current" data-layer="${escape(r.id)}" aria-pressed="${r.current}" aria-label="${escape(r.name)} 현재 레이어로" title="${r.current ? '현재 레이어 (다시 누르면 종류별 레이어로)' : '현재 레이어로: 새로 만드는 것이 여기에 들어갑니다'}">${icon('check')}</button>`}</span>
+        <span role="gridcell">${mark(r, 'layer-eye', r.visible, 'eye', 'eyeOff', r.visible ? '숨기기' : '보이기')}</span>
+        <span role="gridcell">${r.system ? '' : mark(r, 'layer-lock', !r.locked, 'unlock', 'lock', r.locked ? '잠금 풀기' : '잠그기')}</span>
+        <span role="gridcell">${r.system ? '' : `<label class="layer-swatch ${r.color ? '' : 'is-empty'}" style="--swatch: ${escape(r.color || 'transparent')}" title="색 (매스가 이 색으로)"><input type="color" data-layer-color="${escape(r.id)}" value="${escape(r.color || '#9aa7b2')}" aria-label="${escape(r.name)} 색"></label>`}</span>
+      </div>`).join('')}
+      <p class="side-note layer-note">숨기거나 잠근 레이어는 제도판에서만 가려지거나 고를 수 없습니다. 내보내기와 전문가 검토에는 그대로 들어갑니다. 고른 것을 다른 레이어로 옮기려면 속성의 "레이어" 값을 바꾸세요.</p>
+    </div></div>`;
 }
 
 function panelBody(id, around) {

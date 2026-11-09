@@ -555,24 +555,122 @@ export function resultPreview(text, maxLines = Infinity) {
 export const KIND_LABELS = { site: '대지', mass: '매스안', note: '메모', tracing: '트레이싱지', expert: '전문가 결과', photo: '사진' };
 
 // ------------------------------------------------------------------ layers and properties
-// The right panel's 레이어 and 속성 tabs, as in Rhino or CAD.
+// The 레이어 and 속성 panels, as in Rhino. The designer's layers are saved with the board
+// (sida/board.py): {id, name, parent, visible, locked, color}, in order, sublayers under their
+// parent. A paper names its layer (`layer`), a block of a mass may name its own; without one a
+// paper is on its kind's layer (the default layers' ids are the kinds), a block on its scheme's.
 
-// The layer a paper is drawn on: each mass scheme its own, the other papers by kind.
-export function layerOf(paper) {
-  return paper.kind === 'mass' ? `mass:${paper.id}` : paper.kind;
+export const DEFAULT_LAYERS = [['site', '대지'], ['mass', '매스'], ['tracing', '트레이싱지'], ['note', '메모'], ['photo', '사진'], ['expert', '전문가 결과']]
+  .map(([id, name]) => ({ id, name, parent: '', visible: true, locked: false, color: '' }));
+
+export function boardLayers(board) {
+  return board?.layers?.length ? board.layers : DEFAULT_LAYERS;
 }
 
-// The layers of a board, in drawing order, each {key, label, count, visible}. The site and its
-// surroundings come first (the surroundings only once they have been shown), then each mass
-// scheme, then the other kinds that have papers. `hidden`: a Set of keys.
-export function layerList(board, hidden = new Set(), { around = false } = {}) {
-  const papers = board?.papers || [];
-  const count = (kind) => papers.filter((p) => p.kind === kind).length;
-  const rows = [{ key: 'site', label: '대지', count: count('site') }];
-  if (around) rows.push({ key: 'around', label: '주변 지형·건물', count: 0 });
-  for (const p of papers.filter((x) => x.kind === 'mass')) rows.push({ key: layerOf(p), label: paperName(p), count: (p.blocks || []).length, unit: '동' });
-  for (const kind of ['tracing', 'note', 'photo', 'expert']) if (count(kind)) rows.push({ key: kind, label: KIND_LABELS[kind], count: count(kind) });
-  return rows.map((r) => ({ unit: '장', ...r, visible: !hidden.has(r.key) }));
+// The layer a paper is on (an id of `layers`).
+export function paperLayer(paper, layers) {
+  const has = (id) => id && layers.some((l) => l.id === id);
+  if (has(paper.layer)) return paper.layer;
+  if (has(paper.kind)) return paper.kind;
+  return layers[0]?.id || '';
+}
+
+// The layer a block of a mass is on: its own, else its scheme's.
+export function blockLayer(paper, block, layers) {
+  return block?.layer && layers.some((l) => l.id === block.layer) ? block.layer : paperLayer(paper, layers);
+}
+
+// What the table needs from the layers: the ids hidden or locked (a sublayer of a hidden or locked
+// layer is too) and each layer's colour ('' when it has none).
+export function layerFlags(layers) {
+  const byId = new Map(layers.map((l) => [l.id, l]));
+  const up = (id, test) => {
+    for (let at = byId.get(id), n = 0; at && n <= layers.length; at = byId.get(at.parent), n += 1) if (test(at)) return true;
+    return false;
+  };
+  return {
+    hidden: new Set(layers.filter((l) => up(l.id, (x) => !x.visible)).map((l) => l.id)),
+    locked: new Set(layers.filter((l) => up(l.id, (x) => x.locked)).map((l) => l.id)),
+    color: new Map(layers.map((l) => [l.id, l.color || ''])),
+  };
+}
+
+// The layers as the 레이어 panel lists them: a tree (each sublayer under its parent, `depth`),
+// with how many things are on each (papers, and blocks on a layer of their own), whether its
+// parent hides or locks it, and which one is current. `around`: the surroundings have been
+// shown on the table; they get a row of their own (visibility only, `system`).
+export function layerRows(board, { around = false, aroundHidden = false, current = '' } = {}) {
+  const layers = boardLayers(board);
+  const flags = layerFlags(layers);
+  const counts = new Map();
+  const add = (id) => counts.set(id, (counts.get(id) || 0) + 1);
+  for (const p of board?.papers || []) {
+    const own = paperLayer(p, layers);
+    add(own);
+    for (const b of p.blocks || []) if (blockLayer(p, b, layers) !== own) add(blockLayer(p, b, layers));
+  }
+  const rows = [];
+  const walk = (parent, depth) => {
+    for (const l of layers.filter((x) => (x.parent || '') === parent)) {
+      const children = layers.some((x) => x.parent === l.id);
+      rows.push({ ...l, depth, count: counts.get(l.id) || 0, children, current: l.id === current,
+        parentHidden: l.visible && flags.hidden.has(l.id), parentLocked: !l.locked && flags.locked.has(l.id) });
+      walk(l.id, depth + 1);
+    }
+  };
+  walk('', 0);
+  if (around) rows.push({ id: 'around', name: '주변 지형·건물', depth: 0, count: 0, visible: !aroundHidden, locked: false, color: '', system: true });
+  return rows;
+}
+
+// The next free "레이어 n".
+export function nextLayerName(layers) {
+  let n = 1;
+  while (layers.some((l) => l.name === `레이어 ${n}`)) n += 1;
+  return `레이어 ${n}`;
+}
+
+// A new layer at the end of its parent's sublayers (`parent` '' for the top). Returns the layers.
+export function addLayer(layers, { id, name, parent = '' }) {
+  const layer = { id, name: name || nextLayerName(layers), parent, visible: true, locked: false, color: '' };
+  // After the parent's last sublayer (at any depth), so the list keeps the tree's order.
+  let at = layers.length;
+  if (parent) {
+    const inside = new Set([parent]);
+    at = layers.findIndex((l) => l.id === parent) + 1;
+    for (let i = at; i < layers.length; i += 1) if (inside.has(layers[i].parent)) { inside.add(layers[i].id); at = i + 1; }
+  }
+  return [...layers.slice(0, at), layer, ...layers.slice(at)];
+}
+
+// Take a layer away: its sublayers move up to its parent (the server moves what was on it up too).
+// The last layer stays.
+export function removeLayer(layers, id) {
+  const gone = layers.find((l) => l.id === id);
+  if (!gone || layers.length < 2) return layers;
+  return layers.filter((l) => l.id !== id).map((l) => (l.parent === id ? { ...l, parent: gone.parent } : l));
+}
+
+export function changeLayer(layers, id, changes) {
+  return layers.map((l) => (l.id === id ? { ...l, ...changes } : l));
+}
+
+// Move a layer up or down among its siblings (with its sublayers).
+export function moveLayer(layers, id, direction) {
+  const layer = layers.find((l) => l.id === id);
+  if (!layer) return layers;
+  const siblings = layers.filter((l) => (l.parent || '') === (layer.parent || ''));
+  const at = siblings.indexOf(layer);
+  const other = siblings[at + (direction === 'up' ? -1 : 1)];
+  if (!other) return layers;
+  const branch = (top) => { const ids = new Set([top.id]); for (const l of layers) if (ids.has(l.parent)) ids.add(l.id); return layers.filter((l) => ids.has(l.id)); };
+  const [first, second] = direction === 'up' ? [layer, other] : [other, layer];
+  const a = branch(first);
+  const b = branch(second);
+  const rest = layers.filter((l) => !a.includes(l) && !b.includes(l));
+  const start = layers.indexOf(direction === 'up' ? other : layer);
+  const before = rest.filter((l) => layers.indexOf(l) < start);
+  return [...before, ...a, ...b, ...rest.filter((l) => layers.indexOf(l) >= start)];
 }
 
 const m2 = (v) => `${Math.round(v * 10) / 10}㎡`;
@@ -591,20 +689,26 @@ export const PROPERTY_FIELDS = {
   w: { key: 'w', type: 'number', min: 0.5, max: 1000, step: 0.1, unit: 'm' },
   d: { key: 'd', type: 'number', min: 0.5, max: 1000, step: 0.1, unit: 'm' },
   a: { key: 'a', type: 'number', min: -180, max: 180, step: 1, unit: '°' },
+  layer: { key: 'layer', type: 'layer' }, // a choice of the board's layers
 };
 const NAMED = new Set(['mass', 'tracing', 'photo']); // the kinds with a name the designer gives
 const round1 = (v) => Math.round(v * 10) / 10;
 
-export function propertiesOf(papers, site = null, blocks = []) {
-  if (!papers.length) return blocks.length ? blockProperties(blocks) : null;
+// One value for all, or '' when they differ.
+const shared = (values) => (new Set(values).size === 1 ? values[0] : '');
+
+export function propertiesOf(papers, site = null, blocks = [], layers = DEFAULT_LAYERS) {
+  if (!papers.length) return blocks.length ? blockProperties(blocks, layers) : null;
+  const layerRow = ['레이어', shared(papers.map((p) => paperLayer(p, layers))), PROPERTY_FIELDS.layer];
   if (papers.length > 1) {
     const kinds = new Map();
     for (const p of papers) kinds.set(p.kind, (kinds.get(p.kind) || 0) + 1);
-    return { title: `${papers.length}장 선택`, rows: [...kinds].map(([kind, n]) => [KIND_LABELS[kind] || kind, `${n}장`]) };
+    return { title: `${papers.length}장 선택`, rows: [...[...kinds].map(([kind, n]) => [KIND_LABELS[kind] || kind, `${n}장`]), layerRow] };
   }
   const p = papers[0];
   const rows = [['종류', KIND_LABELS[p.kind] || p.kind]];
   if (NAMED.has(p.kind)) rows.push(['이름', p.title || '', PROPERTY_FIELDS.title]);
+  rows.push(layerRow);
   let note = '';
   if (p.kind === 'mass') {
     const blocks = p.blocks || [];
@@ -634,29 +738,46 @@ export function propertiesOf(papers, site = null, blocks = []) {
 
 // The buildings picked on their own: one shows its floors, width, depth and turn to change; several
 // show how many and their floors (changed for all at once; empty when they differ).
-function blockProperties(groups) {
+function blockProperties(groups, layers) {
   const all = groups.flatMap((g) => g.indices.map((i) => g.paper.blocks[i]));
+  const layerRow = ['레이어', shared(groups.flatMap((g) => g.indices.map((i) => blockLayer(g.paper, g.paper.blocks[i], layers)))), PROPERTY_FIELDS.layer];
   const floorArea = all.reduce((sum, b) => sum + b.w * b.d, 0);
   const gross = all.reduce((sum, b) => sum + b.w * b.d * b.floors, 0);
   if (all.length === 1) {
     const [{ paper, indices: [i] }] = groups;
     const b = all[0];
-    return { title: `${paperName(paper)} · ${i + 1}동`, rows: [['종류', '동'], ['층수', b.floors, PROPERTY_FIELDS.floors],
+    return { title: `${paperName(paper)} · ${i + 1}동`, rows: [['종류', '동'], layerRow, ['층수', b.floors, PROPERTY_FIELDS.floors],
       ['폭', round1(b.w), PROPERTY_FIELDS.w], ['깊이', round1(b.d), PROPERTY_FIELDS.d], ['각도', b.a || 0, PROPERTY_FIELDS.a],
       ['높이', `${round1(b.floors * (paper.floor_height || 4.2))}m`], ['바닥면적', m2(floorArea)], ['연면적', m2(gross)]], note: '' };
   }
   const floors = new Set(all.map((b) => b.floors));
-  return { title: `동 ${all.length}개`, rows: [['종류', '동'], ['층수', floors.size === 1 ? all[0].floors : '', PROPERTY_FIELDS.floors],
+  return { title: `동 ${all.length}개`, rows: [['종류', '동'], layerRow, ['층수', floors.size === 1 ? all[0].floors : '', PROPERTY_FIELDS.floors],
     ['바닥면적 합', m2(floorArea)], ['연면적 합', m2(gross)]], note: floors.size > 1 ? '층수가 서로 다릅니다. 값을 넣으면 고른 동이 모두 그 층수가 됩니다.' : '' };
 }
 
 // A value typed into the 속성 panel, checked: [{id, changes}] for the papers it changes, or
 // {error} to show beside the field. `papers`: the selected papers (one), `blocks`: the picked
 // buildings (pickedBlocks()), used when no paper is selected.
-export function propertyChange(papers, blocks, key, raw) {
+export function propertyChange(papers, blocks, key, raw, layers = DEFAULT_LAYERS) {
   const field = PROPERTY_FIELDS[key];
   if (!field) return { error: '바꿀 수 없는 값입니다.' };
   let value = String(raw ?? '').trim();
+  if (key === 'layer') {
+    // Papers move onto the layer; a block onto its own (or back onto its scheme's, without one).
+    if (!layers.some((l) => l.id === value)) return { error: '없는 레이어입니다.' };
+    if (papers.length) return papers.filter((p) => paperLayer(p, layers) !== value).map((p) => ({ id: p.id, changes: { layer: value } }));
+    const moved = [];
+    for (const { paper, indices } of blocks) {
+      const own = paperLayer(paper, layers);
+      const next = paper.blocks.map((b, i) => {
+        if (!indices.includes(i) || blockLayer(paper, b, layers) === value) return b;
+        const { layer: _, ...rest } = b;
+        return value === own ? rest : { ...rest, layer: value };
+      });
+      if (next.some((b, i) => b !== paper.blocks[i])) moved.push({ id: paper.id, changes: { blocks: next } });
+    }
+    return moved;
+  }
   if (field.type === 'number') {
     const n = Number(value.replace(/,/g, ''));
     if (!value || !Number.isFinite(n)) return { error: '숫자를 넣어 주세요.' };

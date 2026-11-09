@@ -30,6 +30,15 @@ const PATHS = {
   tray: '<path d="M10 3v3M10 14v3M3 10h3M14 10h3M5 5l2 2M13 13l2 2M15 5l-2 2M7 13l-2 2"/>',
   eye: '<path d="M2 10s3-5.5 8-5.5 8 5.5 8 5.5-3 5.5-8 5.5S2 10 2 10z"/><circle cx="10" cy="10" r="2.5"/>',
   eyeOff: '<path d="M2 10s3-5.5 8-5.5 8 5.5 8 5.5-3 5.5-8 5.5S2 10 2 10z"/><path d="M3.5 16.5l13-13"/>',
+  // The 레이어 panel: lock, a new layer, a sublayer, move up and down, the current layer, a group.
+  lock: '<rect x="4.5" y="9" width="11" height="8" rx="1.5"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/>',
+  unlock: '<rect x="4.5" y="9" width="11" height="8" rx="1.5"/><path d="M7 9V6.5a3 3 0 0 1 5.8-1"/>',
+  layerNew: '<path d="M10 3.5 3 7l7 3.5L17 7z"/><path d="M3 11l7 3.5 3-1.5"/><path d="M15.5 11.5v5M13 14h5"/>',
+  layerSub: '<path d="M4 3.5v6.5a2 2 0 0 0 2 2h6"/><path d="m10 9.5 2.5 2.5-2.5 2.5"/><path d="M15.5 13v4M13.5 15h4"/>',
+  up: '<path d="M10 16V4M5 9l5-5 5 5"/>',
+  down: '<path d="M10 4v12M5 11l5 5 5-5"/>',
+  check: '<path d="m4.5 10.5 3.5 3.5 7.5-8"/>',
+  group: '<rect x="3" y="3" width="14" height="14" rx="2" stroke-dasharray="2.5 2"/><rect x="6" y="6" width="4" height="4" rx=".5"/><rect x="10" y="10" width="4" height="4" rx=".5"/>',
   // An empty parcel: a dashed lot outline, for a project whose site is not chosen yet.
   parcel: '<path d="M4 6.5 13.5 3l3 9.5-6 4.5L3.5 14z" stroke-dasharray="2.2 2"/><path d="M10 8v4M8 10h4"/>',
 };

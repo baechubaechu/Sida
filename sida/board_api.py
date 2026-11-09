@@ -102,6 +102,11 @@ def create_router(load_config, core) -> APIRouter:
     def set_hidden(name: str, body: dict) -> dict:
         return call(board.set_hidden, call(project, name), body.get("ids"))
 
+    # The designer's layers (as in Rhino): order, names, sublayers, visibility, locks, colours.
+    @router.put("/layers")
+    def set_layers(name: str, body: dict) -> dict:
+        return call(board.set_layers, call(project, name), body.get("layers"))
+
     @router.get("/export")
     def export(name: str, format: str = "dxf", active: str = "") -> Response:
         path = call(project, name)

@@ -12,7 +12,7 @@
 import { icon } from './icons.js';
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { layerOf, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewName, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS } from './board-model.js';
+import { boardLayers, paperLayer, blockLayer, layerFlags, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewName, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS } from './board-model.js';
 import { typing, TOOLS, MODEL_TOOLS } from './table-shared.js';
 import { blocksMethods } from './table-blocks.js';
 import { aroundMethods } from './table-around.js';
@@ -61,7 +61,11 @@ export class DraftingTable {
     this.pins = new Map(); // paper id → its pin element (3D)
     this.toldFold = false;
     this.around = null; // the site's surroundings (GET .../site/context), fetched when first shown
-    this.hiddenLayers = new Set(); // layers turned off in the right panel's 레이어 tab (layerOf keys)
+    // The board's layers (레이어 panel): what is hidden or locked, and colours; the surroundings
+    // are hidden on the screen only.
+    this.layers = boardLayers(null);
+    this.layerFlags = layerFlags(this.layers);
+    this.aroundHidden = false;
     this.aroundOn = false;
     this.aroundBusy = false;
     this.aroundRequest = null;
@@ -144,6 +148,8 @@ export class DraftingTable {
     if (this.gesture) { this.pending = view; return; }
     const siteChanged = JSON.stringify(this.site?.plan) !== JSON.stringify(view.site?.plan);
     this.site = view.site || null;
+    this.layers = boardLayers(view);
+    this.layerFlags = layerFlags(this.layers);
     if (siteChanged) {
       this.aroundRequest = null;
       this.aroundBusy = false;
@@ -342,7 +348,7 @@ export class DraftingTable {
     masses.scale.z = rise;
     // The surroundings rise with the masses; the table top goes below the lowest ground under them.
     const shown = Boolean(this.aroundOn && this.around);
-    around.visible = shown && !this.hiddenLayers.has('around');
+    around.visible = shown && !this.aroundHidden;
     around.scale.z = rise;
     desk.position.z = shown ? Math.min(0, this.aroundLow) * rise - 0.5 : 0;
     catcher.position.z = desk.position.z + 0.01;
@@ -351,7 +357,7 @@ export class DraftingTable {
     grid.material.opacity = ground;
     grid.visible = !shown;
     catcher.material.opacity = 0.22 * ground;
-    lot.visible = ground > 0.5 && !this.hiddenLayers.has('site');
+    lot.visible = ground > 0.5 && !this.layerHidden(this.papers.find((p) => p.kind === 'site') || { kind: 'site' });
     horizon.visible = ground < 1;
     horizon.material.opacity = 1 - ground;
     horizon.position.set(v.x, v.y, 0.1);
@@ -362,7 +368,7 @@ export class DraftingTable {
     // A paper the designer folded stays a pin in plan too.
     const fold = folded(v.tilt);
     const shut = new Set(foldedInPlan(this.papers, this.home));
-    traces.visible = fold && ground > 0.5 && !this.hiddenLayers.has('tracing');
+    traces.visible = fold && ground > 0.5;
     const off = new Set(this.papers.filter((p) => this.layerHidden(p)).map((p) => p.id)); // layers turned off
     for (const [id, obj] of objects) obj.visible = !fold && !shut.has(id) && !off.has(id);
     if (fold !== this.root.classList.contains('is-3d')) this.foldChanged(fold);
@@ -483,16 +489,33 @@ export class DraftingTable {
 
   // ------------------------------------------------------------------ layers
 
-  // Show only the layers not in `keys` (the right panel's 레이어 tab).
-  setHiddenLayers(keys) {
-    this.hiddenLayers = new Set(keys);
+  // The board's layers changed (or the surroundings were hidden or shown): draw again, and let go of
+  // what now lies on a hidden or locked layer.
+  setLayers(layers, { aroundHidden = this.aroundHidden } = {}) {
+    this.layers = layers?.length ? layers : boardLayers(null);
+    this.layerFlags = layerFlags(this.layers);
+    this.aroundHidden = aroundHidden;
+    const free = this.selected.filter((id) => { const p = this.find(id); return p && !this.layerHidden(p) && !this.layerLocked(p); });
+    if (free.length !== this.selected.length) this.select(free);
+    const picks = this.picked.filter((key) => pickedBlocks(this.papers, [key]).every((g) => g.indices.every((i) => this.blockFree(g.paper, g.paper.blocks[i]))));
+    if (picks.length !== this.picked.length) this.pickBlocks(picks);
     this.syncPapers();
     this.drawMasses();
     this.invalidate();
   }
 
   layerHidden(paper) {
-    return this.hiddenLayers.has(layerOf(paper));
+    return this.layerFlags.hidden.has(paperLayer(paper, this.layers));
+  }
+
+  layerLocked(paper) {
+    return this.layerFlags.locked.has(paperLayer(paper, this.layers));
+  }
+
+  // A block on a layer that is shown and not locked (it can be picked).
+  blockFree(paper, block) {
+    const layer = blockLayer(paper, block, this.layers);
+    return !this.layerFlags.hidden.has(layer) && !this.layerFlags.locked.has(layer);
   }
 
   // ------------------------------------------------------------------ controls
@@ -625,6 +648,7 @@ export class DraftingTable {
   }
 
   select(ids) {
+    ids = ids.filter((id) => { const p = this.find(id); return !p || !this.layerLocked(p); }); // a locked layer's papers stay put
     this.selected = ids;
     this.hooks.select(ids);
     this.syncPapers();
