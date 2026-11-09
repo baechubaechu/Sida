@@ -58,6 +58,8 @@ async function navigate() {
       ui.project = name;
       ui.board = null;
       ui.selected = [];
+      ui.sideTab = 'layers';
+      ui.hiddenLayers = new Set();
       ui.talks = new Map();
       ui.talkViews = [];
       ui.talkMenu = '';
@@ -210,7 +212,14 @@ app.addEventListener('click', (event) => {
   if (action === 'collapse-experts') { ui.expertsCollapsed = true; if (ui.pane === 'side') ui.pane = 'board'; render(false); }
   if (action === 'toggle-experts-panel') { ui.expertsCollapsed = !ui.expertsCollapsed; render(false); }
   if (action === 'inspect-paper') table?.inspect(button.dataset.id);
-  if (action === 'clear-selection') { ui.selected = []; table?.setSelected([]); render(false); }
+  if (action === 'side-tab') { ui.sideTab = button.dataset.tab; render(false); }
+  if (action === 'layer-toggle') {
+    const key = button.dataset.layer;
+    if (ui.hiddenLayers.has(key)) ui.hiddenLayers.delete(key); else ui.hiddenLayers.add(key);
+    table?.setHiddenLayers(ui.hiddenLayers);
+    render(false);
+  }
+  if (action === 'clear-selection') { ui.selected = []; if (ui.sideTab === 'props') ui.sideTab = 'layers'; table?.setSelected([]); render(false); }
   if (action === 'select-masses') table?.selectMasses();
   if (action === 'ask-selection') askAbout(button.dataset.compare === 'true' ? COMPARE_QUESTION : '');
   if (action === 'open-expert') location.hash = expertUrl(name, button.dataset.agent);

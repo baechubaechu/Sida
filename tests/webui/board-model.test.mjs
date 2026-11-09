@@ -980,3 +980,43 @@ test('the laser formats ticked on and off stay in their order', async () => {
   assert.deepEqual(pickFormats(['svg'], 'dxf', true), ['dxf', 'svg']);
   assert.deepEqual(pickFormats([], 'dwg', true), []); // not a format the server makes
 });
+
+test('the layers tab lists the site, each mass scheme and the kinds that have papers', async () => {
+  const { layerList, layerOf } = await import('../../webui/app/board-model.js');
+  const board = { papers: [
+    { id: 's', kind: 'site' }, { id: 'm1', kind: 'mass', title: 'A안', blocks: [{}, {}] },
+    { id: 'n1', kind: 'note', text: 'x' }, { id: 'n2', kind: 'note', text: 'y' }, { id: 'e1', kind: 'expert', title: '대지 분석가' },
+  ] };
+  assert.equal(layerOf(board.papers[1]), 'mass:m1');
+  assert.equal(layerOf(board.papers[2]), 'note');
+  const rows = layerList(board, new Set(['note']));
+  assert.deepEqual(rows.map((r) => r.key), ['site', 'mass:m1', 'note', 'expert']);
+  assert.deepEqual(rows.find((r) => r.key === 'mass:m1'), { key: 'mass:m1', label: 'A안', count: 2, unit: '동', visible: true });
+  assert.equal(rows.find((r) => r.key === 'note').visible, false);
+  assert.equal(rows.find((r) => r.key === 'note').count, 2);
+  assert.deepEqual(layerList(board, new Set(), { around: true }).map((r) => r.key).slice(0, 2), ['site', 'around']);
+  assert.deepEqual(layerList(null).map((r) => r.key), ['site']);
+});
+
+test('the properties tab sums a mass scheme against the site and its statutory caps', async () => {
+  const { propertiesOf } = await import('../../webui/app/board-model.js');
+  const mass = { id: 'm', kind: 'mass', title: 'A안', floor_height: 4, blocks: [{ w: 10, d: 20, floors: 3 }, { w: 5, d: 10, floors: 1 }] };
+  const site = { areaM2: 500, area: '500㎡', address: '서울 중구 무교동 45', zones: ['일반상업지역'], bcr: 80, far: 1300 };
+  const props = propertiesOf([mass], site);
+  const row = (label) => props.rows.find((r) => r[0] === label)?.[1];
+  assert.equal(props.title, 'A안');
+  assert.equal(row('동'), '2개');
+  assert.equal(row('최고 층수'), '3층 (12m)');
+  assert.equal(row('건축면적'), '250㎡');
+  assert.equal(row('연면적'), '650㎡');
+  assert.equal(row('건폐율'), '50% (법정 80% 이하)');
+  assert.equal(row('용적률'), '130% (법정 1300% 이하)');
+  assert.ok(props.note.includes('겹친'));
+  // No site area: no ratios.
+  assert.equal(propertiesOf([mass], null).rows.some((r) => r[0] === '건폐율'), false);
+  const siteRows = propertiesOf([{ id: 's', kind: 'site' }], site).rows;
+  assert.deepEqual(siteRows.slice(1), [['주소', '서울 중구 무교동 45'], ['용도지역', '일반상업지역'], ['대지면적', '500㎡']]);
+  const several = propertiesOf([{ kind: 'note' }, { kind: 'note' }, { kind: 'photo' }]);
+  assert.deepEqual(several, { title: '3장 선택', rows: [['메모', '2장'], ['사진', '1장']] });
+  assert.equal(propertiesOf([]), null);
+});

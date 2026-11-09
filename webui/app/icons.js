@@ -28,6 +28,8 @@ const PATHS = {
   trash: '<path d="M3.5 5.5h13M8 5.5V3.5h4v2M5.5 5.5l1 11h7l1-11"/>',
   around: '<path d="M2.5 16.5h15M3.5 16.5l4-7 3 4.5 2-3 4 5.5"/><path d="M12.5 6.5h3v4"/>',
   tray: '<path d="M10 3v3M10 14v3M3 10h3M14 10h3M5 5l2 2M13 13l2 2M15 5l-2 2M7 13l-2 2"/>',
+  eye: '<path d="M2 10s3-5.5 8-5.5 8 5.5 8 5.5-3 5.5-8 5.5S2 10 2 10z"/><circle cx="10" cy="10" r="2.5"/>',
+  eyeOff: '<path d="M2 10s3-5.5 8-5.5 8 5.5 8 5.5-3 5.5-8 5.5S2 10 2 10z"/><path d="M3.5 16.5l13-13"/>',
   // An empty parcel: a dashed lot outline, for a project whose site is not chosen yet.
   parcel: '<path d="M4 6.5 13.5 3l3 9.5-6 4.5L3.5 14z" stroke-dasharray="2.2 2"/><path d="M10 8v4M8 10h4"/>',
 };

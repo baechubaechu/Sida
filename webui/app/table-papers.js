@@ -176,7 +176,7 @@ export const papersMethods = {
   // Pins are rebuilt only when papers come or go; selection and the open card just restyle
   // them, so a pin keeps keyboard focus.
   drawPins() {
-    const want = pinnedPapers(this.papers, this.home);
+    const want = pinnedPapers(this.papers, this.home).filter((p) => !this.layerHidden(p)); // not on a layer turned off
     const key = JSON.stringify(want.map((p) => [p.id, paperName(p), p.kind]));
     if (key !== this.pinKey) {
       this.pinKey = key;

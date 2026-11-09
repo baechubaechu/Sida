@@ -5,14 +5,15 @@
 import { escapeHtml as escape, EXPORT_FORMATS } from './model.js';
 import { pickedNames, massIds, canCompare } from './board-model.js';
 import { panelShown } from './talk-panel-model.js';
-import { placeModelMaker, placeTable } from './board.js';
+import { placeModelMaker, placeTable, table } from './board.js';
 import { ideaDragging, placeIdeaFloat } from './ideas.js';
 import { panelResizing, syncPanelWidths } from './panels.js';
 import { placeSiteMap } from './site.js';
 import { app, conductorScrolls, currentProjectLabel, currentRoute, deferred, expertById, newProjectDialog, settingsWarned, ui } from './state.js';
 import { commandBar } from './view-command.js';
 import { conductorPanel } from './view-conductor.js';
-import { expertPage, expertsPanel } from './view-experts.js';
+import { expertPage } from './view-experts.js';
+import { sidePanel } from './view-side.js';
 import { homeView, newView } from './view-home.js';
 import { ideaFloatView } from './view-ideas.js';
 import { sitePage } from './view-site.js';
@@ -68,7 +69,7 @@ function workspaceView() {
       ${conductorPanel()}
       ${ui.conductor.open ? panelSplitter('left') : ''}
       <section class="board panel" aria-label="제도판">${boardHead(name, site, agent)}<div class="board-canvas"><div id="table-slot"></div>${ideaFloatView()}</div></section>
-      ${site ? sitePage(name) : agent ? expertPage(name, agent) : expertsPanel()}
+      ${site ? sitePage(name) : agent ? expertPage(name, agent) : sidePanel({ around: Boolean(table?.aroundOn) })}
       ${!expertsFolded ? panelSplitter('right') : ''}
       ${commandBar()}
       <nav class="pane-tabs" aria-label="화면 바꾸기">${tabs.map(([id, label]) => `<button type="button" data-action="pane" data-pane="${id}" aria-pressed="${ui.pane === id}">${escape(label)}</button>`).join('')}</nav>

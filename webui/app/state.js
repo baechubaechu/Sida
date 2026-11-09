@@ -50,6 +50,8 @@ export const ui = {
   ideaFloat: floatState(null), ideaEdit: '', ideaConfirm: '', ideaBusy: false, ideaDrag: '', ideaLinkNew: true,
   pane: 'board', focusComposer: false, creatingTalk: false, talkMenu: '',
   panelRatios: { left: .24, right: .24, detail: .38 }, // the two side panels start equally wide
+  // The right panel's tab (view-side.js) and the layers turned off on the table.
+  sideTab: 'layers', hiddenLayers: new Set(),
   settings: null, settingsDraft: null, settingsError: '', settingsAdvancedOpen: false, chatgptModels: null, chatgptNote: '',
   board: null, selected: [], 
   site: null, siteError: '', showSiteLines: false, find: null, siteFirst: false,

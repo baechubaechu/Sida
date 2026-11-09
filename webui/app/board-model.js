@@ -554,6 +554,69 @@ export function resultPreview(text, maxLines = Infinity) {
 
 export const KIND_LABELS = { site: '대지', mass: '매스안', note: '메모', tracing: '트레이싱지', expert: '전문가 결과', photo: '사진' };
 
+// ------------------------------------------------------------------ layers and properties
+// The right panel's 레이어 and 속성 tabs, as in Rhino or CAD.
+
+// The layer a paper is drawn on: each mass scheme its own, the other papers by kind.
+export function layerOf(paper) {
+  return paper.kind === 'mass' ? `mass:${paper.id}` : paper.kind;
+}
+
+// The layers of a board, in drawing order, each {key, label, count, visible}. The site and its
+// surroundings come first (the surroundings only once they have been shown), then each mass
+// scheme, then the other kinds that have papers. `hidden`: a Set of keys.
+export function layerList(board, hidden = new Set(), { around = false } = {}) {
+  const papers = board?.papers || [];
+  const count = (kind) => papers.filter((p) => p.kind === kind).length;
+  const rows = [{ key: 'site', label: '대지', count: count('site') }];
+  if (around) rows.push({ key: 'around', label: '주변 지형·건물', count: 0 });
+  for (const p of papers.filter((x) => x.kind === 'mass')) rows.push({ key: layerOf(p), label: paperName(p), count: (p.blocks || []).length, unit: '동' });
+  for (const kind of ['tracing', 'note', 'photo', 'expert']) if (count(kind)) rows.push({ key: kind, label: KIND_LABELS[kind], count: count(kind) });
+  return rows.map((r) => ({ unit: '장', ...r, visible: !hidden.has(r.key) }));
+}
+
+const m2 = (v) => `${Math.round(v * 10) / 10}㎡`;
+
+// What the 속성 tab shows for the selected papers: {title, rows: [[label, value]], note}.
+// A mass scheme's figures come from its blocks on the board (footprints added up, overlaps not
+// taken out), set against the site's area and the zone's statutory caps when they are known
+// (`site`: siteCard() of the saved site). Several papers: how many of each kind.
+export function propertiesOf(papers, site = null) {
+  if (!papers.length) return null;
+  if (papers.length > 1) {
+    const kinds = new Map();
+    for (const p of papers) kinds.set(p.kind, (kinds.get(p.kind) || 0) + 1);
+    return { title: `${papers.length}장 선택`, rows: [...kinds].map(([kind, n]) => [KIND_LABELS[kind] || kind, `${n}장`]) };
+  }
+  const p = papers[0];
+  const rows = [['종류', KIND_LABELS[p.kind] || p.kind]];
+  let note = '';
+  if (p.kind === 'mass') {
+    const blocks = p.blocks || [];
+    const floorHeight = p.floor_height || 4.2;
+    const footprint = blocks.reduce((sum, b) => sum + b.w * b.d, 0);
+    const gross = blocks.reduce((sum, b) => sum + b.w * b.d * b.floors, 0);
+    const top = blocks.reduce((max, b) => Math.max(max, b.floors), 0);
+    rows.push(['동', `${blocks.length}개`], ['층고', `${floorHeight}m`], ['최고 층수', `${top}층 (${Math.round(top * floorHeight * 10) / 10}m)`],
+      ['건축면적', m2(footprint)], ['연면적', m2(gross)]);
+    const area = site?.areaM2;
+    if (area) {
+      rows.push(['건폐율', `${Math.round(footprint / area * 1000) / 10}%${site.bcr !== null && site.bcr !== undefined ? ` (법정 ${site.bcr}% 이하)` : ''}`],
+        ['용적률', `${Math.round(gross / area * 1000) / 10}%${site.far !== null && site.far !== undefined ? ` (법정 ${site.far}% 이하)` : ''}`]);
+    }
+    note = '제도판의 동을 더한 값입니다. 동끼리 겹친 부분은 빼지 않았습니다.';
+  } else if (p.kind === 'site') {
+    if (site) rows.push(['주소', site.address || '미확인'], ['용도지역', site.zones?.join(', ') || '미확인'], ['대지면적', site.area]);
+    else note = '대지를 정하면 주소·용도지역·면적이 나옵니다.';
+  } else {
+    if (p.title) rows.push(['이름', p.title]);
+    if (p.kind === 'note' || p.kind === 'expert') rows.push(['글자', `${String(p.text || '').length}자`]);
+    if (p.kind === 'tracing') rows.push(['선', `${(p.strokes || []).length}개`]);
+    if (p.w && p.h) rows.push(['크기', `${Math.round(p.w * 10) / 10} × ${Math.round(p.h * 10) / 10}m`]);
+  }
+  return { title: paperName(p), rows, note };
+}
+
 // Who made an AI paper: "Conductor 제안", "법규 검토자 결과"; '' for the designer's own.
 export function originLabel(paper, experts = []) {
   if (!paper?.origin) return '';

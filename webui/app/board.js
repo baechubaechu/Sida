@@ -85,7 +85,13 @@ function tableHooks(name) {
     modelSettings: () => modelHooks(name).settings(),
     place: (id, placement) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}/place`, { method: 'POST', body: placement }), true),
     discard: (id) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}`, { method: 'DELETE' }), true),
-    select: (ids) => { ui.selected = ids; render(false); },
+    // Selecting turns the right panel to the properties; clearing goes back to the layers.
+    select: (ids) => {
+      ui.selected = ids;
+      if (ids.length && ui.sideTab === 'layers') ui.sideTab = 'props';
+      if (!ids.length && ui.sideTab === 'props') ui.sideTab = 'layers';
+      render(false);
+    },
     // A paper carried toward the idea board, and papers dropped into it.
     carry: (at) => carryPapers(at),
     stow: (ids) => stowPapers(name, ids),

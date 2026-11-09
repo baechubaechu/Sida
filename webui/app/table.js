@@ -12,7 +12,7 @@
 import { icon } from './icons.js';
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewName, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS } from './board-model.js';
+import { layerOf, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewName, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS } from './board-model.js';
 import { typing, TOOLS, MODEL_TOOLS } from './table-shared.js';
 import { blocksMethods } from './table-blocks.js';
 import { aroundMethods } from './table-around.js';
@@ -61,6 +61,7 @@ export class DraftingTable {
     this.pins = new Map(); // paper id → its pin element (3D)
     this.toldFold = false;
     this.around = null; // the site's surroundings (GET .../site/context), fetched when first shown
+    this.hiddenLayers = new Set(); // layers turned off in the right panel's 레이어 tab (layerOf keys)
     this.aroundOn = false;
     this.aroundBusy = false;
     this.aroundRequest = null;
@@ -340,7 +341,7 @@ export class DraftingTable {
     masses.scale.z = rise;
     // The surroundings rise with the masses; the table top goes below the lowest ground under them.
     const shown = Boolean(this.aroundOn && this.around);
-    around.visible = shown;
+    around.visible = shown && !this.hiddenLayers.has('around');
     around.scale.z = rise;
     desk.position.z = shown ? Math.min(0, this.aroundLow) * rise - 0.5 : 0;
     catcher.position.z = desk.position.z + 0.01;
@@ -349,7 +350,7 @@ export class DraftingTable {
     grid.material.opacity = ground;
     grid.visible = !shown;
     catcher.material.opacity = 0.22 * ground;
-    lot.visible = ground > 0.5;
+    lot.visible = ground > 0.5 && !this.hiddenLayers.has('site');
     horizon.visible = ground < 1;
     horizon.material.opacity = 1 - ground;
     horizon.position.set(v.x, v.y, 0.1);
@@ -360,8 +361,9 @@ export class DraftingTable {
     // A paper the designer folded stays a pin in plan too.
     const fold = folded(v.tilt);
     const shut = new Set(foldedInPlan(this.papers, this.home));
-    traces.visible = fold && ground > 0.5;
-    for (const [id, obj] of objects) obj.visible = !fold && !shut.has(id);
+    traces.visible = fold && ground > 0.5 && !this.hiddenLayers.has('tracing');
+    const off = new Set(this.papers.filter((p) => this.layerHidden(p)).map((p) => p.id)); // layers turned off
+    for (const [id, obj] of objects) obj.visible = !fold && !shut.has(id) && !off.has(id);
     if (fold !== this.root.classList.contains('is-3d')) this.foldChanged(fold);
     this.root.classList.toggle('has-folded', shut.size > 0);
     // How large a paper px is on the screen, for the corner grips (a steady size on the screen)
@@ -476,6 +478,20 @@ export class DraftingTable {
     } else if (edit.op === 'add') {
       await this.hooks.add(edit.paper);
     }
+  }
+
+  // ------------------------------------------------------------------ layers
+
+  // Show only the layers not in `keys` (the right panel's 레이어 tab).
+  setHiddenLayers(keys) {
+    this.hiddenLayers = new Set(keys);
+    this.syncPapers();
+    this.drawMasses();
+    this.invalidate();
+  }
+
+  layerHidden(paper) {
+    return this.hiddenLayers.has(layerOf(paper));
   }
 
   // ------------------------------------------------------------------ controls

@@ -323,6 +323,7 @@ export const blocksMethods = {
     const ink = new THREE.Color(this.colors.ink);
     const pick = new THREE.Color(this.colors.pick);
     const build = (paper, faint, tint) => {
+      if (!tint && this.layerHidden(paper)) return; // its layer is turned off
       for (const [index, b] of (paper.blocks || []).entries()) {
         const h = b.floors * (paper.floor_height || 4.2);
         const base = this.blockBase(frame, b);

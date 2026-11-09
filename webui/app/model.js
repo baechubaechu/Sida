@@ -865,6 +865,7 @@ export function siteCard(site) {
     address: site.query || site.parcels?.[0]?.address || '',
     zones: zones.map((z) => z.zone),
     area: areaText(site.summary?.total_area_m2),
+    areaM2: site.summary?.total_area_m2 ?? null,
     bcr: one?.bcr_max ?? null,
     far: one?.far_max ?? null,
     shapes: (site.parcels || []).map((p) => p.shape).filter(Boolean),
