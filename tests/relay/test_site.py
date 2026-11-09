@@ -69,3 +69,13 @@ def test_page_does_not_point_at_the_private_repository():
     text = PAGE.read_text(encoding="utf-8").lower()
     assert "github.com" not in text
     assert "git clone" not in text
+
+
+def test_server_pulls_this_folder():
+    # The server's site-pull.sh fetches exactly relay/site/ from main; renaming the folder
+    # without updating the script would silently stop homepage updates.
+    sync = SITE.parent / "site-sync"
+    script = (sync / "site-pull.sh").read_text(encoding="utf-8")
+    assert "sparse-checkout set relay/site" in script
+    assert "FETCH_HEAD:relay/site" in script
+    assert "User=site" in (sync / "site-pull.service").read_text(encoding="utf-8")
