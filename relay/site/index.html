@@ -44,10 +44,6 @@ body {
   margin: 0;
   color: var(--ink);
   background-color: var(--paper);
-  background-image:
-    linear-gradient(var(--grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-  background-size: 24px 24px;
   font: 16px/1.7 var(--font);
   word-break: keep-all;
   overflow-wrap: break-word;
@@ -74,6 +70,12 @@ a:hover { color: var(--accent-ink); }
 .top nav a:hover { color: var(--ink); }
 
 /* Hero */
+.hero-background {
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
 .hero { padding: 96px 0 72px; }
 .eyebrow {
   display: inline-flex; align-items: center; gap: 10px;
@@ -105,8 +107,8 @@ a:hover { color: var(--accent-ink); }
 
 /* Sections */
 section.sheet {
-  margin: 0 0 28px; padding: 48px clamp(20px, 5vw, 56px);
-  background: var(--sheet); border: 1px solid var(--line);
+  margin: 0 0 28px; padding: 48px 0;
+  border-top: 1px solid var(--line);
 }
 .sheet-head { display: grid; grid-template-columns: 64px 1fr; gap: 0 12px; align-items: baseline; margin-bottom: 28px; }
 .sheet-no { font: 600 13px/1 var(--mono); color: var(--accent-ink); }
@@ -185,9 +187,34 @@ footer { padding: 12px 0 56px; }
   .top nav .wide { display: none; }
   .hero { padding: 64px 0 52px; }
   .hero .lead { font-size: 16px; }
-  section.sheet { padding: 32px 20px; }
+  section.sheet { padding: 32px 0; }
   .sheet-head h2 { font-size: 22px; }
 }
+.board-preview { margin: 32px 0 0; }
+.board-preview-image { position: relative; }
+.board-preview img { display: block; width: 100%; height: auto; border: 1px solid var(--line); }
+.board-marker, .board-key b {
+  display: inline-grid; place-items: center; width: 26px; height: 26px;
+  flex: 0 0 26px; border-radius: 50%; background: #334e63; color: white;
+  font: 700 13px/1 var(--mono);
+}
+.board-marker {
+  position: absolute; transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 2px white;
+}
+.board-marker.chat { left: 11.7%; top: 14.9%; }
+.board-marker.canvas { left: 31.4%; top: 30.6%; }
+.board-marker.layers { left: 96%; top: 48.6%; }
+@media (max-width: 600px) {
+  .board-marker { width: 18px; height: 18px; font-size: 11px; }
+}
+.board-key {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
+  margin: 14px 0 0; padding: 0; list-style: none;
+}
+.board-key li { display: flex; gap: 8px; align-items: flex-start; color: var(--muted); font-size: 14px; }
+.board-key strong { display: block; color: var(--ink); }
+@media (max-width: 600px) { .board-key { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -208,15 +235,32 @@ footer { padding: 12px 0 56px; }
 </header>
 
 <main>
-  <div class="hero wrap">
-    <p class="eyebrow">건축 학생을 위한 설계 조수</p>
-    <h1>근거 있는 대지·법규 분석과, <em class="nowrap">AI 전문가</em>가 둘러앉은 제도판</h1>
-    <p class="lead">대지와 법규는 정부 자료에서 가져온 값으로만 정리하고, 열 명의 전문가가 각자의 관점에서 설계 고민을 함께 읽습니다. 설계는 여전히 내가 합니다. Sida는 그 옆에서 근거를 챙기는 조수입니다.</p>
-    <div class="actions">
-      <a class="button primary" href="#install">설치 방법 보기</a>
-      <a class="button ghost" href="#key">접속 키 신청</a>
+  <div class="hero-background">
+    <div class="hero wrap">
+      <p class="eyebrow">건축 학생을 위한 설계 조수</p>
+      <h1>근거 있는 대지·법규 분석과, <em class="nowrap">AI 전문가</em>가 둘러앉은 제도판</h1>
+      <p class="lead">대지와 법규는 정부 자료에서 가져온 값으로만 정리하고, 열 명의 전문가가 각자의 관점에서 설계 고민을 함께 읽습니다. 설계는 여전히 내가 합니다. Sida는 그 옆에서 근거를 챙기는 조수입니다.</p>
+      <div class="actions">
+        <a class="button primary" href="#install">설치 방법 보기</a>
+        <a class="button ghost" href="#key">접속 키 신청</a>
+      </div>
+      <figure class="board-preview">
+        <div class="board-preview-image">
+          <img src="./sida-board.png" width="2542" height="1386" alt="왼쪽에 설계 대화, 가운데에 대지와 매스의 3D 제도판, 오른쪽에 레이어와 전문가 패널이 열린 시다 화면">
+          <span class="board-marker chat" aria-hidden="true">1</span>
+          <span class="board-marker canvas" aria-hidden="true">2</span>
+          <span class="board-marker layers" aria-hidden="true">3</span>
+        </div>
+        <figcaption>
+          <ol class="board-key">
+            <li><b aria-hidden="true">1</b><span><strong>대화</strong>고민을 적고 conductor에게 질문합니다.</span></li>
+            <li><b aria-hidden="true">2</b><span><strong>제도판</strong>대지 등 정보를 확인하고 메모를 붙이거나, 매스를 생성합니다.</span></li>
+            <li><b aria-hidden="true">3</b><span><strong>속성/레이어/전문가</strong>선택한 객체의 속성을 확인하거나, 레이어를 관리하고, 각 전문가와의 대화를 확인합니다.</span></li>
+          </ol>
+        </figcaption>
+      </figure>
+      <p class="name-note"><b>시다</b>는 한국 건축 학계에서 후배나 조수·보조를 부르는 말입니다.</p>
     </div>
-    <p class="name-note"><b>시다</b>는 한국 건축 학계에서 후배나 조수·보조를 부르는 말입니다.</p>
   </div>
 
   <div class="wrap">
@@ -350,13 +394,11 @@ python webapp.py</code></pre>
 </main>
 
 <footer>
-  <div class="wrap">
-    <div class="title-block">
-      <div><small>PROJECT</small><b>Sida 시다</b> · 건축 설계 조수</div>
-      <div><small>CONTACT</small><a href="mailto:jhp503@gmail.com">jhp503@gmail.com</a></div>
-      <div><small>SERVER</small>sida-kr.duckdns.org</div>
-      <div><small>SHEET</small>01 / 01</div>
-    </div>
+  <div class="title-block wrap">
+    <div><small>PROJECT</small><b>Sida 시다</b> · 건축 설계 조수</div>
+    <div><small>CONTACT</small><a href="mailto:jhp503@gmail.com">jhp503@gmail.com</a></div>
+    <div><small>SERVER</small>sida-kr.duckdns.org</div>
+    <div><small>SHEET</small>01 / 01</div>
   </div>
 </footer>
 

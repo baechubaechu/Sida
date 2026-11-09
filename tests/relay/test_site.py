@@ -25,6 +25,8 @@ class _Links(HTMLParser):
                 self.anchors.append(value[1:])
             elif value.startswith("/") and value != "/":
                 self.local.append(value.lstrip("/"))
+            elif value.startswith("./"):
+                self.local.append(value[2:])
 
 
 def _parse():
