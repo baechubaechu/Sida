@@ -355,7 +355,10 @@ async function onSubmit(event) {
       ui.newDraft = {};
       if (!created) toast(`같은 이름의 프로젝트 "${project.name}"를 열었습니다.`, 'info');
       await loadProjects();
-      location.hash = projectUrl(project.name);
+      // The work screen takes the new-project window's place in the history, so "back" from it
+      // returns to the list, not to the window. (replaceState fires no hashchange: go there here.)
+      history.replaceState(null, '', projectUrl(project.name));
+      onHashChange();
     } catch (err) {
       error.textContent = err.message;
       form.querySelector('button[type="submit"]').disabled = false;
