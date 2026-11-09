@@ -136,21 +136,41 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
 
 ## 소개 페이지 (`/`)
 
-`https://sida-kr.duckdns.org/`에는 Sida를 소개하는 한 장짜리 페이지가 있습니다(`site/`: `index.html`과 로고 두 개, 순수 HTML/CSS). 중계 서버(`relay`)가 아니라 Caddy가 바로 내주므로, 페이지를 고쳐도 `relay`를 다시 만들 필요가 없습니다. `/relay/*`와 `/health`는 그대로이고, 페이지 파일이 아닌 다른 경로는 계속 404입니다.
+`https://sida-kr.duckdns.org/`에는 Sida를 소개하는 한 장짜리 페이지가 있습니다(`site/`, 순수 HTML/CSS, 빌드 없음). 중계 서버(`relay`)가 아니라 Caddy가 서버의 `/opt/sida-kr/site/` 폴더를 그대로 내주므로, 페이지를 고쳐도 `relay`를 다시 만들 필요가 없습니다. `/relay/*`와 `/health`가 먼저 처리되고, 그 밖의 주소는 이 폴더의 파일입니다(없는 파일은 404, `.`으로 시작하는 파일은 숨김).
 
-1. `site/` 폴더를 서버의 `/opt/sida-kr/site/`에 복사합니다(예: `git archive origin/main relay/site | ssh 서버 "mkdir -p /opt/sida-kr/site && tar -x --strip-components=2 -C /opt/sida-kr/site"`).
-2. `compose.yaml`의 `caddy` 서비스 `volumes`에 `- ./site:/srv/site:ro`를 더합니다.
-3. `Caddyfile`에서 `handle { respond 404 }` 앞에 다음을 넣습니다.
+### 고치는 법 (팀원용)
+
+서버에 들어갈 필요가 없습니다. 저장소만 고치면 됩니다.
+
+1. 최신 main에서 브랜치를 만들고(`git switch -c docs/site-...`) `relay/site/`의 파일을 고칩니다. 그림을 넣을 때는 이 폴더에 파일을 두고 `/파일이름`으로 부릅니다.
+2. 미리 보기: `cd relay/site && python -m http.server 8790` 후 브라우저에서 `http://127.0.0.1:8790`.
+3. 확인: `pytest -q tests/relay/test_site.py` (페이지 안 링크, 쓰는 파일이 폴더에 있는지, 다른 사이트의 글꼴·스크립트를 부르지 않는지, 비공개 저장소 주소가 없는지).
+4. PR을 엽니다. CI를 통과해 main에 들어가면 서버에 저절로 반영됩니다. 사람이 직접 머지하면 바로, 자동 머지면 한 시간 안에 반영됩니다. 급하면 GitHub Actions 탭의 **Deploy homepage → Run workflow**를 누릅니다.
+
+- 다른 사이트의 글꼴·스크립트·분석 도구를 넣지 않습니다. 개인정보 처리방침에 접속 기록을 남기지 않는다고 적었기 때문입니다.
+- 개인정보 처리방침과 키 신청 안내는 서버의 실제 동작(위의 "접속 키", "키 요청과 승인")과 맞아야 합니다. 이 부분을 바꿀 때는 관리자에게 확인받습니다.
+
+### 자동 반영의 구조
+
+- `.github/workflows/deploy-site.yml`이 `relay/site/`를 `rsync`로 서버에 복사합니다(`--delete`라 저장소에서 지운 파일은 서버에서도 지워짐). main에 `relay/site/`가 바뀐 push가 있거나, Actions 탭에서 실행할 때 돕니다.
+- 자동 머지(`auto-merge.yml`, GITHUB_TOKEN)로 들어간 커밋은 push 실행을 만들지 않습니다. 그래서 매시간 도는 `delete-merged-branch.yml`이 "`relay/site/`의 마지막 커밋이 마지막 성공한 반영보다 새로우면" 이 작업을 실행합니다.
+- 서버에는 이 작업 전용 계정 `site`가 있습니다. 비밀번호가 없고 sudo·docker 그룹에 없으며, `/opt/sida-kr/site/`만 그 계정 소유입니다. 키는 `/home/site/.ssh/authorized_keys`에 `restrict,command="/usr/bin/rrsync -wo /opt/sida-kr/site"`로 묶여 있어 그 폴더에 rsync로 쓰는 것만 됩니다(셸·다른 폴더·읽기 불가).
+- 저장소 Secrets: `SITE_DEPLOY_KEY`(그 키의 비밀키), `SITE_KNOWN_HOSTS`(서버 호스트 키, `ssh-keyscan -t ed25519 223.130.140.26`).
+- 키를 바꿀 때: 새 키 쌍을 만들어 공개키를 위 형식으로 `authorized_keys`에 넣고, 비밀키를 `gh secret set SITE_DEPLOY_KEY < 비밀키`로 넣은 뒤 비밀키 파일은 지웁니다.
+
+### 처음 설치 (서버)
+
+1. `compose.yaml`의 `caddy` 서비스 `volumes`에 `- ./site:/srv/site:ro`를 더하고 `docker compose up -d caddy`로 다시 만듭니다.
+2. `Caddyfile`의 마지막 `handle`을 다음으로 바꾸고 `docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile`.
 
    ```
-   	@site path / /index.html /sida-logo.svg /sida-logo-dark.svg
-   	handle @site {
+   	handle {
    		root * /srv/site
-   		file_server
+   		file_server {
+   			hide .*
+   		}
    	}
    ```
 
-4. `docker compose up -d caddy` (볼륨이 바뀌어 컨테이너를 다시 만듦). 이후 페이지만 고칠 때는 1번만 하면 됩니다.
-5. 확인: `/`가 200, `/health`가 `ok`, `/relay/health`가 그대로, `/아무거나`가 404인지 봅니다.
-
-페이지는 다른 사이트의 글꼴·스크립트를 불러오지 않습니다. 개인정보 처리방침에 접속 기록을 남기지 않는다고 적었기 때문이고, `tests/relay/test_site.py`가 확인합니다.
+3. 위의 `site` 계정을 만듭니다: `useradd -m -s /bin/bash site && passwd -l site && chown -R site:site /opt/sida-kr/site`, 그리고 `authorized_keys`.
+4. 확인: `/`가 200, `/health`가 `ok`, `/relay/health`가 그대로, `/아무거나`와 `/relay.env`가 404인지 봅니다.

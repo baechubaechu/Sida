@@ -1,0 +1,43 @@
+name: Deploy homepage
+
+# relay/site/(소개 페이지)를 국내 서버의 /opt/sida-kr/site/에 복사합니다. Caddy가 그 폴더를
+# 그대로 내주므로 복사하면 바로 https://sida-kr.duckdns.org/ 에 보입니다.
+# 서버의 'site' 계정 키(SITE_DEPLOY_KEY)는 그 폴더에 rsync로 쓰는 것만 허용됩니다(rrsync -wo).
+#
+# 자동 머지(auto-merge.yml, GITHUB_TOKEN)로 들어간 커밋은 push 실행을 만들지 않으므로,
+# 그때는 delete-merged-branch.yml이 매시간 확인해 이 작업을 대신 실행합니다.
+on:
+  push:
+    branches: [main]
+    paths: ["relay/site/**"]   # 사람이 직접 머지했을 때
+  workflow_dispatch:           # Actions 탭에서 바로 반영
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-site
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: relay/site
+      - name: Copy relay/site to the server
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/site_deploy
+          chmod 600 ~/.ssh/site_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          rsync -rlcz --delete --chmod=D755,F644 --itemize-changes \
+            -e "ssh -i $HOME/.ssh/site_deploy -o IdentitiesOnly=yes -o BatchMode=yes" \
+            relay/site/ site@223.130.140.26:/
+        env:
+          DEPLOY_KEY: ${{ secrets.SITE_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.SITE_KNOWN_HOSTS }}
+      - name: Check the live page
+        run: |
+          curl -fsS -o /dev/null https://sida-kr.duckdns.org/
+          curl -fsS https://sida-kr.duckdns.org/health
