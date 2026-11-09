@@ -21,6 +21,15 @@ export const pointerMethods = {
     root.addEventListener('contextmenu', (e) => { if (!typing(e.target) && !e.target.closest('dialog')) e.preventDefault(); });
     root.addEventListener('keydown', (e) => this.onKey(e));
     // Alt held while resizing a paper must not open the browser's menu when it is let go.
+    // A pin's card in 3D closes when anything else on the page is clicked (2026-11-09 지훈); the card
+    // itself and the pins keep it (a pin opens its own). Turning the view (right or middle button) does not.
+    window.addEventListener('pointerdown', (e) => {
+      if (!this.peekId || e.button !== 0 || !this.root.isConnected) return;
+      if (e.target.closest?.('.peek, [data-pin]')) return;
+      this.peekId = '';
+      this.drawPins();
+      this.drawPeek();
+    }, true);
     window.addEventListener('keyup', (e) => {
       if (e.key === 'Alt' && (this.gesture?.kind === 'resize' || this.altResized)) { e.preventDefault(); this.altResized = false; }
     });
