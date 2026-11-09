@@ -2,6 +2,8 @@
 
 import { pickedNames } from './board-model.js';
 import { talkPanel, talkMenu } from './talk-panel-model.js';
+import { dockOf, panelVisible, reveal, setSideOpen } from './dock-model.js';
+import { saveDock } from './dock.js';
 import { api, projectApi } from './api.js';
 import { loadSession, start } from './jobs.js';
 import { render } from './render.js';
@@ -78,21 +80,32 @@ export function openTalk(name, id, context = []) {
   const known = ui.talkViews.find((p) => p.id === id);
   ui.talkViews = [...ui.talkViews.filter((p) => p.id !== id), { id, context: known?.context || context }];
   ui.conductor = talkPanel(ui.conductor, 'select', id);
+  ui.dock = reveal(ui.dock, 'conductor');
   ui.pane = 'conductor';
   if (!ui.talks.has(id)) loadTalk(name, id).then(() => render(false));
   render(false);
 }
 
 
+// 대화 is a docked panel: showing it opens its side and turns its group to it; hiding it folds its
+// side (with whatever else is docked there). A narrow screen switches to it with the bottom tabs.
 export function changeConductor(action) {
   dismissTalkMenu();
-  if (action === 'toggle' && matchMedia('(max-width: 900px)').matches && ui.pane !== 'conductor') action = 'show';
-  ui.conductor = talkPanel(ui.conductor, action);
-  if (ui.conductor.open) ui.pane = 'conductor';
-  else if (ui.pane === 'conductor') ui.pane = 'board';
+  const narrow = matchMedia('(max-width: 900px)').matches;
+  const shown = narrow ? ui.pane === 'conductor' : panelVisible(ui.dock, 'conductor');
+  const hide = action === 'close' || (action === 'toggle' && shown);
+  ui.conductor = talkPanel(ui.conductor, action === 'toggle' || action === 'close' ? 'show' : action);
+  if (hide) {
+    if (!narrow) ui.dock = setSideOpen(ui.dock, dockOf(ui.dock, 'conductor').side, false);
+    if (ui.pane === 'conductor') ui.pane = 'board';
+  } else {
+    ui.dock = reveal(ui.dock, 'conductor');
+    ui.pane = 'conductor';
+  }
+  saveDock();
   ui.cmd.help = false;
   render(false);
-  if (!ui.conductor.open) app.querySelector('[data-action="conductor-toggle"]')?.focus({ preventScroll: true });
+  if (hide) app.querySelector('[data-action="conductor-toggle"]')?.focus({ preventScroll: true });
 }
 
 export function sendTalk(id) {

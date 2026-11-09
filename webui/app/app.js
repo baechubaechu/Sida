@@ -13,6 +13,7 @@ import { decideProposal, newChat, runExpert, send, sendFeedback } from './expert
 import { addTypedIdea, ideaAction, placeIdeaFloat, saveIdea } from './ideas.js';
 import { clearExpert, loadExpert, loadOrdinance, loadProjectSites, loadProjects, loadSession, loadSite, resetTracking, start, track } from './jobs.js';
 import { syncPanelWidths } from './panels.js';
+import { dockAction, followSelection, loadDock } from './dock.js';
 import { askDelete, createSample, keepProjectList, openProjectInfo } from './projects.js';
 import { render } from './render.js';
 import { checkRelayKey, loadSettings, openSettings } from './settings.js';
@@ -58,7 +59,7 @@ async function navigate() {
       ui.project = name;
       ui.board = null;
       ui.selected = [];
-      ui.sideTab = 'layers';
+      followSelection(false);
       ui.hiddenLayers = new Set();
       ui.talks = new Map();
       ui.talkViews = [];
@@ -68,6 +69,8 @@ async function navigate() {
       for (const key of drafts.keys()) if (key.startsWith('talk:') || key === 'conductor-new') drafts.delete(key);
       ui.cmd = { lines: [], typed: [], back: -1, prompt: null, last: '', pick: 0, help: false };
       drafts.delete('command');
+      await loadDock(); // the panel layout kept on this PC, once (a local read)
+      if (currentRoute.name !== name) return;
       render();
       if (!ui.projects) loadProjects().then(() => render(false));
       openTable(name);
@@ -204,22 +207,19 @@ app.addEventListener('click', (event) => {
   if (action === 'sample') createSample();
   if (action === 'delete-project') askDelete(button.dataset.project);
   if (action === 'project-info') openProjectInfo(button.dataset.project);
-  if (action === 'pane') { ui.pane = button.dataset.pane; if (ui.pane === 'conductor') ui.conductor = { ...ui.conductor, open: true }; render(false); }
+  if (action === 'pane') { ui.pane = button.dataset.pane; render(false); }
   if (action === 'conductor-toggle') changeConductor('toggle');
-  if (action === 'conductor-close') changeConductor('close');
   if (action === 'talks-toggle') changeConductor('list');
   if (action === 'talk-new') { changeConductor('new'); app.querySelector('[data-focus="conductor-new"]')?.focus({ preventScroll: true }); }
-  if (action === 'collapse-experts') { ui.expertsCollapsed = true; if (ui.pane === 'side') ui.pane = 'board'; render(false); }
-  if (action === 'toggle-experts-panel') { ui.expertsCollapsed = !ui.expertsCollapsed; render(false); }
+  if (action.startsWith('dock-')) dockAction(action, button);
   if (action === 'inspect-paper') table?.inspect(button.dataset.id);
-  if (action === 'side-tab') { ui.sideTab = button.dataset.tab; render(false); }
   if (action === 'layer-toggle') {
     const key = button.dataset.layer;
     if (ui.hiddenLayers.has(key)) ui.hiddenLayers.delete(key); else ui.hiddenLayers.add(key);
     table?.setHiddenLayers(ui.hiddenLayers);
     render(false);
   }
-  if (action === 'clear-selection') { ui.selected = []; if (ui.sideTab === 'props') ui.sideTab = 'layers'; table?.setSelected([]); render(false); }
+  if (action === 'clear-selection') { ui.selected = []; followSelection(false); table?.setSelected([]); render(false); }
   if (action === 'select-masses') table?.selectMasses();
   if (action === 'ask-selection') askAbout(button.dataset.compare === 'true' ? COMPARE_QUESTION : '');
   if (action === 'open-expert') location.hash = expertUrl(name, button.dataset.agent);

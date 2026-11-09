@@ -7,6 +7,7 @@ import { VWorldView } from './vworld-view.js';
 import { api, expertUrl, projectApi } from './api.js';
 import { say } from './commands.js';
 import { carryPapers, stowPapers } from './ideas.js';
+import { followSelection } from './dock.js';
 import { render } from './render.js';
 import { app, currentProjectLabel, currentRoute, draftFor, drafts, tableHost, toast, ui } from './state.js';
 
@@ -85,11 +86,10 @@ function tableHooks(name) {
     modelSettings: () => modelHooks(name).settings(),
     place: (id, placement) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}/place`, { method: 'POST', body: placement }), true),
     discard: (id) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}`, { method: 'DELETE' }), true),
-    // Selecting turns the right panel to the properties; clearing goes back to the layers.
+    // Selecting turns 레이어 to 속성 where they share a group; clearing goes back to 레이어.
     select: (ids) => {
       ui.selected = ids;
-      if (ids.length && ui.sideTab === 'layers') ui.sideTab = 'props';
-      if (!ids.length && ui.sideTab === 'props') ui.sideTab = 'layers';
+      followSelection(ids.length > 0);
       render(false);
     },
     // A paper carried toward the idea board, and papers dropped into it.

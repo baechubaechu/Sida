@@ -33,6 +33,7 @@ export const COMMANDS = [
   { name: 'redo', aliases: [], label: '다시 하기', group: 'edit' },
   { name: 'tray', aliases: ['ai'], label: 'AI 섹션 열고 닫기', group: 'panel' },
   { name: 'board', aliases: ['table'], label: '제도판만 보기 (오른쪽 칸 접기·펴기)', group: 'panel' },
+  { name: 'layout', aliases: [], label: '패널 기본 배치로 (끌어 옮긴 탭·나눈 칸 되돌리기)', group: 'panel' },
   { name: 'site', aliases: [], label: '대지 페이지 열기', group: 'panel' },
   { name: 'run', aliases: [], label: '전문가 실행', group: 'panel' },
   { name: 'talks', aliases: ['history'], label: 'Conductor 대화 목록 열고 닫기', group: 'panel' },

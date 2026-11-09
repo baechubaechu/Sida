@@ -220,19 +220,39 @@ html.to-button::view-transition-new(project-frame) { animation: morph-late-in va
 .form-actions { display: flex; justify-content: flex-end; gap: 14px; margin-top: 30px; }
 .form-actions .secondary { min-width: 132px; }
 .form-actions .primary { min-width: 189px; }
-/* Conductor on the left, drafting table in the middle, experts on the right.
-   Each side can fold independently; phones switch panes with tabs. */
+/* The drafting table in the middle, the docked panels on either side (view-dock.js): each side
+   folds on its own; narrow screens switch panes with tabs. */
 .studio { --experts-width: 340px; height: 100dvh; overflow: hidden; display: grid; grid-template-rows: minmax(0, 1fr) auto; padding: 16px max(12px, env(safe-area-inset-right, 0px)) 16px max(12px, env(safe-area-inset-left, 0px)); background: var(--surface-subtle); }
-.studio.with-table { --conductor-width: 0px; --side-width: var(--experts-width); grid-template-columns: var(--conductor-width) minmax(0, 1fr) var(--side-width); }
-.studio.with-table.conductor-open { --conductor-width: 340px; }
-.studio.with-table.site-open { --side-width: minmax(340px, 34%); }
-.studio.with-table.expert-open { --side-width: minmax(360px, 40%); }
-/* A folded panel leaves the grid (display: none), so the columns drop with it. */
-.studio.with-table.experts-collapsed { --side-width: 0px; }
+/* Before panels.js sets the widths in px: a folded or empty side has no column. */
+.studio.with-table { --left-width: 0px; --right-width: 0px; grid-template-columns: var(--left-width) minmax(0, 1fr) var(--right-width); }
+.studio.with-table.left-open { --left-width: var(--experts-width); }
+.studio.with-table.right-open { --right-width: var(--experts-width); }
+.studio.with-table.right-open.site-open { --right-width: minmax(340px, 34%); }
+.studio.with-table.right-open.expert-open { --right-width: minmax(360px, 40%); }
 .studio > .board { grid-row: 1; grid-column: 2; }
-.studio > .experts, .studio > .expert-page { grid-row: 1; grid-column: 3; }
-.studio.experts-collapsed > .experts { display: none; }
-.studio.with-table > .experts, .studio.with-table > .expert-page { margin-left: 12px; }
+.studio > .dock-right, .studio > .expert-page { grid-row: 1; grid-column: 3; margin-left: 12px; }
+.studio > .dock-left { grid-row: 1 / 3; grid-column: 1; margin-right: 12px; }
+/* A side: groups stacked top to bottom (heights as flex-grow), a line between two to drag. */
+.dock { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.dock-group { flex: 1 1 0; }
+.dock-head { display: flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 6px 0 4px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.dock-tabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.dock-tab { position: relative; flex-shrink: 0; min-height: 44px; padding: 0 12px; color: var(--muted); font-size: 14px; white-space: nowrap; cursor: grab; touch-action: none; }
+.dock-tab:hover { color: var(--text); }
+.dock-tab[aria-selected="true"] { color: var(--brand); font-weight: 700; }
+.dock-tab[aria-selected="true"]::after { content: ''; position: absolute; left: 12px; right: 12px; bottom: 0; height: 2px; border-radius: 2px; background: var(--brand); }
+.dock-tab:focus-visible { outline: 2px solid var(--brand); outline-offset: -4px; border-radius: 8px; }
+.dock-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.dock-split { flex: 0 0 12px; display: grid; place-items: center; cursor: row-resize; touch-action: none; outline: none; }
+.dock-split::before { content: ''; width: 40px; height: 3px; border-radius: 3px; background: #bdc8cf; }
+.dock-split:hover::before, .dock-split:focus-visible::before { width: 64px; background: var(--brand); }
+.resizing-groups, .resizing-groups * { cursor: row-resize !important; user-select: none !important; }
+/* A tab being dragged: its name follows the pointer, and where it would land is outlined. */
+.dock-dragging, .dock-dragging * { cursor: grabbing !important; user-select: none !important; }
+.dock-ghost { position: fixed; left: 0; top: 0; z-index: 60; pointer-events: none; padding: 6px 12px; border: 1px solid var(--brand); border-radius: 8px; background: var(--surface); color: var(--brand); font-size: 14px; font-weight: 700; box-shadow: 0 8px 24px rgb(20 30 40 / .16); }
+.dock-hint { position: fixed; z-index: 59; pointer-events: none; border: 2px solid var(--brand); border-radius: var(--radius); background: color-mix(in srgb, var(--brand) 10%, transparent);
+  transition: left var(--motion-100) var(--ease-out), top var(--motion-100) var(--ease-out), width var(--motion-100) var(--ease-out), height var(--motion-100) var(--ease-out); }
+.panel-toggle .dock-unfold-label { max-width: 220px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
 .panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .eyebrow { display: block; color: var(--muted); font-size: 12px; font-weight: 500; letter-spacing: .02em; margin-bottom: 5px; }
 .eyebrow a:hover { color: var(--brand); text-decoration: underline; }
@@ -402,11 +422,7 @@ button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 .status-badge.done { background: #e3f1e8; color: #2f6b47; }
 /* Experts panel: a status dot, the expert (unfolds to its result and chats) and 실행. */
 .experts-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 10px 12px; }
-/* The right panel's tabs: 속성 | 레이어 | 전문가 (view-side.js). */
-.side-head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 12px 16px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
-.side-tabs { display: flex; flex: 1; gap: 2px; padding: 2px; border-radius: 8px; background: var(--surface-subtle); }
-.side-tabs button { flex: 1; min-height: 32px; border-radius: 6px; color: var(--muted); font-size: 14px; }
-.side-tabs button[aria-selected="true"] { background: var(--surface); color: var(--brand); font-weight: 700; box-shadow: 0 1px 3px rgb(36 52 67 / .08); }
+/* The 속성 and 레이어 panels (view-dock.js). */
 .side-body { padding: 16px; }
 .side-empty, .side-note { margin: 8px 6px 0; color: var(--muted); font-size: 12px; line-height: 16px; }
 .side-body .side-note { margin: 16px 0 0; }
@@ -896,18 +912,19 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 @media (max-width: 1200px) {
   :root { --sidebar-width: 210px; --expert-width: 290px; --home-gutter: 32px; }
   .studio { --experts-width: 300px; }
-  .studio.with-table.conductor-open { --conductor-width: 300px; }
-  .studio.with-table.site-open { --side-width: minmax(320px, 34%); }
-  .studio.with-table.expert-open { --side-width: minmax(340px, 38%); }
+  .studio.with-table.right-open.site-open { --right-width: minmax(320px, 34%); }
+  .studio.with-table.right-open.expert-open { --right-width: minmax(340px, 38%); }
 }
 @media (max-width: 900px) {
   :root { --sidebar-width: 185px; }
   /* One panel at a time, picked with the tabs at the bottom. */
   .studio, .studio.with-table, .studio.with-table.site-open, .studio.with-table.expert-open,
-  .studio.experts-collapsed { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto; padding: 8px 8px 0; }
+  .studio.left-open, .studio.right-open { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto; padding: 8px 8px 0; }
   .pane-tabs { grid-row: 3; }
-  .studio > .board, .studio > .experts, .studio > .expert-page { display: none !important; grid-row: 1; grid-column: 1; margin: 0; }
-  .panel-toggles [data-action="toggle-experts-panel"], .pane-head [data-action="collapse-experts"] { display: none; }
+  .studio > .board, .studio > .dock, .studio > .expert-page { display: none !important; grid-row: 1; grid-column: 1; margin: 0; }
+  .studio.pane-board > .board, .studio.pane-conductor > .dock-left, .studio.pane-side > .dock-right, .studio.pane-side > .expert-page { display: flex !important; }
+  .dock-unfold { display: none; }
+  .dock-tab { cursor: pointer; }
   .pane-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; margin: 8px -8px 0; border-top: 1px solid var(--line); background: var(--surface); padding-bottom: env(safe-area-inset-bottom, 0px); }
   .pane-tabs button { padding: 12px 0; color: var(--muted); font-size: 14px; }
   .pane-tabs button[aria-pressed="true"] { color: var(--brand); font-weight: 700; }
@@ -1024,15 +1041,12 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .command-help dl { margin: 0; display: grid; grid-template-columns: 11em 1fr; gap: 3px 10px; font-size: 12px; }
 .command-help dt { font: 600 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .command-help dd { margin: 0; color: var(--muted); }
-.studio > .conductor-panel { grid-row: 1 / 3; grid-column: 1; margin-right: 12px; }
 .studio-splitter { grid-row: 1; justify-self: start; align-self: stretch; position: relative; width: 12px; min-height: 0; z-index: 12; cursor: col-resize; touch-action: none; display: grid; place-items: center; outline: none; }
 .studio-splitter::before { content: ''; width: 3px; height: 40px; border-radius: 3px; background: #bdc8cf; }
 .studio-splitter:hover::before, .studio-splitter:focus-visible::before { background: var(--brand); height: 64px; }
 .splitter-left { grid-column: 2; grid-row: 1 / 3; transform: translateX(-12px); }
 .splitter-right { grid-column: 3; }
 .resizing-panels, .resizing-panels * { cursor: col-resize !important; user-select: none !important; }
-.conductor-panel[hidden] { display: none; }
-.conductor-panel .pane-head { padding: 20px 18px 16px; }
 .conductor-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid var(--line); }
 .conductor-toolbar button { padding: 6px 10px; font-size: 12px; color: var(--brand); border-radius: 7px; background: var(--surface-subtle); }
 .conductor-toolbar button:first-child { background: var(--brand); color: white; }
@@ -1079,10 +1093,7 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 }
 
 @media (max-width: 900px) {
-  .studio.with-table.conductor-open { grid-template-columns: minmax(0, 1fr); }
   .studio-splitter { display: none; }
-  .studio > .conductor-panel { display: none; grid-row: 1; grid-column: 1; margin: 0; }
-  .studio > .board, .studio > .experts, .studio > .expert-page { grid-column: 1; }
 }
 
 /* A photo file dragged over the drafting table */

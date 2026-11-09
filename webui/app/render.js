@@ -4,16 +4,16 @@
 
 import { escapeHtml as escape, EXPORT_FORMATS } from './model.js';
 import { pickedNames, massIds, canCompare } from './board-model.js';
-import { panelShown } from './talk-panel-model.js';
+import { DOCK_PANELS, sideShown } from './dock-model.js';
 import { placeModelMaker, placeTable, table } from './board.js';
 import { ideaDragging, placeIdeaFloat } from './ideas.js';
 import { panelResizing, syncPanelWidths } from './panels.js';
+import { dockDragging, dockSplitting } from './dock.js';
 import { placeSiteMap } from './site.js';
 import { app, conductorScrolls, currentProjectLabel, currentRoute, deferred, expertById, newProjectDialog, settingsWarned, ui } from './state.js';
 import { commandBar } from './view-command.js';
-import { conductorPanel } from './view-conductor.js';
 import { expertPage } from './view-experts.js';
-import { sidePanel } from './view-side.js';
+import { dockView, narrowDock, sideTitle } from './view-dock.js';
 import { homeView, newView } from './view-home.js';
 import { ideaFloatView } from './view-ideas.js';
 import { sitePage } from './view-site.js';
@@ -24,7 +24,6 @@ const slotWatch = new ResizeObserver(() => { placeTable(); placeIdeaFloat(); });
 
 // The board panel's head: where we are, the panel toggles, and what is picked on the table.
 function boardHead(name, site, agent) {
-  const shown = panelShown(ui.conductor, ui.pane, matchMedia('(max-width: 900px)').matches);
   const picked = pickedNames(ui.selected, ui.board);
   const compare = canCompare(ui.selected, ui.board);
   const masses = massIds(ui.board);
@@ -34,11 +33,13 @@ function boardHead(name, site, agent) {
       <button type="button" class="selection-ask" data-action="ask-selection" data-compare="${compare}">${compare ? '두 안 비교 질문 →' : '이 자료로 질문 →'}</button>
       <button type="button" class="selection-clear" data-action="clear-selection" aria-label="선택 모두 해제">×</button>`
     : masses.length ? '<button type="button" class="selection-ask" data-action="select-masses">매스안 선택</button>' : '';
-  // The experts panel folds with its own › (2026-11-01 지훈): the head only offers it back once folded.
+  // A side folds with its own ‹ or ›: the head offers it back once folded, on that side.
+  const unfold = (side) => (ui.dock[side].open || !ui.dock[side].groups.length || (side === 'right' && (site || agent)) ? ''
+    : `<button type="button" class="panel-toggle dock-unfold" data-action="dock-open" data-side="${side}" aria-expanded="false" title="${side === 'left' ? '왼쪽' : '오른쪽'} 패널 펴기">${side === 'left' ? '' : '<span aria-hidden="true">‹</span> '}<span class="dock-unfold-label">${escape(sideTitle(ui.dock, side))}</span>${side === 'left' ? ' <span aria-hidden="true">›</span>' : ''}</button>`);
   return `<header class="board-head">
-      <div class="board-heading"><h1 class="sr-only">제도판</h1><nav class="crumbs" aria-label="현재 위치"><a href="#/">프로젝트</a><span aria-hidden="true">/</span><button type="button" class="project-name-edit" data-action="project-info" data-project="${escape(name)}" title="프로젝트 정보 수정">${escape(currentProjectLabel(name))} ✎</button>${site ? '<span aria-hidden="true">/</span><span>대지</span>' : ''}</nav></div>
+      ${unfold('left')}<div class="board-heading"><h1 class="sr-only">제도판</h1><nav class="crumbs" aria-label="현재 위치"><a href="#/">프로젝트</a><span aria-hidden="true">/</span><button type="button" class="project-name-edit" data-action="project-info" data-project="${escape(name)}" title="프로젝트 정보 수정">${escape(currentProjectLabel(name))} ✎</button>${site ? '<span aria-hidden="true">/</span><span>대지</span>' : ''}</nav></div>
       <div class="panel-toggles">
-        ${site || agent || !ui.expertsCollapsed ? '' : `<button type="button" class="panel-toggle" data-action="toggle-experts-panel" aria-controls="experts-panel" aria-expanded="false"><span aria-hidden="true">‹</span> 전문가</button>`}
+        ${unfold('right')}
         ${site ? '' : `<button type="button" class="panel-toggle" data-action="vworld-3d" aria-pressed="${Boolean(ui.vworld)}" title="브이월드 3D 지도에 매스안 세워 보기 (vworld)">브이월드 3D</button>`}
         <details class="export-menu"><summary class="panel-toggle" title="CAD·라이노 파일로 내보내기 (export)">내보내기</summary>
           <div class="export-options">${EXPORT_FORMATS.map((f) => `<button type="button" data-action="export-board" data-format="${f.key}">${f.label}</button>`).join('')}
@@ -50,7 +51,7 @@ function boardHead(name, site, agent) {
 }
 
 function panelSplitter(side) {
-  const label = side === 'left' ? '대화 패널 너비 조절' : '오른쪽 패널 너비 조절';
+  const label = side === 'left' ? '왼쪽 패널 너비 조절' : '오른쪽 패널 너비 조절';
   return `<div class="studio-splitter splitter-${side}" role="separator" aria-label="${label}" aria-orientation="vertical"
     aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0" data-resize-side="${side}" data-focus="panel-${side}"
     title="드래그 또는 방향키로 너비 조절 · 두 번 누르면 기본 너비"></div>`;
@@ -59,18 +60,22 @@ function panelSplitter(side) {
 function workspaceView() {
   const { name, agent, site } = currentRoute;
   const expert = agent ? expertById(agent) : null;
-  // The drafting table fills the screen; the experts sit on the right (and fold away), and the
-  // site page or an expert's page takes their place. Conductor sits on the left when open.
-  const side = site ? 'site-open' : agent ? 'expert-open' : '';
-  const expertsFolded = !agent && !site && ui.expertsCollapsed;
-  const sideLabel = site ? '대지' : expert ? expert.name : '전문가';
+  // The drafting table fills the screen; the docked panels sit on either side (each side folds),
+  // and the site page or an expert's page takes the right side's place.
+  const narrow = matchMedia('(max-width: 900px)').matches;
+  const layout = narrow ? narrowDock(ui.narrowSide) : ui.dock;
+  const page = site ? sitePage(name) : agent ? expertPage(name, agent) : '';
+  const left = narrow || sideShown(layout, 'left');
+  const right = Boolean(page) || narrow || sideShown(layout, 'right');
+  const options = { around: Boolean(table?.aroundOn), narrow };
+  const sideLabel = site ? '대지' : expert ? expert.name : DOCK_PANELS[narrowDock(ui.narrowSide).right.groups[0].active];
   const tabs = [['conductor', '대화'], ['board', '제도판'], ['side', sideLabel]];
-  return `<main class="studio with-table ${side} pane-${ui.pane} ${ui.conductor.open ? 'conductor-open' : ''} ${expertsFolded ? 'experts-collapsed' : ''}" id="main" tabindex="-1">
-      ${conductorPanel()}
-      ${ui.conductor.open ? panelSplitter('left') : ''}
+  return `<main class="studio with-table ${site ? 'site-open' : agent ? 'expert-open' : ''} pane-${ui.pane} ${left ? 'left-open' : ''} ${right ? 'right-open' : ''}" id="main" tabindex="-1">
+      ${dockView(layout, 'left', options)}
+      ${left && !narrow ? panelSplitter('left') : ''}
       <section class="board panel" aria-label="제도판">${boardHead(name, site, agent)}<div class="board-canvas"><div id="table-slot"></div>${ideaFloatView()}</div></section>
-      ${site ? sitePage(name) : agent ? expertPage(name, agent) : sidePanel({ around: Boolean(table?.aroundOn) })}
-      ${!expertsFolded ? panelSplitter('right') : ''}
+      ${page || dockView(layout, 'right', options)}
+      ${right && !narrow ? panelSplitter('right') : ''}
       ${commandBar()}
       <nav class="pane-tabs" aria-label="화면 바꾸기">${tabs.map(([id, label]) => `<button type="button" data-action="pane" data-pane="${id}" aria-pressed="${ui.pane === id}">${escape(label)}</button>`).join('')}</nav>
     </main>`;
@@ -90,7 +95,7 @@ function syncNewProject(open) {
 }
 
 export function render(fresh = true) {
-  if (panelResizing() || ideaDragging() || deferred.growing) { deferred.render = true; return; } // Keep the captured handle until release.
+  if (panelResizing() || ideaDragging() || dockDragging() || dockSplitting() || deferred.growing) { deferred.render = true; return; } // Keep the captured handle until release.
   // Keep typing and reading positions across redraws.
   const focused = document.activeElement?.dataset?.focus;
   const selection = focused ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;

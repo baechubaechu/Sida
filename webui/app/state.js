@@ -3,6 +3,7 @@
 
 import { latestChat, parseRoute } from './model.js';
 import { floatState } from './board-model.js';
+import { defaultDock } from './dock-model.js';
 
 export const app = document.querySelector('#app');
 
@@ -42,16 +43,18 @@ export const ui = {
   versions: null, version: null, versionMissing: false, showRaw: false, checks: new Set(), feedback: {},
   job: null, live: [], pending: null,
   revisionOpen: false, creating: false, newDraft: {}, vworld: false,
-  // The workspace: the drafting table, and beside it the experts, the site page or an expert's
-  // page. Conductor conversations open in a collapsible left panel.
-  expertsCollapsed: false, conductor: { open: true, active: null, list: false },
+  // The workspace: the drafting table, and on either side the docked panels (dock-model.js; kept
+  // on this PC by the server); the site page or an expert's page takes the right side's place.
+  // `narrowSide`: the tab shown beside 대화 on a narrow screen. `conductor.open` is not used for
+  // showing the panel any more (the layout says where 대화 is and whether its side is folded).
+  dock: defaultDock(), narrowSide: 'layers', conductor: { open: true, active: null, list: false },
   // The idea board floats over the drafting table in a corner (2026-11-07 지훈); it was a tab
   // beside the experts before. Where it sits is kept for this visit only (no browser storage).
   ideaFloat: floatState(null), ideaEdit: '', ideaConfirm: '', ideaBusy: false, ideaDrag: '', ideaLinkNew: true,
   pane: 'board', focusComposer: false, creatingTalk: false, talkMenu: '',
   panelRatios: { left: .24, right: .24, detail: .38 }, // the two side panels start equally wide
-  // The right panel's tab (view-side.js) and the layers turned off on the table.
-  sideTab: 'layers', hiddenLayers: new Set(),
+  // The layers turned off on the table (the 레이어 panel).
+  hiddenLayers: new Set(),
   settings: null, settingsDraft: null, settingsError: '', settingsAdvancedOpen: false, chatgptModels: null, chatgptNote: '',
   board: null, selected: [], 
   site: null, siteError: '', showSiteLines: false, find: null, siteFirst: false,

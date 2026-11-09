@@ -28,12 +28,12 @@ function runsBlock() {
   return '';
 }
 
-// The 전문가 tab of the right panel (view-side.js): the site facts, the experts and a run going on.
+// The 전문가 panel (view-dock.js): the site facts, the experts and a run going on.
 export function expertsBody() {
   const experts = visibleExperts(ui.session?.experts);
   const busy = jobRunning();
   const picked = ui.selected.length;
-  return `<div class="experts-scroll" role="tabpanel">
+  return `<div class="dock-body" role="tabpanel" aria-label="전문가"><div class="experts-scroll">
     <p class="side-note">${picked ? `고른 종이 ${picked}장과 함께 실행합니다.` : '브리프와 제도판을 보고 실행합니다. 보통은 Conductor가 필요할 때 부릅니다.'}</p>
     <h3 class="panel-label">대지</h3>${siteRow(currentRoute.name)}
     <h3 class="panel-label">전문가</h3>
@@ -51,7 +51,7 @@ export function expertsBody() {
         <div class="expert-threads"><button data-action="open-expert" data-agent="${id}">결과 문서 보기</button>${threads}</div></details>
       <button type="button" class="mini" data-action="run-expert" data-agent="${id}" ${busy ? 'disabled' : ''} title="${e.done ? '다시 실행' : '실행'}${picked ? ` (고른 종이 ${picked}장과 함께)` : ''}">${status === 'running' ? '실행 중' : e.done ? '다시' : '실행'}</button></li>`;
   }).join('')}</ul></div>
-    ${runsBlock() ? `<section class="runs" aria-label="검토 진행"><h3>검토 진행</h3>${runsBlock()}</section>` : ''}`;
+    ${runsBlock() ? `<section class="runs" aria-label="검토 진행"><h3>검토 진행</h3>${runsBlock()}</section>` : ''}</div>`;
 }
 
 function proposalBlock(agent) {

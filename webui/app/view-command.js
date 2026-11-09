@@ -3,7 +3,7 @@
 import { escapeHtml as escape } from './model.js';
 import { pickedNames } from './board-model.js';
 import { COMMANDS, GROUP_LABELS, readLine, suggest, HISTORY_LINES } from './command-model.js';
-import { panelShown } from './talk-panel-model.js';
+import { panelVisible } from './dock-model.js';
 import { app, draftFor, ui } from './state.js';
 
 // What Enter does with the line: while one word is typed, the highlighted suggestion runs.
@@ -46,7 +46,7 @@ export function commandBar() {
   const mode = commandMode(text);
   const items = suggestionItems(text);
   const picked = pickedNames(ui.selected, ui.board);
-  const shown = panelShown(ui.conductor, ui.pane, matchMedia('(max-width: 900px)').matches);
+  const shown = matchMedia('(max-width: 900px)').matches ? ui.pane === 'conductor' : panelVisible(ui.dock, 'conductor');
   return `<section class="command-bar" aria-label="명령창">
       ${c.help ? helpCard() : ''}
       <div class="command-top"><ol class="command-history" aria-label="명령 기록">${c.lines.slice(-HISTORY_LINES).map((l) => `<li class="${escape(l.tone)}">${escape(l.text)}</li>`).join('')}

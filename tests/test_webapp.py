@@ -249,6 +249,24 @@ def test_project_list_order_round_trip(client):
     assert client.put("/api/projects/list", json={"sort": "random", "order": []}).status_code == 400
 
 
+def test_panel_layout_round_trip(client):
+    assert client.get("/api/panel-layout").json() == {"layout": None}
+    layout = {
+        "left": {"open": False, "groups": [{"tabs": ["conductor", "", 5], "active": "x", "size": 0.4}, {"tabs": []}]},
+        "right": {"groups": [{"tabs": ["layers"], "active": "layers", "size": True}]},
+        "ratios": {"left": 0.3, "right": 7, "other": 0.2},
+    }
+    saved = client.put("/api/panel-layout", json=layout)
+    assert saved.status_code == 200
+    kept = {
+        "left": {"open": False, "groups": [{"tabs": ["conductor"], "active": "conductor", "size": 0.4}]},
+        "right": {"open": True, "groups": [{"tabs": ["layers"], "active": "layers", "size": 1.0}]},
+        "ratios": {"left": 0.3},
+    }
+    assert saved.json() == {"layout": kept}
+    assert client.get("/api/panel-layout").json() == {"layout": kept}
+
+
 def test_main_screen_files_hold_no_keys_or_placeholder_urls():
     for path in webapp.APP_DIR.rglob("*"):
         if not path.is_file() or path.suffix == ".bcmap":  # pdf.js's binary character maps
