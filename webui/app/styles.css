@@ -36,6 +36,9 @@ a { color: inherit; text-decoration: none; }
 button, a { touch-action: manipulation; }
 button:hover, a:hover { filter: brightness(.96); }
 :focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; }
+/* The page body takes the focus after a page change (so screen readers start there); it is not a
+   control, so it draws no focus ring (after Esc that ring showed as two blue lines). */
+#main:focus-visible { outline: none; }
 input, textarea, select { min-width: 0; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
 textarea { resize: vertical; }
 h1, h2, h3, p { margin: 0; }
@@ -111,7 +114,11 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 /* No site yet: an empty dashed parcel and a note; the card adds a "대지 정하기" button under it. */
 .site-drawing.empty-drawing { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; color: var(--muted); font-size: 12px; line-height: 16px; }
 .empty-parcel { width: 48px; height: 48px; fill: none; stroke: #9aa5b1; stroke-width: 1; stroke-linejoin: round; }
-.project-card:has(.drawing-cta) .empty-drawing { padding-bottom: 48px; }
+@media (hover: none) { .project-card:has(.drawing-cta) .empty-drawing { padding-bottom: 48px; } }
+@media (hover: hover) {
+  .drawing-cta { opacity: 0; transition: opacity var(--motion-150) var(--ease-out); }
+  .project-card:hover .drawing-cta, .project-card:focus-within .drawing-cta { opacity: 1; }
+}
 .drawing-cta { position: absolute; top: 0; left: 0; right: 0; aspect-ratio: 4 / 3; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 24px; pointer-events: none; }
 .drawing-cta a { pointer-events: auto; min-height: 40px; padding: 8px 16px; font-size: 14px; background: var(--surface); border: 1px solid var(--line); }
 /* Before the site arrives the drawing stays a blank box (nothing claimed yet). */
@@ -136,6 +143,19 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 @media (hover: hover) { .project-card-actions { opacity: 0; transition: opacity var(--motion-150) var(--ease-out); } .project-card:hover .project-card-actions, .project-card:focus-within .project-card-actions { opacity: 1; } }
 .project-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 240px; border: 1.5px dashed #c3cbd3; border-radius: var(--radius); color: var(--muted); font-size: 14px; transition: border-color var(--motion-150) var(--ease-out), color var(--motion-150) var(--ease-out); }
 .project-new:hover { border-color: var(--brand); color: var(--brand); filter: none; }
+/* No project yet: what Sida does and two ways to start. */
+.first-start { max-width: 760px; margin-top: 48px; }
+.first-start h2 { font-size: 20px; line-height: 28px; }
+.first-start > p { margin-top: 8px; color: var(--muted); font-size: 16px; line-height: 24px; }
+.start-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 24px; }
+.start-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-height: 176px; padding: 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); text-align: left; transition: transform var(--motion-300) var(--ease-spring), border-color var(--motion-150) var(--ease-out); }
+.start-choice.start-new { border: 1.5px dashed #c3cbd3; }
+.start-choice:hover { border-color: var(--brand); filter: none; }
+.start-choice:active { transform: scale(.98); transition-duration: var(--motion-100); transition-timing-function: var(--ease-out); }
+.start-choice .icon-large { color: var(--brand); margin-bottom: 8px; }
+.start-choice strong { font-size: 16px; line-height: 24px; }
+.start-choice span { color: var(--muted); font-size: 14px; line-height: 20px; }
+@media (prefers-reduced-motion: reduce) { .start-choice { transform: none !important; } }
 .card-placeholder { padding: 24px 24px 32px; }
 .card-placeholder i { display: block; height: 12px; margin-top: 12px; border-radius: 4px; background: var(--surface-subtle); }
 .card-placeholder i:nth-of-type(1) { width: 60%; height: 16px; }
@@ -359,8 +379,6 @@ button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 .error-text { color: #a83232; }
 .small-text { font-size: 12px; }
 .secondary.small, .primary.small { min-height: 34px; padding: 6px 14px; font-size: 13px; gap: 6px; }
-.empty-actions { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin-top: 22px; }
-.empty-actions .primary { margin-top: 0; }
 .form-error:empty { display: none; }
 .form-error { margin-top: 18px; }
 .warn-dot { color: #b7791f; font-size: 10px; margin-left: 6px; }

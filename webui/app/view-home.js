@@ -47,10 +47,11 @@ function siteLine(card, project) {
 }
 
 // Expert progress as dots: filled for each finished expert, out of those shown on the board.
+// None before the first expert has run (the text beside says so).
 function expertDots(project) {
   const total = project.visible_expert_count ?? project.expert_count ?? 0;
   const done = (project.visible_completed ?? project.completed ?? []).length;
-  if (!total) return '';
+  if (!total || !done) return '';
   const dots = Array.from({ length: total }, (_, i) => `<i class="${i < done ? 'on' : ''}"></i>`).join('');
   return `<span class="expert-dots" aria-hidden="true">${dots}</span>`;
 }
@@ -87,11 +88,7 @@ export function projectCards() {
     // Card-shaped placeholders while the list loads (static: nothing moves).
     return `<span class="sr-only" role="status">프로젝트를 불러오는 중입니다.</span>${'<div class="project-card card-placeholder" aria-hidden="true"><div class="project-drawing"></div><i></i><i></i><i></i></div>'.repeat(3)}`;
   }
-  if (!ui.projects.length) {
-    return `<div class="empty"><p>아직 프로젝트가 없습니다.</p><p>새 프로젝트를 만들거나 예시 프로젝트로 시작해 보세요.</p>
-      <div class="empty-actions"><a class="primary" href="#/new">${icon('plus')}새 프로젝트</a>
-      <button class="secondary" type="button" data-action="sample">예시 프로젝트 열기</button></div></div>`;
-  }
+  if (!ui.projects.length) return firstStart();
   const projects = findProjects(ui.projects, ui.query, ui.sort, ui.customOrder);
   const movable = !ui.query.trim(); // cards are dragged into a custom order over the whole list only
   if (!projects.length) return '<p class="empty" role="status">검색 결과가 없습니다. 다른 프로젝트 이름으로 검색해 보세요.</p>';
@@ -114,9 +111,21 @@ export function projectCards() {
   }).join('') + add;
 }
 
+// No project yet (a teammate's first visit): what Sida does and two ways to start.
+function firstStart() {
+  return `<section class="first-start" aria-labelledby="first-start-title">
+    <h2 id="first-start-title">첫 프로젝트를 시작해 볼까요?</h2>
+    <p>대지 주소를 넣으면 대지 사실과 법규를 찾아 정리하고, 전문가들이 설계 판단을 함께 검토해요.</p>
+    <div class="start-choices">
+      <a class="start-choice start-new" href="#/new" data-open-project>${icon('plus', 'icon icon-large')}<strong>새 프로젝트 만들기</strong><span>이름과 대지 주소만 있으면 시작할 수 있어요.</span></a>
+      <button type="button" class="start-choice" data-action="sample">${icon('sample', 'icon icon-large')}<strong>예시 프로젝트 열기</strong><span>미리 채워 둔 작은 도서관 프로젝트로 둘러봐요.</span></button>
+    </div></section>`;
+}
+
 // Everything below the heading: the continue card (unless searching) and the cards. Redrawn alone
 // when the search or the order changes.
 export function projectList() {
+  if (ui.projects && !ui.projects.length) return firstStart();
   const latest = ui.projects?.length && !ui.query.trim() ? findProjects(ui.projects, '', 'recent')[0] : null;
   return `${latest ? continueCard(latest) : ''}
     <h2 class="list-label">모든 프로젝트</h2><div class="project-grid" id="project-grid">${projectCards()}</div>`;
@@ -126,11 +135,11 @@ export function homeView() {
   return `<div class="app-shell">${sidebar()}
     <main class="home" id="main" tabindex="-1">
       <header class="home-heading"><h1>프로젝트</h1>
-        <div class="project-tools">
+        ${ui.projects && !ui.projects.length ? '' : `<div class="project-tools">
           <label class="search-box">${icon('search')}<span class="sr-only">프로젝트 검색</span><input id="project-search" data-focus="project-search" type="search" placeholder="프로젝트 검색" value="${escape(ui.query)}" autocomplete="off"></label>
           <label class="sr-only" for="project-sort">프로젝트 정렬</label>
           <select id="project-sort"><option value="recent" ${ui.sort === 'recent' ? 'selected' : ''}>최근 수정순</option><option value="name" ${ui.sort === 'name' ? 'selected' : ''}>이름순</option><option value="custom" ${ui.sort === 'custom' ? 'selected' : ''}>사용자 설정</option></select>
-        </div>
+        </div>`}
         <a class="primary" href="#/new" data-open-project>${icon('plus')}새 프로젝트</a></header>
       <div id="project-list">${projectList()}</div>
     </main></div>`;

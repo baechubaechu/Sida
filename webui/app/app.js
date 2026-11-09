@@ -138,7 +138,7 @@ function openProjectGrowing(event) {
   const link = event.target.closest('a[data-open-project]');
   if (!link || event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || !canMorph()) return false;
   // A project's card, or for a new project the dashed card or the heading's button (it grows into the form).
-  const card = link.closest('.project-card, .continue, .project-new') || (link.closest('.home-heading') ? link : null);
+  const card = link.closest('.project-card, .continue, .project-new, .start-new') || (link.closest('.home-heading') ? link : null);
   if (!card) return false;
   event.preventDefault();
   if (link.getAttribute('href') === '#/new') newFormFrom = link.closest('.home-heading') ? 'button' : 'card';
@@ -183,7 +183,7 @@ function onHashChange() {
   morphProject('closing', () => {
     navigate();
     const named = `[data-project="${CSS.escape(leaving || '')}"]`;
-    const newHome = newFormFrom === 'button' ? '.home-heading .primary' : '.project-new';
+    const newHome = newFormFrom === 'button' ? '.home-heading .primary' : '.project-new, .start-new';
     nameMorphCard(from === 'new' ? app.querySelector(newHome) || app.querySelector('.home-heading .primary')
       : app.querySelector(`.continue${named}`) || app.querySelector(`.project-card${named}`));
   }, from === 'new' && newFormFrom === 'button');
@@ -355,7 +355,10 @@ async function onSubmit(event) {
       ui.newDraft = {};
       if (!created) toast(`같은 이름의 프로젝트 "${project.name}"를 열었습니다.`, 'info');
       await loadProjects();
-      location.hash = projectUrl(project.name);
+      // The work screen takes the new-project window's place in the history, so "back" from it
+      // returns to the list, not to the window. (replaceState fires no hashchange: go there here.)
+      history.replaceState(null, '', projectUrl(project.name));
+      onHashChange();
     } catch (err) {
       error.textContent = err.message;
       form.querySelector('button[type="submit"]').disabled = false;
