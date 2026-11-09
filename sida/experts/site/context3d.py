@@ -912,6 +912,23 @@ def export_layers(around: dict) -> list[dict]:
     return out
 
 
+def cached(plan: dict, radius: float = DEFAULT_RADIUS, *, shape: str = DEFAULT_SHAPE, orient: str = DEFAULT_ORIENT,
+           folder: Path | None = None) -> dict | None:
+    """The surroundings `build` made for this site and range within CACHE_SECONDS (for the screen or
+    the export), or None: for callers that must not wait for a build (a Conductor message)."""
+    origin = (plan or {}).get("origin")
+    if not origin:
+        return None
+    site_rings = [np.asarray(r, dtype=float) for p in plan.get("parcels") or [] for r in p.get("rings") or []]
+    rings = tuple(r.tobytes() for r in site_rings)
+    key_shape = range_key(shape, orient)
+    for for_export in (True, False):
+        hit = _cache.get((origin["lon"], origin["lat"], float(radius), key_shape, str(folder), for_export, rings))
+        if hit and time.time() - hit[0] < CACHE_SECONDS:
+            return hit[1]
+    return None
+
+
 def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = None, http_get=None,
           ledger=None, use_cache: bool = True, for_export: bool = False, shape: str = DEFAULT_SHAPE,
           orient: str = DEFAULT_ORIENT) -> dict:

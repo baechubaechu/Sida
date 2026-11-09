@@ -15,6 +15,10 @@ imports a domain by name and adding a domain touches no shared file. `hooks.py` 
       them uncomputed. The first domain that answers is used.
   board_export_layers(project_dir: Path) -> list[dict]
       Extra layers for the CAD/Rhino export (sida/board_export.py layer form).
+  conductor_site(project_dir: Path) -> str
+      What the Conductor is told about the site with every message (sida/board.py site_brief):
+      the facts, the lot in the frame massing blocks stand in, the surroundings. "" for nothing;
+      it must be quick (a message waits for it) and never raise.
   board_ground(project_dir: Path) -> dict | None
       The ground around the site as a height grid (board_export surface form), so the export
       stands each mass on the ground under it. The first domain that answers is used.

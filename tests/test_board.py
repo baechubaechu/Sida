@@ -821,3 +821,21 @@ def test_the_view_the_table_was_seen_from_is_kept_beside_the_board(tmp_path):
             board.save_view(tmp_path, bad)
     (tmp_path / board.VIEW_FILE).write_text("{broken", encoding="utf-8")
     assert board.load_view(tmp_path) is None
+
+
+def test_the_conductor_gets_the_site_from_the_domains_with_every_message(make_session, scripted, project, mock_config):
+    hooks = [("site", SimpleNamespace(conductor_site=lambda path: "SITE (test): lot 40 × 20 m")),
+             ("broken", SimpleNamespace(conductor_site=lambda path: 1 / 0))]
+    assert board.site_brief(project.path, hooks=hooks) == "SITE (test): lot 40 × 20 m"
+    assert board.site_brief(project.path, hooks=[]) == ""
+    import sida.experts as experts
+
+    mock_config["conductor"]["board_context"] = "names"  # a local Conductor gets the site too
+    original = experts.domain_hooks
+    experts.domain_hooks = lambda: hooks
+    try:
+        c = scripted(['네\n```action\n{"type":"none"}\n```'])
+        engine.converse(make_session(c_provider=c), "매스 구상해 보자")  # no table saved yet
+    finally:
+        experts.domain_hooks = original
+    assert "SITE (test): lot 40 × 20 m" in _texts(c.calls[0]["messages"])

@@ -900,6 +900,25 @@ def site_summary(project_path: Path, hooks=None) -> dict | None:
     return None
 
 
+def site_brief(project_path: Path, hooks=None) -> str:
+    """What the domains tell the Conductor about the site with every message (hook `conductor_site`):
+    the facts, the lot in the frame blocks stand in, the surroundings. "" when none has any."""
+    from sida.experts import domain_hooks
+
+    parts = []
+    for _domain, module in domain_hooks() if hooks is None else hooks:
+        give = getattr(module, "conductor_site", None)
+        if give is None:
+            continue
+        try:
+            text = give(Path(project_path))
+        except Exception:  # the site must never stop a message
+            continue
+        if text:
+            parts.append(text)
+    return "\n\n".join(parts)
+
+
 def select(project_path: Path, ids: list[str] | None, *, hooks=None) -> Selection | None:
     """The selected papers, checked; None when nothing is selected. Raises ValueError."""
     ids = [str(i) for i in (ids or [])]
