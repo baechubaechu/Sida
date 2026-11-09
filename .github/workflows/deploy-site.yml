@@ -4,28 +4,61 @@ name: Deploy homepage
 # 그대로 내주므로 복사하면 바로 https://sida-kr.duckdns.org/ 에 보입니다.
 # 서버의 'site' 계정 키(SITE_DEPLOY_KEY)는 그 폴더에 rsync로 쓰는 것만 허용됩니다(rrsync -wo).
 #
-# 자동 머지(auto-merge.yml, GITHUB_TOKEN)로 들어간 커밋은 push 실행을 만들지 않으므로,
-# 그때는 delete-merged-branch.yml이 매시간 확인해 이 작업을 대신 실행합니다.
+# 자동 머지(auto-merge.yml, GITHUB_TOKEN)로 들어간 커밋은 push 실행을 만들지 않습니다.
+# 그래서 PR의 CI가 끝나면(workflow_run) 그 PR이 relay/site/를 바꿨는지 보고, 자동 머지가
+# 끝나기를 잠깐 기다렸다가 main을 반영합니다. 놓친 경우는 delete-merged-branch.yml이 매시간
+# 확인해 이 작업을 대신 실행합니다.
 on:
   push:
     branches: [main]
-    paths: ["relay/site/**"]   # 사람이 직접 머지했을 때
+    paths: ["relay/site/**"]   # 사람이 직접 main에 머지했을 때
+  workflow_run:
+    workflows: ["CI"]          # PR의 CI가 통과한 뒤 → 자동 머지되면 바로
+    types: [completed]
   workflow_dispatch:           # Actions 탭에서 바로 반영
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: deploy-site
 
 jobs:
   deploy:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request')
     runs-on: ubuntu-latest
     steps:
+      - name: After CI, wait until the PR that changed relay/site/ is merged
+        id: gate
+        if: github.event_name == 'workflow_run'
+        run: |
+          pr=$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" -q '[.[] | select(.base.ref == "main")][0].number // ""')
+          if [ -z "$pr" ]; then echo "PR 없음"; echo "go=no" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if ! gh pr view "$pr" --repo "$REPO" --json files -q '.files[].path' | grep -q '^relay/site/'; then
+            echo "#$pr은 relay/site/를 바꾸지 않음"; echo "go=no" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          for _ in $(seq 18); do
+            state=$(gh pr view "$pr" --repo "$REPO" --json state -q .state)
+            if [ "$state" = "MERGED" ]; then echo "#$pr 머지됨"; echo "go=yes" >> "$GITHUB_OUTPUT"; exit 0; fi
+            [ "$state" = "CLOSED" ] && break
+            sleep 10
+          done
+          echo "#$pr이 아직 머지되지 않음($state). 머지되면 매시 확인 작업이 반영합니다."
+          echo "go=no" >> "$GITHUB_OUTPUT"
+        env:
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/checkout@v4
+        if: steps.gate.outputs.go != 'no'
         with:
+          ref: main                 # workflow_run일 때도 머지된 뒤의 main
           sparse-checkout: relay/site
       - name: Copy relay/site to the server
+        if: steps.gate.outputs.go != 'no'
         run: |
           install -m 700 -d ~/.ssh
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/site_deploy
@@ -38,6 +71,7 @@ jobs:
           DEPLOY_KEY: ${{ secrets.SITE_DEPLOY_KEY }}
           KNOWN_HOSTS: ${{ secrets.SITE_KNOWN_HOSTS }}
       - name: Check the live page
+        if: steps.gate.outputs.go != 'no'
         run: |
           curl -fsS -o /dev/null https://sida-kr.duckdns.org/
           curl -fsS https://sida-kr.duckdns.org/health
