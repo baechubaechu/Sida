@@ -10,6 +10,7 @@ import { DOCK_PANELS, sideShown } from './dock-model.js';
 import { escapeHtml as escape, siteCard } from './model.js';
 import { icon } from './icons.js';
 import { drafts, ui } from './state.js';
+import { table } from './board.js';
 import { conductorBody } from './view-conductor.js';
 import { expertsBody } from './view-experts.js';
 
@@ -23,7 +24,8 @@ function propsBody() {
     ? `<h3 class="side-title">${escape(props.title)}</h3>
       <dl class="props">${props.rows.map(([label, value, field]) => `<dt>${field ? `<label for="prop-${field.key}">${escape(label)}</label>` : escape(label)}</dt><dd>${field ? propField(field, value) : escape(value)}</dd>`).join('')}</dl>
       ${props.note ? `<p class="side-note">${escape(props.note)}</p>` : ''}
-      ${group ? '<button type="button" class="secondary small prop-ungroup" data-action="ungroup">그룹 풀기</button>' : ''}`
+      ${group ? '<button type="button" class="secondary small prop-ungroup" data-action="ungroup">그룹 풀기</button>' : ''}
+      ${!group && papers.length === 1 ? table?.detailHtml?.(papers[0].id) || '' : ''}`
     : '<p class="side-empty">제도판에서 종이나 매스안을 고르면 여기에 속성이 나옵니다.</p>';
   return `<div class="dock-body" role="tabpanel" aria-label="속성"><div class="experts-scroll side-body">${inner}</div></div>`;
 }

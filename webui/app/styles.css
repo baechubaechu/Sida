@@ -926,6 +926,23 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .detail-actions button { border-radius: 8px; padding: 10px 13px; font-size: 13px; }
 .detail-more button { background: var(--surface-subtle); }
 .detail-more button:hover { background: var(--selected); color: var(--brand); }
+/* A selected paper's content under the 속성 panel (table-detail.js detailHtml), at panel size. */
+.prop-content { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 13px; line-height: 1.7; }
+.prop-content p { margin: 0; }
+.prop-content .plan { display: block; width: 100%; max-height: 220px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-subtle); }
+.prop-content .facts { margin: 0; padding-left: 16px; display: grid; gap: 4px; }
+.prop-content .blocks { font-weight: 600; }
+.prop-content .source { font-size: 11px; color: var(--muted); }
+.prop-content .preview { margin: 0; max-height: 240px; overflow: auto; white-space: pre-wrap; font: 12px/1.7 var(--font); }
+.prop-content .paper-link { align-self: flex-start; color: var(--brand); font-weight: 700; font-size: 13px; }
+.prop-content .note-text { padding: 10px 12px; border-radius: 8px; background: var(--note); color: var(--note-ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.prop-content .detail-photo img { max-height: 220px; }
+.prop-content .detail-tracing { max-height: 220px; }
+.prop-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.prop-actions button { border-radius: 8px; padding: 7px 10px; font-size: 12px; background: var(--surface-subtle); }
+.prop-actions button:hover { background: var(--selected); color: var(--brand); }
+.prop-actions .prop-ask { background: var(--brand); color: white; font-weight: 600; }
+.prop-actions .prop-ask:hover { background: var(--brand); color: white; filter: brightness(1.1); }
 .detail-actions .detail-primary { margin-left: auto; background: var(--brand); color: white; font-weight: 600; }
 @media (max-width: 480px) {
   .card-detail { inset: 8px; width: calc(100vw - 16px); height: calc(100dvh - 16px); }

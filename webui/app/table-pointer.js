@@ -511,7 +511,7 @@ export const pointerMethods = {
       // A click on a paper: it alone is picked, and opens at reading size (a note is written in place).
       const p = this.papers.find((q) => q.id === g.id);
       if (p && this.selected.length > 1) this.select([p.id]);
-      if (p && p.kind !== 'note') this.inspect(p.id);
+      // (Its content shows under the 속성 panel: no window beside the table any more.)
       // A second click on the same note soon after: write it in place.
       const now = performance.now();
       if (p?.kind === 'note' && this.lastNoteClick?.id === p.id && now - this.lastNoteClick.at < 450) {

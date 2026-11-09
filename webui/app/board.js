@@ -8,6 +8,7 @@ import { api, expertUrl, projectApi } from './api.js';
 import { say } from './commands.js';
 import { carryPapers, stowPapers } from './ideas.js';
 import { followSelection } from './dock.js';
+import { reveal } from './dock-model.js';
 import { render } from './render.js';
 import { app, currentProjectLabel, currentRoute, draftFor, drafts, tableHost, toast, ui } from './state.js';
 
@@ -108,6 +109,10 @@ function tableHooks(name) {
       followSelection(keys.length > 0 || ui.selected.length > 0);
       render(false);
     },
+    // 상세 보기: the 속성 panel on screen, where the selected paper shows whole.
+    showProps: () => { ui.dock = reveal(ui.dock, 'props'); ui.narrowSide = 'props'; render(false); },
+    // A PDF found to have several pages: the 속성 panel shows its page buttons.
+    pdfPages: () => render(false),
     // A paper carried toward the idea board, and papers dropped into it.
     carry: (at) => carryPapers(at),
     stow: (ids) => stowPapers(name, ids),
