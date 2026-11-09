@@ -42,7 +42,8 @@ export const ui = {
   chat: null, chatMissing: false, module: null, moduleMissing: false, openExperts: new Set(),
   versions: null, version: null, versionMissing: false, showRaw: false, checks: new Set(), feedback: {},
   job: null, live: [], pending: null,
-  revisionOpen: false, creating: false, newDraft: {}, vworld: false,
+  // `exporting`: the CAD/Rhino file being made ('' when none).
+  revisionOpen: false, creating: false, newDraft: {}, vworld: false, exporting: '',
   // The workspace: the drafting table, and on either side the docked panels (dock-model.js; kept
   // on this PC by the server); the site page or an expert's page takes the right side's place.
   // `narrowSide`: the tab shown beside 대화 on a narrow screen. `conductor.open` is not used for

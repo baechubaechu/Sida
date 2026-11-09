@@ -42,8 +42,8 @@ function boardHead(name, site, agent) {
       <div class="panel-toggles">
         ${unfold('right')}
         ${site ? '' : `<button type="button" class="panel-toggle" data-action="vworld-3d" aria-pressed="${Boolean(ui.vworld)}" title="브이월드 3D 지도에 매스안 세워 보기 (vworld)">브이월드 3D</button>`}
-        <details class="export-menu"><summary class="panel-toggle" title="CAD·라이노 파일로 내보내기 (export)">내보내기</summary>
-          <div class="export-options">${EXPORT_FORMATS.map((f) => `<button type="button" data-action="export-board" data-format="${f.key}">${f.label}</button>`).join('')}
+        <details class="export-menu"><summary class="panel-toggle" title="CAD·라이노 파일로 내보내기 (export)" aria-busy="${Boolean(ui.exporting)}">${ui.exporting ? '<span class="spinner" aria-hidden="true"></span>내보내는 중…' : '내보내기'}</summary>
+          <div class="export-options">${EXPORT_FORMATS.map((f) => `<button type="button" data-action="export-board" data-format="${f.key}" ${ui.exporting ? 'disabled' : ''}>${f.label}</button>`).join('')}
           <p class="muted">대지 경계·매스안·트레이싱 선이 레이어별로 들어갑니다. 이 PC에 지도 묶음이 있으면 대지 주변 지형·등고선·건물도 '대지 주변' 레이어로 들어갑니다. 단위 m, 원점은 대지 가운데.</p></div></details>
         <button type="button" class="ghost settings-button" data-action="settings" aria-label="설정" title="설정">⚙${settingsWarned() ? '<span class="warn-dot" aria-label="확인할 설정 있음">●</span>' : ''}</button>
       </div>

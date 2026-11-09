@@ -222,7 +222,13 @@ export function takePicked() {
 
 // The drawing table as a DXF or 3dm file, with the scheme the table shows switched on.
 export async function downloadBoard(name, format) {
+  if (ui.exporting) { toast('내보낼 파일을 아직 만드는 중입니다.', 'warn'); return; }
   const { url, filename } = boardExport(name, format, table?.active || '', currentProjectLabel(name));
+  // The file can take a while (the surroundings are made for it when they are not at hand), so the
+  // button says so at once instead of looking dead (2026-11-09 지훈).
+  ui.exporting = format;
+  say(`export — ${filename}을(를) 만드는 중입니다. 주변 3D를 넣느라 1분 넘게 걸릴 수 있습니다.`);
+  render(false);
   try {
     const response = await fetch(url);
     if (!response.ok) {
@@ -238,10 +244,13 @@ export async function downloadBoard(name, format) {
     link.click();
     setTimeout(() => { link.remove(); URL.revokeObjectURL(link.href); }, 10000);
     say(`export — ${filename}을(를) 내려받았습니다.`);
+    toast(`${filename}을(를) 내려받았습니다.`);
   } catch (error) {
     const text = error instanceof TypeError ? 'Sida 서버에 연결할 수 없습니다.' : error.message;
     say(`export: ${text}`, 'warn');
     toast(`내보내지 못했습니다: ${text}`, 'error');
+  } finally {
+    ui.exporting = '';
   }
   render(false);
 }
