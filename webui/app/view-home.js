@@ -142,6 +142,13 @@ export function homeView() {
         </div>`}
         <a class="primary" href="#/new" data-open-project>${icon('plus')}새 프로젝트</a></header>
       <div id="project-list">${projectList()}</div>
+      <div class="home-talk-bar">
+        <form class="command-form home-talk" id="home-talk-form">
+          <span class="command-mode ask">Conductor</span>
+          <textarea id="home-talk-input" data-focus="home-talk" rows="1" maxlength="6000" aria-label="Conductor에게 새 프로젝트 이야기하기" placeholder="새 프로젝트를 Conductor에게 이야기해 보세요"></textarea>
+          <button type="submit" class="command-run" aria-label="보내기">↵</button>
+        </form>
+      </div>
     </main></div>`;
 }
 
