@@ -20,6 +20,10 @@ export const pointerMethods = {
     root.addEventListener('dblclick', (e) => this.onDouble(e));
     root.addEventListener('contextmenu', (e) => { if (!typing(e.target) && !e.target.closest('dialog')) e.preventDefault(); });
     root.addEventListener('keydown', (e) => this.onKey(e));
+    // Alt held while resizing a paper must not open the browser's menu when it is let go.
+    window.addEventListener('keyup', (e) => {
+      if (e.key === 'Alt' && (this.gesture?.kind === 'resize' || this.altResized)) { e.preventDefault(); this.altResized = false; }
+    });
     // Ctrl+Z also works while the focus is elsewhere on the page (a button beside the table, or
     // nothing), but never in a text field or another dialog, which keep their own undo.
     this.onWindowKey = (e) => {
@@ -196,7 +200,7 @@ export const pointerMethods = {
     const v = this.view;
     const grip = e.button === 0 && this.gumAxes && e.target.closest('[data-gumball]')?.dataset.gumball;
     if (grip) { this.gesture = this.gumballGesture(grip, e); return; }
-    const corner = e.button === 0 && !e.shiftKey && !(e.ctrlKey || e.metaKey) && e.target.closest('[data-grip]');
+    const corner = e.button === 0 && !e.shiftKey && e.target.closest('[data-grip]'); // Alt and Ctrl change how it resizes
     if (corner) { this.gesture = this.resizeGesture(corner, e); if (this.gesture) return; }
     const mode = dragMode({ button: e.button, shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, alt: e.altKey });
     if (mode === 'orbit') { this.gesture = { kind: 'orbit', x: e.clientX, y: e.clientY, v }; return; }

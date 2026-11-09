@@ -42,15 +42,18 @@ export function resizable(p) {
 }
 
 // A paper {x, y, w, h} (middle in metres, size in CSS px) dragged by its corner `corner`
-// ('nw', 'ne', 'sw', 'se', as the paper reads: n is +y) to the table point {x, y}. The opposite
-// corner stays where it is. `ratio` keeps the paper's shape (a photo), taking the larger pull.
-export function resizedPaper(from, corner, point, { ratio = false, min = PAPER_LIMITS.min, max = PAPER_LIMITS.max } = {}) {
+// ('nw', 'ne', 'sw', 'se', as the paper reads: n is +y) to the table point {x, y}, as in a drawing
+// program (2026-11-09 지훈): the opposite corner stays where it is; `center` (Alt) keeps the middle
+// instead, so all four sides move; `ratio` (Ctrl, and always for a photo) keeps the paper's shape,
+// taking the larger pull.
+export function resizedPaper(from, corner, point, { ratio = false, center = false, min = PAPER_LIMITS.min, max = PAPER_LIMITS.max } = {}) {
   const sx = corner.includes('e') ? 1 : -1;
   const sy = corner.includes('n') ? 1 : -1;
-  const fixed = { x: from.x - (sx * from.w * PX) / 2, y: from.y - (sy * from.h * PX) / 2 };
+  const fixed = center ? { x: from.x, y: from.y } : { x: from.x - (sx * from.w * PX) / 2, y: from.y - (sy * from.h * PX) / 2 };
+  const span = center ? 2 : 1; // from the middle the pull counts on both sides
   const clamp = (v) => Math.min(max, Math.max(min, v));
-  let w = clamp((sx * (point.x - fixed.x)) / PX);
-  let h = clamp((sy * (point.y - fixed.y)) / PX);
+  let w = clamp((span * sx * (point.x - fixed.x)) / PX);
+  let h = clamp((span * sy * (point.y - fixed.y)) / PX);
   if (ratio && from.w > 0 && from.h > 0) {
     const k = Math.max(w / from.w, h / from.h);
     const lo = Math.max(min / from.w, min / from.h);
@@ -61,6 +64,7 @@ export function resizedPaper(from, corner, point, { ratio = false, min = PAPER_L
   }
   w = Math.round(w);
   h = Math.round(h);
+  if (center) return { x: from.x, y: from.y, w, h };
   return { x: fixed.x + (sx * w * PX) / 2, y: fixed.y + (sy * h * PX) / 2, w, h };
 }
 

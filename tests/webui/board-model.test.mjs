@@ -1176,3 +1176,17 @@ test('a paper shown as a circle carries the mark of its kind', async () => {
   assert.equal(paperGlyph({ kind: 'photo', file: 'photo-12345678.pdf' }), 'PDF');
   assert.equal(paperGlyph({ kind: 'photo', file: 'photo-12345678.png' }), '•');
 });
+
+test('a corner drag with Alt keeps the middle, and with Ctrl keeps the shape', async () => {
+  const { resizedPaper, PX } = await import('../../webui/app/board-model.js');
+  const from = { x: 0, y: 0, w: 300, h: 200 }; // corners at x ±15, y ±10
+  // Alt: the south-east corner to (20, -15) moves every side; the middle stays.
+  assert.deepEqual(resizedPaper(from, 'se', { x: 20, y: -15 }, { center: true }), { x: 0, y: 0, w: 400, h: 300 });
+  // Ctrl: pulled mostly sideways, the height follows the width.
+  const kept = resizedPaper(from, 'se', { x: 45, y: -12 }, { ratio: true });
+  assert.deepEqual([kept.w, kept.h], [600, 400]);
+  // Both: from the middle and in shape.
+  const both = resizedPaper(from, 'nw', { x: -30, y: 11 }, { ratio: true, center: true });
+  assert.deepEqual(both, { x: 0, y: 0, w: 600, h: 400 });
+  assert.ok(Math.abs(both.w * PX / 2 - 30) < 1e-9);
+});

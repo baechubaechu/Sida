@@ -479,12 +479,19 @@ export const papersMethods = {
     const sy = g.corner.includes('n') ? 1 : -1;
     const corner = { x: g.from.x + (sx * g.from.w * PX) / 2, y: g.from.y + (sy * g.from.h * PX) / 2 };
     const point = { x: at.x + corner.x - g.g0.x, y: at.y + corner.y - g.g0.y };
-    Object.assign(p, resizedPaper(g.from, g.corner, point, { ratio: p.kind === 'photo' }));
-    // Only the size changes while dragging; the paper is drawn again when the drag ends.
+    // As in a drawing program: the opposite corner stays; Alt keeps the middle (all four sides
+    // move); Ctrl keeps the shape (a photo always does). Read on every move, so they can be
+    // pressed or let go during the drag.
+    const ratio = p.kind === 'photo' || e.ctrlKey || e.metaKey;
+    if (e.altKey) this.altResized = true;
+    Object.assign(p, resizedPaper(g.from, g.corner, point, { ratio, center: e.altKey }));
+    // Only the size changes while dragging (the paper is drawn again when the drag ends); its
+    // writing grows or shrinks with it as it goes (paperTextScale), not in one jump at the end.
     const article = this.slots.get(p.id)?.querySelector('[data-paper]');
-    if (article) Object.assign(article.style, { width: `${p.w}px`, height: `${p.h}px` });
+    const z = paperTextScale(p);
+    if (article) Object.assign(article.style, { width: `${p.w / z}px`, height: `${p.h / z}px`, zoom: z === 1 ? '' : String(z) });
     this.gl?.objects.get(p.id)?.position.set(p.x, p.y, 0.1);
-    this.say(`${fmt(p.w * PX, 1)} × ${fmt(p.h * PX, 1)} m`);
+    this.say(`${fmt(p.w * PX, 1)} × ${fmt(p.h * PX, 1)} m · Alt: 가운데 기준 · Ctrl: 비율 유지`);
     this.invalidate();
   },
   resizeEnd(g) {
