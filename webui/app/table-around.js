@@ -91,11 +91,12 @@ export const aroundMethods = {
       this.restoreAround();
     } catch { /* the defaults stay */ }
   },
-  // The surroundings were on when the designer last left: put them back (once the site is known),
-  // without moving the view.
+  // The surroundings are meant to be on (saved so, or turned on here) but are not: put them back
+  // once the site is known, without moving the view. Also after a board read that briefly came
+  // without the site (which takes them away). Not again after they failed to load, until the
+  // designer turns them on.
   restoreAround() {
-    if (!this.aroundWanted || this.aroundOn || this.aroundBusy || !this.site?.plan) return;
-    this.aroundWanted = false;
+    if (!this.aroundWanted || this.aroundFailed || this.aroundOn || this.aroundBusy || !this.site?.plan) return;
     this.toggleAround({ restore: true });
   },
   // Show or hide the ground and buildings around the site; the first time they are fetched.
@@ -103,6 +104,7 @@ export const aroundMethods = {
     if (this.aroundBusy) return;
     if (this.aroundOn) {
       this.aroundOn = false;
+      this.aroundWanted = false;
       this.hooks.saveShown?.(false);
       this.drawAround(); this.drawMasses(); this.drawControls();
       return;
@@ -120,11 +122,13 @@ export const aroundMethods = {
         this.aroundRange = parseRange(context);
       } catch (error) {
         if (request !== this.aroundRequest) return;
+        this.aroundFailed = restore; // a restore that failed is not tried again by itself
         this.say(`주변 지형·건물을 불러오지 못했습니다. ${error.message}`);
       }
       this.aroundBusy = false;
     }
     this.aroundOn = Boolean(this.around);
+    if (this.aroundOn) { this.aroundWanted = true; this.aroundFailed = false; }
     if (this.aroundOn && !restore) this.hooks.saveShown?.(true);
     this.drawAround();
     this.drawMasses();
