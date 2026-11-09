@@ -5,7 +5,7 @@
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
 import { drawPage, pdfInfo } from './pdf-view.js';
-import { PX, PAPER_SIZE, isOverlaid, freeSpot, folded, pinnedPapers, peekSpot, paperName, resultPreview, KIND_LABELS, originLabel, figureLines, toggleSelected, fmt, photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE, MAX_PHOTO_BYTES, isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, resizable, resizedPaper, paperTextScale } from './board-model.js';
+import { paperGlyph, PX, PAPER_SIZE, isOverlaid, freeSpot, folded, pinnedPapers, peekSpot, paperName, resultPreview, KIND_LABELS, originLabel, figureLines, toggleSelected, fmt, photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE, MAX_PHOTO_BYTES, isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, resizable, resizedPaper, paperTextScale } from './board-model.js';
 import { PHOTO_GAP, cm, strokePath } from './table-shared.js';
 
 export const papersMethods = {
@@ -21,6 +21,8 @@ export const papersMethods = {
   // pins of folded papers (`only`) show.
   placePins(only = null) {
     const { camera } = this.gl;
+    // In plan a folded paper is a circle; in 3D every paper is its title (a circle while dragged).
+    for (const el of this.pins.values()) el.classList.toggle('is-flat', Boolean(only));
     const w = this.size?.w || this.root.clientWidth;
     const h = this.size?.h || this.root.clientHeight;
     const at = new THREE.Vector3();
@@ -44,6 +46,23 @@ export const papersMethods = {
     const spot = peekSpot(anchor, { w: card.offsetWidth, h: card.offsetHeight }, box);
     card.style.visibility = '';
     card.style.transform = `translate(${spot.x.toFixed(1)}px, ${spot.y.toFixed(1)}px)`;
+  },
+  // A pin folding into its circle (dot) or opening back into its title, its width animated.
+  morphPin(id, dot) {
+    const el = this.pins.get(id);
+    if (!el || el.classList.contains('is-dot') === dot) return;
+    const from = el.offsetWidth;
+    el.classList.toggle('is-dot', dot);
+    el.style.width = '';
+    const to = el.offsetWidth;
+    if (!from || !to || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    el.classList.add('is-morphing');
+    el.style.width = `${from}px`;
+    void el.offsetWidth; // start from the old width
+    el.style.width = `${to}px`;
+    const done = () => { el.classList.remove('is-morphing'); el.style.width = ''; };
+    el.addEventListener('transitionend', done, { once: true });
+    setTimeout(done, 400);
   },
   slot(id) {
     if (!this.slots.has(id)) {
@@ -100,8 +119,9 @@ export const papersMethods = {
     const size = z === 1 ? `width:${p.w}px;height:${p.h}px` : `width:${p.w / z}px;height:${p.h / z}px;zoom:${z}`;
     const made = originLabel(p, this.hooks.experts());
     const madeTag = made ? `<span class="paper-made">${escape(made)}</span>` : '';
+    // A pin at the top middle of each paper (2026-11-09 지훈): it makes the paper a circle on the table.
     const foldButton = overlaid || state.editing ? ''
-      : `<button type="button" class="paper-fold" data-fold="${escape(p.id)}" aria-label="${escape(paperName(p))} 이름표로 접기" title="이름표로 접기">접기</button>`;
+      : `<button type="button" class="paper-pin" data-fold="${escape(p.id)}" aria-label="${escape(paperName(p))} 핀으로 만들기" data-tip="핀으로 만들기"><span aria-hidden="true"></span></button>`;
     // Corner grips: a drag on one resizes the paper (2026-11-07 지훈), the opposite corner staying put.
     const grips = resizable(p) && !state.editing
       ? ['nw', 'ne', 'sw', 'se'].map((c) => `<i class="paper-grip" data-grip="${c}" data-for="${escape(p.id)}" aria-hidden="true"></i>`).join('') : '';
@@ -185,8 +205,8 @@ export const papersMethods = {
       this.pinKey = key;
       this.pins.clear();
       this.pinLayer.innerHTML = want.map((p) => `<button type="button" class="pin kind-${p.kind}" data-pin="${escape(p.id)}"
-        aria-label="${escape(paperName(p))} 열기" title="Shift+클릭: 대화에 보낼 종이로 고르기" hidden>
-        <span class="pin-kind">${escape(KIND_LABELS[p.kind] || p.kind)}</span><span class="pin-name">${escape(paperName(p))}</span><b hidden>3D</b></button>`).join('');
+        aria-label="${escape(paperName(p))} 열기" title="${escape(paperName(p))} · 누르면 열기, Shift+클릭: 대화에 보낼 종이로 고르기" hidden>
+        <span class="pin-glyph" aria-hidden="true">${escape(paperGlyph(p))}</span><span class="pin-kind">${escape(KIND_LABELS[p.kind] || p.kind)}</span><span class="pin-name">${escape(paperName(p))}</span><b hidden>3D</b></button>`).join('');
       for (const el of this.pinLayer.querySelectorAll('[data-pin]')) this.pins.set(el.dataset.pin, el);
     }
     for (const [id, el] of this.pins) {
@@ -498,7 +518,7 @@ export const papersMethods = {
     this.drawPeek();
     if (on && !this.toldPlanFold) {
       this.toldPlanFold = true;
-      this.say('접은 종이는 이름표로 남습니다. 이름표를 누르고 [펴기]를 누르면 다시 펼쳐집니다.');
+      this.say('핀으로 만든 종이는 동그라미로 남습니다. 동그라미를 누르고 [펴기]를 누르면 다시 펼쳐집니다.');
     }
     this.save(id, { folded: on });
   },

@@ -365,6 +365,8 @@ export const pointerMethods = {
       // into the idea board (2026-11-07 지훈); the screen draws the circle and says when it is over the board.
       g.cx = e.clientX;
       g.cy = e.clientY;
+      // A pin dragged in 3D folds into its circle while it moves (and opens again on release).
+      if (g.pin && !g.dotted) { g.dotted = true; for (const id of g.ids) this.morphPin(id, true); }
       this.carry(g, this.hooks.carry?.({ x: e.clientX, y: e.clientY, ids: [...g.ids] }));
       if (!p) return;
       g.moved = true;
@@ -394,7 +396,8 @@ export const pointerMethods = {
   // The moved papers fade while their circle is carried ('carry'); over the idea board ('over')
   // they vanish. The screen answers '' when nothing it can take is moving (the site alone).
   carry(g, answer) {
-    const state = g && answer === 'over' ? 'over' : g && answer === 'carry' ? 'on' : '';
+    // Only over the idea board does the paper fade (into the circle there); elsewhere it just moves.
+    const state = g && answer === 'over' ? 'over' : '';
     if (g) g.over = state === 'over';
     if (this.carrying === state) return;
     this.carrying = state;
@@ -406,6 +409,7 @@ export const pointerMethods = {
     const g = this.gesture;
     this.gesture = null;
     if (g?.kind === 'move') {
+      if (g.dotted) for (const id of g.ids) this.morphPin(id, false);
       this.carry(null);
       this.hooks.carry?.(null);
       // Dropped on the idea board: the papers go in there and stay where they were on the table

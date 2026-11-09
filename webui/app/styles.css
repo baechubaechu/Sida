@@ -711,10 +711,16 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 /* In 3D the papers fold into pins standing where they lie; a pin opens its paper as a card. */
 .table-pins { position: absolute; inset: 0; z-index: 1; pointer-events: none; display: none; }
 .table.is-3d .table-pins, .table.has-folded .table-pins { display: block; }
-.paper-fold { position: absolute; right: 8px; top: 8px; z-index: 1; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: 13px; opacity: 0; transition: opacity .15s; }
-.paper:hover .paper-fold, .paper.is-selected .paper-fold, .paper-fold:focus-visible { opacity: 1; }
-.paper-fold:hover { color: var(--brand); border-color: var(--brand); }
-@media (hover: none) { .paper-fold { opacity: 1; } }
+/* The pin at the top middle of a paper: a round head on a short needle; hovering says what it does. */
+.paper-pin { position: absolute; left: 50%; top: 2px; z-index: 3; width: 28px; height: 22px; margin-left: -14px; padding: 0; display: grid; place-items: start center; cursor: pointer; }
+.paper-pin span { position: relative; width: 12px; height: 12px; margin-top: 2px; border-radius: 50%; background: #c8543c; box-shadow: inset -2px -2px 0 rgb(0 0 0 / .18), 0 1px 2px rgb(0 0 0 / .3);
+  transition: transform var(--motion-150) var(--ease-spring); }
+.paper-pin span::after { content: ''; position: absolute; left: 5px; top: 11px; width: 2px; height: 5px; border-radius: 1px; background: rgb(0 0 0 / .35); }
+.paper-pin:hover span, .paper-pin:focus-visible span { transform: scale(1.2); }
+.paper-pin::after { content: attr(data-tip); position: absolute; left: 50%; top: 24px; transform: translateX(-50%); padding: 3px 8px; border-radius: 6px; background: #20262d; color: #fff; font-size: 11px; font-weight: 600; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity var(--motion-150) var(--ease-out); }
+.paper-pin:hover::after, .paper-pin:focus-visible::after { opacity: 1; }
+.paper-pin:focus-visible { outline: none; }
+.paper-pin:focus-visible span { outline: 2px solid var(--brand); outline-offset: 2px; }
 .pin { position: absolute; left: 0; top: 0; display: inline-flex; align-items: center; gap: 6px; max-width: 200px; padding: 4px 10px 4px 6px; border-radius: 999px; background: var(--paper); color: var(--text); border: 1px solid var(--line); box-shadow: 0 2px 8px rgb(0 0 0 / .16); font-size: 12px; font-weight: 600; white-space: nowrap; pointer-events: auto; cursor: pointer; animation: pin-in .18s ease-out; }
 .pin[hidden] { display: none; }
 .pin::after { content: ""; position: absolute; left: calc(50% - 1px); top: 100%; width: 2px; height: 8px; background: color-mix(in srgb, var(--text) 45%, transparent); }
@@ -729,6 +735,15 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .pin.kind-note { background: var(--note); color: var(--note-ink); border-color: transparent; }
 .pin.kind-expert .pin-kind { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
 .pin b { padding: 0 5px; border-radius: 999px; background: var(--brand); color: white; font-size: 10px; }
+/* A pin as a circle: a folded paper in plan (is-flat), or any pin while it is dragged in 3D
+   (is-dot, its width animated by table-papers.js morphPin). */
+.pin { transition: width var(--motion-200) var(--ease-out), padding var(--motion-200) var(--ease-out); }
+.pin.is-morphing { overflow: hidden; }
+.pin-glyph { display: none; }
+.pin.is-dot, .pin.is-flat { justify-content: center; gap: 0; width: 30px; height: 30px; padding: 0; }
+.pin.is-dot .pin-glyph, .pin.is-flat .pin-glyph { display: block; font-size: 13px; line-height: 1; }
+.pin.is-dot .pin-kind, .pin.is-dot .pin-name, .pin.is-dot b, .pin.is-flat .pin-kind, .pin.is-flat .pin-name, .pin.is-flat b { display: none; }
+.pin.is-dot { box-shadow: 0 6px 18px rgb(20 30 40 / .25); cursor: grabbing; }
 @keyframes pin-in { from { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .pin { animation: none; } }
 .peek { left: 0; top: 0; width: min(300px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow-y: auto; display: grid; gap: 6px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgb(0 0 0 / .18); z-index: 3; cursor: auto; user-select: text; font-size: 13px; }

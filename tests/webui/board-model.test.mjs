@@ -1168,3 +1168,11 @@ test('a resized paper scales its writing with the smaller of its width and heigh
   assert.equal(paperTextScale({ kind: 'photo', w: 900, h: 675 }), 1);
   assert.equal(paperTextScale({ kind: 'tracing', w: 900, h: 900 }), 1);
 });
+
+test('a paper shown as a circle carries the mark of its kind', async () => {
+  const { paperGlyph } = await import('../../webui/app/board-model.js');
+  assert.equal(paperGlyph({ kind: 'site' }), '◇');
+  assert.equal(paperGlyph({ kind: 'mass', title: 'A' }), '▣');
+  assert.equal(paperGlyph({ kind: 'photo', file: 'photo-12345678.pdf' }), 'PDF');
+  assert.equal(paperGlyph({ kind: 'photo', file: 'photo-12345678.png' }), '•');
+});

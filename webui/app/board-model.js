@@ -1369,6 +1369,11 @@ export function heldPapers(board) {
 
 const DOT_GLYPHS = { note: '✎', mass: '▣', tracing: '≈', expert: '◎', pdf: 'PDF', site: '◇' };
 
+// The mark a paper shows as a circle (a pin on the table, an idea on the idea board).
+export function paperGlyph(p) {
+  return ideaShape({ paper: p }).glyph;
+}
+
 // What an idea's circle and its line in the open board show: its kind, a glyph for the circle,
 // a name and a little of what it says. An idea of words shows its number.
 export function ideaShape(idea, index = 0) {
