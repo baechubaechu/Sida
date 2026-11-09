@@ -35,7 +35,7 @@
 - `GET /api/projects/{name}/site/model-base?interval=1.5&size=&shape=`: 계단식 지형(`steps`, `buildings`, `datum`, `radius`, `shape`, `size`). 제도판의 "계단식"이 씁니다.
 - `GET /api/projects/{name}/site/model-base/files?scale=500&thickness=3&sheet=600x400&hollow=0&size=&shape=`: 레이저 파일 zip. 요약은 `X-Model-Base` 헤더(`interval`, `layers`, `pieces`, `sheets`, `modules`, `buildings`, `buildings_left_out`, `utilisation`, `size_mm`(가로x세로), `radius`, `shape`, `size`).
 - 둘 다 `size`(`small` 100m·`medium` 200m·`large` 300m)·`shape`(`square`·`circle`)를 안 주면 주변 3D에서 고른 프로젝트 범위(`site_context.json`, [site-context.md](site-context.md))를 씁니다. 예전 `radius`(m)도 받습니다. 모르는 값, 너무 큰 모형, 지형 없음은 `400`과 그 이유입니다.
-- 제도판 왼쪽 도구 막대의 주변 3D 범위·모양 옆 "모형 바닥"에서 축척(1:200·1:500·1:1000), 판 두께, 판 크기(가로x세로 mm), 속 비우기를 고르고 "레이저 파일 받기"를 누르면 zip을 받고 판 장수·조각·층·크기를 보여 줍니다. 계단 간격은 축척 × 판 두께입니다.
+- 제도판 위쪽 도구 막대의 주변 3D 범위·모양 옆 "모형 바닥"에서 축척(1:200·1:500·1:1000), 판 두께, 판 크기(가로x세로 mm), 속 비우기를 고르고 "레이저 파일 받기"를 누르면 zip을 받고 판 장수·조각·층·크기를 보여 줍니다. 계단 간격은 축척 × 판 두께입니다.
 
 ```bash
 python scripts/model_base_terrain.py --sheet 600x400 --thickness 3 --scale 500 --area 240x180 --out output/model_base

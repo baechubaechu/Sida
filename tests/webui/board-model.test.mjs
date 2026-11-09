@@ -980,3 +980,159 @@ test('the laser formats ticked on and off stay in their order', async () => {
   assert.deepEqual(pickFormats(['svg'], 'dxf', true), ['dxf', 'svg']);
   assert.deepEqual(pickFormats([], 'dwg', true), []); // not a format the server makes
 });
+
+test('papers and blocks sit on their own layer, else their kind or scheme', async () => {
+  const { DEFAULT_LAYERS, paperLayer, blockLayer, layerFlags, boardLayers } = await import('../../webui/app/board-model.js');
+  const layers = [...DEFAULT_LAYERS, { id: 'tower', name: '타워', parent: 'mass', visible: true, locked: false, color: '#ff0000' },
+    { id: 'top', name: '옥탑', parent: 'tower', visible: true, locked: true, color: '' }];
+  const mass = { id: 'm', kind: 'mass', layer: 'tower', blocks: [{ floors: 1 }, { floors: 2, layer: 'top' }, { floors: 3, layer: 'gone' }] };
+  assert.equal(paperLayer(mass, layers), 'tower');
+  assert.equal(paperLayer({ kind: 'note', layer: 'gone' }, layers), 'note');
+  assert.equal(paperLayer({ kind: 'odd' }, layers), 'site');
+  assert.deepEqual(mass.blocks.map((b) => blockLayer(mass, b, layers)), ['tower', 'top', 'tower']);
+  // Hiding or locking a layer hides or locks its sublayers.
+  const flags = layerFlags(layers.map((l) => (l.id === 'mass' ? { ...l, visible: false } : l)));
+  assert.deepEqual([...flags.hidden].sort(), ['mass', 'top', 'tower']);
+  assert.deepEqual([...flags.locked], ['top']);
+  assert.equal(flags.color.get('tower'), '#ff0000');
+  assert.equal(boardLayers({ layers: [] }), DEFAULT_LAYERS);
+});
+
+test('the layers panel lists a tree with counts, and layers are added, renamed, moved and taken away', async () => {
+  const { DEFAULT_LAYERS, layerRows, addLayer, removeLayer, changeLayer, moveLayer, nextLayerName } = await import('../../webui/app/board-model.js');
+  let layers = addLayer(DEFAULT_LAYERS, { id: 'tower', parent: 'mass' });
+  assert.equal(layers.find((l) => l.id === 'tower').name, '레이어 1');
+  layers = addLayer(layers, { id: 'top', name: '옥탑', parent: 'tower' });
+  layers = addLayer(layers, { id: 'low', name: '저층부', parent: 'mass' });
+  assert.deepEqual(layers.map((l) => l.id).slice(1, 5), ['mass', 'tower', 'top', 'low']);
+  assert.equal(nextLayerName(layers), '레이어 2');
+  const board = { layers, papers: [{ id: 's', kind: 'site' }, { id: 'm', kind: 'mass', blocks: [{}, { layer: 'top' }] }, { id: 'n', kind: 'note' }] };
+  const rows = layerRows(board, { around: true, current: 'low' });
+  assert.deepEqual(rows.map((r) => [r.id, r.depth, r.count]).slice(0, 5), [['site', 0, 1], ['mass', 0, 1], ['tower', 1, 0], ['top', 2, 1], ['low', 1, 0]]);
+  assert.equal(rows.find((r) => r.id === 'low').current, true);
+  assert.equal(rows.find((r) => r.id === 'mass').children, true);
+  assert.deepEqual(rows.at(-1), { id: 'around', name: '주변 지형·건물', depth: 0, count: 0, visible: true, locked: false, color: '', system: true });
+  assert.equal(layerRows({ layers: changeLayer(layers, 'mass', { visible: false }), papers: [] }).find((r) => r.id === 'top').parentHidden, true);
+  // Moving keeps sublayers with their layer.
+  assert.deepEqual(moveLayer(layers, 'low', 'up').map((l) => l.id).slice(1, 5), ['mass', 'low', 'tower', 'top']);
+  assert.deepEqual(moveLayer(layers, 'tower', 'down').map((l) => l.id).slice(1, 5), ['mass', 'low', 'tower', 'top']);
+  assert.equal(moveLayer(layers, 'site', 'up'), layers);
+  // Taking a layer away lifts its sublayers to its parent; the last layer stays.
+  const less = removeLayer(layers, 'tower');
+  assert.equal(less.find((l) => l.id === 'top').parent, 'mass');
+  assert.equal(less.some((l) => l.id === 'tower'), false);
+  assert.equal(removeLayer([DEFAULT_LAYERS[0]], 'site').length, 1);
+});
+
+test('the properties tab sums a mass scheme against the site and its statutory caps', async () => {
+  const { propertiesOf } = await import('../../webui/app/board-model.js');
+  const mass = { id: 'm', kind: 'mass', title: 'A안', floor_height: 4, blocks: [{ w: 10, d: 20, floors: 3 }, { w: 5, d: 10, floors: 1 }] };
+  const site = { areaM2: 500, area: '500㎡', address: '서울 중구 무교동 45', zones: ['일반상업지역'], bcr: 80, far: 1300 };
+  const props = propertiesOf([mass], site);
+  const row = (label) => props.rows.find((r) => r[0] === label)?.[1];
+  assert.equal(props.title, 'A안');
+  assert.equal(row('동'), '2개');
+  assert.equal(row('최고 층수'), '3층 (12m)');
+  assert.equal(row('건축면적'), '250㎡');
+  assert.equal(row('연면적'), '650㎡');
+  assert.equal(row('건폐율'), '50% (법정 80% 이하)');
+  assert.equal(row('용적률'), '130% (법정 1300% 이하)');
+  assert.ok(props.note.includes('겹친'));
+  // No site area: no ratios.
+  assert.equal(propertiesOf([mass], null).rows.some((r) => r[0] === '건폐율'), false);
+  const siteRows = propertiesOf([{ id: 's', kind: 'site' }], site).rows;
+  assert.deepEqual(siteRows[1].slice(0, 2), ['레이어', 'site']);
+  assert.deepEqual(siteRows.slice(2), [['주소', '서울 중구 무교동 45'], ['용도지역', '일반상업지역'], ['대지면적', '500㎡']]);
+  const several = propertiesOf([{ kind: 'note' }, { kind: 'note' }, { kind: 'photo' }]);
+  assert.deepEqual(several.rows.slice(0, 2), [['메모', '2장'], ['사진', '1장']]);
+  assert.deepEqual(several.rows[2].slice(0, 2), ['레이어', '']); // a note and a photo: two layers
+  assert.equal(propertiesOf([]), null);
+});
+
+test('a picked building shows its floors and size to change; several share their floors', async () => {
+  const { propertiesOf, pickedBlocks } = await import('../../webui/app/board-model.js');
+  const mass = { id: 'm', kind: 'mass', title: 'A안', floor_height: 4, blocks: [{ u: 0, v: 0, w: 10, d: 20, floors: 3 }, { u: 0, v: 0, w: 5, d: 10, floors: 1, a: 30 }] };
+  const one = propertiesOf([], null, pickedBlocks([mass], ['m#1']));
+  const row = (props, label) => props.rows.find((r) => r[0] === label);
+  assert.equal(one.title, 'A안 · 2동');
+  assert.equal(row(one, '층수')[1], 1);
+  assert.equal(row(one, '층수')[2].key, 'floors');
+  assert.equal(row(one, '각도')[1], 30);
+  assert.equal(row(one, '높이')[1], '4m');
+  const both = propertiesOf([], null, pickedBlocks([mass], ['m#0', 'm#1']));
+  assert.equal(both.title, '동 2개');
+  assert.equal(row(both, '층수')[1], '');
+  assert.ok(both.note.includes('다릅니다'));
+  assert.equal(propertiesOf([], null, []), null);
+  // A paper's name and a scheme's floor height are fields; the counts are not.
+  const scheme = propertiesOf([mass]);
+  assert.equal(row(scheme, '이름')[2].key, 'title');
+  assert.equal(row(scheme, '층고')[2].key, 'floor_height');
+  assert.equal(row(scheme, '동')[2], undefined);
+  assert.equal(row(propertiesOf([{ id: 'n', kind: 'note', text: 'x' }]), '이름'), undefined);
+});
+
+test('a value typed into the properties is checked before it changes anything', async () => {
+  const { propertyChange, pickedBlocks } = await import('../../webui/app/board-model.js');
+  const mass = { id: 'm', kind: 'mass', title: 'A안', floor_height: 4, blocks: [{ u: 0, v: 0, w: 10, d: 20, floors: 3 }, { u: 0, v: 0, w: 5, d: 10, floors: 1, a: 30 }] };
+  assert.deepEqual(propertyChange([mass], [], 'title', '  B안 '), [{ id: 'm', changes: { title: 'B안' } }]);
+  assert.deepEqual(propertyChange([mass], [], 'title', 'A안'), []);
+  assert.deepEqual(propertyChange([mass], [], 'floor_height', '3.5'), [{ id: 'm', changes: { floor_height: 3.5 } }]);
+  assert.match(propertyChange([mass], [], 'floor_height', '30').error, /1에서 20/);
+  assert.match(propertyChange([mass], [], 'floor_height', 'abc').error, /숫자/);
+  assert.ok(propertyChange([{ id: 'n', kind: 'note' }], [], 'title', 'x').error);
+  // Buildings: only the picked ones change; several take the same floors.
+  const picked = pickedBlocks([mass], ['m#0', 'm#1']);
+  const [change] = propertyChange([], picked, 'floors', '7');
+  assert.deepEqual(change.changes.blocks.map((b) => b.floors), [7, 7]);
+  assert.match(propertyChange([], picked, 'floors', '2.5').error, /정수/);
+  const [turn] = propertyChange([], pickedBlocks([mass], ['m#1']), 'a', '0');
+  assert.equal('a' in turn.changes.blocks[1], false);
+  assert.equal(turn.changes.blocks[0], mass.blocks[0]);
+  assert.deepEqual(propertyChange([], pickedBlocks([mass], ['m#0']), 'w', '10'), []);
+  assert.ok(propertyChange([mass], picked, 'floors', '2').error);
+});
+
+test('the 레이어 value moves papers onto a layer and buildings onto their own or back', async () => {
+  const { DEFAULT_LAYERS, propertiesOf, propertyChange, pickedBlocks } = await import('../../webui/app/board-model.js');
+  const layers = [...DEFAULT_LAYERS, { id: 'tower', name: '타워', parent: 'mass', visible: true, locked: false, color: '' }];
+  const mass = { id: 'm', kind: 'mass', title: 'A', blocks: [{ w: 1, d: 1, floors: 1 }, { w: 1, d: 1, floors: 1, layer: 'tower' }] };
+  const row = (props) => props.rows.find((r) => r[0] === '레이어');
+  assert.equal(row(propertiesOf([mass], null, [], layers))[1], 'mass');
+  assert.equal(row(propertiesOf([], null, pickedBlocks([mass], ['m#1']), layers))[1], 'tower');
+  assert.equal(row(propertiesOf([], null, pickedBlocks([mass], ['m#0', 'm#1']), layers))[1], '');
+  assert.deepEqual(propertyChange([mass], [], 'layer', 'tower', layers), [{ id: 'm', changes: { layer: 'tower' } }]);
+  assert.deepEqual(propertyChange([mass], [], 'layer', 'mass', layers), []);
+  assert.match(propertyChange([mass], [], 'layer', 'nope', layers).error, /없는/);
+  const [{ changes }] = propertyChange([], pickedBlocks([mass], ['m#0', 'm#1']), 'layer', 'mass', layers);
+  assert.deepEqual(changes.blocks.map((b) => b.layer), [undefined, undefined]); // back onto the scheme's
+  const [{ changes: onto }] = propertyChange([], pickedBlocks([mass], ['m#0']), 'layer', 'tower', layers);
+  assert.equal(onto.blocks[0].layer, 'tower');
+  assert.equal(onto.blocks[1], mass.blocks[1]);
+});
+
+test('a group is picked whole, made and taken apart as edits', async () => {
+  const { expandGroups, groupChange, groupMembers, selectedGroup, groupProperties } = await import('../../webui/app/board-model.js');
+  const papers = [
+    { id: 'm', kind: 'mass', blocks: [{ floors: 1 }, { floors: 2 }, { floors: 3 }] },
+    { id: 'n', kind: 'note' }, { id: 'p', kind: 'photo' },
+  ];
+  // Group a note with two buildings of a scheme.
+  const made = groupChange(papers, ['n'], ['m#0', 'm#2'], 'g1');
+  assert.deepEqual(made.map((e) => e.id), ['m', 'n']);
+  assert.deepEqual(made[0].changes.blocks.map((b) => b.group), ['g1', undefined, 'g1']);
+  assert.equal(made[0].changes.group, undefined); // the scheme itself is not in the group
+  assert.deepEqual(made[1].changes, { group: 'g1' });
+  const grouped = papers.map((p) => ({ ...p, ...(made.find((e) => e.id === p.id)?.changes || {}) }));
+  assert.deepEqual(groupMembers(grouped, 'g1'), { ids: ['n'], keys: ['m#0', 'm#2'] });
+  // Picking one member picks them all; something outside stays as it is.
+  assert.deepEqual(expandGroups(grouped, [], ['m#2']), { ids: ['n'], keys: ['m#2', 'm#0'] });
+  assert.deepEqual(expandGroups(grouped, ['p'], []), { ids: ['p'], keys: [] });
+  assert.equal(selectedGroup(grouped, ['n'], ['m#0', 'm#2']), 'g1');
+  assert.equal(selectedGroup(grouped, ['n', 'p'], ['m#0', 'm#2']), '');
+  assert.equal(groupProperties(grouped, 'g1').title, '그룹 (3개)');
+  // Taking it apart (from any member) clears the group everywhere.
+  const apart = groupChange(grouped, [], ['m#0'], '');
+  assert.deepEqual(apart.find((e) => e.id === 'n').changes, { group: '' });
+  assert.equal(apart.find((e) => e.id === 'm').changes.blocks.some((b) => 'group' in b), false);
+});

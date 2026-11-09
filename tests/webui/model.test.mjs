@@ -615,6 +615,7 @@ test('a project card shows the saved site address, zones, area and the one zone 
   assert.equal(card.address, '서울특별시 중구 무교동 45');
   assert.deepEqual(card.zones, ['일반상업지역']);
   assert.equal(card.area, '412.5㎡');
+  assert.equal(card.areaM2, 412.5);
   assert.equal(card.bcr, 80);
   assert.equal(card.far, 1300);
   assert.equal(card.shapes.length, 1);

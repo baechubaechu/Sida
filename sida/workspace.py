@@ -73,6 +73,89 @@ def save_list_order(config: dict, sort: str, order: list[str]) -> dict:
     return kept
 
 
+# How the panels beside the drafting table are docked on this PC (webui/app/dock-model.js): each
+# side's groups of tabs, which side is folded, and the side widths. The screen checks the panel
+# names; here only the shape and the sizes are kept in bounds. `float`: panels floating over the
+# table, each with its place and size in px.
+PANEL_LAYOUT_FILE = ".panel_layout.json"
+PANEL_SIDES = ("left", "right")
+PANEL_RATIOS = ("left", "right", "detail")
+PANEL_MAX_GROUPS = 12
+PANEL_MAX_TABS = 24
+PANEL_MAX_PX = 20000
+
+
+def _panel_px(value, fallback: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= PANEL_MAX_PX:
+        return fallback
+    return int(round(value))
+
+
+def _panel_name(value) -> bool:
+    return isinstance(value, str) and 0 < len(value) <= 40
+
+
+def _clean_panel_layout(data) -> dict | None:
+    if not isinstance(data, dict):
+        return None
+    kept: dict = {}
+    for name in PANEL_SIDES:
+        side = data.get(name) if isinstance(data.get(name), dict) else {}
+        groups = []
+        for group in side.get("groups") if isinstance(side.get("groups"), list) else []:
+            if not isinstance(group, dict) or not isinstance(group.get("tabs"), list):
+                continue
+            tabs = [tab for tab in group["tabs"] if _panel_name(tab)][:PANEL_MAX_TABS]
+            if not tabs:
+                continue
+            size = group.get("size")
+            size = float(size) if isinstance(size, (int, float)) and not isinstance(size, bool) and 0 < size <= 1000 else 1.0
+            active = group.get("active") if group.get("active") in tabs else tabs[0]
+            groups.append({"tabs": tabs, "active": active, "size": size})
+        kept[name] = {"open": side.get("open") is not False, "groups": groups[:PANEL_MAX_GROUPS]}
+    floats = []
+    for group in data.get("float") if isinstance(data.get("float"), list) else []:
+        if not isinstance(group, dict) or not isinstance(group.get("tabs"), list):
+            continue
+        tabs = [tab for tab in group["tabs"] if _panel_name(tab)][:PANEL_MAX_TABS]
+        if not tabs:
+            continue
+        floats.append({
+            "tabs": tabs,
+            "active": group.get("active") if group.get("active") in tabs else tabs[0],
+            "x": _panel_px(group.get("x"), 24),
+            "y": _panel_px(group.get("y"), 24),
+            "w": _panel_px(group.get("w"), 320),
+            "h": _panel_px(group.get("h"), 420),
+        })
+    kept["float"] = floats[:PANEL_MAX_GROUPS]
+    ratios = data.get("ratios") if isinstance(data.get("ratios"), dict) else {}
+    kept["ratios"] = {
+        key: float(value)
+        for key, value in ratios.items()
+        if key in PANEL_RATIOS and isinstance(value, (int, float)) and not isinstance(value, bool) and 0 < value < 1
+    }
+    return kept
+
+
+def load_panel_layout(config: dict) -> dict | None:
+    """The kept layout, or None (never saved, or unreadable): the screen then uses its default."""
+    try:
+        data = json.loads((ensure_projects_root(config) / PANEL_LAYOUT_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return _clean_panel_layout(data)
+
+
+def save_panel_layout(config: dict, layout: dict) -> dict:
+    """Keep the layout. Raises ValueError for something that is not a layout."""
+    kept = _clean_panel_layout(layout)
+    if kept is None:
+        raise ValueError("panel layout must be an object")
+    atomic_write_text(ensure_projects_root(config) / PANEL_LAYOUT_FILE, json.dumps(kept, ensure_ascii=False))
+    return kept
+
+
 def _updated_at(path: Path) -> str:
     try:
         data = json.loads((path / SESSION_FILE).read_text(encoding="utf-8"))

@@ -25,18 +25,16 @@ function runsBlock() {
   if (running) {
     return `<p class="working" role="status"><span class="spinner" aria-hidden="true"></span><span><b>${escape(running.name)}</b> 실행 중입니다. 결과는 제도판의 AI 섹션에 놓입니다.</span></p>`;
   }
-  return '<p class="runs-empty">전문가를 실행하면 결과가 제도판의 AI 섹션에 놓이고, 여기서 결과 문서와 분석 채팅을 엽니다.</p>';
+  return '';
 }
 
-export function expertsPanel() {
+// The 전문가 panel (view-dock.js): the site facts, the experts and a run going on.
+export function expertsBody() {
   const experts = visibleExperts(ui.session?.experts);
   const busy = jobRunning();
   const picked = ui.selected.length;
-  return `<aside id="experts-panel" class="experts panel" aria-label="전문가">
-    <header class="pane-head"><div><span class="eyebrow">함께 검토하기</span><h2>전문가 <span class="expert-count">${experts.length}</span></h2>
-      <p>${picked ? `고른 종이 ${picked}장과 함께 실행` : '브리프와 제도판을 보고 실행'}</p></div>
-      <button type="button" class="ghost" data-action="collapse-experts" aria-label="전문가 패널 접기" aria-controls="experts-panel" aria-expanded="true">›</button></header>
-    <div class="experts-scroll">
+  return `<div class="dock-body" role="tabpanel" aria-label="전문가"><div class="experts-scroll">
+    <p class="side-note">${picked ? `고른 종이 ${picked}장과 함께 실행합니다.` : '브리프와 제도판을 보고 실행합니다. 보통은 Conductor가 필요할 때 부릅니다.'}</p>
     <h3 class="panel-label">대지</h3>${siteRow(currentRoute.name)}
     <h3 class="panel-label">전문가</h3>
     <ul class="expert-list">${experts.map((e) => {
@@ -53,7 +51,7 @@ export function expertsPanel() {
         <div class="expert-threads"><button data-action="open-expert" data-agent="${id}">결과 문서 보기</button>${threads}</div></details>
       <button type="button" class="mini" data-action="run-expert" data-agent="${id}" ${busy ? 'disabled' : ''} title="${e.done ? '다시 실행' : '실행'}${picked ? ` (고른 종이 ${picked}장과 함께)` : ''}">${status === 'running' ? '실행 중' : e.done ? '다시' : '실행'}</button></li>`;
   }).join('')}</ul></div>
-    <section class="runs" aria-label="검토 진행"><h3>검토 진행</h3>${runsBlock()}</section></aside>`;
+    ${runsBlock() ? `<section class="runs" aria-label="검토 진행"><h3>검토 진행</h3>${runsBlock()}</section>` : ''}</div>`;
 }
 
 function proposalBlock(agent) {

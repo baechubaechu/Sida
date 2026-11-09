@@ -7,12 +7,14 @@ import { projectPath as projectUrl, keepNewDraft, untitledName } from './model.j
 import { COMPARE_QUESTION } from './board-model.js';
 import { talkMenu } from './talk-panel-model.js';
 import { api, expertUrl, projectApi } from './api.js';
-import { applyModelRecommendation, askAbout, closeTable, downloadBoard, hideVWorld, loadBoard, openTable, placeTable, table, takePicked, toggleVWorld, unpick } from './board.js';
+import { applyModelRecommendation, askAbout, closeTable, editProperty, downloadBoard, hideVWorld, loadBoard, openTable, placeTable, table, takePicked, toggleVWorld, unpick } from './board.js';
 import { commandKey, focusCommandLine, runCommandLine } from './commands.js';
 import { decideProposal, newChat, runExpert, send, sendFeedback } from './experts.js';
 import { addTypedIdea, ideaAction, placeIdeaFloat, saveIdea } from './ideas.js';
 import { clearExpert, loadExpert, loadOrdinance, loadProjectSites, loadProjects, loadSession, loadSite, resetTracking, start, track } from './jobs.js';
 import { syncPanelWidths } from './panels.js';
+import { dockAction, followSelection, loadDock } from './dock.js';
+import { layerAction } from './layers.js';
 import { askDelete, createSample, keepProjectList, openProjectInfo } from './projects.js';
 import { render } from './render.js';
 import { checkRelayKey, loadSettings, openSettings } from './settings.js';
@@ -58,6 +60,9 @@ async function navigate() {
       ui.project = name;
       ui.board = null;
       ui.selected = [];
+      ui.picked = [];
+      followSelection(false);
+      Object.assign(ui, { layerPick: '', layerRename: '', layerRenameText: '', currentLayer: '', aroundHidden: false });
       ui.talks = new Map();
       ui.talkViews = [];
       ui.talkMenu = '';
@@ -66,6 +71,8 @@ async function navigate() {
       for (const key of drafts.keys()) if (key.startsWith('talk:') || key === 'conductor-new') drafts.delete(key);
       ui.cmd = { lines: [], typed: [], back: -1, prompt: null, last: '', pick: 0, help: false };
       drafts.delete('command');
+      await loadDock(); // the panel layout kept on this PC, once (a local read)
+      if (currentRoute.name !== name) return;
       render();
       if (!ui.projects) loadProjects().then(() => render(false));
       openTable(name);
@@ -202,16 +209,16 @@ app.addEventListener('click', (event) => {
   if (action === 'sample') createSample();
   if (action === 'delete-project') askDelete(button.dataset.project);
   if (action === 'project-info') openProjectInfo(button.dataset.project);
-  if (action === 'pane') { ui.pane = button.dataset.pane; if (ui.pane === 'conductor') ui.conductor = { ...ui.conductor, open: true }; render(false); }
+  if (action === 'pane') { ui.pane = button.dataset.pane; render(false); }
   if (action === 'conductor-toggle') changeConductor('toggle');
-  if (action === 'conductor-close') changeConductor('close');
   if (action === 'talks-toggle') changeConductor('list');
   if (action === 'talk-new') { changeConductor('new'); app.querySelector('[data-focus="conductor-new"]')?.focus({ preventScroll: true }); }
-  if (action === 'collapse-experts') { ui.expertsCollapsed = true; if (ui.pane === 'side') ui.pane = 'board'; render(false); }
-  if (action === 'toggle-experts-panel') { ui.expertsCollapsed = !ui.expertsCollapsed; render(false); }
+  if (action.startsWith('dock-')) dockAction(action, button);
   if (action === 'inspect-paper') table?.inspect(button.dataset.id);
-  if (action === 'clear-selection') { ui.selected = []; table?.setSelected([]); render(false); }
+  if (action.startsWith('layer-')) layerAction(action, button);
+  if (action === 'clear-selection') { ui.selected = []; followSelection(false); table?.setSelected([]); render(false); }
   if (action === 'select-masses') table?.selectMasses();
+  if (action === 'ungroup') table?.command('ungroup');
   if (action === 'ask-selection') askAbout(button.dataset.compare === 'true' ? COMPARE_QUESTION : '');
   if (action === 'open-expert') location.hash = expertUrl(name, button.dataset.agent);
   if (action === 'model-apply') applyModelRecommendation();
@@ -288,6 +295,7 @@ function transition(update) {
 
 app.addEventListener('input', (event) => {
   const { target } = event;
+  if (target.dataset?.prop) drafts.set(`prop:${target.dataset.prop}`, target.value);
   if (target.id === 'project-search') {
     ui.query = target.value;
     swapProjectList();
@@ -319,6 +327,10 @@ app.addEventListener('change', (event) => {
   if (event.target.id === 'idea-new-link') ui.ideaLinkNew = event.target.checked;
   const { ordDetailed } = event.target.dataset || {};
   if (ordDetailed) setOrdinanceOption(currentRoute.name, ordDetailed, { detailed: event.target.checked });
+  if (event.target.dataset?.prop) {
+    drafts.delete(`prop:${event.target.dataset.prop}`);
+    editProperty(event.target.dataset.prop, event.target.value);
+  }
   // Checklist ticks stay on screen only for now (not saved to the project).
   const check = event.target.dataset?.check;
   if (check) {
@@ -402,6 +414,18 @@ newProjectDialog.addEventListener('submit', onSubmit);
 
 app.addEventListener('keydown', (event) => {
   if (event.target.id === 'command-input') { commandKey(event); return; }
+  // The 속성 panel's fields: Enter saves (through 'change'), Esc puts the saved value back.
+  if (event.target.dataset?.prop) {
+    if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); event.target.blur(); }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      drafts.delete(`prop:${event.target.dataset.prop}`);
+      event.target.value = event.target.dataset.saved;
+      ui.propError = null;
+      event.target.blur();
+    }
+    return;
+  }
   if (event.target.dataset?.ideaDraft) {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
       event.preventDefault();

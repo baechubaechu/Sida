@@ -9,9 +9,10 @@
 // the pointer handling to the class. Saving goes through the callbacks board.js gives (which
 // call the JSON API, docs/board-api.md), and figures come from the server. The table keeps its
 // own element, which render.js lays over a slot in the page, so redraws of the page leave it be.
+import { icon } from './icons.js';
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewName, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS } from './board-model.js';
+import { boardLayers, paperLayer, blockLayer, layerFlags, expandGroups, groupChange, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewName, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS } from './board-model.js';
 import { typing, TOOLS, MODEL_TOOLS } from './table-shared.js';
 import { blocksMethods } from './table-blocks.js';
 import { aroundMethods } from './table-around.js';
@@ -60,6 +61,11 @@ export class DraftingTable {
     this.pins = new Map(); // paper id → its pin element (3D)
     this.toldFold = false;
     this.around = null; // the site's surroundings (GET .../site/context), fetched when first shown
+    // The board's layers (레이어 panel): what is hidden or locked, and colours; the surroundings
+    // are hidden on the screen only.
+    this.layers = boardLayers(null);
+    this.layerFlags = layerFlags(this.layers);
+    this.aroundHidden = false;
     this.aroundOn = false;
     this.aroundBusy = false;
     this.aroundRequest = null;
@@ -84,11 +90,9 @@ export class DraftingTable {
         <rect data-gumball="free" class="gb-free" width="14" height="14"/>
       </svg></div>
       <div class="table-ui ui-left"><div class="ui-history" role="group" aria-label="편집 기록"></div>
-        <div class="ui-tools" role="toolbar" aria-orientation="vertical" aria-label="제도판 도구"></div></div>
+        <div class="ui-tools" role="toolbar" aria-label="제도판 도구"></div></div>
       <div class="table-ui ui-scheme"></div>
-      <div class="table-ui ui-tilt" aria-label="기울기"></div>
-      <div class="table-ui ui-zoom"></div>
-      <p class="table-ui ui-help">왼쪽 끌기: 선택 상자(→ 안에 든 것, ← 걸친 것, Shift 더하기, Ctrl 빼기) · 건물 클릭: 그 동만 고르기(끌면 옮김, 검볼, Delete 지우기) · 스케치업 도구는 명령으로: rect pushpull move copy rotate scale eraser dist (제도판에서 글자를 치면 명령창으로) · Ctrl+C/V 복사·붙여넣기, Ctrl+A 모든 동 · 고른 이름표 끌기: 종이 옮기기 · 휠: 커서 기준 확대 · 우클릭 끌기: 돌리기 · Shift+우클릭·가운데 버튼 끌기: 이동 · Ctrl+Z: 되돌리기 · 사진·PDF: 파일을 끌어다 놓거나 붙여넣기(photo) · 종이 모서리 끌기: 크기 조절</p>
+      <div class="table-ui ui-view"><div class="ui-tilt" role="group" aria-label="보는 각도"></div><div class="ui-zoom"></div></div>
       <p class="table-ui ui-hint" role="status" hidden></p>
       <section class="table-ui around-note" aria-label="주변 3D 자료 출처" hidden></section>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
@@ -144,6 +148,8 @@ export class DraftingTable {
     if (this.gesture) { this.pending = view; return; }
     const siteChanged = JSON.stringify(this.site?.plan) !== JSON.stringify(view.site?.plan);
     this.site = view.site || null;
+    this.layers = boardLayers(view);
+    this.layerFlags = layerFlags(this.layers);
     if (siteChanged) {
       this.aroundRequest = null;
       this.aroundBusy = false;
@@ -168,7 +174,8 @@ export class DraftingTable {
     if (!masses.some((p) => p.id === this.active)) this.active = masses[0]?.id || '';
     if (this.preview && !this.tray.some((p) => p.id === this.preview)) this.preview = '';
     this.selected = this.selected.filter((id) => this.find(id));
-    this.picked = pickedBlocks(this.papers, this.picked).flatMap((g) => g.indices.map((i) => blockKey(g.paper.id, i)));
+    const picked = pickedBlocks(this.papers, this.picked).flatMap((g) => g.indices.map((i) => blockKey(g.paper.id, i)));
+    if (picked.join() !== this.picked.join()) { this.picked = picked; this.hooks.pick?.(picked); }
     if (this.peekId && !this.papers.some((p) => p.id === this.peekId)) this.peekId = '';
     if (this.detailId) {
       const writing = this.ui.detail.contains(document.activeElement) && typing(document.activeElement);
@@ -226,6 +233,8 @@ export class DraftingTable {
         this.travel(name);
         return '';
       case 'tray': this.trayOpen = !this.trayOpen; this.drawTray(); this.drawControls(); return '';
+      case 'group': return this.groupSelection(true);
+      case 'ungroup': return this.groupSelection(false);
       default: return '제도판에서 쓰는 명령이 아닙니다.';
     }
   }
@@ -341,7 +350,7 @@ export class DraftingTable {
     masses.scale.z = rise;
     // The surroundings rise with the masses; the table top goes below the lowest ground under them.
     const shown = Boolean(this.aroundOn && this.around);
-    around.visible = shown;
+    around.visible = shown && !this.aroundHidden;
     around.scale.z = rise;
     desk.position.z = shown ? Math.min(0, this.aroundLow) * rise - 0.5 : 0;
     catcher.position.z = desk.position.z + 0.01;
@@ -350,7 +359,7 @@ export class DraftingTable {
     grid.material.opacity = ground;
     grid.visible = !shown;
     catcher.material.opacity = 0.22 * ground;
-    lot.visible = ground > 0.5;
+    lot.visible = ground > 0.5 && !this.layerHidden(this.papers.find((p) => p.kind === 'site') || { kind: 'site' });
     horizon.visible = ground < 1;
     horizon.material.opacity = 1 - ground;
     horizon.position.set(v.x, v.y, 0.1);
@@ -362,7 +371,8 @@ export class DraftingTable {
     const fold = folded(v.tilt);
     const shut = new Set(foldedInPlan(this.papers, this.home));
     traces.visible = fold && ground > 0.5;
-    for (const [id, obj] of objects) obj.visible = !fold && !shut.has(id);
+    const off = new Set(this.papers.filter((p) => this.layerHidden(p)).map((p) => p.id)); // layers turned off
+    for (const [id, obj] of objects) obj.visible = !fold && !shut.has(id) && !off.has(id);
     if (fold !== this.root.classList.contains('is-3d')) this.foldChanged(fold);
     this.root.classList.toggle('has-folded', shut.size > 0);
     // How large a paper px is on the screen, for the corner grips (a steady size on the screen)
@@ -432,8 +442,8 @@ export class DraftingTable {
   }
 
   drawHistory() {
-    this.ui.history.innerHTML = `<button type="button" data-ui="undo" aria-label="실행 취소" title="실행 취소 (Ctrl/⌘+Z)" ${this.history.past.length ? '' : 'disabled'}>↶</button>
-      <button type="button" data-ui="redo" aria-label="다시 실행" title="다시 실행 (Ctrl/⌘+Shift+Z, Ctrl+Y)" ${this.history.future.length ? '' : 'disabled'}>↷</button>`;
+    this.ui.history.innerHTML = `<button type="button" data-ui="undo" aria-label="실행 취소" title="실행 취소 (Ctrl/⌘+Z)" ${this.history.past.length ? '' : 'disabled'}>${icon('undo')}</button>
+      <button type="button" data-ui="redo" aria-label="다시 실행" title="다시 실행 (Ctrl/⌘+Shift+Z, Ctrl+Y)" ${this.history.future.length ? '' : 'disabled'}>${icon('redo')}</button>`;
   }
 
   async travel(direction) {
@@ -479,33 +489,66 @@ export class DraftingTable {
     }
   }
 
+  // ------------------------------------------------------------------ layers
+
+  // The board's layers changed (or the surroundings were hidden or shown): draw again, and let go of
+  // what now lies on a hidden or locked layer.
+  setLayers(layers, { aroundHidden = this.aroundHidden } = {}) {
+    this.layers = layers?.length ? layers : boardLayers(null);
+    this.layerFlags = layerFlags(this.layers);
+    this.aroundHidden = aroundHidden;
+    const free = this.selected.filter((id) => { const p = this.find(id); return p && !this.layerHidden(p) && !this.layerLocked(p); });
+    if (free.length !== this.selected.length) this.select(free);
+    const picks = this.picked.filter((key) => pickedBlocks(this.papers, [key]).every((g) => g.indices.every((i) => this.blockFree(g.paper, g.paper.blocks[i]))));
+    if (picks.length !== this.picked.length) this.pickBlocks(picks);
+    this.syncPapers();
+    this.drawMasses();
+    this.invalidate();
+  }
+
+  layerHidden(paper) {
+    return this.layerFlags.hidden.has(paperLayer(paper, this.layers));
+  }
+
+  layerLocked(paper) {
+    return this.layerFlags.locked.has(paperLayer(paper, this.layers));
+  }
+
+  // A block on a layer that is shown and not locked (it can be picked).
+  blockFree(paper, block) {
+    const layer = blockLayer(paper, block, this.layers);
+    return !this.layerFlags.hidden.has(layer) && !this.layerFlags.locked.has(layer);
+  }
+
   // ------------------------------------------------------------------ controls
 
   drawControls() {
     this.drawHistory();
     const v = this.view;
     const masses = this.papers.filter((p) => p.kind === 'mass');
-    const toolButton = (t) => `<button type="button" data-tool="${t.id}" aria-pressed="${this.tool === t.id}" title="${t.label} (명령: ${t.cmd})${t.hint ? ` — ${t.hint}` : ''}"><span aria-hidden="true">${t.icon}</span> ${t.label}</button>`;
+    // An icon each; the name, the command and how to use it show on hover (and are read out).
+    const toolButton = (t) => `<button type="button" class="tool" data-tool="${t.id}" aria-pressed="${this.tool === t.id}" aria-label="${t.label}" title="${t.label} (명령: ${t.cmd})${t.hint ? ` — ${t.hint}` : ''}">${icon(t.id)}</button>`;
     this.ui.tools.innerHTML = `${TOOLS.filter((t) => !t.group).slice(0, 1).map(toolButton).join('')}
       <span class="sep"></span>${TOOLS.filter((t) => t.group === 'model').map(toolButton).join('')}
       <span class="sep"></span>${TOOLS.filter((t) => !t.group).slice(1).map(toolButton).join('')}
       <span class="sep"></span>
-      <button type="button" data-ui="scheme-new" title="숫자로 매스안 만들기">＋ 매스안</button>
-      <button type="button" data-ui="trace" title="트레이싱지 덮기 (명령: trace)">트레이싱지 덮기</button>
-      <button type="button" data-ui="photo" title="사진·PDF 올리기 (명령: photo) — 사진이나 PDF 도면을 제도판에 끌어다 놓거나 붙여넣어도 됩니다">사진·PDF 올리기</button>
-      <button type="button" data-ui="around" aria-pressed="${this.aroundOn}" ${this.site?.plan && !this.aroundBusy ? '' : 'disabled'} title="대지 주변(옆에서 고른 범위·모양)의 지형과 건물을 3D로 보기 (공공 자료로 만든 참고용 모형)">${this.aroundBusy ? '주변 불러오는 중…' : '주변 3D'}</button>
+      <button type="button" class="tool" data-ui="scheme-new" aria-label="매스안 만들기" title="숫자로 매스안 만들기">${icon('mass')}</button>
+      <button type="button" class="tool" data-ui="trace" aria-label="트레이싱지 덮기" title="트레이싱지 덮기 (명령: trace) — 대지 위에 덮고, 옆으로 끌어내면 떼어집니다">${icon('trace')}</button>
+      <button type="button" class="tool" data-ui="photo" aria-label="사진·PDF 올리기" title="사진·PDF 올리기 (명령: photo) — 사진이나 PDF 도면을 제도판에 끌어다 놓거나 붙여넣어도 됩니다">${icon('photo')}</button>
+      <span class="sep"></span>
+      <button type="button" class="tool" data-ui="around" aria-pressed="${this.aroundOn}" aria-label="${this.aroundBusy ? '주변 불러오는 중' : '주변 3D'}" ${this.site?.plan && !this.aroundBusy ? '' : 'disabled'} title="주변 3D — 대지 주변(옆에서 고른 범위·모양)의 지형과 건물을 3D로 보기 (공공 자료로 만든 참고용 모형)">${icon('around')}</button>
       ${this.site?.plan ? this.rangeSelects() : ''}
       ${this.aroundOn && this.around?.terrain ? `<label class="check">등고선 <select data-ui="contour-step" aria-label="등고선 간격">${CONTOUR_STEPS.map((s) => `<option value="${s}" ${s === this.contourStep ? 'selected' : ''}>${s}m</option>`).join('')}</select></label>` : ''}
-      <button type="button" data-ui="delete" ${this.selected.some((id) => this.papers.some((p) => p.id === id && p.kind !== 'site')) ? '' : 'disabled'} title="삭제 (Delete)">삭제</button>
+      <button type="button" class="tool" data-ui="delete" aria-label="삭제" ${this.selected.some((id) => this.papers.some((p) => p.id === id && p.kind !== 'site')) ? '' : 'disabled'} title="삭제 (Delete)">${icon('trash')}</button>
       <span class="sep"></span>
-      <button type="button" data-ui="tray" aria-pressed="${this.trayOpen}">AI 섹션${this.tray.length ? ` <b>${this.tray.length}</b>` : ''}</button>`;
+      <button type="button" class="tool tray-button" data-ui="tray" aria-pressed="${this.trayOpen}" aria-label="AI 섹션${this.tray.length ? ` ${this.tray.length}개` : ''}" title="AI 섹션 — 전문가 결과가 놓이는 곳">${icon('tray')}${this.tray.length ? `<b>${this.tray.length}</b>` : ''}</button>`;
     this.ui.scheme.hidden = !masses.length;
     this.ui.scheme.innerHTML = masses.length ? `<div class="seg" role="group" aria-label="3D로 볼 매스안">
         ${masses.map((p) => `<button type="button" data-active="${escape(p.id)}" aria-pressed="${this.active === p.id}">${escape(paperName(p))}</button>`).join('')}</div>
       ${masses.length > 1 ? `<label class="check"><input type="checkbox" data-ui="ghost" ${this.ghost ? 'checked' : ''}> 다른 안 겹쳐 보기</label>` : ''}` : '';
-    this.ui.tilt.innerHTML = `<div class="seg vertical" role="group" aria-label="보는 각도">
+    this.ui.tilt.innerHTML = `<div class="seg" role="group" aria-label="평면 또는 3D">
         ${[['plan', '평면', 'plan'], ['3d', '3D', 'persp']].map(([id, label, k]) => `<button type="button" data-tilt="${id}" title="${label} (명령: ${k})" aria-pressed="${viewName(v.tilt) === id}">${label}</button>`).join('')}</div>
-      <input type="range" min="0" max="${MAX_TILT}" value="${Math.round(v.tilt)}" aria-label="기울기 각도" data-ui="tilt-range">
+      <input type="range" min="0" max="${MAX_TILT}" value="${Math.round(v.tilt)}" aria-label="기울기 각도" title="기울이면 배치도가 3D가 됩니다" data-ui="tilt-range">
       <span class="num tilt-read">${Math.round(v.tilt)}°</span>
       <button type="button" class="compass" data-ui="north" title="북쪽을 위로"><span style="transform: rotate(${-v.turn}deg)" aria-hidden="true">▲</span><small>N</small></button>`;
     this.ui.zoom.innerHTML = `<span class="scale-readout">${this.scaleReadout()}</span>
@@ -586,7 +629,44 @@ export class DraftingTable {
     return this.hooks.update(id, changes);
   }
 
+  // Group what is selected and picked (any papers and buildings), or take apart every group it
+  // touches. Kept for undo like any edit. Returns what to tell the designer when nothing happens.
+  groupSelection(make) {
+    const count = this.selected.length + this.picked.length;
+    if (make && count < 2) return '묶을 것을 두 개 이상 고르세요.';
+    const edits = groupChange(this.papers, this.selected, this.picked, make ? `group-${Math.random().toString(16).slice(2, 10).padEnd(8, '0')}` : '');
+    if (!edits.length) return make ? '이미 한 그룹입니다.' : '고른 것 중에 그룹이 없습니다.';
+    this.editPapers(edits);
+    this.say(make ? `${count}개를 그룹으로 묶었습니다. 하나를 누르면 함께 골라집니다.` : '그룹을 풀었습니다.');
+    return '';
+  }
+
+  // Values changed in the 속성 panel ([{id, changes}], board-model propertyChange): kept for undo,
+  // drawn and saved like an edit on the table.
+  editPapers(list) {
+    const edits = [];
+    for (const { id, changes } of list) {
+      const p = this.papers.find((x) => x.id === id);
+      if (!p) continue;
+      const before = Object.fromEntries(Object.keys(changes).map((key) => [key, p[key] ?? (key === 'title' ? '' : null)]));
+      edits.push({ op: 'update', id, before, after: changes });
+      Object.assign(p, changes);
+      this.save(id, changes);
+    }
+    if (!edits.length) return;
+    this.record(edits);
+    this.syncPapers();
+    this.drawMasses();
+    this.drawControls();
+    if (this.detailId) this.drawDetail();
+  }
+
   select(ids) {
+    // A paper in a group brings the rest of its group (its buildings too); a locked layer's papers stay put.
+    const grown = expandGroups(this.papers, ids, []);
+    ids = grown.ids.filter((id) => { const p = this.find(id); return !p || !this.layerLocked(p); });
+    const keys = grown.keys.filter((key) => !this.picked.includes(key));
+    if (keys.length) this.pickBlocks([...this.picked, ...keys], { grow: false });
     this.selected = ids;
     this.hooks.select(ids);
     this.syncPapers();

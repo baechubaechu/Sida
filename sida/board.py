@@ -4,6 +4,17 @@ Independent of HTTP and of the screen. The table is stored as board.json in the 
 folder: {"rev", "papers", "tray", "pins", "ideas", "hidden"}. The designer adds, moves and edits papers one
 at a time (the screen and the AI write to the same file, so nobody saves it whole).
 
+`layers` (2026-11-09 지훈, as in Rhino) are the designer's layers, in order: {id, name, parent ('' at
+the top, else a layer's id), visible, locked, color ('' or '#rrggbb')}. A paper names its layer in
+`layer`, and a block of a mass may name its own (otherwise it is on its scheme's layer); a paper
+without one is on the layer of its kind (a table without layers starts with one for each kind,
+DEFAULT_LAYERS). Hiding and locking are for the screen: the AI still reads every paper, and the
+export writes each layer by its name. Taking a layer away moves what was on it (and its sublayers)
+up to the nearest layer still there.
+
+A group (2026-11-09 지훈: "아무 개체끼리 묶을 수 있게") is any papers and blocks that share a
+`group` id: picking one on the screen picks them all. Only the screen uses it.
+
 `hidden` (2026-11-07) lists the buildings of the VWorld 3D map the designer hid around the site
 (their model ids, so the site's own old building can be taken away from under a scheme). Only the
 screen reads it; it is not geometry and does not go to the AI or into the export.
@@ -75,7 +86,8 @@ MAX_STROKES = 500
 MAX_POINTS = 5000
 DEFAULT_FLOOR_HEIGHT = 4.2
 PLACEMENT = ("x", "y", "w", "h")
-ARRANGE = (*PLACEMENT, "folded")  # what a site or expert paper may change: where it lies, folded or not
+# What a site or expert paper may change: where it lies, folded or not, its layer and group.
+ARRANGE = (*PLACEMENT, "folded", "layer", "group")
 PAPER_SIZE = {
     "site": (300, 250), "mass": (300, 210), "note": (200, 140), "tracing": (300, 250), "expert": (320, 270),
     "photo": (300, 225),
@@ -103,6 +115,17 @@ MAX_HIDDEN_ID = 80
 MAX_IDEA_TEXT = 600
 MAX_IDEA_PAPERS = 8
 TALK_ID = re.compile(r"\d{2,4}")  # the Conductor talk ids of sida/talks.py
+MAX_LAYERS = 200
+MAX_LAYER_NAME = 60
+LAYER_COLOR = re.compile(r"#[0-9a-fA-F]{6}")
+# The layers a table starts with: one for each kind of paper (their ids are the kinds).
+DEFAULT_LAYERS = (
+    ("site", "대지"), ("mass", "매스"), ("tracing", "트레이싱지"), ("note", "메모"), ("photo", "사진"), ("expert", "전문가 결과"),
+)
+
+
+def default_layers() -> list[dict]:
+    return [{"id": i, "name": n, "parent": "", "visible": True, "locked": False, "color": ""} for i, n in DEFAULT_LAYERS]
 
 _lock = threading.Lock()
 
@@ -129,7 +152,7 @@ def _site_paper() -> dict:
 
 
 def _empty() -> dict:
-    return {"rev": 0, "papers": [_site_paper()], "tray": [], "pins": [], "ideas": [], "hidden": []}
+    return {"rev": 0, "papers": [_site_paper()], "tray": [], "pins": [], "ideas": [], "hidden": [], "layers": default_layers()}
 
 
 log = logging.getLogger(__name__)
@@ -179,8 +202,12 @@ def load_board(project_path: Path) -> dict:
         idea["papers"] = [i for i in idea.get("papers") or [] if i in there]
     hidden = data.get("hidden") if isinstance(data.get("hidden"), list) else []
     hidden = [h for h in hidden if isinstance(h, str) and h]
+    try:
+        layers = clean_layers(data["layers"]) if isinstance(data.get("layers"), list) and data["layers"] else default_layers()
+    except ValueError:
+        layers = default_layers()
     return {"rev": int(data.get("rev") or 0), "papers": papers, "tray": tray, "pins": pins, "ideas": ideas,
-            "hidden": hidden}
+            "hidden": hidden, "layers": layers}
 
 
 def _save(project_path: Path, board: dict) -> dict:
@@ -625,6 +652,78 @@ def set_hidden(project_path: Path, ids: list) -> dict:
     return {"hidden": board["hidden"], "rev": board["rev"]}
 
 
+def clean_layers(raw) -> list[dict]:
+    """The layers, checked: unique ids, names, parents that exist (no loops). Raises ValueError."""
+    if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_LAYERS:
+        raise ValueError(f"layers must be a list of 1 to {MAX_LAYERS} layers")
+    layers: list[dict] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise ValueError(f"layers[{index}] must be an object")
+        layer_id = str(item.get("id") or "")
+        if not PAPER_ID.fullmatch(layer_id) or any(x["id"] == layer_id for x in layers):
+            raise ValueError(f"layers[{index}].id must be a unique id")
+        name = _text(item.get("name"), "layer name", MAX_LAYER_NAME).strip()
+        if not name:
+            raise ValueError(f"layers[{index}] needs a name")
+        color = str(item.get("color") or "")
+        if color and not LAYER_COLOR.fullmatch(color):
+            raise ValueError(f"layers[{index}].color must be #rrggbb")
+        layers.append({"id": layer_id, "name": name, "parent": str(item.get("parent") or ""),
+                       "visible": item.get("visible") is not False, "locked": item.get("locked") is True, "color": color.lower()})
+    ids = {x["id"] for x in layers}
+    parents = {x["id"]: x["parent"] for x in layers}
+    for layer in layers:
+        if layer["parent"] and layer["parent"] not in ids:
+            raise ValueError(f"layer {layer['id']}: no parent layer {layer['parent']}")
+        seen, at = set(), layer["id"]
+        while at:
+            if at in seen:
+                raise ValueError(f"layer {layer['id']} is inside itself")
+            seen.add(at)
+            at = parents[at]
+    return layers
+
+
+def _layer_home(layer_id: str, old: list[dict], kept: set[str]) -> str:
+    """Where things on a layer that is gone go: its nearest ancestor still there ('' for none)."""
+    parents = {x["id"]: x["parent"] for x in old}
+    at, seen = parents.get(layer_id, ""), set()
+    while at and at not in kept and at not in seen:
+        seen.add(at)
+        at = parents.get(at, "")
+    return at if at in kept else ""
+
+
+def set_layers(project_path: Path, raw: list) -> dict:
+    """
+    Replace the layers (their order, names, sublayers, visibility, locks, colours). What was on a
+    layer left out moves up to its nearest ancestor still there (or back to its kind's layer).
+    Returns {layers, rev}. Raises ValueError.
+    """
+    layers = clean_layers(raw)
+    kept = {x["id"] for x in layers}
+    with _lock:
+        board = load_board(project_path)
+        old = board["layers"]
+
+        def rehome(item: dict) -> None:
+            if "layer" in item and item["layer"] not in kept:
+                home = _layer_home(item["layer"], old, kept)
+                if home:
+                    item["layer"] = home
+                else:
+                    del item["layer"]
+
+        for paper in board["papers"] + board["tray"] + held_papers(board):
+            rehome(paper)
+            for block in paper.get("blocks") or []:
+                rehome(block)
+        board["layers"] = layers
+        board = _save(project_path, board)
+    return {"layers": board["layers"], "rev": board["rev"]}
+
+
 def order_ideas(project_path: Path, ids: list) -> dict:
     """Put the ideas in this order; `ids` names every idea once. Returns {ideas, rev}."""
     if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
@@ -675,6 +774,8 @@ def _block(raw, index: int) -> dict:
         floors = int(floors)
     if isinstance(floors, bool) or not isinstance(floors, int) or not 1 <= floors <= 200:
         raise ValueError(f"blocks[{index}].floors must be a whole number from 1 to 200")
+    layer = _tag(raw, "layer", f"blocks[{index}]")
+    group = _tag(raw, "group", f"blocks[{index}]")
     block = {
         "u": _number(raw.get("u", 0), f"blocks[{index}].u"),
         "v": _number(raw.get("v", 0), f"blocks[{index}].v"),
@@ -688,7 +789,21 @@ def _block(raw, index: int) -> dict:
     turn = round(turn - 360 if turn > 180 else turn, 2)
     if turn:
         block["a"] = turn
+    if layer:  # on a layer of its own (otherwise on its scheme's)
+        block["layer"] = layer
+    if group:
+        block["group"] = group
     return block
+
+
+def _tag(data: dict, key: str, what: str) -> str:
+    """A layer or group id on a paper or block ('' for none). Raises ValueError."""
+    value = data.get(key)
+    if value is None or value == "":
+        return ""
+    if not (isinstance(value, str) and PAPER_ID.fullmatch(value)):
+        raise ValueError(f"{what}.{key} must be an id")
+    return value
 
 
 def _stroke(raw, index: int) -> list[list[float]]:
@@ -714,6 +829,10 @@ def clean_paper(data: dict) -> dict:
         raise ValueError("folded must be true or false")
     if folded:  # the designer folded it into a name tag, in plan too (kept only when true)
         paper["folded"] = True
+    for key in ("layer", "group"):  # a layer the designer chose (otherwise its kind's); a group
+        tag = _tag(data, key, "paper")
+        if tag:
+            paper[key] = tag
     title = _text(data.get("title"), "title", MAX_TITLE)
     if kind == "mass":
         blocks = data.get("blocks")

@@ -25,9 +25,10 @@ export function initialTalk(talks, active) {
   return active === null ? (talks.at(-1)?.id || '') : active;
 }
 
-// Widths include the 12px resize gutters. Keep room for the drafting table.
-export function panelWidths(total, ratios, { left = true, right = true, detail = false } = {}) {
-  const minimum = { left: left ? 280 : 0, right: right ? (detail ? 320 : 240) : 0 };
+// Widths include the 12px resize gutters. Keep room for the drafting table. `minimums` overrides
+// a side's narrowest width (a docked side holding Conductor needs more than one of lists).
+export function panelWidths(total, ratios, { left = true, right = true, detail = false, minimums = {} } = {}) {
+  const minimum = { left: left ? minimums.left ?? 280 : 0, right: right ? minimums.right ?? (detail ? 320 : 240) : 0 };
   const budget = Math.max(0, total - 320);
   let l = left ? Math.max(minimum.left, total * ratios.left) : 0;
   let r = right ? Math.max(minimum.right, total * ratios.right) : 0;

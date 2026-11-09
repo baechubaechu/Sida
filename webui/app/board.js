@@ -2,11 +2,12 @@
 // when a project opens, fed from the board API, and laid over the redrawn page.
 
 import { expertPath, parseRecommendation, boardExport } from './model.js';
-import { keepSelected, pickedNames, addQuestion, readModelSummary, rangeQuery } from './board-model.js';
+import { keepSelected, pickedNames, addQuestion, readModelSummary, rangeQuery, pickedBlocks, propertyChange, boardLayers } from './board-model.js';
 import { VWorldView } from './vworld-view.js';
 import { api, expertUrl, projectApi } from './api.js';
 import { say } from './commands.js';
 import { carryPapers, stowPapers } from './ideas.js';
+import { followSelection } from './dock.js';
 import { render } from './render.js';
 import { app, currentProjectLabel, currentRoute, draftFor, drafts, tableHost, toast, ui } from './state.js';
 
@@ -23,6 +24,8 @@ export async function loadBoard(name) {
   try {
     const board = await api(`${projectApi(name)}/board`);
     if (ui.project !== name) return;
+    // Layers being saved one after another (layers.js): the screen's newer ones win until the last is in.
+    if (ui.layersSaving && ui.board?.layers) board.layers = ui.board.layers;
     ui.board = board;
     ui.selected = keepSelected(ui.selected, board);
     table?.setBoard(board);
@@ -63,9 +66,11 @@ function modelHooks(name) {
 function tableHooks(name) {
   const paperUrl = (id) => `${projectApi(name)}/board/papers/${encodeURIComponent(id)}`;
   return {
-    add: (paper) => boardCall(name, () => api(`${projectApi(name)}/board/papers`, { method: 'POST', body: paper }), true),
+    // A new paper goes onto the current layer (the 레이어 panel's ✓), if one is chosen.
+    add: (paper) => boardCall(name, () => api(`${projectApi(name)}/board/papers`, { method: 'POST',
+      body: ui.currentLayer && !paper.layer ? { ...paper, layer: ui.currentLayer } : paper }), true),
     update: (id, changes) => boardCall(name, () => api(paperUrl(id), { method: 'PATCH', body: changes }),
-      ['blocks', 'floor_height', 'title', 'text'].some((key) => key in changes)),
+      ['blocks', 'floor_height', 'title', 'text', 'layer', 'group'].some((key) => key in changes)),
     remove: (id) => boardCall(name, () => api(paperUrl(id), { method: 'DELETE' })),
     // A photo goes up as a file (multipart); fields: title, x, y, w, h.
     addPhoto: (blob, fileName, fields) => boardCall(name, () => {
@@ -85,7 +90,20 @@ function tableHooks(name) {
     modelSettings: () => modelHooks(name).settings(),
     place: (id, placement) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}/place`, { method: 'POST', body: placement }), true),
     discard: (id) => boardCall(name, () => api(`${projectApi(name)}/board/tray/${encodeURIComponent(id)}`, { method: 'DELETE' }), true),
-    select: (ids) => { ui.selected = ids; render(false); },
+    // Selecting turns 레이어 to 속성 where they share a group; clearing goes back to 레이어.
+    select: (ids) => {
+      ui.selected = ids;
+      clearPropDrafts();
+      followSelection(ids.length > 0 || ui.picked.length > 0);
+      render(false);
+    },
+    // Buildings picked on their own (paperId#index): the 속성 panel shows them.
+    pick: (keys) => {
+      ui.picked = keys;
+      clearPropDrafts();
+      followSelection(keys.length > 0 || ui.selected.length > 0);
+      render(false);
+    },
     // A paper carried toward the idea board, and papers dropped into it.
     carry: (at) => carryPapers(at),
     stow: (ids) => stowPapers(name, ids),
@@ -280,3 +298,25 @@ export function hideVWorld() { vworldView?.hide(); }
 
 // The 모형 tab's "추천대로 놓기": the board as the latest result recommends.
 export function applyModelRecommendation() { modelMaker?.maker.apply(parseRecommendation(ui.module?.content)); }
+
+// A new selection starts the 속성 panel's fields afresh.
+function clearPropDrafts() {
+  ui.propError = null;
+  for (const key of [...drafts.keys()]) if (key.startsWith('prop:')) drafts.delete(key);
+}
+
+// A value typed into the 속성 panel: checked (board-model propertyChange), then changed on the table
+// (undo keeps it) and saved; a value out of range stays in the field with the reason beside it.
+export function editProperty(key, raw) {
+  if (!table) return;
+  const papers = table.papers.filter((p) => ui.selected.includes(p.id));
+  const blocks = papers.length ? [] : pickedBlocks(table.papers, ui.picked);
+  const out = propertyChange(papers, blocks, key, raw, boardLayers(ui.board));
+  ui.propError = out.error ? { key, text: out.error } : null;
+  if (!out.error) {
+    table.editPapers(out);
+    // The panel reads ui.board: show the new values now, before the board is read back.
+    for (const { id, changes } of out) Object.assign(ui.board?.papers.find((p) => p.id === id) || {}, changes);
+  }
+  render(false);
+}

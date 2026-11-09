@@ -3,6 +3,7 @@
 
 import { latestChat, parseRoute } from './model.js';
 import { floatState } from './board-model.js';
+import { DEFAULT_PANEL_RATIOS, defaultDock } from './dock-model.js';
 
 export const app = document.querySelector('#app');
 
@@ -42,16 +43,24 @@ export const ui = {
   versions: null, version: null, versionMissing: false, showRaw: false, checks: new Set(), feedback: {},
   job: null, live: [], pending: null,
   revisionOpen: false, creating: false, newDraft: {}, vworld: false,
-  // The workspace: the drafting table, and beside it the experts, the site page or an expert's
-  // page. Conductor conversations open in a collapsible left panel.
-  expertsCollapsed: false, conductor: { open: true, active: null, list: false },
+  // The workspace: the drafting table, and on either side the docked panels (dock-model.js; kept
+  // on this PC by the server); the site page or an expert's page takes the right side's place.
+  // `narrowSide`: the tab shown beside 대화 on a narrow screen. `conductor.open` is not used for
+  // showing the panel any more (the layout says where 대화 is and whether its side is folded).
+  dock: defaultDock(), narrowSide: 'layers', conductor: { open: true, active: null, list: false },
   // The idea board floats over the drafting table in a corner (2026-11-07 지훈); it was a tab
   // beside the experts before. Where it sits is kept for this visit only (no browser storage).
   ideaFloat: floatState(null), ideaEdit: '', ideaConfirm: '', ideaBusy: false, ideaDrag: '', ideaLinkNew: true,
   pane: 'board', focusComposer: false, creatingTalk: false, talkMenu: '',
-  panelRatios: { left: .27, right: .21, detail: .38 },
+  panelRatios: { ...DEFAULT_PANEL_RATIOS }, // the sides' widths as shares (dragged, kept with the layout)
+  // The 레이어 panel (layers.js): the row picked for its tools, the layer being renamed (and what is
+  // typed), the current layer new papers go onto ('' = their kind's), and the surroundings hidden.
+  // `layersSaving`: layer saves still on their way.
+  layerPick: '', layerRename: '', layerRenameText: '', currentLayer: '', aroundHidden: false, layersSaving: 0,
   settings: null, settingsDraft: null, settingsError: '', settingsAdvancedOpen: false, chatgptModels: null, chatgptNote: '',
-  board: null, selected: [], 
+  // The papers selected on the table, the buildings picked on their own (paperId#index), and a
+  // value the 속성 panel refused ({key, text}).
+  board: null, selected: [], picked: [], propError: null, 
   site: null, siteError: '', showSiteLines: false, find: null, siteFirst: false,
   ordinance: null, ordinanceError: '', ordinanceBusy: '', useFind: null, mapLayers: null, mapError: '', mapErrorStatus: 0,
   // Loaded conversations and their next-question contexts; closing the panel keeps both.

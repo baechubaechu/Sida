@@ -5,7 +5,9 @@ geometry in metres around the site's middle (x east, y north, z up), the frame t
 draws in (board.site_plan): the site's parcel boundaries, every massing scheme on the table
 as closed boxes, and the pen lines of each tracing sheet. Each kind of thing is its own layer
 group and each paper its own layer, so the designer can turn schemes on and off. Papers in
-the AI section are left out: only what the designer laid on the table goes out.
+the AI section are left out: only what the designer laid on the table goes out. A block or a
+tracing sheet the designer put on a layer of their own (board `layers`, 2026-11-09) goes out on a
+layer of that name instead ("매스 - 타워" for a sublayer, in the layer's colour when it has one).
 
 `to_dxf` and `to_3dm` write that scene. DXF (AutoCAD 2013) keeps masses as MESH entities and
 lines as polylines; 3dm keeps masses as closed extrusions, lines as polyline curves and the
@@ -79,6 +81,30 @@ def _unique(name: str, taken: set[str]) -> str:
     while out in taken:
         out, n = f"{name} {n}", n + 1
     taken.add(out)
+    return out
+
+
+def _designer_layers(saved: list[dict], taken: set[str]) -> dict[str, dict]:
+    """
+    The designer's own layers (not the ones a table starts with, one per kind) as empty export
+    layers by id, named by their path ("매스 - 타워"), in their colour or the masses' grey.
+    """
+    kinds = {layer_id for layer_id, _name in board.DEFAULT_LAYERS}
+    by_id = {x["id"]: x for x in saved if isinstance(x, dict) and x.get("id")}
+    out: dict[str, dict] = {}
+    for layer_id, item in by_id.items():
+        if layer_id in kinds:
+            continue
+        path, at, seen = [], item, set()
+        while at and at["id"] not in seen:
+            seen.add(at["id"])
+            path.insert(0, layer_name(at.get("name") or "", at["id"]))
+            at = by_id.get(at.get("parent") or "")
+        color = item.get("color") or ""
+        rgb = tuple(int(color[i:i + 2], 16) for i in (1, 3, 5)) if len(color) == 7 else COLORS["mass"]
+        made = layer(_unique(" - ".join(path), taken), rgb)
+        made["short"] = path[-1]
+        out[layer_id] = made
     return out
 
 
@@ -183,6 +209,7 @@ def export_scene(project_path: Path, *, active: str | None = None, hooks=None) -
 
     layers: list[dict] = []
     taken: set[str] = set()
+    own = _designer_layers(saved.get("layers") or [], taken)
 
     site = layer(_unique(SITE_LAYER, taken), COLORS["site"])
     site["linetype"] = "DASHED"  # drawn dashed on the screen too
@@ -205,22 +232,26 @@ def export_scene(project_path: Path, *, active: str | None = None, hooks=None) -
             outline = block_outline(frame, block)
             height = round(block["floors"] * storey, 4)
             base = mass_base(outline, ground)
-            mass["solids"].append({"outline": _ccw(outline), "base": base, "height": height})
+            into = own.get(block.get("layer")) or own.get(paper.get("layer")) or mass
+            into["solids"].append({"outline": _ccw(outline), "base": base, "height": height})
             cx = sum(x for x, _ in outline) / 4
             cy = sum(y for _, y in outline) / 4
-            mass["labels"].append({"at": [round(cx, 3), round(cy, 3), round(base + height, 4)], "text": f"{block['floors']}F"})
-        layers.append(mass)
+            into["labels"].append({"at": [round(cx, 3), round(cy, 3), round(base + height, 4)], "text": f"{block['floors']}F"})
+        if mass["solids"]:
+            layers.append(mass)
 
     for paper in saved["papers"]:
         if paper.get("kind") != "tracing" or not paper.get("strokes"):
             continue
         name = _unique(f"{TRACING_GROUP} - {layer_name(board.paper_name(paper), paper['id'])}", taken)
-        sheet = layer(name, COLORS["tracing"], parent=TRACING_GROUP)
-        sheet["short"] = name.removeprefix(f"{TRACING_GROUP} - ")
+        sheet = own.get(paper.get("layer")) or layer(name, COLORS["tracing"], parent=TRACING_GROUP)
+        sheet.setdefault("short", name.removeprefix(f"{TRACING_GROUP} - "))
         for stroke in paper["strokes"]:
             if len(stroke) >= 2:
                 sheet["curves"].append({"points": [[x, y, 0.0] for x, y in stroke], "closed": False})
-        layers.append(sheet)
+        if sheet not in own.values():
+            layers.append(sheet)
+    layers.extend(x for x in own.values() if x["solids"] or x["curves"])
 
     for _domain, module in hooks:
         provide = getattr(module, "board_export_layers", None)

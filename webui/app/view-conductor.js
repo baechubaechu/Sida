@@ -97,18 +97,17 @@ function talksCard() {
       <div class="talk-list-scroll" data-scroll="talks" data-scroll-from="top">${body}</div></section>`;
 }
 
-export function conductorPanel() {
+// The Conductor tab's body, in whichever docked group holds it (view-dock.js).
+export function conductorBody() {
   const id = ui.conductor.active;
   const view = talkViewById(id);
-  return `<aside class="conductor-panel panel" id="conductor-panel" aria-label="Conductor 대화" ${ui.conductor.open ? '' : 'hidden'}>
-      <header class="pane-head"><div><span class="eyebrow">설계 대화</span><h2>Conductor</h2></div>
-        <button type="button" class="ghost" data-action="conductor-close" aria-label="Conductor 대화 닫기" title="대화 패널 접기">‹</button></header>
+  return `<div class="dock-body conductor-panel" id="conductor-panel" role="tabpanel" aria-label="Conductor 대화">
       <div class="conductor-toolbar"><button type="button" data-action="talk-new">＋ 새 대화</button>
         <button type="button" data-action="talks-toggle" aria-expanded="${ui.conductor.list}">${ui.conductor.list ? '대화로 돌아가기' : '이전 대화'}</button></div>
       ${ui.sessionError ? `<p class="error-text conductor-error">${escape(ui.sessionError)}</p>` : ''}
       ${ui.conductor.list ? talksCard() : view ? talkConversation(view) : `<div class="conductor-welcome"><span class="conductor-mark" aria-hidden="true">S</span><h3>설계 이야기를 시작해 보세요</h3><p>아이디어를 나누거나 제도판에서 고른 자료를 함께 검토할 수 있습니다.</p></div>
         ${composer('conductor-new', 'Conductor에게 질문하세요…', 'Conductor', jobRunning() || ui.creatingTalk || !ui.session)}`}
-    </aside>`;
+    </div>`;
 }
 
 function talkWorking(id) {

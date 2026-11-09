@@ -63,6 +63,13 @@ class ListOrder(BaseModel):
     order: list[str] = Field(default_factory=list)
 
 
+class PanelLayout(BaseModel):
+    left: dict = Field(default_factory=dict)
+    right: dict = Field(default_factory=dict)
+    float: list = Field(default_factory=list)
+    ratios: dict = Field(default_factory=dict)
+
+
 class ProjectInfoEdit(BaseModel):
     fields: dict[str, str]
     expected_revision: str
@@ -205,6 +212,18 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
     def api_project_list(body: ListOrder) -> dict:
         try:
             return core(workspace.save_list_order, load_config(), body.sort, body.order)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # How the panels beside the drafting table are docked on this PC (dock-model.js).
+    @app.get("/api/panel-layout")
+    def api_panel_layout() -> dict:
+        return {"layout": core(workspace.load_panel_layout, load_config())}
+
+    @app.put("/api/panel-layout")
+    def api_save_panel_layout(body: PanelLayout) -> dict:
+        try:
+            return {"layout": core(workspace.save_panel_layout, load_config(), body.model_dump())}
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

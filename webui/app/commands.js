@@ -3,6 +3,8 @@
 import { visibleExperts, projectPath as projectUrl, sitePath, EXPORT_FORMATS } from './model.js';
 import { COMMANDS, suggest, pickOption, addHistory, remember } from './command-model.js';
 import { talkPanel } from './talk-panel-model.js';
+import { reveal, setSideOpen, sideShown } from './dock-model.js';
+import { resetDock, saveDock } from './dock.js';
 import { downloadBoard, table, toggleVWorld } from './board.js';
 import { runExpert } from './experts.js';
 import { openIdeas } from './ideas.js';
@@ -81,7 +83,7 @@ function cancelCommand() {
 }
 
 const TABLE_COMMANDS = new Set(['plan', 'persp', 'zoom', 'north', 'select', 'note', 'pen', 'trace', 'mass', 'photo', 'delete', 'undo', 'redo', 'tray',
-  'rect', 'pushpull', 'move', 'copy', 'rotate', 'scale', 'eraser', 'dist']);
+  'rect', 'pushpull', 'move', 'copy', 'rotate', 'scale', 'eraser', 'dist', 'group', 'ungroup']);
 
 function runCommand(name, command) {
   if (!command) return;
@@ -104,10 +106,16 @@ function runCommand(name, command) {
         location.hash = projectUrl(name);
         say('board — 오른쪽 페이지를 닫았습니다.');
       } else {
-        ui.expertsCollapsed = !ui.expertsCollapsed;
-        say(ui.expertsCollapsed ? 'board — 전문가 칸을 접었습니다.' : 'board — 전문가 칸을 폈습니다.');
+        const fold = sideShown(ui.dock, 'right');
+        ui.dock = setSideOpen(ui.dock, 'right', !fold);
+        saveDock();
+        say(fold ? 'board — 오른쪽 패널을 접었습니다.' : 'board — 오른쪽 패널을 폈습니다.');
       }
       ui.pane = 'board';
+      break;
+    case 'layout':
+      resetDock();
+      say('layout — 패널을 기본 배치로 되돌렸습니다 (왼쪽 대화, 오른쪽 속성·레이어·전문가).');
       break;
     case 'site':
       location.hash = sitePath(name);
@@ -115,6 +123,8 @@ function runCommand(name, command) {
       break;
     case 'talks':
       ui.conductor = talkPanel(ui.conductor, 'list');
+      ui.dock = reveal(ui.dock, 'conductor');
+      saveDock();
       ui.pane = 'conductor';
       say(ui.conductor.list ? 'talks — 대화 목록을 열었습니다.' : 'talks — 대화로 돌아갑니다.');
       break;
