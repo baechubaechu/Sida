@@ -1136,3 +1136,32 @@ test('a group is picked whole, made and taken apart as edits', async () => {
   assert.deepEqual(apart.find((e) => e.id === 'n').changes, { group: '' });
   assert.equal(apart.find((e) => e.id === 'm').changes.blocks.some((b) => 'group' in b), false);
 });
+
+// The screen scripts were split into parts (#90); a function a part calls but forgot to import
+// only fails when that code runs (2026-11-09: right-drag orbit and the idea board's drop threw).
+test('every screen script imports the functions it calls from the other scripts', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const dir = new URL('../../webui/app/', import.meta.url);
+  const read = (f) => readFileSync(new URL(f, dir), 'utf8');
+  const files = readdirSync(dir).filter((f) => f.endsWith('.js'));
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
+  const exported = new Map();
+  for (const f of files) for (const m of read(f).matchAll(/^export (?:async )?function (\w+)/gm)) exported.set(m[1], f);
+  const out = [];
+  for (const f of files) {
+    const src = strip(read(f));
+    const known = new Set();
+    for (const m of src.matchAll(/import\s*\{([^}]*)\}/g)) for (const n of m[1].split(',')) known.add(n.trim().split(/\s+as\s+/).pop());
+    for (const m of src.matchAll(/(?:function|const|let|var|class)\s+(\w+)/g)) known.add(m[1]);
+    for (const [name, from] of exported) {
+      if (from === f || known.has(name)) continue;
+      // A call, also after a spread (...name(...)), but not a method on something (x.name(...)).
+      const calls = [...src.matchAll(new RegExp(`(?<=^|[^.\\w$]|\\.\\.\\.)${name}\\(`, 'gm'))].filter((m) => {
+        const line = src.slice(src.lastIndexOf('\n', m.index) + 1, src.indexOf('\n', m.index));
+        return !new RegExp(`^\\s*(async\\s+)?${name}\\([^)]*\\)\\s*\\{`).test(line);
+      });
+      if (calls.length) out.push(`${f}: ${name} (from ${from})`);
+    }
+  }
+  assert.deepEqual(out, []);
+});
