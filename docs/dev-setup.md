@@ -2,7 +2,7 @@
 
 Sida를 처음 개발하는 팀원을 위한 세팅 순서입니다. 어떤 편집기나 AI 에이전트(Claude Code, Cursor, Codex, Copilot 등)를 쓰든 1~5단계는 같고, 6단계에서 쓰는 도구에 맞는 부분만 보면 됩니다.
 
-팀 규칙(브랜치, 커밋, PR)은 [`CONTRIBUTING.md`](../CONTRIBUTING.md)에 있습니다.
+팀 규칙(브랜치, 커밋, PR, 테스트)은 [`AGENTS.md`](../AGENTS.md), 코드 구조는 [`architecture.md`](architecture.md)에 있습니다.
 
 ## 에이전트로 세팅하기
 

@@ -5,10 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sida"
 version = "0.2.0"
-description = "Local web assistant for architectural design reasoning (Conductor + specialist modules)"
+description = "Early-stage design AI agent for architecture students"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = { text = "Proprietary" }
 dependencies = [
   "requests>=2.31,<3",
   "olefile>=0.46,<1",
