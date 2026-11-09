@@ -36,6 +36,9 @@ a { color: inherit; text-decoration: none; }
 button, a { touch-action: manipulation; }
 button:hover, a:hover { filter: brightness(.96); }
 :focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; }
+/* The page body takes the focus after a page change (so screen readers start there); it is not a
+   control, so it draws no focus ring (after Esc that ring showed as two blue lines). */
+#main:focus-visible { outline: none; }
 input, textarea, select { min-width: 0; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
 textarea { resize: vertical; }
 h1, h2, h3, p { margin: 0; }
