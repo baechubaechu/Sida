@@ -86,13 +86,27 @@ export const aroundMethods = {
     try {
       const range = await this.hooks.range();
       if (!this.aroundRange) this.aroundRange = parseRange(range);
+      this.aroundWanted = range?.shown === true;
       this.drawControls();
+      this.restoreAround();
     } catch { /* the defaults stay */ }
   },
+  // The surroundings were on when the designer last left: put them back (once the site is known),
+  // without moving the view.
+  restoreAround() {
+    if (!this.aroundWanted || this.aroundOn || this.aroundBusy || !this.site?.plan) return;
+    this.aroundWanted = false;
+    this.toggleAround({ restore: true });
+  },
   // Show or hide the ground and buildings around the site; the first time they are fetched.
-  async toggleAround() {
+  async toggleAround({ restore = false } = {}) {
     if (this.aroundBusy) return;
-    if (this.aroundOn) { this.aroundOn = false; this.drawAround(); this.drawMasses(); this.drawControls(); return; }
+    if (this.aroundOn) {
+      this.aroundOn = false;
+      this.hooks.saveShown?.(false);
+      this.drawAround(); this.drawMasses(); this.drawControls();
+      return;
+    }
     if (!this.site?.plan) { this.say('먼저 대지를 조회하세요. 대지 경계가 있어야 주변을 놓을 수 있습니다.'); return; }
     if (!this.around && this.hooks.context) {
       const request = Symbol();
@@ -111,11 +125,13 @@ export const aroundMethods = {
       this.aroundBusy = false;
     }
     this.aroundOn = Boolean(this.around);
+    if (this.aroundOn && !restore) this.hooks.saveShown?.(true);
     this.drawAround();
     this.drawMasses();
     this.drawControls();
-    // Lean the table and step back so the whole neighbourhood is in view around the site.
-    if (this.aroundOn) {
+    // Lean the table and step back so the whole neighbourhood is in view around the site (not
+    // when they come back after a reload: the view stays as it opens).
+    if (this.aroundOn && !restore) {
       this.animateTo({ ...(viewFor('3d', this.view) || {}), x: 0, y: 0, span: Math.max(this.view.span, 1.6 * this.around.radius) });
     }
   },

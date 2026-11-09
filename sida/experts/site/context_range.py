@@ -2,7 +2,8 @@
 orientation), kept per project.
 
 The site domain owns it: site_context.json in the project folder, {"size", "shape", "orient"}
-(other keys in the file, such as the model settings, are kept). Without one, the surroundings are
+(other keys in the file, such as the model settings, are kept). `shown` (2026-11-09 지훈) says the
+surroundings were on when the designer last left the table, so they come back after a reload. Without one, the surroundings are
 context3d.DEFAULT_SIZE (200 m), DEFAULT_SHAPE (square) and DEFAULT_ORIENT (landscape).
 """
 
@@ -51,6 +52,19 @@ def load(project_dir: Path) -> dict:
                            str(data.get("orient") or context3d.DEFAULT_ORIENT)))
     except ValueError:
         return _out(context3d.DEFAULT_SIZE, context3d.DEFAULT_SHAPE, context3d.DEFAULT_ORIENT)
+
+
+SHOWN = "shown"
+
+
+def shown(project_dir: Path) -> bool:
+    """Were the surroundings on the table when last left?"""
+    return read(project_dir).get(SHOWN) is True
+
+
+def save_shown(project_dir: Path, on: bool) -> bool:
+    write(project_dir, {**read(project_dir), SHOWN: bool(on)})
+    return bool(on)
 
 
 MODEL = "model"  # the last model board settings (sida/experts/model/model_base.settings), as given

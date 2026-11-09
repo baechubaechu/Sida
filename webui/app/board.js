@@ -85,6 +85,8 @@ function tableHooks(name) {
     context: (range) => api(`${projectApi(name)}/site/context${range ? `?${rangeQuery(range)}` : ''}`),
     range: () => api(`${projectApi(name)}/site/context/range`),
     saveRange: (range) => api(`${projectApi(name)}/site/context/range`, { method: 'PUT', body: range }),
+    // Whether the surroundings are on: kept for the project, so a reload shows them again.
+    saveShown: (shown) => api(`${projectApi(name)}/site/context/shown`, { method: 'PUT', body: { shown } }).catch(() => {}),
     // The model base: the stepped ground (GET .../site/model-base) and its laser files (a zip).
     modelBase: (interval, range) => api(`${projectApi(name)}/site/model-base?interval=${encodeURIComponent(interval)}${range ? `&${rangeQuery(range)}` : ''}`),
     modelSettings: () => modelHooks(name).settings(),

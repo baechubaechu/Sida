@@ -158,6 +158,8 @@ export class DraftingTable {
     }
     this.figures = view.figures || {};
     this.tray = view.tray || [];
+    // The surroundings come back after a reload if they were on (the range is read once).
+    if (this.site?.plan) { this.readRange(); this.restoreAround(); }
     this.papers = (view.papers || []).map((p) => ({ ...p }));
     const bounds = siteBounds(this.site);
     const moved = JSON.stringify(bounds) !== JSON.stringify(this.bounds);
