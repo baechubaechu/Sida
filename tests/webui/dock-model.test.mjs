@@ -17,9 +17,9 @@ test('the default layout has Conductor on the left and the three tabs on the rig
   assert.deepEqual(dockOf(layout, 'experts'), { side: 'right', index: 0 });
 });
 
-test('the sides start about 360px and 300px wide on a 2000px screen', async () => {
+test('both sides start 18% (360px) wide on a 2000px screen', async () => {
   const { panelWidths } = await import('../../webui/app/talk-panel-model.js');
-  assert.deepEqual(panelWidths(2000, DEFAULT_PANEL_RATIOS), { left: 360, right: 300, board: 1340 });
+  assert.deepEqual(panelWidths(2000, DEFAULT_PANEL_RATIOS), { left: 360, right: 360, board: 1280 });
   // A tablet keeps the narrowest widths.
   assert.deepEqual(panelWidths(1000, DEFAULT_PANEL_RATIOS), { left: 280, right: 240, board: 480 });
 });

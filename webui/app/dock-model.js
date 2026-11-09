@@ -11,9 +11,9 @@ export const DOCK_SIDES = ['left', 'right'];
 export const GROUP_MIN_HEIGHT = 120; // px: a group keeps its tabs and a few lines
 export const FLOAT_MIN = { w: 240, h: 160 }; // px: the smallest floating window
 export const FLOAT_SIZE = { w: 320, h: 420 }; // px: a new floating window
-// The sides' first widths, as shares of the workspace (2026-11-09 지훈: about 360px | 300px on a
+// The sides' first widths, as shares of the workspace (2026-11-09 지훈: both 18%, 360px on a
 // 2000px screen); a site or expert page on the right takes `detail`.
-export const DEFAULT_PANEL_RATIOS = Object.freeze({ left: .18, right: .15, detail: .38 });
+export const DEFAULT_PANEL_RATIOS = Object.freeze({ left: .18, right: .18, detail: .38 });
 
 export function defaultDock() {
   return {
