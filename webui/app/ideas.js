@@ -11,12 +11,42 @@ import { announce, app, currentRoute, deferred, draftFor, drafts, ideaBoardOpen,
 let floatDrag = null; // moving or resizing the idea window
 // ------------------------------------------------------------------ the idea board
 
-// Open or close the board in place (no redraw: the page under it keeps its state).
+// Open or close the board in place (no redraw: the page under it keeps its state). It grows out of
+// its row of circles and folds back into it (2026-11-09 지훈): the open panel is clipped to where
+// the row was and unclipped, or clipped down before it closes.
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+let dockSize = null; // the row of circles' size, measured while closed
+function rowInset(el) {
+  if (!dockSize) return null;
+  const w = el.offsetWidth;
+  const h = el.offsetHeight;
+  const corner = ui.ideaFloat.corner || 'tr';
+  const dx = Math.max(0, w - dockSize.width);
+  const dy = Math.max(0, h - dockSize.height);
+  return `inset(${corner[0] === 't' ? 0 : dy}px ${corner[1] === 'r' ? 0 : dx}px ${corner[0] === 't' ? dy : 0}px ${corner[1] === 'r' ? dx : 0}px round 999px)`;
+}
 function showIdeaBoard() {
   const el = app.querySelector('#idea-float');
   if (!el) return;
-  el.classList.toggle('is-open', ideaBoardOpen());
-  placeIdeaFloat();
+  const open = ideaBoardOpen();
+  if (el.classList.contains('is-open') === open) { placeIdeaFloat(); return; }
+  el.morph?.cancel();
+  if (open) {
+    el.classList.add('is-open');
+    placeIdeaFloat();
+    const from = rowInset(el);
+    if (from && !reducedMotion()) {
+      el.morph = el.animate([{ clipPath: from, opacity: 0.6 }, { clipPath: 'inset(0px 0px 0px 0px round 12px)', opacity: 1 }],
+        { duration: 240, easing: 'cubic-bezier(.16,1,.3,1)' });
+    }
+    return;
+  }
+  const to = rowInset(el);
+  const close = () => { el.morph = null; el.classList.toggle('is-open', ideaBoardOpen()); placeIdeaFloat(); };
+  if (!to || reducedMotion()) { close(); return; }
+  el.morph = el.animate([{ clipPath: 'inset(0px 0px 0px 0px round 12px)' }, { clipPath: to, opacity: 0.4 }],
+    { duration: 160, easing: 'cubic-bezier(.7,0,.84,0)' });
+  el.morph.onfinish = close;
 }
 
 let ideaHoverTimer = 0;
@@ -61,6 +91,7 @@ export function placeIdeaFloat() {
   const open = el.classList.contains('is-open');
   if (!open) { el.style.width = ''; el.style.height = ''; }
   const size = open ? ui.ideaFloat : { width: el.offsetWidth, height: el.offsetHeight };
+  if (!open) dockSize = size;
   const at = floatPlace(ui.ideaFloat, size, area);
   el.style.left = `${at.left}px`;
   el.style.top = `${at.top}px`;
@@ -140,20 +171,49 @@ const overIdeaBoard = (x, y) => {
   return Boolean(r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom);
 };
 
-// A paper moving on the table: its circle follows the pointer; over the idea board it can go in.
-// Answers the table: 'over', 'carry', or '' (nothing the board takes, such as the site alone).
+// A paper moving on the table. Away from the board the paper itself (its pin in 3D) moves; over
+// it, the board opens and the paper shows as the circle it will be there (2026-11-09 지훈); let
+// go there ({drop: true}), the circle flies into the board's list. Answers the table: 'over',
+// 'carry', or '' (nothing the board takes, such as the site alone).
+let carryOpened = false; // the board was opened by a paper carried over it
+function openForCarry(on) {
+  if (on === carryOpened) return;
+  carryOpened = on;
+  ui.ideaHover = on;
+  showIdeaBoard();
+}
+
 export function carryPapers(at) {
   const board = app.querySelector('#idea-float');
+  if (at?.drop) { flyIntoBoard(at); return ''; }
   const papers = at ? at.ids.map((id) => (ui.board?.papers || []).find((p) => p.id === id)).filter((p) => p && p.kind !== 'site') : [];
-  if (!papers.length) { showGhost(null); board?.classList.remove('is-target'); return ''; }
+  if (!papers.length) { showGhost(null); board?.classList.remove('is-target'); openForCarry(false); return ''; }
   const over = overIdeaBoard(at.x, at.y);
   board?.classList.toggle('is-target', over);
-  // Away from the board the paper itself (its pin in 3D) moves; over it, it shows as the circle
-  // it will be there (2026-11-09 지훈).
+  openForCarry(over);
   if (!over) { showGhost(null); return 'carry'; }
   const shape = ideaShape({ paper: papers[0] });
+  const entering = ideaGhost.hidden;
   showGhost(at, `<span>${escape(shape.glyph)}</span>${papers.length > 1 ? `<b>${papers.length}</b>` : ''}`, `kind-${shape.kind} is-over`);
+  // The paper turns into the circle: it pops from a little larger as it appears.
+  if (entering && !reducedMotion()) ideaGhost.animate([{ transform: `translate(${at.x}px, ${at.y}px) scale(1.8)`, opacity: 0.4 }, { transform: `translate(${at.x}px, ${at.y}px) scale(1)`, opacity: 1 }], { duration: 180, easing: 'cubic-bezier(.16,1,.3,1)' });
   return 'over';
+}
+
+// The circle let go over the board slips into the list (after its last idea), shrinking.
+function flyIntoBoard(at) {
+  const board = app.querySelector('#idea-float');
+  const scroll = board?.querySelector('.ideas-scroll');
+  if (ideaGhost.hidden || !scroll) { showGhost(null); return; }
+  const box = scroll.getBoundingClientRect();
+  const last = scroll.querySelector('.idea:last-child')?.getBoundingClientRect();
+  const to = { x: box.left + 28, y: Math.min(box.bottom - 18, last ? last.bottom + 18 : box.top + 28) };
+  if (reducedMotion()) { showGhost(null); return; }
+  const fly = ideaGhost.animate([
+    { transform: `translate(${at.x}px, ${at.y}px) scale(1)`, opacity: 1 }, // scale inside transform: the scale property would scale the translation too
+    { transform: `translate(${to.x}px, ${to.y}px) scale(0.5)`, opacity: 0.2 },
+  ], { duration: 300, easing: 'cubic-bezier(.5,0,.2,1)', fill: 'forwards' });
+  fly.onfinish = () => { showGhost(null); fly.cancel(); };
 }
 
 export async function stowPapers(name, ids) {
@@ -166,7 +226,13 @@ export async function stowPapers(name, ids) {
   }
   ui.ideaBusy = false;
   await loadBoard(name);
+  // The new ideas come in with a small pop; the board closes again unless the pointer is on it.
+  ui.ideaNew = new Set((ui.board?.ideas || []).filter((i) => ids.includes(i.paper?.id)).map((i) => i.id));
+  const el = app.querySelector('#idea-float');
+  if (carryOpened) { carryOpened = false; ui.ideaHover = Boolean(el?.matches(':hover')); }
   render(false);
+  setTimeout(() => { ui.ideaNew = new Set(); }, 600);
+  return count;
   if (count) { toast(`아이디어 보드에 넣었습니다${count > 1 ? ` (${count}장)` : ''}. 동그라미를 제도판으로 끌면 다시 꺼내집니다.`); announce('아이디어 보드에 넣었습니다.'); }
 }
 

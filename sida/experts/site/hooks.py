@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sida.experts import FACTS, KNOWLEDGE, ExpertRun, PromptBlock
-from sida.experts.site import site_facts
+from sida.experts.site import massing_brief, site_facts
 from sida.i18n import t
 
 
@@ -17,10 +17,25 @@ def prompt_blocks(run: ExpertRun) -> list[PromptBlock]:
         return []
     # The site's own ordinance goes ahead of general statute search results, so a local
     # model's context trims the search results first.
-    return [
+    blocks = [
         PromptBlock(text, FACTS),
         PromptBlock(ordinance, KNOWLEDGE, priority=10, label=t("prompt_label_ordinance")),
     ]
+    # The surroundings the designer has on the table (2026-11-09), for the experts that read the site.
+    if text:
+        around = "\n".join(massing_brief.surroundings_lines(run.project_dir))
+        if around:
+            blocks.append(PromptBlock(around, FACTS))
+    return blocks
+
+
+def conductor_site(project_dir) -> str:
+    """The site as the Conductor gets it with every message: facts, the lot in the blocks' frame and
+    the surroundings when they are on (massing_brief)."""
+    try:
+        return massing_brief.conductor_brief(project_dir)
+    except Exception:  # the site must never stop a message
+        return ""
 
 
 def board_site(project_dir) -> dict | None:

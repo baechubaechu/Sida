@@ -433,11 +433,14 @@ def table_for_conductor(session: Session) -> tuple[str, bool]:
     """(drawing-table text for the Conductor's calls, whether it gets read_board).
     Every Conductor gets the designer's main ideas (the idea board). Beyond that a local one
     gets nothing here: the selected paper names are in the history line."""
+    # The site goes with every message (2026-11-09 지훈: the Conductor should know the lot and what
+    # stands around it when it thinks about massing), table or not.
+    site = board.site_brief(session.project.path)
     table = session.table.board if session.table is not None else board.read_board(session.project.path)
     if table is None:  # no board yet, or one that cannot be read (board.read_board logs it)
-        return "", False
+        return site, False
     mode = board.context_mode(session.config)
-    parts = (board.ideas_block(table), board.conductor_block(session.table, table, mode))
+    parts = (site, board.ideas_block(table), board.conductor_block(session.table, table, mode))
     return "\n\n".join(part for part in parts if part), mode == "full"
 
 

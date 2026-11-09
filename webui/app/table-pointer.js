@@ -379,6 +379,12 @@ export const pointerMethods = {
       g.cx = e.clientX;
       g.cy = e.clientY;
       // A pin dragged in 3D folds into its circle while it moves (and opens again on release).
+      if (g.pin && !g.captured) {
+        // The pin was not held on press (a press without a drag stays a click); once it moves the
+        // table holds the pointer, so it can be carried over the idea board outside the table.
+        g.captured = true;
+        try { this.root.setPointerCapture(e.pointerId); } catch { /* the pointer is gone */ }
+      }
       if (g.pin && !g.dotted) {
         g.dotted = true;
         for (const id of g.ids) this.morphPin(id, true);
@@ -426,13 +432,11 @@ export const pointerMethods = {
     const g = this.gesture;
     this.gesture = null;
     if (g?.kind === 'move') {
-      if (g.dotted) for (const id of g.ids) this.morphPin(id, false);
-      this.carry(null);
-      this.hooks.carry?.(null);
-      // Dropped on the idea board: the papers go in there and stay where they were on the table
-      // until the board comes back without them.
+      // Dropped on the idea board: the circle flies in, and the papers (and their pins) stay hidden
+      // where they were on the table until the board comes back without them.
       const ids = [...g.ids].filter((id) => this.papers.some((q) => q.id === id && q.kind !== 'site'));
       if (!cancelled && g.over && ids.length) {
+        this.hooks.carry?.({ drop: true, x: g.cx, y: g.cy, ids });
         for (const q of this.papers) {
           const f = g.ids.has(q.id) && g.from.get(q.id);
           if (f) { q.x = f.x; q.y = f.y; this.gl?.objects.get(q.id)?.position.set(q.x, q.y, q.kind === 'tracing' ? 0.3 : 0.1); }
@@ -440,10 +444,16 @@ export const pointerMethods = {
         this.syncPapers();
         this.invalidate();
         if (this.selected.some((id) => ids.includes(id))) this.select(this.selected.filter((id) => !ids.includes(id)));
-        this.hooks.stow?.(ids);
+        Promise.resolve(this.hooks.stow?.(ids)).then((count) => {
+          this.carry(null); // taken: the papers are gone by now; not taken: they show again
+          if (!count && g.dotted) for (const id of g.ids) this.morphPin(id, false);
+        });
         if (!this.gesture && this.pending) { const view = this.pending; this.pending = null; this.setBoard(view); }
         return;
       }
+      if (g.dotted) for (const id of g.ids) this.morphPin(id, false);
+      this.carry(null);
+      this.hooks.carry?.(null);
     }
     if (g?.kind === 'resize') {
       if (cancelled) {

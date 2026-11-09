@@ -1231,6 +1231,12 @@ body.moving-float, body.moving-float * { cursor: grabbing !important; user-selec
 /* The circle a paper (or an idea) turns into while it is carried. */
 .idea-ghost { position: fixed; left: 0; top: 0; z-index: 60; pointer-events: none; display: grid; place-items: center; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; border: 2px solid var(--brand); background: var(--note); color: var(--note-ink); font-size: 13px; font-weight: 700; box-shadow: 0 6px 18px rgb(20 30 40 / .25); transition: width .12s, height .12s, margin .12s; }
 .idea-ghost[hidden] { display: none; }
+/* Over the idea board a dragged 3D pin's circle gives way to the board's circle under the pointer. */
+.table.carrying-over .pin.is-dot { opacity: 0; transition: opacity var(--motion-100) var(--ease-out); }
+/* A paper just put in comes in with a small pop. */
+.idea.is-new, .idea-dot.is-new { animation: idea-in var(--motion-300) var(--ease-spring); }
+@keyframes idea-in { from { scale: .4; opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .idea.is-new, .idea-dot.is-new { animation: none; } }
 .idea-ghost.kind-mass { background: #e3eaf1; color: var(--pen); }
 .idea-ghost.kind-expert { background: #e4f1e9; color: var(--ok); }
 .idea-ghost.kind-photo, .idea-ghost.kind-pdf { background: var(--surface); color: var(--muted); font-size: 9px; }

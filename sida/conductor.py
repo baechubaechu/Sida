@@ -138,7 +138,9 @@ def propose_paper_spec() -> dict:
             "Put a new massing scheme or note in the AI section next to the drawing table; the "
             "designer moves it onto the table if they like it. To change a scheme on the table, "
             "send the whole changed scheme with based_on = its id (the original stays). Only when "
-            "the designer asks for a scheme or a note, or a concrete alternative clearly helps."
+            "the designer asks for a scheme or a note, or a concrete alternative clearly helps. "
+            "Lay the blocks inside the lot outline given under SITE (u, v in metres from the lot's "
+            "middle), set back from its edges, mindful of the buildings and roads around it."
         ),
         "parameters": {
             "type": "object",
