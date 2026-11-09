@@ -694,15 +694,6 @@ test('the surroundings legend lists only the ground kinds and building kinds tha
   assert.deepEqual(aroundLegend(null), []);
 });
 
-test('the source note starts folded on a narrow table', async () => {
-  const { noteStartsOpen, NOTE_OPEN_WIDTH } = await import('../../webui/app/board-model.js');
-  assert.equal(NOTE_OPEN_WIDTH, 900);
-  assert.equal(noteStartsOpen(818), false); // the board pane beside both side panels
-  assert.equal(noteStartsOpen(900), true);
-  assert.equal(noteStartsOpen(1400), true);
-  assert.equal(noteStartsOpen(undefined), false);
-});
-
 test('a block on the board stands on the ground under it only while the surroundings are shown', async () => {
   const { DraftingTable } = await import('../../webui/app/table.js');
   const { massBase, blockCorners } = await import('../../webui/app/board-model.js');

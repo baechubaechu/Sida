@@ -4,7 +4,7 @@
 
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { viewFor, blockCorners, RANGE_SIZES, RANGE_SHAPES, RANGE_ORIENTS, DEFAULT_RANGE, parseRange, OUTSIDE, terrainFaces, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, noteStartsOpen } from './board-model.js';
+import { viewFor, blockCorners, RANGE_SIZES, RANGE_SHAPES, RANGE_ORIENTS, DEFAULT_RANGE, parseRange, OUTSIDE, terrainFaces, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase } from './board-model.js';
 
 export const aroundMethods = {
   // ------------------------------------------------------------------ the site's surroundings
@@ -127,8 +127,6 @@ export const aroundMethods = {
     around.traverse((o) => o.geometry?.dispose());
     around.clear();
     const data = this.aroundOn ? this.around : null;
-    const note = this.ui.aroundNote;
-    note.hidden = !data;
     this.aroundLow = 0;
     if (!data) { this.invalidate(); return; }
     const t = data.terrain;
@@ -199,23 +197,16 @@ export const aroundMethods = {
     }
     const unknown = new THREE.LineBasicMaterial({ color: 0xc8742f });
     for (const b of data.unknown_buildings || []) if (b.ground_line) around.add(lineOf(b.ground_line, unknown));
-    this.drawAroundNote();
     this.invalidate();
   },
-  // The legend and, unless folded, where each part comes from; a button folds or opens it.
-  drawAroundNote() {
+  // The surroundings' legend and where each part comes from, for the settings' 자료 출처 section
+  // (2026-11-09 지훈: not over the table): {legend: [[key, name, colour or '']], lines}, or null
+  // while the surroundings are not shown.
+  aroundInfo() {
     const data = this.aroundOn ? this.around : null;
-    const note = this.ui.aroundNote;
-    if (!data) return;
-    if (this.aroundNoteOpen === null) this.aroundNoteOpen = noteStartsOpen(this.root.getBoundingClientRect().width);
-    const open = this.aroundNoteOpen;
-    const hex = (k) => `#${GROUND_COLORS[k].toString(16).padStart(6, '0')}`;
-    const legend = aroundLegend(data).map(([k, name]) => (GROUND_COLORS[k] === undefined
-      ? `<span><i class="${k}"></i>${name}</span>` : `<span><i style="background:${hex(k)}"></i>${name}</span>`)).join('');
-    note.classList.toggle('folded', !open);
-    note.innerHTML = `<button type="button" class="note-fold" data-ui="around-note" aria-expanded="${open}">${open ? '자료 출처 접기' : '자료 출처 보기'}</button>
-      <p class="legend">${legend}</p>
-      ${open ? aroundNote(data).map((line) => `<p>${escape(line)}</p>`).join('') : ''}`;
+    if (!data) return null;
+    const hex = (k) => (GROUND_COLORS[k] === undefined ? '' : `#${GROUND_COLORS[k].toString(16).padStart(6, '0')}`);
+    return { legend: aroundLegend(data).map(([k, name]) => [k, name, hex(k)]), lines: aroundNote(data) };
   },
   // How high a block stands: on the lowest ground under it while the surroundings are shown
   // (the same rule as the export), else on the table (0).

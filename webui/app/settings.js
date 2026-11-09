@@ -3,6 +3,7 @@
 
 import { PROVIDER_LABELS, MODE_LABELS, STATE_UPDATE_LABELS, escapeHtml as escape, DATA_KEYS, keyChanges, relayKeyView, settingsChanges, settingsDirty } from './model.js';
 import { api } from './api.js';
+import { table } from './board.js';
 import { render } from './render.js';
 import { settingsBody, settingsDialog, settingsFooter, settingsForm, toast, ui } from './state.js';
 
@@ -102,6 +103,7 @@ function renderSettings() {
       <label class="check"><input type="checkbox" data-field="telemetry_enabled" ${d.telemetry_enabled ? 'checked' : ''}> 사용 기록 보내기</label>
       <p class="settings-hint">쓴 기능, 걸린 시간, 오류 종류만 팀에 보냅니다. 브리프·문서 원문은 보내지 않습니다.</p>
     </section>
+    ${sourcesPart()}
     <details class="settings-section settings-advanced" ${ui.settingsAdvancedOpen ? 'open' : ''}>
       <summary><h3>고급</h3><span class="settings-note">실행 모드, API 키, 정부 키 직접 넣기</span></summary>
       <label for="set-mode">실행 모드</label>
@@ -115,6 +117,21 @@ function renderSettings() {
       ${dataKeys}
     </details>`;
   updateFooter();
+}
+
+// 자료 출처 (2026-11-09 지훈: kept here, not over the drafting table): where the surroundings shown
+// on the open project's table come from, with their colour legend.
+function sourcesPart() {
+  const info = table?.aroundInfo?.();
+  const body = info
+    ? `<p class="source-legend">${info.legend.map(([k, name, color]) => `<span><i class="${color ? '' : escape(k)}" ${color ? `style="background:${escape(color)}"` : ''}></i>${escape(name)}</span>`).join('')}</p>
+      ${info.lines.map((line) => `<p class="settings-hint">${escape(line)}</p>`).join('')}`
+    : '<p class="settings-hint">제도판에서 주변 3D를 켜면 그 지형·건물 자료가 어디서 왔는지 여기에 나옵니다.</p>';
+  return `<section class="settings-section" aria-labelledby="settings-sources-title">
+      <h3 id="settings-sources-title">자료 출처</h3>
+      <p class="settings-note">주변 3D는 공공 자료로 만든 참고용 모형입니다.</p>
+      ${body}
+    </section>`;
 }
 
 // The footer under the scrolling body: "저장 안 한 변경 있음" while the form differs from what is

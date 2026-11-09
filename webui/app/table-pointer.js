@@ -132,7 +132,6 @@ export const pointerMethods = {
       case 'around': this.toggleAround(); break;
       case 'model-panel': this.openModel(); break;
       case 'model-stepped': this.toggleStepped(); break;
-      case 'around-note': this.aroundNoteOpen = !this.aroundNoteOpen; this.drawAroundNote(); break;
       case 'delete': this.removeSelected(); break;
       case 'tray': this.trayOpen = !this.trayOpen; this.drawTray(); this.drawControls(); break;
       case 'north': this.animateTo({ turn: 0 }); break;
