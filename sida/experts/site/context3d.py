@@ -20,6 +20,8 @@ z = 0, so the site, the schemes and the surroundings line up without moving anyt
   its 층수, again × the storey height and marked as an estimate ("map_estimate").
 - What the ground is, point by point on the screen's grid: road, sidewalk, water or the rest
   ("site"), from the pack's areas (1:5,000 수치지형도 polygons) and the road parcels.
+- Road paint: the 정밀도로지도 lane lines and road marks (arrows, crossings) of a roads pack,
+  laid on the drawn ground (road_marks.py).
 - A building stands at the middle height of the ground along its outline, and its foundation
   goes down to the lowest point there, so on a slope no side floats; its line on the ground
   follows the terrain.
@@ -39,7 +41,7 @@ from pathlib import Path
 import numpy as np
 
 from sida.board import EARTH_RADIUS
-from sida.experts.site import datago, landapi, terrain_pack
+from sida.experts.site import datago, landapi, road_marks, terrain_pack
 
 DEFAULT_RADIUS = 200.0  # m around the site's middle
 MAX_RADIUS = 500.0
@@ -323,7 +325,8 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None, shape: st
     """
     The ground around the site from the terrain packs: {"grid" (SOLVE_STEP, relative to the
     site's middle), "half", "step", "ground_elev" (m above sea level at the middle), "contours",
-    "sources", "areas" [(kind, local ring)]}. {"grid": None, ...} when no pack covers the site.
+    "sources", "areas" [(kind, local ring)], "paint": the road lines and marks with local points}.
+    {"grid": None, ...} when no pack covers the site.
     Road heights from the 정밀도로지도 (±0.25 m) are held where there are some; contour and spot
     heights within ROAD_TRUST m of them (±1.67 m on 1:5,000) give way, so the two do not fight.
     """
@@ -347,11 +350,16 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None, shape: st
         fixed = away_from_roads(fixed, road_xy)
         fixed += [(x, y, z) for (x, y), z in zip(road_xy, roads[:, 2], strict=True)]
     areas = [(a["kind"], frame.local(a["ring"])) for a in found["areas"]]
+    paint = {
+        "lines": [{**r, "points": frame.local(r["points"])} for r in found.get("road_lines") or []],
+        "marks": [{**m, "ring": frame.local(m["ring"]), "ahead": frame.local([m["ahead"]])[0] if m.get("ahead") else None}
+                  for m in found.get("road_marks") or []],
+    }
     grid = solve_ground(fixed, half, SOLVE_STEP)
     if grid is None:
         return {"grid": None, "half": half, "step": SOLVE_STEP, "ground_elev": None, "contours": [],
                 "sources": found["sources"], "areas": areas, "buildings": found["buildings"],
-                "map_buildings": found["map_buildings"]}
+                "map_buildings": found["map_buildings"], "paint": paint}
     elev0 = float(sample(grid, half, SOLVE_STEP, [0.0], [0.0])[0])
     if roads_used:  # the 1:5,000 lines no longer lie on the ground near the roads: draw them from it
         lines = grid_contours(grid, half, SOLVE_STEP, CONTOUR_EVERY)
@@ -366,7 +374,7 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None, shape: st
     return {
         "grid": grid - elev0, "half": half, "step": SOLVE_STEP, "ground_elev": round(elev0, 2),
         "contours": contours, "sources": found["sources"], "areas": areas, "buildings": found["buildings"],
-        "map_buildings": found["map_buildings"],
+        "map_buildings": found["map_buildings"], "paint": paint,
     }
 
 
@@ -783,6 +791,9 @@ def surroundings(
 
 AREA_LAYERS = {"road": ("도로", (150, 150, 150)), "sidewalk": ("인도", (190, 180, 160)), "water": ("수계", (90, 160, 200))}
 EXPORT_GROUP = "대지 주변"
+# Lane lines by colour (road_marks.COLORS): white is drawn dark so it shows on a white CAD sheet.
+PAINT_LAYERS = (("yellow", "차선 - 황색", (220, 170, 0)), ("white", "차선 - 백색", (90, 90, 90)),
+                ("blue", "차선 - 청색", (40, 100, 200)))
 
 
 def clip_line(points, lim: float, lim_y: float | None = None) -> list[np.ndarray]:
@@ -856,7 +867,8 @@ def ground_surface(around: dict) -> dict | None:
 def export_layers(around: dict) -> list[dict]:
     """
     The surroundings as board_export layers (same frame as the table): the ground as a height
-    grid, its road / sidewalk / water outlines laid on it, the contour lines (index ones apart)
+    grid, its road / sidewalk / water outlines laid on it, the contour lines (index ones apart),
+    the road paint (lane lines by colour, road marks as closed outlines; 정밀도로지도 files)
     and the buildings as solids from their foundation, split by where the height came from.
     Only what comes from map files is written (packs, CC BY): VWorld replies are for the screen
     only (이용약관 제19조), so parcels, and buildings drawn from VWorld, stay out.
@@ -890,6 +902,16 @@ def export_layers(around: dict) -> list[dict]:
                   for c in around.get("contours") or [] if bool(c["index"]) == index]
         if curves:
             out.append(layer(short, color, curves=curves))
+    paint = around.get("road_marks") or {}
+    for color, short, rgb in PAINT_LAYERS:
+        curves = [{"points": piece, "closed": False}
+                  for line in paint.get("lines") or [] if line["color"] == color for piece in line["pieces"]]
+        if curves:
+            out.append(layer(short, rgb, curves=curves))
+    marks = [{"points": shape, "closed": True} for m in paint.get("marks") or [] for shape in m["shapes"]]
+    marks += [{"points": m["outline"], "closed": True} for m in paint.get("marks") or [] if m.get("outline")]
+    if marks:
+        out.append(layer("노면표시", (90, 90, 90), curves=marks))
     if around.get("building_source", {}).get("pack"):
         groups = {"측정 높이": [], "추정 높이": []}
         unknown = [{"points": b["ground_line"], "closed": False} for b in around.get("unknown_buildings") or [] if b.get("ground_line")]
@@ -910,6 +932,27 @@ def export_layers(around: dict) -> list[dict]:
         if unknown:
             out.append(layer("건물 - 높이 미확인(바닥선)", (200, 120, 50), curves=unknown))
     return out
+
+
+def paint_on(paint: dict, terrain: dict | None, radius: float, shape: str = DEFAULT_SHAPE) -> dict | None:
+    """The road lines and marks within the range, laid on the drawn ground (road_marks.drawing),
+    or None when the packs have none here. A line is cut at the range's edge; a mark is kept when
+    its middle is inside."""
+    if not paint["lines"] and not paint["marks"]:
+        return None
+    if terrain:
+        grid = np.asarray(terrain["z"], dtype=float).reshape(terrain["n"], terrain["n"])
+
+        def z_at(x, y):
+            return sample(grid, -terrain["min"], terrain["step"], x, y)
+    else:
+        def z_at(x, y):
+            return np.zeros(np.shape(x))
+    lines = [{**r, "points": run} for r in paint["lines"] for run in clip_range(r["points"], radius, shape)]
+    marks = [m for m in paint["marks"] if len(m["ring"]) >= 3 and in_range(np.asarray(m["ring"]).mean(axis=0), radius, shape)[0]]
+    if not lines and not marks:
+        return None
+    return road_marks.drawing(lines, marks, z_at)
 
 
 def cached(plan: dict, radius: float = DEFAULT_RADIUS, *, shape: str = DEFAULT_SHAPE, orient: str = DEFAULT_ORIENT,
@@ -977,6 +1020,9 @@ def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = N
     building_packs = [source(s) for s in g["sources"] if s.get("kind") == "buildings"]
     building_source = (building_packs[0] if packed and building_packs
                        else {"name": "브이월드 건축물정보·도로명주소 건물 (실시간, 저장하지 않음)", "date": "", "pack": ""})
+    terrain = view_grid(g, radius, g["areas"] + [
+        ("road", np.asarray(p["ring"], dtype=float)) for p in around["parcels"] if p["road"]
+    ], shape=key_shape)
     out = {
         "origin": {"lon": origin["lon"], "lat": origin["lat"]},
         "radius": radius,
@@ -984,9 +1030,7 @@ def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = N
         "orient": orient,
         "size": next((name for name, r in SIZES.items() if r == radius), None),
         "ground_elev": g["ground_elev"],
-        "terrain": view_grid(g, radius, g["areas"] + [
-            ("road", np.asarray(p["ring"], dtype=float)) for p in around["parcels"] if p["road"]
-        ], shape=key_shape),
+        "terrain": terrain,
         "terrain_sources": terrain_sources,
         "building_source": building_source,
         "areas": [
@@ -994,6 +1038,7 @@ def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = N
             for kind, ring in g["areas"] if len(ring) >= 3 and in_range(ring.mean(axis=0), radius, key_shape)[0]
         ],
         "contours": g["contours"],
+        "road_marks": paint_on(g["paint"], terrain, radius, key_shape),
         **around,
         "seconds": round(time.perf_counter() - started, 1),
     }

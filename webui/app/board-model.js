@@ -617,7 +617,7 @@ export function layerFlags(layers) {
 // The parts of the surroundings, each a sublayer of 주변 지형·건물 in the 레이어 panel.
 export const AROUND_PARTS = [
   ['ground', '지형'], ['contours', '등고선'], ['buildings', '건물'], ['estimated', '건물(추정 높이)'],
-  ['unknown', '높이 미확인(바닥선)'], ['onsite', '대지 위 기존 건물'],
+  ['unknown', '높이 미확인(바닥선)'], ['onsite', '대지 위 기존 건물'], ['lanes', '차선'], ['marks', '노면표시'],
 ];
 
 // `aroundParts`: [{id, count}] of the parts the shown surroundings have; `aroundPartsHidden`: a Set.
@@ -1143,6 +1143,41 @@ export function pickPhotoFiles(files) {
 export const CONTOUR_STEPS = [1, 2, 5];
 export const GROUND_COLORS = { g: 0xd9d1bf, r: 0xb3b3b0, s: 0xe6e1d6, w: 0x9cc7d9 };
 export const GROUND_NAMES = { g: '대지', r: '도로', s: '인도', w: '수계' };
+
+// The road paint (context road_marks, from the 정밀도로지도) as triangles to fill: each lane-line
+// piece a ribbon of its real width along its points, each mark piece (convex) a fan; marks with
+// no known way (an arrow whose link is missing, a mark the app does not draw) as their outline.
+// {lines: {colour: [x, y, z, ...]}, marks: [x, y, z, ...], outlines: [x, y, z, ...] (segments),
+// counts: {lanes, marks}}.
+export const PAINT_COLORS = { yellow: 0xe2b100, white: 0xf2f2ee, blue: 0x2d6fd2 };
+export function paintTriangles(paint) {
+  const out = { lines: {}, marks: [], outlines: [], counts: { lanes: 0, marks: 0 } };
+  if (!paint) return out;
+  for (const group of paint.lines || []) {
+    const tri = (out.lines[group.color] ||= []);
+    const half = (group.width || 0.15) / 2;
+    for (const piece of group.pieces || []) {
+      out.counts.lanes += 1;
+      for (let i = 1; i < piece.length; i++) {
+        const [x0, y0, z0] = piece[i - 1], [x1, y1, z1] = piece[i];
+        const len = Math.hypot(x1 - x0, y1 - y0);
+        if (len < 1e-6) continue;
+        const nx = (-(y1 - y0) / len) * half, ny = ((x1 - x0) / len) * half;
+        tri.push(x0 + nx, y0 + ny, z0, x0 - nx, y0 - ny, z0, x1 - nx, y1 - ny, z1,
+          x0 + nx, y0 + ny, z0, x1 - nx, y1 - ny, z1, x1 + nx, y1 + ny, z1);
+      }
+    }
+  }
+  for (const mark of paint.marks || []) {
+    out.counts.marks += 1;
+    for (const shape of mark.shapes || []) {
+      for (let i = 1; i + 1 < shape.length; i++) out.marks.push(...shape[0], ...shape[i], ...shape[i + 1]);
+    }
+    const ring = mark.outline;
+    if (ring) for (let i = 1; i < ring.length; i++) out.outlines.push(...ring[i - 1], ...ring[i]);
+  }
+  return out;
+}
 
 // The legend under the surroundings: only the ground kinds the grid has and the building kinds
 // that are drawn ([kind, name]; kind is a ground letter, 'guess' or 'unknown'). Without a ground

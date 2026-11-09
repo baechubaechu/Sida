@@ -14,7 +14,9 @@ CC BY). Only what lies in the box is kept. Each kind of source goes in its own p
                    they unzip to. Only the HDMap_UTMK_정표고 layers are read: road heights from
                    A2_LINK 주행경로링크 (RoadType 1), B2_SURFACELINEMARK 노면선표시, B3_SURFACEMARK
                    노면표시 and A4_SUBSIDIARYSECTION 보도 (not on bridges or in tunnels: A3 sections
-                   and A2 links of other RoadTypes), one point per metre; the 보도 as sidewalk areas
+                   and A2 links of other RoadTypes), one point per metre; the 보도 as sidewalk areas;
+                   the lane lines and road marks themselves, with their Type and Kind codes, for
+                   drawing (road_marks.py); a mark keeps the direction of the link it names
 
 Needs two packages the app itself does not: pip install -e ".[pack]"  (pyshp, pyproj)
 
@@ -255,6 +257,7 @@ def build(args, staging: Path, cleanup: ExitStack) -> int:
         path, conn = pack("roads", args.source_date)
         cells: dict[tuple[int, int], list[float]] = {}  # 1 m cell in the file's metres → [x, y, z sums, n]
         date, sections, walks, tr = "", 0, 0, None
+        lines = marks = 0
         for _section, layers in hdmap_sections(args.hdmap):
             if not {"A2_LINK", "prj"} <= layers.keys():
                 continue
@@ -264,8 +267,17 @@ def build(args, staging: Path, cleanup: ExitStack) -> int:
             back = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
             xs, ys = back.transform([west, east, west, east], [south, south, north, north])
             own = (min(xs), min(ys), max(xs), max(ys))
-            points, sidewalks, when = road_heights(layers, own)
+            points, sidewalks, when, paint = road_heights(layers, own)
             date = max(date, when)
+            for ref, type_, kind, run in paint["lines"]:
+                lons, lats = tr.transform(*zip(*run, strict=True))
+                terrain_pack.add_road_line(conn, ref, type_, kind, [list(q) for q in zip(lons, lats, strict=True)])
+                lines += 1
+            for ref, type_, kind, ring, ahead in paint["marks"]:
+                lons, lats = tr.transform(*zip(*ring, strict=True))
+                to = list(tr.transform(*ahead)) if ahead else None
+                terrain_pack.add_road_mark(conn, ref, type_, kind, [list(q) for q in zip(lons, lats, strict=True)], to)
+                marks += 1
             for x, y, z in points:
                 c = cells.setdefault((int(x // ROAD_POINT_GAP), int(y // ROAD_POINT_GAP)), [0.0, 0.0, 0.0, 0])
                 c[0] += x
@@ -282,7 +294,8 @@ def build(args, staging: Path, cleanup: ExitStack) -> int:
             lon, lat = tr.transform(x / n, y / n)
             terrain_pack.add_road_point(conn, lon, lat, round(z / n, 3))
         conn.execute("UPDATE meta SET value = ? WHERE key = 'source_date'", (args.source_date or _date(date),))
-        done(path, conn, f"{len(cells)} road points, {walks} sidewalks from {sections} sections", started)
+        done(path, conn, f"{len(cells)} road points, {walks} sidewalks, {lines} lane lines, {marks} road marks "
+             f"from {sections} sections", started)
     return 0
 
 
@@ -297,11 +310,16 @@ def cpg_encoding(text: str | None) -> str:
 def road_heights(layers: dict, own: tuple[float, float, float, float]):
     """
     One 정밀도로지도 section's road-surface heights in the file's metres: ([(x, y, z)], [sidewalk outer
-    rings [(x, y)]], latest UpdateDate). Kept: A2 links on ordinary roads (RoadType 1), and the
+    rings [(x, y)]], latest UpdateDate, paint). Kept: A2 links on ordinary roads (RoadType 1), and the
     lane lines (B2), road markings (B3) and sidewalks (A4 SubType 3) that are not on a bridge or in
     a tunnel: not inside an A3 section whose RoadType isn't 1, nor within OFF_GROUND_REACH m of an
     A2 link whose RoadType isn't 1 (a lane line often names no link). Lines are densified to
     ROAD_POINT_GAP; only points inside `own` (the box in the file's metres) are kept.
+
+    paint is the lane lines and road marks on the ground, for drawing: {"lines": [(ID, Type, Kind,
+    [(x, y)])] (a line crossing a bridge is cut there), "marks": [(ID, Type, Kind, ring [(x, y)],
+    (x, y) 1 m ahead of its middle along the link it names, or None)]} (a mark on a bridge is left
+    out), those touching `own`.
     """
     import shapefile  # pyshp
 
@@ -320,6 +338,9 @@ def road_heights(layers: dict, own: tuple[float, float, float, float]):
     def rows(r):
         return zip(r.iterShapes(), r.iterRecords(), strict=True)
 
+    def text(row, at):
+        return "" if at is None else str(row[at] or "").strip()
+
     def parts(shape):
         bounds = list(shape.parts) + [len(shape.points)]
         zs = list(getattr(shape, "z", None) or [])
@@ -328,11 +349,13 @@ def road_heights(layers: dict, own: tuple[float, float, float, float]):
     points, sidewalks, date = [], [], ""
     off_lines, off_areas = [], []  # bridges, tunnels, underpasses, overpasses
     links = reader("A2_LINK")
-    kind_at, when_at = column(links, "RoadType"), column(links, "UpdateDate")
+    kind_at, when_at, id_at = column(links, "RoadType"), column(links, "UpdateDate"), column(links, "ID")
+    by_id: dict[str, list] = {}  # each link's parts, for the direction of the marks on it
     for shape, row in rows(links):
         if when_at is not None:
             date = max(date, str(row[when_at] or ""))
         ground = _int(row[kind_at]) == GROUND_ROAD
+        by_id.setdefault(text(row, id_at), []).extend(parts(shape))
         for part in parts(shape):
             if ground:
                 points += _dense(part)
@@ -345,12 +368,32 @@ def road_heights(layers: dict, own: tuple[float, float, float, float]):
             if kind_at is not None and _int(row[kind_at]) != GROUND_ROAD:
                 off_areas += [[(x, y) for x, y, _z in ring] for ring in parts(shape)[:1]]
     on_ground = _off_ground_test(off_lines, off_areas)
-    for stem in ("B2_SURFACELINEMARK", "B3_SURFACEMARK"):
-        r = reader(stem)
-        if r is not None:
-            for shape, _row in rows(r):
-                for part in parts(shape):
-                    points += [p for p in _dense(part) if on_ground(p)]
+
+    def touches(xy):
+        return any(own[0] <= x <= own[2] and own[1] <= y <= own[3] for x, y in xy)
+
+    paint: dict[str, list] = {"lines": [], "marks": []}
+    r = reader("B2_SURFACELINEMARK")
+    if r is not None:
+        id_at, type_at, kind_at = column(r, "ID"), column(r, "Type"), column(r, "Kind")
+        for shape, row in rows(r):
+            for part in parts(shape):
+                points += [p for p in _dense(part) if on_ground(p)]
+                for run in _ground_runs(part, on_ground):
+                    if touches(run):
+                        paint["lines"].append((text(row, id_at), text(row, type_at), text(row, kind_at), run))
+    r = reader("B3_SURFACEMARK")
+    if r is not None:
+        id_at, type_at, kind_at, link_at = column(r, "ID"), column(r, "Type"), column(r, "Kind"), column(r, "LinkID")
+        for shape, row in rows(r):
+            for k, part in enumerate(parts(shape)):
+                dense = _dense(part)
+                kept = [p for p in dense if on_ground(p)]
+                points += kept
+                ring = [(x, y) for x, y, _z in part]
+                if k == 0 and len(ring) >= 3 and len(kept) == len(dense) and touches(ring):
+                    ahead = _ahead(ring, by_id.get(text(row, link_at)) if text(row, link_at) else None)
+                    paint["marks"].append((text(row, id_at), text(row, type_at), text(row, kind_at), ring, ahead))
     walks = reader("A4_SUBSIDIARYSECTION")
     if walks is not None:
         sub_at = column(walks, "SubType")
@@ -366,7 +409,61 @@ def road_heights(layers: dict, own: tuple[float, float, float, float]):
                 sidewalks.append([(x, y) for x, y, _z in ring[0]])
     inside = [p for p in points if own[0] <= p[0] <= own[2] and own[1] <= p[1] <= own[3]]
     walks_in = [r for r in sidewalks if any(own[0] <= x <= own[2] and own[1] <= y <= own[3] for x, y in r)]
-    return inside, walks_in, date
+    return inside, walks_in, date, paint
+
+
+def _ground_runs(part, on_ground, tolerance: float = 0.02):
+    """The pieces of a line that lie on the ground (see road_heights), as [(x, y)] runs with the
+    points the 1 m densifying added taken out again where the line is straight."""
+    runs, run = [], []
+    for p in _dense(part):
+        if on_ground(p):
+            run.append((p[0], p[1]))
+        else:
+            if len(run) >= 2:
+                runs.append(run)
+            run = []
+    if len(run) >= 2:
+        runs.append(run)
+    return [_simplify(r, tolerance) for r in runs]
+
+
+def _simplify(points, tolerance):
+    """Ramer–Douglas–Peucker: the fewest points within `tolerance` m of the line."""
+    if len(points) < 3:
+        return points
+    (x1, y1), (x2, y2) = points[0], points[-1]
+    dx, dy = x2 - x1, y2 - y1
+    length = (dx * dx + dy * dy) ** 0.5
+    far, at = -1.0, 0
+    for i, (x, y) in enumerate(points[1:-1], 1):
+        d = ((x - x1) ** 2 + (y - y1) ** 2) ** 0.5 if length == 0 else abs(dy * (x - x1) - dx * (y - y1)) / length
+        if d > far:
+            far, at = d, i
+    if far <= tolerance:
+        return [points[0], points[-1]]
+    return _simplify(points[: at + 1], tolerance)[:-1] + _simplify(points[at:], tolerance)
+
+
+def _ahead(ring, link_parts):
+    """The point 1 m ahead of the ring's middle in the direction of the nearest segment of the
+    link (its points run with the traffic), or None without a link."""
+    if not link_parts:
+        return None
+    pts = ring[:-1] if len(ring) > 3 and ring[0] == ring[-1] else ring
+    cx, cy = sum(x for x, _ in pts) / len(pts), sum(y for _, y in pts) / len(pts)
+    best = None
+    for part in link_parts:
+        for (x1, y1, *_a), (x2, y2, *_b) in zip(part, part[1:], strict=False):
+            dx, dy = x2 - x1, y2 - y1
+            length2 = dx * dx + dy * dy
+            if length2 == 0:
+                continue
+            t = max(0.0, min(1.0, ((cx - x1) * dx + (cy - y1) * dy) / length2))
+            d = (cx - x1 - t * dx) ** 2 + (cy - y1 - t * dy) ** 2
+            if best is None or d < best[0]:
+                best = (d, dx / length2 ** 0.5, dy / length2 ** 0.5)
+    return None if best is None else (cx + best[1], cy + best[2])
 
 
 def _dense(part, gap: float = ROAD_POINT_GAP):

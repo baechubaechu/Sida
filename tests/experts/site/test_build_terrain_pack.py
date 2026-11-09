@@ -72,6 +72,7 @@ def _hdmap_section(root, cpg="EUC-KR"):
     layer("B3_SURFACEMARK", poly, ["ID", "Type", "Kind", "LinkID"], [
         ([[4, 49, 40.1], [6, 49, 40.1], [6, 51, 40.1], [4, 51, 40.1], [4, 49, 40.1]], ["B3_1", "1", "5371", "A2_2"]),
         ([[4, -1, 30.1], [6, -1, 30.1], [6, 1, 30.1], [4, 1, 30.1], [4, -1, 30.1]], ["B3_2", "1", "5371", "A2_1"]),
+        ([[14, -4, 30.1], [18, -4, 30.1], [18, -2, 30.1], [14, -2, 30.1], [14, -4, 30.1]], ["B3_3", "5", "5321", ""]),  # no link
     ])
     layer("A4_SUBSIDIARYSECTION", poly, ["ID", "SubType", "Name"], [
         ([[0, 5, 30.3], [20, 5, 30.3], [20, 8, 30.3], [0, 8, 30.3], [0, 5, 30.3]], ["A4_1", "3", "보도"]),
@@ -106,6 +107,16 @@ def test_hdmap_road_heights_leave_out_bridges_and_keep_sidewalks(tmp_path, monke
     assert near_bridge == []  # the unlinked lane line is cut where it crosses the bridge
     assert [a["kind"] for a in found["areas"]] == ["sidewalk"]  # the 보도 only, not SubType 4
     assert found["sources"][0]["source"].startswith("국토지리정보원 정밀도로지도")
+    # the paint itself, for drawing: the lane line up to the bridge, the marks on the road with the
+    # way their link runs (east), none on the bridge
+    (line,) = found["road_lines"]
+    assert (line["type"], line["kind"]) == ("111", "515")
+    assert line["points"][0] == pytest.approx([10, -5]) and line["points"][-1][1] == pytest.approx(44, abs=0.01)
+    assert len(line["points"]) == 2  # the 1 m points the densifying added are taken out again
+    marks = {m["kind"]: m for m in found["road_marks"]}
+    assert set(marks) == {"5371", "5321"}
+    assert marks["5371"]["ahead"] == pytest.approx([6, 0])  # 1 m ahead of its middle, along A2_1
+    assert marks["5321"]["ahead"] is None and len(marks["5321"]["ring"]) == 5
 
 
 def test_hdmap_reads_the_encoding_each_file_names():

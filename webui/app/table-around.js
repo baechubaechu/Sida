@@ -4,7 +4,7 @@
 
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { viewFor, blockCorners, RANGE_SIZES, RANGE_SHAPES, RANGE_ORIENTS, DEFAULT_RANGE, parseRange, OUTSIDE, terrainFaces, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase } from './board-model.js';
+import { viewFor, blockCorners, RANGE_SIZES, RANGE_SHAPES, RANGE_ORIENTS, DEFAULT_RANGE, parseRange, OUTSIDE, terrainFaces, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, paintTriangles, PAINT_COLORS } from './board-model.js';
 
 export const aroundMethods = {
   // ------------------------------------------------------------------ the site's surroundings
@@ -188,6 +188,7 @@ export const aroundMethods = {
         around.add(contour);
       }
     }
+    if (data.road_marks && !(this.steppedOn && this.stepped)) this.drawPaint(around, data.road_marks);
     const lineOf = (points, material) => new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(points.map(([x, y, z]) => new THREE.Vector3(x, y, z))), material);
     const touch = new THREE.LineBasicMaterial({ color: 0x5f646b });
@@ -232,13 +233,41 @@ export const aroundMethods = {
     this.showAroundParts();
     this.invalidate();
   },
+  // The lane lines and road marks of the 정밀도로지도, filled at their real width just above the
+  // drawn ground (not on the stepped ground, whose plates are at other heights).
+  drawPaint(group, paint) {
+    const tri = paintTriangles(paint);
+    const add = (obj, part, count) => { obj.userData.part = part; obj.userData.count = count; group.add(obj); };
+    const fill = (positions, color) => {
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geom.computeVertexNormals();
+      const mesh = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({
+        color, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+      }));
+      mesh.receiveShadow = true;
+      return mesh;
+    };
+    let first = true; // the count goes on one object of each part, so the panel shows lines, not meshes
+    for (const [color, positions] of Object.entries(tri.lines)) {
+      if (!positions.length) continue;
+      add(fill(positions, PAINT_COLORS[color] ?? PAINT_COLORS.white), 'lanes', first ? tri.counts.lanes : 0);
+      first = false;
+    }
+    if (tri.marks.length) add(fill(tri.marks, PAINT_COLORS.white), 'marks', tri.counts.marks);
+    if (tri.outlines.length) {
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.Float32BufferAttribute(tri.outlines, 3));
+      add(new THREE.LineSegments(geom, new THREE.LineBasicMaterial({ color: PAINT_COLORS.white })), 'marks', tri.marks.length ? 0 : tri.counts.marks);
+    }
+  },
   // The parts the shown surroundings have ([{id, count}], for the 레이어 panel's sublayers).
   aroundParts() {
     if (!this.aroundOn || !this.around || !this.gl) return [];
     const counts = new Map();
     for (const obj of this.gl.around.children) {
       const part = obj.userData.part;
-      if (part) counts.set(part, (counts.get(part) || 0) + 1);
+      if (part) counts.set(part, (counts.get(part) || 0) + (obj.userData.count ?? 1));
     }
     if (this.steppedOn && this.stepped) counts.set('ground', counts.get('ground') || 1); // the stepped ground stands in
     const per = { buildings: 4, estimated: 4, onsite: 4 }; // walls, roof and two edge lines a building
