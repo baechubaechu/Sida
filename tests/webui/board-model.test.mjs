@@ -1002,7 +1002,7 @@ test('the layers panel lists a tree with counts, and layers are added, renamed, 
   assert.deepEqual(rows.map((r) => [r.id, r.depth, r.count]).slice(0, 5), [['site', 0, 1], ['mass', 0, 1], ['tower', 1, 0], ['top', 2, 1], ['low', 1, 0]]);
   assert.equal(rows.find((r) => r.id === 'low').current, true);
   assert.equal(rows.find((r) => r.id === 'mass').children, true);
-  assert.deepEqual(rows.at(-1), { id: 'around', name: '주변 지형·건물', depth: 0, count: 0, visible: true, locked: false, color: '', system: true });
+  assert.deepEqual(rows.at(-1), { id: 'around', name: '주변 지형·건물', depth: 0, count: 0, visible: true, locked: false, color: '', system: true, children: false });
   assert.equal(layerRows({ layers: changeLayer(layers, 'mass', { visible: false }), papers: [] }).find((r) => r.id === 'top').parentHidden, true);
   // Moving keeps sublayers with their layer.
   assert.deepEqual(moveLayer(layers, 'low', 'up').map((l) => l.id).slice(1, 5), ['mass', 'low', 'tower', 'top']);
@@ -1195,4 +1195,14 @@ test('the properties show a paper size in metres on the table', async () => {
   const { propertiesOf, PX } = await import('../../webui/app/board-model.js');
   const row = propertiesOf([{ id: 'n', kind: 'note', text: 'x', w: 200, h: 140 }]).rows.find((r) => r[0] === '크기');
   assert.equal(row[1], `${200 * PX} × ${140 * PX}m`);
+});
+
+test('the surroundings get a sublayer for each part they have', async () => {
+  const { layerRows } = await import('../../webui/app/board-model.js');
+  const rows = layerRows({ papers: [] }, { around: true, aroundParts: [{ id: 'contours', count: 12 }, { id: 'ground', count: 1 }], aroundPartsHidden: new Set(['contours']) });
+  const parts = rows.filter((r) => r.id.startsWith('around:'));
+  assert.deepEqual(parts.map((r) => [r.id, r.depth, r.visible, r.count]), [['around:ground', 1, true, 1], ['around:contours', 1, false, 12]]);
+  assert.equal(rows.find((r) => r.id === 'around').children, true);
+  assert.equal(layerRows({ papers: [] }, { around: true, aroundHidden: true, aroundParts: [{ id: 'ground', count: 1 }] }).at(-1).parentHidden, true);
+  assert.equal(layerRows({ papers: [] }, { around: false, aroundParts: [{ id: 'ground', count: 1 }] }).some((r) => r.id.startsWith('around')), false);
 });

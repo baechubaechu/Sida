@@ -614,7 +614,14 @@ export function layerFlags(layers) {
 // with how many things are on each (papers, and blocks on a layer of their own), whether its
 // parent hides or locks it, and which one is current. `around`: the surroundings have been
 // shown on the table; they get a row of their own (visibility only, `system`).
-export function layerRows(board, { around = false, aroundHidden = false, current = '' } = {}) {
+// The parts of the surroundings, each a sublayer of 주변 지형·건물 in the 레이어 panel.
+export const AROUND_PARTS = [
+  ['ground', '지형'], ['contours', '등고선'], ['buildings', '건물'], ['estimated', '건물(추정 높이)'],
+  ['unknown', '높이 미확인(바닥선)'], ['onsite', '대지 위 기존 건물'],
+];
+
+// `aroundParts`: [{id, count}] of the parts the shown surroundings have; `aroundPartsHidden`: a Set.
+export function layerRows(board, { around = false, aroundHidden = false, current = '', aroundParts = [], aroundPartsHidden = new Set() } = {}) {
   const layers = boardLayers(board);
   const flags = layerFlags(layers);
   const counts = new Map();
@@ -634,7 +641,13 @@ export function layerRows(board, { around = false, aroundHidden = false, current
     }
   };
   walk('', 0);
-  if (around) rows.push({ id: 'around', name: '주변 지형·건물', depth: 0, count: 0, visible: !aroundHidden, locked: false, color: '', system: true });
+  if (around) {
+    rows.push({ id: 'around', name: '주변 지형·건물', depth: 0, count: 0, visible: !aroundHidden, locked: false, color: '', system: true, children: aroundParts.length > 0 });
+    for (const [id, name] of AROUND_PARTS) {
+      const part = aroundParts.find((p) => p.id === id);
+      if (part) rows.push({ id: `around:${id}`, name, depth: 1, count: part.count || 0, visible: !aroundPartsHidden.has(id), locked: false, color: '', system: true, parentHidden: aroundHidden });
+    }
+  }
   return rows;
 }
 

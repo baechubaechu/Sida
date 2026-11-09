@@ -67,6 +67,24 @@ def save_shown(project_dir: Path, on: bool) -> bool:
     return bool(on)
 
 
+HIDDEN_PARTS = "hidden_parts"  # parts of the surroundings turned off in the 레이어 panel (ground, contours, ...)
+MAX_PARTS = 12
+
+
+def hidden_parts(project_dir: Path) -> list[str]:
+    saved = read(project_dir).get(HIDDEN_PARTS)
+    return [p for p in saved if isinstance(p, str)][:MAX_PARTS] if isinstance(saved, list) else []
+
+
+def save_hidden_parts(project_dir: Path, parts: list) -> list[str]:
+    """Keep which parts are off. Raises ValueError for something that is not a list of short names."""
+    if not isinstance(parts, list) or not all(isinstance(p, str) and 0 < len(p) <= 20 for p in parts):
+        raise ValueError("hidden parts must be a list of short names")
+    kept = list(dict.fromkeys(parts))[:MAX_PARTS]
+    write(project_dir, {**read(project_dir), HIDDEN_PARTS: kept})
+    return kept
+
+
 MODEL = "model"  # the last model board settings (sida/experts/model/model_base.settings), as given
 
 

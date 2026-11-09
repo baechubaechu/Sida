@@ -90,6 +90,7 @@ function tableHooks(name) {
     saveView: (v) => api(`${projectApi(name)}/board/view`, { method: 'PUT', body: v }).catch(() => {}),
     // Whether the surroundings are on: kept for the project, so a reload shows them again.
     saveShown: (shown) => api(`${projectApi(name)}/site/context/shown`, { method: 'PUT', body: { shown } }).catch(() => {}),
+    saveAroundParts: (hidden) => api(`${projectApi(name)}/site/context/shown`, { method: 'PUT', body: { hidden_parts: hidden } }).catch(() => {}),
     // The model base: the stepped ground (GET .../site/model-base) and its laser files (a zip).
     modelBase: (interval, range) => api(`${projectApi(name)}/site/model-base?interval=${encodeURIComponent(interval)}${range ? `&${rangeQuery(range)}` : ''}`),
     modelSettings: () => modelHooks(name).settings(),

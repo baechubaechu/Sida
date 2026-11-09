@@ -1511,10 +1511,10 @@ def test_site_context_range_is_kept_per_project_and_shapes_the_surroundings(clie
     assert (body["size"], body["shape"], body["radius"]) == ("medium", "square", 200.0)
     assert "x" not in body["terrain"]["classes"]
 
-    assert client.get(f"{url}/range").json() == {"size": "medium", "shape": "square", "orient": "landscape", "radius": 200.0, "shown": False}
+    assert client.get(f"{url}/range").json() == {"size": "medium", "shape": "square", "orient": "landscape", "radius": 200.0, "shown": False, "hidden_parts": []}
     saved = client.put(f"{url}/range", json={"size": "small", "shape": "circle"}).json()
     assert saved == {"size": "small", "shape": "circle", "orient": "landscape", "radius": 100.0}
-    assert client.get(f"{url}/range").json() == {**saved, "shown": False}
+    assert client.get(f"{url}/range").json() == {**saved, "shown": False, "hidden_parts": []}
     assert (project.path / "site_context.json").exists() and not (project.path / "board.json").exists()
     context3d._cache.clear()
     body = client.get(url).json()  # the saved range
@@ -1546,6 +1546,13 @@ def test_site_context_range_is_kept_per_project_and_shapes_the_surroundings(clie
     assert client.put(f"{url}/shown", json={"shown": True}).json() == {"shown": True}
     assert client.get(f"{url}/range").json()["shown"] is True
     assert client.put(f"{url}/shown", json={"shown": "yes"}).status_code == 400
+    # Parts of the surroundings turned off in the 레이어 panel are kept too.
+    assert client.get(f"{url}/range").json()["hidden_parts"] == []
+    assert client.put(f"{url}/shown", json={"hidden_parts": ["contours", "contours", "ground"]}).json() == {"hidden_parts": ["contours", "ground"]}
+    assert client.get(f"{url}/range").json()["hidden_parts"] == ["contours", "ground"]
+    assert client.get(f"{url}/range").json()["shown"] is True
+    assert client.put(f"{url}/shown", json={"hidden_parts": "ground"}).status_code == 400
+    assert client.put(f"{url}/shown", json={}).status_code == 400
 
 
 def test_model_base_follows_the_saved_range_or_the_one_asked_for(client, project, fake_vworld):

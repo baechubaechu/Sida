@@ -41,6 +41,14 @@ export function layerAction(action, button) {
     focusRename();
     return true;
   }
+  if (action === 'layer-eye' && id.startsWith('around:')) {
+    const part = id.slice('around:'.length);
+    const hidden = new Set(table?.aroundPartsHidden || []);
+    if (hidden.has(part)) hidden.delete(part); else hidden.add(part);
+    table?.setAroundParts(hidden);
+    render(false);
+    return true;
+  }
   if (action === 'layer-eye' && id === 'around') {
     ui.aroundHidden = !ui.aroundHidden;
     table?.setLayers(layers, { aroundHidden: ui.aroundHidden });

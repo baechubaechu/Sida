@@ -54,7 +54,8 @@ function propField(field, value) {
 // of layers with the current mark, visibility, lock and colour (layers.js does the buttons).
 // Double-clicking a name renames it.
 function layersBody(around) {
-  const rows = layerRows(ui.board, { around, aroundHidden: ui.aroundHidden, current: ui.currentLayer });
+  const rows = layerRows(ui.board, { around, aroundHidden: ui.aroundHidden, current: ui.currentLayer,
+    aroundParts: table?.aroundParts?.() || [], aroundPartsHidden: table?.aroundPartsHidden || new Set() });
   const pick = rows.find((r) => r.id === ui.layerPick && !r.system);
   const tool = (action, name, label, off = false) => `<button type="button" class="layer-tool" data-action="${action}" aria-label="${label}" title="${label}" ${off ? 'disabled' : ''}>${icon(name)}</button>`;
   const mark = (r, action, on, onIcon, offIcon, label) => `<button type="button" class="layer-mark ${on ? '' : 'is-off'}" data-action="${action}" data-layer="${escape(r.id)}" aria-pressed="${on}" aria-label="${escape(r.name)} ${label}" title="${label}">${icon(on ? onIcon : offIcon)}</button>`;
