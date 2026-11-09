@@ -47,22 +47,61 @@ export const papersMethods = {
     card.style.visibility = '';
     card.style.transform = `translate(${spot.x.toFixed(1)}px, ${spot.y.toFixed(1)}px)`;
   },
-  // A pin folding into its circle (dot) or opening back into its title, its width animated.
+  // A pin folding into its circle (dot) or opening back into its title, its width animated. Both
+  // widths are measured with the transition off (a width read mid-transition is the passing one),
+  // and the new width is set on the next frame so the change animates.
   morphPin(id, dot) {
     const el = this.pins.get(id);
     if (!el || el.classList.contains('is-dot') === dot) return;
-    const from = el.offsetWidth;
+    clearTimeout(el.morphTimer);
+    el.classList.add('is-measuring');
+    const from = el.getBoundingClientRect().width;
     el.classList.toggle('is-dot', dot);
     el.style.width = '';
-    const to = el.offsetWidth;
-    if (!from || !to || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    el.classList.add('is-morphing');
+    const to = el.getBoundingClientRect().width;
+    if (!from || !to || matchMedia('(prefers-reduced-motion: reduce)').matches) { el.classList.remove('is-measuring'); return; }
     el.style.width = `${from}px`;
-    void el.offsetWidth; // start from the old width
-    el.style.width = `${to}px`;
-    const done = () => { el.classList.remove('is-morphing'); el.style.width = ''; };
-    el.addEventListener('transitionend', done, { once: true });
-    setTimeout(done, 400);
+    void el.offsetWidth;
+    el.classList.remove('is-measuring');
+    el.classList.add('is-morphing');
+    requestAnimationFrame(() => { el.style.width = `${to}px`; });
+    el.morphTimer = setTimeout(() => { el.classList.remove('is-morphing'); el.style.width = ''; }, 320);
+  },
+  // Where a point of the table is on the screen (client px).
+  screenAt(x, y) {
+    const at = new THREE.Vector3(x, y, 0.1).project(this.gl.camera);
+    const r = this.root.getBoundingClientRect();
+    return { x: r.left + ((at.x + 1) / 2) * r.width, y: r.top + ((1 - at.y) / 2) * r.height };
+  },
+  // A title grabbed anywhere (a long one by its end): its circle comes to the pointer. The papers
+  // being dragged shift so the circle's point lies under it, and the circles glide there from
+  // where they were instead of jumping.
+  grabToPointer(g, e) {
+    const DOT_BELOW = 23; // px from a circle's middle down to its paper's point (half the circle and the stem)
+    const target = this.ground(e.clientX, e.clientY + DOT_BELOW);
+    const now = this.ground(e.clientX, e.clientY);
+    const main = g.from.get(g.id);
+    if (!target || !now || !main || !this.gl) return;
+    const sx = target.x - (main.x + now.x - g.g0.x);
+    const sy = target.y - (main.y + now.y - g.g0.y);
+    const p = this.papers.find((q) => q.id === g.id);
+    const was = p && this.screenAt(p.x, p.y);
+    for (const id of g.ids) { const f = g.from.get(id); if (f) g.from.set(id, { ...f, x: f.x + sx, y: f.y + sy }); }
+    if (!was || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const dx = was.x - e.clientX;
+    const dy = was.y - (e.clientY + DOT_BELOW);
+    for (const id of g.ids) {
+      const el = this.pins.get(id);
+      if (!el) continue;
+      el.classList.add('is-measuring');
+      el.style.translate = `${dx.toFixed(1)}px ${dy.toFixed(1)}px`;
+      void el.offsetWidth;
+      el.classList.remove('is-measuring');
+      el.classList.add('is-gliding');
+      requestAnimationFrame(() => { el.style.translate = '0px 0px'; });
+      clearTimeout(el.glideTimer);
+      el.glideTimer = setTimeout(() => { el.classList.remove('is-gliding'); el.style.translate = ''; }, 320);
+    }
   },
   slot(id) {
     if (!this.slots.has(id)) {

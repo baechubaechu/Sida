@@ -370,7 +370,11 @@ export const pointerMethods = {
       g.cx = e.clientX;
       g.cy = e.clientY;
       // A pin dragged in 3D folds into its circle while it moves (and opens again on release).
-      if (g.pin && !g.dotted) { g.dotted = true; for (const id of g.ids) this.morphPin(id, true); }
+      if (g.pin && !g.dotted) {
+        g.dotted = true;
+        for (const id of g.ids) this.morphPin(id, true);
+        this.grabToPointer(g, e);
+      }
       this.carry(g, this.hooks.carry?.({ x: e.clientX, y: e.clientY, ids: [...g.ids] }));
       if (!p) return;
       g.moved = true;

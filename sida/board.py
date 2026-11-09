@@ -1265,6 +1265,41 @@ def site_plan(parcels: list[dict]) -> dict | None:
     }
 
 
+# The view the designer last looked at the table from (2026-11-09 지훈: back after a reload), as
+# Rhino keeps its views in the .3dm: beside board.json, not in it, so saving it does not count as an
+# edit of the table (no rev). {x, y, span, tilt, turn, z}: the screen's camera numbers.
+VIEW_FILE = "table_view.json"
+VIEW_KEYS = ("x", "y", "span", "tilt", "turn", "z")
+
+
+def load_view(project_path: Path) -> dict | None:
+    """The kept view, or None (never saved, or not a view)."""
+    try:
+        data = json.loads((Path(project_path) / VIEW_FILE).read_text(encoding="utf-8"))
+        return clean_view(data)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
+
+def clean_view(data: dict) -> dict:
+    """The view's numbers, checked. Raises ValueError."""
+    if not isinstance(data, dict):
+        raise ValueError("view must be an object")
+    out = {key: _number(data.get(key, 0), f"view {key}") for key in VIEW_KEYS}
+    if out["span"] <= 0 or out["span"] > 1e6:
+        raise ValueError("view span must be positive")
+    if not -1 <= out["tilt"] <= 180:
+        raise ValueError("view tilt is out of range")
+    return {key: round(value, 4) for key, value in out.items()}
+
+
+def save_view(project_path: Path, data: dict) -> dict:
+    """Keep the view the table is seen from. Raises ValueError."""
+    kept = clean_view(data)
+    atomic_write_text(Path(project_path) / VIEW_FILE, json.dumps(kept))
+    return kept
+
+
 def view(project_path: Path, *, hooks=None) -> dict:
     """
     The table as the screen draws it: the saved board, the site (area, fact lines and the
@@ -1288,7 +1323,7 @@ def view(project_path: Path, *, hooks=None) -> dict:
             "lines": summary.get("lines") or [],
             "plan": site_plan(summary.get("parcels") or []),
         }
-    return {**board, "site": site, "figures": figures}
+    return {**board, "site": site, "figures": figures, "saved_view": load_view(project_path)}
 
 
 def context_view(project_path: Path, config: dict, ids: list[str] | None) -> dict:

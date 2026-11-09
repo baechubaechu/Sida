@@ -807,3 +807,17 @@ def test_taking_a_layer_away_moves_what_was_on_it_up(tmp_path):
     assert board.update_paper(tmp_path, "site", {"layer": "note", "group": "g1"})["paper"]["layer"] == "note"
     with pytest.raises(ValueError, match="id"):
         board.update_paper(tmp_path, "mass-a", {"layer": "bad id!"})
+
+
+def test_the_view_the_table_was_seen_from_is_kept_beside_the_board(tmp_path):
+    assert board.load_view(tmp_path) is None
+    assert board.view(tmp_path)["saved_view"] is None
+    kept = board.save_view(tmp_path, {"x": 1.23456, "y": -2, "span": 120, "tilt": 35, "turn": -30, "z": 0, "junk": 1})
+    assert kept == {"x": 1.2346, "y": -2.0, "span": 120.0, "tilt": 35.0, "turn": -30.0, "z": 0.0}
+    assert board.view(tmp_path)["saved_view"] == kept
+    assert board.load_board(tmp_path)["rev"] == 0  # not an edit of the table
+    for bad in ({"span": 0}, {"span": 10, "tilt": 400}, {"span": "x"}, "nope"):
+        with pytest.raises(ValueError):
+            board.save_view(tmp_path, bad)
+    (tmp_path / board.VIEW_FILE).write_text("{broken", encoding="utf-8")
+    assert board.load_view(tmp_path) is None

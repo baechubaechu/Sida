@@ -190,7 +190,12 @@ export class DraftingTable {
     this.drawMasses();
     this.drawTray();
     this.drawControls();
-    if (!this.fitted && this.root.clientWidth) { this.fitted = true; this.fit(false); }
+    // The first time: the view the project was last seen from, or the site fitted in.
+    if (!this.fitted && this.root.clientWidth) {
+      if (view.saved_view) this.setView({ ...this.view, ...view.saved_view });
+      else this.fit(false);
+      this.fitted = true;
+    }
     this.invalidate();
   }
 
@@ -576,6 +581,14 @@ export class DraftingTable {
     this.view = v;
     this.updateReadouts();
     this.invalidate();
+    // Kept for the project a moment after the view stops moving, so a reload opens on it.
+    clearTimeout(this.viewTimer);
+    if (this.fitted) {
+      this.viewTimer = setTimeout(() => {
+        const { x, y, span, tilt, turn, z } = this.view;
+        this.hooks.saveView?.({ x, y, span, tilt, turn, z: z || 0 });
+      }, 1000);
+    }
   }
 
   say(text) {

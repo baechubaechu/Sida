@@ -738,12 +738,20 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 /* A pin as a circle: a folded paper in plan (is-flat), or any pin while it is dragged in 3D
    (is-dot, its width animated by table-papers.js morphPin). */
 .pin { transition: width var(--motion-200) var(--ease-out), padding var(--motion-200) var(--ease-out); }
+.pin.is-gliding { transition: width var(--motion-200) var(--ease-out), padding var(--motion-200) var(--ease-out), translate var(--motion-200) var(--ease-out); }
+.pin.is-measuring { transition: none !important; }
 .pin.is-morphing { overflow: hidden; }
 .pin-glyph { display: none; }
 .pin.is-dot, .pin.is-flat { justify-content: center; gap: 0; width: 30px; height: 30px; padding: 0; }
 .pin.is-dot .pin-glyph, .pin.is-flat .pin-glyph { display: block; font-size: 13px; line-height: 1; }
 .pin.is-dot .pin-kind, .pin.is-dot .pin-name, .pin.is-dot b, .pin.is-flat .pin-kind, .pin.is-flat .pin-name, .pin.is-flat b { display: none; }
 .pin.is-dot { box-shadow: 0 6px 18px rgb(20 30 40 / .25); cursor: grabbing; }
+/* A circle takes the colour of its kind's tag (대지, 매스안, 메모, 전문가 결과). */
+.pin.is-dot.kind-site, .pin.is-flat.kind-site { background: color-mix(in srgb, var(--lot) 16%, var(--paper)); color: var(--lot); border-color: color-mix(in srgb, var(--lot) 45%, transparent); }
+.pin.is-dot.kind-mass, .pin.is-flat.kind-mass { background: var(--selected); color: var(--brand); border-color: color-mix(in srgb, var(--brand) 40%, transparent); }
+.pin.is-dot.kind-note, .pin.is-flat.kind-note { background: var(--note); color: var(--note-ink); }
+.pin.is-dot.kind-expert, .pin.is-flat.kind-expert { background: color-mix(in srgb, var(--ok) 16%, var(--paper)); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.pin.is-dot.kind-photo, .pin.is-flat.kind-photo, .pin.is-dot.kind-tracing, .pin.is-flat.kind-tracing { background: var(--surface-subtle); color: var(--text); }
 @keyframes pin-in { from { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .pin { animation: none; } }
 .peek { left: 0; top: 0; width: min(300px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow-y: auto; display: grid; gap: 6px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgb(0 0 0 / .18); z-index: 3; cursor: auto; user-select: text; font-size: 13px; }

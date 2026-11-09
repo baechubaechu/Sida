@@ -85,6 +85,8 @@ function tableHooks(name) {
     context: (range) => api(`${projectApi(name)}/site/context${range ? `?${rangeQuery(range)}` : ''}`),
     range: () => api(`${projectApi(name)}/site/context/range`),
     saveRange: (range) => api(`${projectApi(name)}/site/context/range`, { method: 'PUT', body: range }),
+    // The view the table was last seen from, kept for the project (a reload opens on it).
+    saveView: (v) => api(`${projectApi(name)}/board/view`, { method: 'PUT', body: v }).catch(() => {}),
     // Whether the surroundings are on: kept for the project, so a reload shows them again.
     saveShown: (shown) => api(`${projectApi(name)}/site/context/shown`, { method: 'PUT', body: { shown } }).catch(() => {}),
     // The model base: the stepped ground (GET .../site/model-base) and its laser files (a zip).
