@@ -13,6 +13,7 @@ export const blocksMethods = {
   },
   pickBlocks(keys) {
     this.picked = keys;
+    this.hooks.pick?.(keys);
     this.drawMasses();
   },
   // The gumball (or a building) taking hold: what the drag edits, the picked blocks as they were.

@@ -168,7 +168,8 @@ export class DraftingTable {
     if (!masses.some((p) => p.id === this.active)) this.active = masses[0]?.id || '';
     if (this.preview && !this.tray.some((p) => p.id === this.preview)) this.preview = '';
     this.selected = this.selected.filter((id) => this.find(id));
-    this.picked = pickedBlocks(this.papers, this.picked).flatMap((g) => g.indices.map((i) => blockKey(g.paper.id, i)));
+    const picked = pickedBlocks(this.papers, this.picked).flatMap((g) => g.indices.map((i) => blockKey(g.paper.id, i)));
+    if (picked.join() !== this.picked.join()) { this.picked = picked; this.hooks.pick?.(picked); }
     if (this.peekId && !this.papers.some((p) => p.id === this.peekId)) this.peekId = '';
     if (this.detailId) {
       const writing = this.ui.detail.contains(document.activeElement) && typing(document.activeElement);
@@ -601,6 +602,26 @@ export class DraftingTable {
 
   save(id, changes) {
     return this.hooks.update(id, changes);
+  }
+
+  // Values changed in the 속성 panel ([{id, changes}], board-model propertyChange): kept for undo,
+  // drawn and saved like an edit on the table.
+  editPapers(list) {
+    const edits = [];
+    for (const { id, changes } of list) {
+      const p = this.papers.find((x) => x.id === id);
+      if (!p) continue;
+      const before = Object.fromEntries(Object.keys(changes).map((key) => [key, p[key] ?? (key === 'title' ? '' : null)]));
+      edits.push({ op: 'update', id, before, after: changes });
+      Object.assign(p, changes);
+      this.save(id, changes);
+    }
+    if (!edits.length) return;
+    this.record(edits);
+    this.syncPapers();
+    this.drawMasses();
+    this.drawControls();
+    if (this.detailId) this.drawDetail();
   }
 
   select(ids) {

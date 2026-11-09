@@ -1020,3 +1020,47 @@ test('the properties tab sums a mass scheme against the site and its statutory c
   assert.deepEqual(several, { title: '3장 선택', rows: [['메모', '2장'], ['사진', '1장']] });
   assert.equal(propertiesOf([]), null);
 });
+
+test('a picked building shows its floors and size to change; several share their floors', async () => {
+  const { propertiesOf, pickedBlocks } = await import('../../webui/app/board-model.js');
+  const mass = { id: 'm', kind: 'mass', title: 'A안', floor_height: 4, blocks: [{ u: 0, v: 0, w: 10, d: 20, floors: 3 }, { u: 0, v: 0, w: 5, d: 10, floors: 1, a: 30 }] };
+  const one = propertiesOf([], null, pickedBlocks([mass], ['m#1']));
+  const row = (props, label) => props.rows.find((r) => r[0] === label);
+  assert.equal(one.title, 'A안 · 2동');
+  assert.equal(row(one, '층수')[1], 1);
+  assert.equal(row(one, '층수')[2].key, 'floors');
+  assert.equal(row(one, '각도')[1], 30);
+  assert.equal(row(one, '높이')[1], '4m');
+  const both = propertiesOf([], null, pickedBlocks([mass], ['m#0', 'm#1']));
+  assert.equal(both.title, '동 2개');
+  assert.equal(row(both, '층수')[1], '');
+  assert.ok(both.note.includes('다릅니다'));
+  assert.equal(propertiesOf([], null, []), null);
+  // A paper's name and a scheme's floor height are fields; the counts are not.
+  const scheme = propertiesOf([mass]);
+  assert.equal(row(scheme, '이름')[2].key, 'title');
+  assert.equal(row(scheme, '층고')[2].key, 'floor_height');
+  assert.equal(row(scheme, '동')[2], undefined);
+  assert.equal(row(propertiesOf([{ id: 'n', kind: 'note', text: 'x' }]), '이름'), undefined);
+});
+
+test('a value typed into the properties is checked before it changes anything', async () => {
+  const { propertyChange, pickedBlocks } = await import('../../webui/app/board-model.js');
+  const mass = { id: 'm', kind: 'mass', title: 'A안', floor_height: 4, blocks: [{ u: 0, v: 0, w: 10, d: 20, floors: 3 }, { u: 0, v: 0, w: 5, d: 10, floors: 1, a: 30 }] };
+  assert.deepEqual(propertyChange([mass], [], 'title', '  B안 '), [{ id: 'm', changes: { title: 'B안' } }]);
+  assert.deepEqual(propertyChange([mass], [], 'title', 'A안'), []);
+  assert.deepEqual(propertyChange([mass], [], 'floor_height', '3.5'), [{ id: 'm', changes: { floor_height: 3.5 } }]);
+  assert.match(propertyChange([mass], [], 'floor_height', '30').error, /1에서 20/);
+  assert.match(propertyChange([mass], [], 'floor_height', 'abc').error, /숫자/);
+  assert.ok(propertyChange([{ id: 'n', kind: 'note' }], [], 'title', 'x').error);
+  // Buildings: only the picked ones change; several take the same floors.
+  const picked = pickedBlocks([mass], ['m#0', 'm#1']);
+  const [change] = propertyChange([], picked, 'floors', '7');
+  assert.deepEqual(change.changes.blocks.map((b) => b.floors), [7, 7]);
+  assert.match(propertyChange([], picked, 'floors', '2.5').error, /정수/);
+  const [turn] = propertyChange([], pickedBlocks([mass], ['m#1']), 'a', '0');
+  assert.equal('a' in turn.changes.blocks[1], false);
+  assert.equal(turn.changes.blocks[0], mass.blocks[0]);
+  assert.deepEqual(propertyChange([], pickedBlocks([mass], ['m#0']), 'w', '10'), []);
+  assert.ok(propertyChange([mass], picked, 'floors', '2').error);
+});

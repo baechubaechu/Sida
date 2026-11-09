@@ -577,12 +577,26 @@ export function layerList(board, hidden = new Set(), { around = false } = {}) {
 
 const m2 = (v) => `${Math.round(v * 10) / 10}㎡`;
 
-// What the 속성 tab shows for the selected papers: {title, rows: [[label, value]], note}.
-// A mass scheme's figures come from its blocks on the board (footprints added up, overlaps not
-// taken out), set against the site's area and the zone's statutory caps when they are known
-// (`site`: siteCard() of the saved site). Several papers: how many of each kind.
-export function propertiesOf(papers, site = null) {
-  if (!papers.length) return null;
+// What the 속성 panel shows for the selected papers, or (when no paper is selected) the buildings
+// picked on their own (`blocks`: pickedBlocks()): {title, rows: [[label, value, field?]], note}.
+// A row with a `field` ({key, type: 'text' | 'number', min, max, step, unit}) can be changed in
+// the panel (propertyChange). A mass scheme's figures come from its blocks on the board
+// (footprints added up, overlaps not taken out), set against the site's area and the zone's
+// statutory caps when they are known (`site`: siteCard() of the saved site). Several papers: how
+// many of each kind.
+export const PROPERTY_FIELDS = {
+  title: { key: 'title', type: 'text', max: 120 },
+  floor_height: { key: 'floor_height', type: 'number', min: 1, max: 20, step: 0.1, unit: 'm' },
+  floors: { key: 'floors', type: 'number', min: 1, max: 200, step: 1, unit: '층', whole: true },
+  w: { key: 'w', type: 'number', min: 0.5, max: 1000, step: 0.1, unit: 'm' },
+  d: { key: 'd', type: 'number', min: 0.5, max: 1000, step: 0.1, unit: 'm' },
+  a: { key: 'a', type: 'number', min: -180, max: 180, step: 1, unit: '°' },
+};
+const NAMED = new Set(['mass', 'tracing', 'photo']); // the kinds with a name the designer gives
+const round1 = (v) => Math.round(v * 10) / 10;
+
+export function propertiesOf(papers, site = null, blocks = []) {
+  if (!papers.length) return blocks.length ? blockProperties(blocks) : null;
   if (papers.length > 1) {
     const kinds = new Map();
     for (const p of papers) kinds.set(p.kind, (kinds.get(p.kind) || 0) + 1);
@@ -590,6 +604,7 @@ export function propertiesOf(papers, site = null) {
   }
   const p = papers[0];
   const rows = [['종류', KIND_LABELS[p.kind] || p.kind]];
+  if (NAMED.has(p.kind)) rows.push(['이름', p.title || '', PROPERTY_FIELDS.title]);
   let note = '';
   if (p.kind === 'mass') {
     const blocks = p.blocks || [];
@@ -597,24 +612,77 @@ export function propertiesOf(papers, site = null) {
     const footprint = blocks.reduce((sum, b) => sum + b.w * b.d, 0);
     const gross = blocks.reduce((sum, b) => sum + b.w * b.d * b.floors, 0);
     const top = blocks.reduce((max, b) => Math.max(max, b.floors), 0);
-    rows.push(['동', `${blocks.length}개`], ['층고', `${floorHeight}m`], ['최고 층수', `${top}층 (${Math.round(top * floorHeight * 10) / 10}m)`],
+    rows.push(['동', `${blocks.length}개`], ['층고', floorHeight, PROPERTY_FIELDS.floor_height], ['최고 층수', `${top}층 (${round1(top * floorHeight)}m)`],
       ['건축면적', m2(footprint)], ['연면적', m2(gross)]);
     const area = site?.areaM2;
     if (area) {
       rows.push(['건폐율', `${Math.round(footprint / area * 1000) / 10}%${site.bcr !== null && site.bcr !== undefined ? ` (법정 ${site.bcr}% 이하)` : ''}`],
         ['용적률', `${Math.round(gross / area * 1000) / 10}%${site.far !== null && site.far !== undefined ? ` (법정 ${site.far}% 이하)` : ''}`]);
     }
-    note = '제도판의 동을 더한 값입니다. 동끼리 겹친 부분은 빼지 않았습니다.';
+    note = '제도판의 동을 더한 값입니다. 동끼리 겹친 부분은 빼지 않았습니다. 동 하나를 누르면 그 동의 층수·크기를 바꿀 수 있습니다.';
   } else if (p.kind === 'site') {
     if (site) rows.push(['주소', site.address || '미확인'], ['용도지역', site.zones?.join(', ') || '미확인'], ['대지면적', site.area]);
     else note = '대지를 정하면 주소·용도지역·면적이 나옵니다.';
   } else {
-    if (p.title) rows.push(['이름', p.title]);
+    if (p.kind === 'expert' && p.title) rows.push(['이름', p.title]);
     if (p.kind === 'note' || p.kind === 'expert') rows.push(['글자', `${String(p.text || '').length}자`]);
     if (p.kind === 'tracing') rows.push(['선', `${(p.strokes || []).length}개`]);
-    if (p.w && p.h) rows.push(['크기', `${Math.round(p.w * 10) / 10} × ${Math.round(p.h * 10) / 10}m`]);
+    if (p.w && p.h) rows.push(['크기', `${round1(p.w)} × ${round1(p.h)}m`]);
   }
   return { title: paperName(p), rows, note };
+}
+
+// The buildings picked on their own: one shows its floors, width, depth and turn to change; several
+// show how many and their floors (changed for all at once; empty when they differ).
+function blockProperties(groups) {
+  const all = groups.flatMap((g) => g.indices.map((i) => g.paper.blocks[i]));
+  const floorArea = all.reduce((sum, b) => sum + b.w * b.d, 0);
+  const gross = all.reduce((sum, b) => sum + b.w * b.d * b.floors, 0);
+  if (all.length === 1) {
+    const [{ paper, indices: [i] }] = groups;
+    const b = all[0];
+    return { title: `${paperName(paper)} · ${i + 1}동`, rows: [['종류', '동'], ['층수', b.floors, PROPERTY_FIELDS.floors],
+      ['폭', round1(b.w), PROPERTY_FIELDS.w], ['깊이', round1(b.d), PROPERTY_FIELDS.d], ['각도', b.a || 0, PROPERTY_FIELDS.a],
+      ['높이', `${round1(b.floors * (paper.floor_height || 4.2))}m`], ['바닥면적', m2(floorArea)], ['연면적', m2(gross)]], note: '' };
+  }
+  const floors = new Set(all.map((b) => b.floors));
+  return { title: `동 ${all.length}개`, rows: [['종류', '동'], ['층수', floors.size === 1 ? all[0].floors : '', PROPERTY_FIELDS.floors],
+    ['바닥면적 합', m2(floorArea)], ['연면적 합', m2(gross)]], note: floors.size > 1 ? '층수가 서로 다릅니다. 값을 넣으면 고른 동이 모두 그 층수가 됩니다.' : '' };
+}
+
+// A value typed into the 속성 panel, checked: [{id, changes}] for the papers it changes, or
+// {error} to show beside the field. `papers`: the selected papers (one), `blocks`: the picked
+// buildings (pickedBlocks()), used when no paper is selected.
+export function propertyChange(papers, blocks, key, raw) {
+  const field = PROPERTY_FIELDS[key];
+  if (!field) return { error: '바꿀 수 없는 값입니다.' };
+  let value = String(raw ?? '').trim();
+  if (field.type === 'number') {
+    const n = Number(value.replace(/,/g, ''));
+    if (!value || !Number.isFinite(n)) return { error: '숫자를 넣어 주세요.' };
+    if (field.whole && !Number.isInteger(n)) return { error: '정수로 넣어 주세요.' };
+    if (n < field.min || n > field.max) return { error: `${field.min}에서 ${field.max} 사이로 넣어 주세요.` };
+    value = Math.round(n * 100) / 100;
+  } else {
+    value = value.slice(0, field.max);
+  }
+  if (papers.length === 1 && (key === 'title' || key === 'floor_height')) {
+    const p = papers[0];
+    if (key === 'title' ? !NAMED.has(p.kind) : p.kind !== 'mass') return { error: '이 종이에는 없는 값입니다.' };
+    return (p[key] ?? (key === 'title' ? '' : 4.2)) === value ? [] : [{ id: p.id, changes: { [key]: value } }];
+  }
+  if (papers.length || !blocks.length || !['floors', 'w', 'd', 'a'].includes(key)) return { error: '이 선택에는 없는 값입니다.' };
+  const out = [];
+  for (const { paper, indices } of blocks) {
+    const next = paper.blocks.map((b, i) => {
+      if (!indices.includes(i) || (b[key] ?? 0) === value) return b;
+      const changed = { ...b, [key]: value };
+      if (key === 'a' && !value) delete changed.a;
+      return changed;
+    });
+    if (next.some((b, i) => b !== paper.blocks[i])) out.push({ id: paper.id, changes: { blocks: next } });
+  }
+  return out;
 }
 
 // Who made an AI paper: "Conductor 제안", "법규 검토자 결과"; '' for the designer's own.

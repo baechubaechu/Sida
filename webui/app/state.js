@@ -56,7 +56,9 @@ export const ui = {
   // The layers turned off on the table (the 레이어 panel).
   hiddenLayers: new Set(),
   settings: null, settingsDraft: null, settingsError: '', settingsAdvancedOpen: false, chatgptModels: null, chatgptNote: '',
-  board: null, selected: [], 
+  // The papers selected on the table, the buildings picked on their own (paperId#index), and a
+  // value the 속성 panel refused ({key, text}).
+  board: null, selected: [], picked: [], propError: null, 
   site: null, siteError: '', showSiteLines: false, find: null, siteFirst: false,
   ordinance: null, ordinanceError: '', ordinanceBusy: '', useFind: null, mapLayers: null, mapError: '', mapErrorStatus: 0,
   // Loaded conversations and their next-question contexts; closing the panel keeps both.

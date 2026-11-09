@@ -2,7 +2,7 @@
 // when a project opens, fed from the board API, and laid over the redrawn page.
 
 import { expertPath, parseRecommendation, boardExport } from './model.js';
-import { keepSelected, pickedNames, addQuestion, readModelSummary, rangeQuery } from './board-model.js';
+import { keepSelected, pickedNames, addQuestion, readModelSummary, rangeQuery, pickedBlocks, propertyChange } from './board-model.js';
 import { VWorldView } from './vworld-view.js';
 import { api, expertUrl, projectApi } from './api.js';
 import { say } from './commands.js';
@@ -89,7 +89,15 @@ function tableHooks(name) {
     // Selecting turns 레이어 to 속성 where they share a group; clearing goes back to 레이어.
     select: (ids) => {
       ui.selected = ids;
-      followSelection(ids.length > 0);
+      clearPropDrafts();
+      followSelection(ids.length > 0 || ui.picked.length > 0);
+      render(false);
+    },
+    // Buildings picked on their own (paperId#index): the 속성 panel shows them.
+    pick: (keys) => {
+      ui.picked = keys;
+      clearPropDrafts();
+      followSelection(keys.length > 0 || ui.selected.length > 0);
       render(false);
     },
     // A paper carried toward the idea board, and papers dropped into it.
@@ -286,3 +294,25 @@ export function hideVWorld() { vworldView?.hide(); }
 
 // The 모형 tab's "추천대로 놓기": the board as the latest result recommends.
 export function applyModelRecommendation() { modelMaker?.maker.apply(parseRecommendation(ui.module?.content)); }
+
+// A new selection starts the 속성 panel's fields afresh.
+function clearPropDrafts() {
+  ui.propError = null;
+  for (const key of [...drafts.keys()]) if (key.startsWith('prop:')) drafts.delete(key);
+}
+
+// A value typed into the 속성 panel: checked (board-model propertyChange), then changed on the table
+// (undo keeps it) and saved; a value out of range stays in the field with the reason beside it.
+export function editProperty(key, raw) {
+  if (!table) return;
+  const papers = table.papers.filter((p) => ui.selected.includes(p.id));
+  const blocks = papers.length ? [] : pickedBlocks(table.papers, ui.picked);
+  const out = propertyChange(papers, blocks, key, raw);
+  ui.propError = out.error ? { key, text: out.error } : null;
+  if (!out.error) {
+    table.editPapers(out);
+    // The panel reads ui.board: show the new values now, before the board is read back.
+    for (const { id, changes } of out) Object.assign(ui.board?.papers.find((p) => p.id === id) || {}, changes);
+  }
+  render(false);
+}

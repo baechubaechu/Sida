@@ -7,7 +7,7 @@ import { projectPath as projectUrl, keepNewDraft, untitledName } from './model.j
 import { COMPARE_QUESTION } from './board-model.js';
 import { talkMenu } from './talk-panel-model.js';
 import { api, expertUrl, projectApi } from './api.js';
-import { applyModelRecommendation, askAbout, closeTable, downloadBoard, hideVWorld, loadBoard, openTable, placeTable, table, takePicked, toggleVWorld, unpick } from './board.js';
+import { applyModelRecommendation, askAbout, closeTable, editProperty, downloadBoard, hideVWorld, loadBoard, openTable, placeTable, table, takePicked, toggleVWorld, unpick } from './board.js';
 import { commandKey, focusCommandLine, runCommandLine } from './commands.js';
 import { decideProposal, newChat, runExpert, send, sendFeedback } from './experts.js';
 import { addTypedIdea, ideaAction, placeIdeaFloat, saveIdea } from './ideas.js';
@@ -59,6 +59,7 @@ async function navigate() {
       ui.project = name;
       ui.board = null;
       ui.selected = [];
+      ui.picked = [];
       followSelection(false);
       ui.hiddenLayers = new Set();
       ui.talks = new Map();
@@ -297,6 +298,7 @@ function transition(update) {
 
 app.addEventListener('input', (event) => {
   const { target } = event;
+  if (target.dataset?.prop) drafts.set(`prop:${target.dataset.prop}`, target.value);
   if (target.id === 'project-search') {
     ui.query = target.value;
     swapProjectList();
@@ -328,6 +330,10 @@ app.addEventListener('change', (event) => {
   if (event.target.id === 'idea-new-link') ui.ideaLinkNew = event.target.checked;
   const { ordDetailed } = event.target.dataset || {};
   if (ordDetailed) setOrdinanceOption(currentRoute.name, ordDetailed, { detailed: event.target.checked });
+  if (event.target.dataset?.prop) {
+    drafts.delete(`prop:${event.target.dataset.prop}`);
+    editProperty(event.target.dataset.prop, event.target.value);
+  }
   // Checklist ticks stay on screen only for now (not saved to the project).
   const check = event.target.dataset?.check;
   if (check) {
@@ -411,6 +417,18 @@ newProjectDialog.addEventListener('submit', onSubmit);
 
 app.addEventListener('keydown', (event) => {
   if (event.target.id === 'command-input') { commandKey(event); return; }
+  // The 속성 panel's fields: Enter saves (through 'change'), Esc puts the saved value back.
+  if (event.target.dataset?.prop) {
+    if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); event.target.blur(); }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      drafts.delete(`prop:${event.target.dataset.prop}`);
+      event.target.value = event.target.dataset.saved;
+      ui.propError = null;
+      event.target.blur();
+    }
+    return;
+  }
   if (event.target.dataset?.ideaDraft) {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
       event.preventDefault();
