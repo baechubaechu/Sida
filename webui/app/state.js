@@ -50,7 +50,8 @@ export const ui = {
   dock: defaultDock(), narrowSide: 'layers', conductor: { open: true, active: null, list: false },
   // The idea board floats over the drafting table in a corner (2026-11-07 지훈); it was a tab
   // beside the experts before. Where it sits is kept for this visit only (no browser storage).
-  ideaFloat: floatState(null), ideaEdit: '', ideaConfirm: '', ideaBusy: false, ideaDrag: '', ideaLinkNew: true,
+  // `ideaNew`: ideas just put in (they pop in once).
+  ideaNew: new Set(), ideaFloat: floatState(null), ideaEdit: '', ideaConfirm: '', ideaBusy: false, ideaDrag: '', ideaLinkNew: true,
   pane: 'board', focusComposer: false, creatingTalk: false, talkMenu: '',
   panelRatios: { ...DEFAULT_PANEL_RATIOS }, // the sides' widths as shares (dragged, kept with the layout)
   // The 레이어 panel (layers.js): the row picked for its tools, the layer being renamed (and what is

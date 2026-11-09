@@ -22,7 +22,7 @@ function ideaDot(idea, index) {
   const inner = shape.photo
     ? `<img src="${escape(`${projectApi(currentRoute.name)}/board/photos/${encodeURIComponent(idea.paper.id)}`)}" alt="" draggable="false" decoding="async">`
     : `<span aria-hidden="true">${escape(shape.glyph)}</span>`;
-  return `<button type="button" class="idea-dot kind-${shape.kind} ${idea.off ? 'is-off' : ''} ${ui.ideaDrag === idea.id ? 'is-dragging' : ''}" data-idea-dot="${escape(idea.id)}"
+  return `<button type="button" class="idea-dot kind-${shape.kind} ${idea.off ? 'is-off' : ''} ${ui.ideaDrag === idea.id ? 'is-dragging' : ''} ${ui.ideaNew?.has(idea.id) ? 'is-new' : ''}" data-idea-dot="${escape(idea.id)}"
     title="${escape(label.slice(0, 120))}${idea.off ? ' (잠시 뺌)' : ''} · 끌어서 순서 바꾸기, 제도판으로 끌어 꺼내기" aria-label="아이디어 ${index + 1}: ${escape(label.slice(0, 60))}">${inner}</button>`;
 }
 
@@ -44,7 +44,7 @@ function ideaItem(idea, index, total) {
           <button type="button" class="secondary small" data-action="idea-cancel">취소</button><button type="submit" class="primary small" ${busy ? 'disabled' : ''}>저장</button></div></form>`
     : `${held}${words}`;
   const confirm = ui.ideaConfirm === idea.id;
-  return `<li class="idea ${idea.off ? 'is-off' : ''} ${ui.ideaDrag === idea.id ? 'is-dragging' : ''}" data-idea="${id}">
+  return `<li class="idea ${idea.off ? 'is-off' : ''} ${ui.ideaDrag === idea.id ? 'is-dragging' : ''} ${ui.ideaNew?.has(idea.id) ? 'is-new' : ''}" data-idea="${id}">
       ${ideaDot(idea, index)}
       <div class="idea-body">
         ${idea.off ? '<span class="idea-off-badge">잠시 뺌 · AI에게 안 감</span>' : ''}
