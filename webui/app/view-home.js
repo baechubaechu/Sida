@@ -162,5 +162,14 @@ export function newView() {
         <p class="field-hint" id="project-description-hint">설계할 프로젝트와 지금 고민하는 점. 다른 설계 조건은 Conductor와 대화하며 정리합니다.</p>
         <p class="form-error error-text" id="new-project-error" role="alert"></p>
         <div class="form-actions"><button type="button" class="secondary" data-new="cancel">취소</button><button class="primary" type="submit" ${ui.creating ? 'disabled' : ''}>프로젝트 만들기</button></div>
-      </form>`;
+      </form>
+      <section class="new-talk" aria-labelledby="new-talk-title">
+        <h2 id="new-talk-title">혹은, 생각하는 아이디어가 있나요?</h2>
+        <p>떠오르는 대로 적으면 Conductor가 프로젝트를 만들고 이어서 이야기해요.</p>
+        <form class="command-form new-talk-form" id="new-talk-form">
+          <span class="command-mode ask">Conductor</span>
+          <textarea id="new-talk-input" rows="1" maxlength="6000" aria-label="Conductor에게 아이디어 이야기하기"></textarea>
+          <button type="submit" class="command-run" aria-label="보내기">↵</button>
+        </form>
+      </section>`;
 }
