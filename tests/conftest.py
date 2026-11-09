@@ -17,6 +17,7 @@ from sida import (  # noqa: E402
     conductor_context,
     hardware,
     i18n,
+    preferences,
     providers,
     relay,
     relay_key,
@@ -238,6 +239,8 @@ def isolated_settings(tmp_path, monkeypatch):
     monkeypatch.setattr(i18n, "SETTINGS_DIR", settings_dir)
     monkeypatch.setattr(i18n, "SETTINGS_PATH", settings_dir / "settings.json")
     monkeypatch.setattr(i18n, "_OLD_SETTINGS_PATH", settings_dir / "old.json")
+    # The screen preferences (list order, panel layout) are kept in tmp, not in ~/Sida.
+    monkeypatch.setattr(preferences, "PREFS_PATH", tmp_path / "preferences.json")
     # Usage records stay in tmp and are never sent: tests that send patch _http_post themselves.
     monkeypatch.setattr(telemetry, "TELEMETRY_DIR", tmp_path / "telemetry")
     monkeypatch.setattr(telemetry, "_http_post", lambda url, payload: _no_network(url, payload))

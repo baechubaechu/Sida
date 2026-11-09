@@ -102,6 +102,11 @@ def create_router(load_config, core) -> APIRouter:
     def set_hidden(name: str, body: dict) -> dict:
         return call(board.set_hidden, call(project, name), body.get("ids"))
 
+    # The view the table was last seen from, so a reload opens on it.
+    @router.put("/view")
+    def set_view(name: str, body: dict) -> dict:
+        return {"view": call(board.save_view, call(project, name), body)}
+
     # The designer's layers (as in Rhino): order, names, sublayers, visibility, locks, colours.
     @router.put("/layers")
     def set_layers(name: str, body: dict) -> dict:

@@ -694,15 +694,6 @@ test('the surroundings legend lists only the ground kinds and building kinds tha
   assert.deepEqual(aroundLegend(null), []);
 });
 
-test('the source note starts folded on a narrow table', async () => {
-  const { noteStartsOpen, NOTE_OPEN_WIDTH } = await import('../../webui/app/board-model.js');
-  assert.equal(NOTE_OPEN_WIDTH, 900);
-  assert.equal(noteStartsOpen(818), false); // the board pane beside both side panels
-  assert.equal(noteStartsOpen(900), true);
-  assert.equal(noteStartsOpen(1400), true);
-  assert.equal(noteStartsOpen(undefined), false);
-});
-
 test('a block on the board stands on the ground under it only while the surroundings are shown', async () => {
   const { DraftingTable } = await import('../../webui/app/table.js');
   const { massBase, blockCorners } = await import('../../webui/app/board-model.js');
@@ -1011,7 +1002,7 @@ test('the layers panel lists a tree with counts, and layers are added, renamed, 
   assert.deepEqual(rows.map((r) => [r.id, r.depth, r.count]).slice(0, 5), [['site', 0, 1], ['mass', 0, 1], ['tower', 1, 0], ['top', 2, 1], ['low', 1, 0]]);
   assert.equal(rows.find((r) => r.id === 'low').current, true);
   assert.equal(rows.find((r) => r.id === 'mass').children, true);
-  assert.deepEqual(rows.at(-1), { id: 'around', name: '주변 지형·건물', depth: 0, count: 0, visible: true, locked: false, color: '', system: true });
+  assert.deepEqual(rows.at(-1), { id: 'around', name: '주변 지형·건물', depth: 0, count: 0, visible: true, locked: false, color: '', system: true, children: false });
   assert.equal(layerRows({ layers: changeLayer(layers, 'mass', { visible: false }), papers: [] }).find((r) => r.id === 'top').parentHidden, true);
   // Moving keeps sublayers with their layer.
   assert.deepEqual(moveLayer(layers, 'low', 'up').map((l) => l.id).slice(1, 5), ['mass', 'low', 'tower', 'top']);
@@ -1164,4 +1155,67 @@ test('every screen script imports the functions it calls from the other scripts'
     }
   }
   assert.deepEqual(out, []);
+});
+
+test('a resized paper scales its writing with the smaller of its width and height', async () => {
+  const { paperTextScale, PAPER_SIZE } = await import('../../webui/app/board-model.js');
+  const [w, h] = PAPER_SIZE.site;
+  assert.equal(paperTextScale({ kind: 'site', w, h }), 1);
+  assert.equal(paperTextScale({ kind: 'site', w: w * 2, h: h * 2 }), 2);
+  assert.equal(paperTextScale({ kind: 'note', w: 400, h: 140 }), 1); // wider only: the height keeps it
+  assert.equal(paperTextScale({ kind: 'expert', w: 160, h: 135 }), 0.5);
+  assert.equal(paperTextScale({ kind: 'mass', w: 30000, h: 30000 }), 4);
+  assert.equal(paperTextScale({ kind: 'photo', w: 900, h: 675 }), 1);
+  assert.equal(paperTextScale({ kind: 'tracing', w: 900, h: 900 }), 1);
+});
+
+test('a paper shown as a circle carries the mark of its kind', async () => {
+  const { paperGlyph } = await import('../../webui/app/board-model.js');
+  assert.equal(paperGlyph({ kind: 'site' }), '◇');
+  assert.equal(paperGlyph({ kind: 'mass', title: 'A' }), '▣');
+  assert.equal(paperGlyph({ kind: 'photo', file: 'photo-12345678.pdf' }), 'PDF');
+  assert.equal(paperGlyph({ kind: 'photo', file: 'photo-12345678.png' }), '•');
+});
+
+test('a corner drag with Alt keeps the middle, and with Ctrl keeps the shape', async () => {
+  const { resizedPaper, PX } = await import('../../webui/app/board-model.js');
+  const from = { x: 0, y: 0, w: 300, h: 200 }; // corners at x ±15, y ±10
+  // Alt: the south-east corner to (20, -15) moves every side; the middle stays.
+  assert.deepEqual(resizedPaper(from, 'se', { x: 20, y: -15 }, { center: true }), { x: 0, y: 0, w: 400, h: 300 });
+  // Ctrl: pulled mostly sideways, the height follows the width.
+  const kept = resizedPaper(from, 'se', { x: 45, y: -12 }, { ratio: true });
+  assert.deepEqual([kept.w, kept.h], [600, 400]);
+  // Both: from the middle and in shape.
+  const both = resizedPaper(from, 'nw', { x: -30, y: 11 }, { ratio: true, center: true });
+  assert.deepEqual(both, { x: 0, y: 0, w: 600, h: 400 });
+  assert.ok(Math.abs(both.w * PX / 2 - 30) < 1e-9);
+});
+
+test('the properties show a paper size in metres on the table', async () => {
+  const { propertiesOf, PX } = await import('../../webui/app/board-model.js');
+  const row = propertiesOf([{ id: 'n', kind: 'note', text: 'x', w: 200, h: 140 }]).rows.find((r) => r[0] === '크기');
+  assert.equal(row[1], `${200 * PX} × ${140 * PX}m`);
+});
+
+test('the surroundings get a sublayer for each part they have', async () => {
+  const { layerRows } = await import('../../webui/app/board-model.js');
+  const rows = layerRows({ papers: [] }, { around: true, aroundParts: [{ id: 'contours', count: 12 }, { id: 'ground', count: 1 }], aroundPartsHidden: new Set(['contours']) });
+  const parts = rows.filter((r) => r.id.startsWith('around:'));
+  assert.deepEqual(parts.map((r) => [r.id, r.depth, r.visible, r.count]), [['around:ground', 1, true, 1], ['around:contours', 1, false, 12]]);
+  assert.equal(rows.find((r) => r.id === 'around').children, true);
+  assert.equal(layerRows({ papers: [] }, { around: true, aroundHidden: true, aroundParts: [{ id: 'ground', count: 1 }] }).at(-1).parentHidden, true);
+  assert.equal(layerRows({ papers: [] }, { around: false, aroundParts: [{ id: 'ground', count: 1 }] }).some((r) => r.id.startsWith('around')), false);
+});
+
+test('a folded layer hides its sublayers at any depth, and only those', async () => {
+  const { foldedRows } = await import('../../webui/app/board-model.js');
+  const rows = [
+    { id: 'mass', depth: 0, children: true }, { id: 'tower', depth: 1, children: true }, { id: 'top', depth: 2 },
+    { id: 'low', depth: 1 }, { id: 'note', depth: 0 }, { id: 'around', depth: 0, children: true }, { id: 'around:ground', depth: 1 },
+  ];
+  const ids = (folded) => foldedRows(rows, new Set(folded)).map((r) => r.id);
+  assert.deepEqual(ids([]), rows.map((r) => r.id));
+  assert.deepEqual(ids(['mass']), ['mass', 'note', 'around', 'around:ground']);
+  assert.deepEqual(ids(['tower']), ['mass', 'tower', 'low', 'note', 'around', 'around:ground']);
+  assert.deepEqual(ids(['around', 'note']), ['mass', 'tower', 'top', 'low', 'note', 'around']);
 });

@@ -2,7 +2,8 @@
 orientation), kept per project.
 
 The site domain owns it: site_context.json in the project folder, {"size", "shape", "orient"}
-(other keys in the file, such as the model settings, are kept). Without one, the surroundings are
+(other keys in the file, such as the model settings, are kept). `shown` (2026-11-09 지훈) says the
+surroundings were on when the designer last left the table, so they come back after a reload. Without one, the surroundings are
 context3d.DEFAULT_SIZE (200 m), DEFAULT_SHAPE (square) and DEFAULT_ORIENT (landscape).
 """
 
@@ -51,6 +52,37 @@ def load(project_dir: Path) -> dict:
                            str(data.get("orient") or context3d.DEFAULT_ORIENT)))
     except ValueError:
         return _out(context3d.DEFAULT_SIZE, context3d.DEFAULT_SHAPE, context3d.DEFAULT_ORIENT)
+
+
+SHOWN = "shown"
+
+
+def shown(project_dir: Path) -> bool:
+    """Were the surroundings on the table when last left?"""
+    return read(project_dir).get(SHOWN) is True
+
+
+def save_shown(project_dir: Path, on: bool) -> bool:
+    write(project_dir, {**read(project_dir), SHOWN: bool(on)})
+    return bool(on)
+
+
+HIDDEN_PARTS = "hidden_parts"  # parts of the surroundings turned off in the 레이어 panel (ground, contours, ...)
+MAX_PARTS = 12
+
+
+def hidden_parts(project_dir: Path) -> list[str]:
+    saved = read(project_dir).get(HIDDEN_PARTS)
+    return [p for p in saved if isinstance(p, str)][:MAX_PARTS] if isinstance(saved, list) else []
+
+
+def save_hidden_parts(project_dir: Path, parts: list) -> list[str]:
+    """Keep which parts are off. Raises ValueError for something that is not a list of short names."""
+    if not isinstance(parts, list) or not all(isinstance(p, str) and 0 < len(p) <= 20 for p in parts):
+        raise ValueError("hidden parts must be a list of short names")
+    kept = list(dict.fromkeys(parts))[:MAX_PARTS]
+    write(project_dir, {**read(project_dir), HIDDEN_PARTS: kept})
+    return kept
 
 
 MODEL = "model"  # the last model board settings (sida/experts/model/model_base.settings), as given

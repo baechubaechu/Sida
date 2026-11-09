@@ -8,6 +8,7 @@ import { api, expertUrl, projectApi } from './api.js';
 import { say } from './commands.js';
 import { carryPapers, stowPapers } from './ideas.js';
 import { followSelection } from './dock.js';
+import { reveal } from './dock-model.js';
 import { render } from './render.js';
 import { app, currentProjectLabel, currentRoute, draftFor, drafts, tableHost, toast, ui } from './state.js';
 
@@ -85,6 +86,11 @@ function tableHooks(name) {
     context: (range) => api(`${projectApi(name)}/site/context${range ? `?${rangeQuery(range)}` : ''}`),
     range: () => api(`${projectApi(name)}/site/context/range`),
     saveRange: (range) => api(`${projectApi(name)}/site/context/range`, { method: 'PUT', body: range }),
+    // The view the table was last seen from, kept for the project (a reload opens on it).
+    saveView: (v) => api(`${projectApi(name)}/board/view`, { method: 'PUT', body: v }).catch(() => {}),
+    // Whether the surroundings are on: kept for the project, so a reload shows them again.
+    saveShown: (shown) => api(`${projectApi(name)}/site/context/shown`, { method: 'PUT', body: { shown } }).catch(() => {}),
+    saveAroundParts: (hidden) => api(`${projectApi(name)}/site/context/shown`, { method: 'PUT', body: { hidden_parts: hidden } }).catch(() => {}),
     // The model base: the stepped ground (GET .../site/model-base) and its laser files (a zip).
     modelBase: (interval, range) => api(`${projectApi(name)}/site/model-base?interval=${encodeURIComponent(interval)}${range ? `&${rangeQuery(range)}` : ''}`),
     modelSettings: () => modelHooks(name).settings(),
@@ -104,6 +110,10 @@ function tableHooks(name) {
       followSelection(keys.length > 0 || ui.selected.length > 0);
       render(false);
     },
+    // 상세 보기: the 속성 panel on screen, where the selected paper shows whole.
+    showProps: () => { ui.dock = reveal(ui.dock, 'props'); ui.narrowSide = 'props'; render(false); },
+    // A PDF found to have several pages: the 속성 panel shows its page buttons.
+    pdfPages: () => render(false),
     // A paper carried toward the idea board, and papers dropped into it.
     carry: (at) => carryPapers(at),
     stow: (ids) => stowPapers(name, ids),

@@ -32,6 +32,11 @@ export function layerAction(action, button) {
   const layers = boardLayers(ui.board);
   const id = button.dataset.layer || ui.layerPick;
   if (action === 'layer-pick') { ui.layerPick = id; render(false); return true; }
+  if (action === 'layer-fold') {
+    if (ui.layerFolded.has(id)) ui.layerFolded.delete(id); else ui.layerFolded.add(id);
+    render(false);
+    return true;
+  }
   if (action === 'layer-add' || action === 'layer-add-sub') {
     const made = newId();
     ui.layerPick = made;
@@ -39,6 +44,14 @@ export function layerAction(action, button) {
     ui.layerRenameText = '';
     saveLayers(addLayer(layers, { id: made, parent: action === 'layer-add-sub' ? id : '' }));
     focusRename();
+    return true;
+  }
+  if (action === 'layer-eye' && id.startsWith('around:')) {
+    const part = id.slice('around:'.length);
+    const hidden = new Set(table?.aroundPartsHidden || []);
+    if (hidden.has(part)) hidden.delete(part); else hidden.add(part);
+    table?.setAroundParts(hidden);
+    render(false);
     return true;
   }
   if (action === 'layer-eye' && id === 'around') {

@@ -193,8 +193,29 @@ def _project_router(load_config, core) -> APIRouter:
 
     @router.get("/context/range")
     def get_context_range(name: str) -> dict:
-        """The range the surroundings are made in for this project (the default when none was picked)."""
-        return context_range.load(core(workspace.find_project, load_config(), name))
+        """The range the surroundings are made in for this project (the default when none was picked),
+        and whether they were on the table (`shown`)."""
+        path = core(workspace.find_project, load_config(), name)
+        return {**context_range.load(path), "shown": context_range.shown(path), "hidden_parts": context_range.hidden_parts(path)}
+
+    @router.put("/context/shown")
+    def put_context_shown(name: str, body: dict) -> dict:
+        """Keep whether the surroundings are on the table, so a reload shows them again: {shown}, and
+        which of their parts are off in the 레이어 panel: {hidden_parts}. Either or both."""
+        path = core(workspace.find_project, load_config(), name)
+        out = {}
+        if "shown" in body:
+            if not isinstance(body["shown"], bool):
+                raise HTTPException(status_code=400, detail="shown must be true or false")
+            out["shown"] = context_range.save_shown(path, body["shown"])
+        if "hidden_parts" in body:
+            try:
+                out["hidden_parts"] = context_range.save_hidden_parts(path, body["hidden_parts"])
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not out:
+            raise HTTPException(status_code=400, detail="give shown or hidden_parts")
+        return out
 
     @router.put("/context/range")
     def put_context_range(name: str, body: dict) -> dict:

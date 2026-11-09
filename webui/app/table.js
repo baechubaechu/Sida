@@ -69,7 +69,6 @@ export class DraftingTable {
     this.aroundOn = false;
     this.aroundBusy = false;
     this.aroundRequest = null;
-    this.aroundNoteOpen = null; // the source note: open or folded (decided by the width when first shown)
     this.aroundRange = null; // {size, shape, orient}: the project's range for the surroundings, read once
     this.stepped = null; // the stepped ground (GET .../site/model-base) for the 계단식 보기
     this.steppedOn = false;
@@ -94,7 +93,7 @@ export class DraftingTable {
       <div class="table-ui ui-scheme"></div>
       <div class="table-ui ui-view"><div class="ui-tilt" role="group" aria-label="보는 각도"></div><div class="ui-zoom"></div></div>
       <p class="table-ui ui-hint" role="status" hidden></p>
-      <section class="table-ui around-note" aria-label="주변 3D 자료 출처" hidden></section>
+      <p class="table-ui around-legend" aria-label="주변 3D 범례" hidden></p>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
       <section class="table-ui peek" aria-label="종이 내용" hidden></section>
       <section class="table-ui scheme-form" aria-label="매스안 입력" hidden></section>
@@ -115,13 +114,13 @@ export class DraftingTable {
       tilt: this.root.querySelector('.ui-tilt'),
       zoom: this.root.querySelector('.ui-zoom'),
       hint: this.root.querySelector('.ui-hint'),
+      aroundLegend: this.root.querySelector('.around-legend'),
       tray: this.root.querySelector('.tray'),
       form: this.root.querySelector('.scheme-form'),
       peek: this.root.querySelector('.peek'),
       history: this.root.querySelector('.ui-history'),
       detail: this.root.querySelector('.card-detail'),
       number: this.root.querySelector('.tool-number'),
-      aroundNote: this.root.querySelector('.around-note'),
     };
     this.setupScene();
     this.listen();
@@ -159,6 +158,9 @@ export class DraftingTable {
     }
     this.figures = view.figures || {};
     this.tray = view.tray || [];
+    // The surroundings come back after a reload if they were on (the range is read once), and
+    // after a board read that briefly came without the site.
+    if (this.site?.plan) { this.readRange(); this.restoreAround(); }
     this.papers = (view.papers || []).map((p) => ({ ...p }));
     const bounds = siteBounds(this.site);
     const moved = JSON.stringify(bounds) !== JSON.stringify(this.bounds);
@@ -189,7 +191,12 @@ export class DraftingTable {
     this.drawMasses();
     this.drawTray();
     this.drawControls();
-    if (!this.fitted && this.root.clientWidth) { this.fitted = true; this.fit(false); }
+    // The first time: the view the project was last seen from, or the site fitted in.
+    if (!this.fitted && this.root.clientWidth) {
+      if (view.saved_view) this.setView({ ...this.view, ...view.saved_view });
+      else this.fit(false);
+      this.fitted = true;
+    }
     this.invalidate();
   }
 
@@ -575,6 +582,14 @@ export class DraftingTable {
     this.view = v;
     this.updateReadouts();
     this.invalidate();
+    // Kept for the project a moment after the view stops moving, so a reload opens on it.
+    clearTimeout(this.viewTimer);
+    if (this.fitted) {
+      this.viewTimer = setTimeout(() => {
+        const { x, y, span, tilt, turn, z } = this.view;
+        this.hooks.saveView?.({ x, y, span, tilt, turn, z: z || 0 });
+      }, 1000);
+    }
   }
 
   say(text) {

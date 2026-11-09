@@ -20,6 +20,19 @@ export const pointerMethods = {
     root.addEventListener('dblclick', (e) => this.onDouble(e));
     root.addEventListener('contextmenu', (e) => { if (!typing(e.target) && !e.target.closest('dialog')) e.preventDefault(); });
     root.addEventListener('keydown', (e) => this.onKey(e));
+    // Alt held while resizing a paper must not open the browser's menu when it is let go.
+    // A pin's card in 3D closes when anything else on the page is clicked (2026-11-09 지훈); the card
+    // itself and the pins keep it (a pin opens its own). Turning the view (right or middle button) does not.
+    window.addEventListener('pointerdown', (e) => {
+      if (!this.peekId || e.button !== 0 || !this.root.isConnected) return;
+      if (e.target.closest?.('.peek, [data-pin]')) return;
+      this.peekId = '';
+      this.drawPins();
+      this.drawPeek();
+    }, true);
+    window.addEventListener('keyup', (e) => {
+      if (e.key === 'Alt' && (this.gesture?.kind === 'resize' || this.altResized)) { e.preventDefault(); this.altResized = false; }
+    });
     // Ctrl+Z also works while the focus is elsewhere on the page (a button beside the table, or
     // nothing), but never in a text field or another dialog, which keep their own undo.
     this.onWindowKey = (e) => {
@@ -132,7 +145,6 @@ export const pointerMethods = {
       case 'around': this.toggleAround(); break;
       case 'model-panel': this.openModel(); break;
       case 'model-stepped': this.toggleStepped(); break;
-      case 'around-note': this.aroundNoteOpen = !this.aroundNoteOpen; this.drawAroundNote(); break;
       case 'delete': this.removeSelected(); break;
       case 'tray': this.trayOpen = !this.trayOpen; this.drawTray(); this.drawControls(); break;
       case 'north': this.animateTo({ turn: 0 }); break;
@@ -197,7 +209,7 @@ export const pointerMethods = {
     const v = this.view;
     const grip = e.button === 0 && this.gumAxes && e.target.closest('[data-gumball]')?.dataset.gumball;
     if (grip) { this.gesture = this.gumballGesture(grip, e); return; }
-    const corner = e.button === 0 && !e.shiftKey && !(e.ctrlKey || e.metaKey) && e.target.closest('[data-grip]');
+    const corner = e.button === 0 && !e.shiftKey && e.target.closest('[data-grip]'); // Alt and Ctrl change how it resizes
     if (corner) { this.gesture = this.resizeGesture(corner, e); if (this.gesture) return; }
     const mode = dragMode({ button: e.button, shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, alt: e.altKey });
     if (mode === 'orbit') { this.gesture = { kind: 'orbit', x: e.clientX, y: e.clientY, v }; return; }
@@ -366,6 +378,12 @@ export const pointerMethods = {
       // into the idea board (2026-11-07 지훈); the screen draws the circle and says when it is over the board.
       g.cx = e.clientX;
       g.cy = e.clientY;
+      // A pin dragged in 3D folds into its circle while it moves (and opens again on release).
+      if (g.pin && !g.dotted) {
+        g.dotted = true;
+        for (const id of g.ids) this.morphPin(id, true);
+        this.grabToPointer(g, e);
+      }
       this.carry(g, this.hooks.carry?.({ x: e.clientX, y: e.clientY, ids: [...g.ids] }));
       if (!p) return;
       g.moved = true;
@@ -395,7 +413,8 @@ export const pointerMethods = {
   // The moved papers fade while their circle is carried ('carry'); over the idea board ('over')
   // they vanish. The screen answers '' when nothing it can take is moving (the site alone).
   carry(g, answer) {
-    const state = g && answer === 'over' ? 'over' : g && answer === 'carry' ? 'on' : '';
+    // Only over the idea board does the paper fade (into the circle there); elsewhere it just moves.
+    const state = g && answer === 'over' ? 'over' : '';
     if (g) g.over = state === 'over';
     if (this.carrying === state) return;
     this.carrying = state;
@@ -407,6 +426,7 @@ export const pointerMethods = {
     const g = this.gesture;
     this.gesture = null;
     if (g?.kind === 'move') {
+      if (g.dotted) for (const id of g.ids) this.morphPin(id, false);
       this.carry(null);
       this.hooks.carry?.(null);
       // Dropped on the idea board: the papers go in there and stay where they were on the table
@@ -500,7 +520,16 @@ export const pointerMethods = {
       // A click on a paper: it alone is picked, and opens at reading size (a note is written in place).
       const p = this.papers.find((q) => q.id === g.id);
       if (p && this.selected.length > 1) this.select([p.id]);
-      if (p && p.kind !== 'note') this.inspect(p.id);
+      // (Its content shows under the 속성 panel: no window beside the table any more.)
+      // A second click on the same note soon after: write it in place.
+      const now = performance.now();
+      if (p?.kind === 'note' && this.lastNoteClick?.id === p.id && now - this.lastNoteClick.at < 450) {
+        this.lastNoteClick = null;
+        this.editing = p.id;
+        this.drawPaper(p);
+      } else {
+        this.lastNoteClick = p?.kind === 'note' ? { id: p.id, at: now } : null;
+      }
     }
     if (g?.kind === 'draw') {
       const draft = this.slot(g.id).querySelector('.draft');

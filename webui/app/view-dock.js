@@ -5,11 +5,12 @@
 // shows) and 전문가 (the experts), as in Rhino or CAD. On a narrow screen (≤900px) the tabs at the
 // bottom show one side at a time and the layout is fixed: 대화 alone, the rest in one group.
 
-import { boardLayers, groupProperties, layerRows, pickedBlocks, propertiesOf, selectedGroup } from './board-model.js';
+import { boardLayers, foldedRows, groupProperties, layerRows, pickedBlocks, propertiesOf, selectedGroup } from './board-model.js';
 import { DOCK_PANELS, sideShown } from './dock-model.js';
 import { escapeHtml as escape, siteCard } from './model.js';
 import { icon } from './icons.js';
 import { drafts, ui } from './state.js';
+import { table } from './board.js';
 import { conductorBody } from './view-conductor.js';
 import { expertsBody } from './view-experts.js';
 
@@ -23,9 +24,10 @@ function propsBody() {
     ? `<h3 class="side-title">${escape(props.title)}</h3>
       <dl class="props">${props.rows.map(([label, value, field]) => `<dt>${field ? `<label for="prop-${field.key}">${escape(label)}</label>` : escape(label)}</dt><dd>${field ? propField(field, value) : escape(value)}</dd>`).join('')}</dl>
       ${props.note ? `<p class="side-note">${escape(props.note)}</p>` : ''}
-      ${group ? '<button type="button" class="secondary small prop-ungroup" data-action="ungroup">그룹 풀기</button>' : ''}`
+      ${group ? '<button type="button" class="secondary small prop-ungroup" data-action="ungroup">그룹 풀기</button>' : ''}
+      ${!group && papers.length === 1 ? table?.detailHtml?.(papers[0].id) || '' : ''}`
     : '<p class="side-empty">제도판에서 종이나 매스안을 고르면 여기에 속성이 나옵니다.</p>';
-  return `<div class="dock-body" role="tabpanel" aria-label="속성"><div class="experts-scroll side-body">${inner}</div></div>`;
+  return `<div class="dock-body" role="tabpanel" aria-label="속성"><div class="experts-scroll side-body" data-scroll="props" data-scroll-from="top">${inner}</div></div>`;
 }
 
 // A value to change: Enter or leaving the field saves it, Esc puts it back (app.js). What is being
@@ -52,7 +54,8 @@ function propField(field, value) {
 // of layers with the current mark, visibility, lock and colour (layers.js does the buttons).
 // Double-clicking a name renames it.
 function layersBody(around) {
-  const rows = layerRows(ui.board, { around, aroundHidden: ui.aroundHidden, current: ui.currentLayer });
+  const rows = foldedRows(layerRows(ui.board, { around, aroundHidden: ui.aroundHidden, current: ui.currentLayer,
+    aroundParts: table?.aroundParts?.() || [], aroundPartsHidden: table?.aroundPartsHidden || new Set() }), ui.layerFolded);
   const pick = rows.find((r) => r.id === ui.layerPick && !r.system);
   const tool = (action, name, label, off = false) => `<button type="button" class="layer-tool" data-action="${action}" aria-label="${label}" title="${label}" ${off ? 'disabled' : ''}>${icon(name)}</button>`;
   const mark = (r, action, on, onIcon, offIcon, label) => `<button type="button" class="layer-mark ${on ? '' : 'is-off'}" data-action="${action}" data-layer="${escape(r.id)}" aria-pressed="${on}" aria-label="${escape(r.name)} ${label}" title="${label}">${icon(on ? onIcon : offIcon)}</button>`;
@@ -61,12 +64,14 @@ function layersBody(around) {
       ${tool('layer-add', 'layerNew', '새 레이어')}${tool('layer-add-sub', 'layerSub', pick ? `${pick.name} 아래에 하위 레이어` : '하위 레이어 (먼저 레이어를 고르세요)', !pick)}
       ${tool('layer-remove', 'trash', pick ? `${pick.name} 지우기 (안의 것은 위 레이어로)` : '레이어 지우기 (먼저 레이어를 고르세요)', !pick || rows.filter((r) => !r.system).length < 2)}
       <span class="layer-tools-gap"></span>${tool('layer-up', 'up', '위로', !pick)}${tool('layer-down', 'down', '아래로', !pick)}</div>
-    <div class="layer-table" role="grid" aria-label="레이어">
+    <div class="layer-table" role="grid" aria-label="레이어" data-scroll="layers" data-scroll-from="top">
       <div class="layer-row layer-header" role="row"><span role="columnheader">레이어</span><span role="columnheader" title="새로 만드는 것이 들어갈 레이어">현재</span><span role="columnheader">보기</span><span role="columnheader">잠금</span><span role="columnheader">색</span></div>
       ${rows.map((r) => `<div class="layer-row ${r.id === ui.layerPick ? 'is-picked' : ''} ${!r.visible || r.parentHidden ? 'is-off' : ''}" role="row" data-layer-row="${escape(r.id)}" aria-selected="${r.id === ui.layerPick}">
-        <span class="layer-name" role="gridcell" style="--depth: ${r.depth}">${ui.layerRename === r.id
+        <span class="layer-name" role="gridcell" style="--depth: ${r.depth}">${r.children
+          ? `<button type="button" class="layer-caret" data-action="layer-fold" data-layer="${escape(r.id)}" aria-expanded="${!ui.layerFolded.has(r.id)}" aria-label="${escape(r.name)} 하위 레이어 ${ui.layerFolded.has(r.id) ? '펴기' : '접기'}">${icon('chevron')}</button>`
+          : '<span class="layer-caret" aria-hidden="true"></span>'}${ui.layerRename === r.id
           ? `<input class="layer-rename" data-layer-rename="${escape(r.id)}" data-focus="layer-rename" value="${escape(ui.layerRenameText || r.name)}" maxlength="60" aria-label="레이어 이름">`
-          : `<button type="button" class="layer-label" data-action="layer-pick" data-layer="${escape(r.id)}" title="${r.system ? '' : '두 번 누르면 이름 바꾸기'}">${escape(r.name)}</button>`}${r.count ? `<span class="layer-count">${r.count}</span>` : ''}</span>
+          : `<button type="button" class="layer-label" data-action="layer-pick" data-layer="${escape(r.id)}" title="${escape(r.name)}${r.count ? ` · ${r.count}개` : ''}${r.system ? '' : ' · 두 번 누르면 이름 바꾸기'}">${escape(r.name)}</button>`}${r.count ? `<span class="layer-count">${r.count}</span>` : ''}</span>
         <span role="gridcell">${r.system ? '' : `<button type="button" class="layer-mark layer-current ${r.current ? '' : 'is-off'}" data-action="layer-current" data-layer="${escape(r.id)}" aria-pressed="${r.current}" aria-label="${escape(r.name)} 현재 레이어로" title="${r.current ? '현재 레이어 (다시 누르면 종류별 레이어로)' : '현재 레이어로: 새로 만드는 것이 여기에 들어갑니다'}">${icon('check')}</button>`}</span>
         <span role="gridcell">${mark(r, 'layer-eye', r.visible, 'eye', 'eyeOff', r.visible ? '숨기기' : '보이기')}</span>
         <span role="gridcell">${r.system ? '' : mark(r, 'layer-lock', !r.locked, 'unlock', 'lock', r.locked ? '잠금 풀기' : '잠그기')}</span>

@@ -691,3 +691,17 @@ def test_the_range_choice_is_read_back_or_the_default(tmp_path):
     assert context_range.load(tmp_path)["size"] == "medium"  # an unreadable file is the default
     with pytest.raises(ValueError):
         context_range.save(tmp_path, "huge", "square")
+
+
+def test_whether_the_surroundings_were_on_is_kept_beside_the_range(tmp_path):
+    from sida.experts.site import context_range
+
+    assert context_range.shown(tmp_path) is False
+    context_range.save(tmp_path, "small", "circle")
+    assert context_range.save_shown(tmp_path, True) is True
+    assert context_range.shown(tmp_path) is True
+    assert context_range.load(tmp_path)["shape"] == "circle"  # the range stays
+    context_range.save(tmp_path, "large", "square")
+    assert context_range.shown(tmp_path) is True  # and saving a range keeps it
+    context_range.save_shown(tmp_path, False)
+    assert context_range.shown(tmp_path) is False

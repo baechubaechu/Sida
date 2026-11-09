@@ -4,7 +4,7 @@
 
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { viewFor, blockCorners, RANGE_SIZES, RANGE_SHAPES, RANGE_ORIENTS, DEFAULT_RANGE, parseRange, OUTSIDE, terrainFaces, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, noteStartsOpen } from './board-model.js';
+import { viewFor, blockCorners, RANGE_SIZES, RANGE_SHAPES, RANGE_ORIENTS, DEFAULT_RANGE, parseRange, OUTSIDE, terrainFaces, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase } from './board-model.js';
 
 export const aroundMethods = {
   // ------------------------------------------------------------------ the site's surroundings
@@ -86,13 +86,30 @@ export const aroundMethods = {
     try {
       const range = await this.hooks.range();
       if (!this.aroundRange) this.aroundRange = parseRange(range);
+      this.aroundWanted = range?.shown === true;
+      if (Array.isArray(range?.hidden_parts)) this.setAroundParts(range.hidden_parts, { save: false });
       this.drawControls();
+      this.restoreAround();
     } catch { /* the defaults stay */ }
   },
+  // The surroundings are meant to be on (saved so, or turned on here) but are not: put them back
+  // once the site is known, without moving the view. Also after a board read that briefly came
+  // without the site (which takes them away). Not again after they failed to load, until the
+  // designer turns them on.
+  restoreAround() {
+    if (!this.aroundWanted || this.aroundFailed || this.aroundOn || this.aroundBusy || !this.site?.plan) return;
+    this.toggleAround({ restore: true });
+  },
   // Show or hide the ground and buildings around the site; the first time they are fetched.
-  async toggleAround() {
+  async toggleAround({ restore = false } = {}) {
     if (this.aroundBusy) return;
-    if (this.aroundOn) { this.aroundOn = false; this.drawAround(); this.drawMasses(); this.drawControls(); return; }
+    if (this.aroundOn) {
+      this.aroundOn = false;
+      this.aroundWanted = false;
+      this.hooks.saveShown?.(false);
+      this.drawAround(); this.drawMasses(); this.drawControls();
+      return;
+    }
     if (!this.site?.plan) { this.say('먼저 대지를 조회하세요. 대지 경계가 있어야 주변을 놓을 수 있습니다.'); return; }
     if (!this.around && this.hooks.context) {
       const request = Symbol();
@@ -106,16 +123,20 @@ export const aroundMethods = {
         this.aroundRange = parseRange(context);
       } catch (error) {
         if (request !== this.aroundRequest) return;
+        this.aroundFailed = restore; // a restore that failed is not tried again by itself
         this.say(`주변 지형·건물을 불러오지 못했습니다. ${error.message}`);
       }
       this.aroundBusy = false;
     }
     this.aroundOn = Boolean(this.around);
+    if (this.aroundOn) { this.aroundWanted = true; this.aroundFailed = false; }
+    if (this.aroundOn && !restore) this.hooks.saveShown?.(true);
     this.drawAround();
     this.drawMasses();
     this.drawControls();
-    // Lean the table and step back so the whole neighbourhood is in view around the site.
-    if (this.aroundOn) {
+    // Lean the table and step back so the whole neighbourhood is in view around the site (not
+    // when they come back after a reload: the view stays as it opens).
+    if (this.aroundOn && !restore) {
       this.animateTo({ ...(viewFor('3d', this.view) || {}), x: 0, y: 0, span: Math.max(this.view.span, 1.6 * this.around.radius) });
     }
   },
@@ -127,8 +148,7 @@ export const aroundMethods = {
     around.traverse((o) => o.geometry?.dispose());
     around.clear();
     const data = this.aroundOn ? this.around : null;
-    const note = this.ui.aroundNote;
-    note.hidden = !data;
+    this.drawAroundLegend(data);
     this.aroundLow = 0;
     if (!data) { this.invalidate(); return; }
     const t = data.terrain;
@@ -158,11 +178,14 @@ export const aroundMethods = {
       geom.computeVertexNormals();
       const ground = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ vertexColors: true }));
       ground.receiveShadow = true;
+      ground.userData.part = 'ground';
       around.add(ground);
       for (const line of contourLines(t, this.contourStep)) {
         const pts = line.segments.flatMap(([x1, y1, x2, y2]) => [new THREE.Vector3(x1, y1, line.z + 0.05), new THREE.Vector3(x2, y2, line.z + 0.05)]);
-        around.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts),
-          new THREE.LineBasicMaterial({ color: line.index ? 0x7d6b4a : 0xb7a988 })));
+        const contour = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts),
+          new THREE.LineBasicMaterial({ color: line.index ? 0x7d6b4a : 0xb7a988 }));
+        contour.userData.part = 'contours';
+        around.add(contour);
       }
     }
     const lineOf = (points, material) => new THREE.Line(
@@ -172,6 +195,8 @@ export const aroundMethods = {
     for (const b of data.buildings || []) {
       // Walls from the bottom of the foundation to the top, and a flat roof.
       const ring = b.outline;
+      const partOf = b.on_site ? 'onsite' : isEstimate(b) ? 'estimated' : 'buildings';
+      const add = (obj) => { obj.userData.part = partOf; around.add(obj); };
       const material = new THREE.MeshLambertMaterial({
         color: isEstimate(b) ? 0xe8d6b0 : 0xedede9, transparent: b.on_site, opacity: b.on_site ? 0.35 : 1,
       });
@@ -190,32 +215,67 @@ export const aroundMethods = {
         part.userData.building = b; // a click on it tells where its height and outline came from
         part.castShadow = !b.on_site;
         part.receiveShadow = true;
-        around.add(part);
+        add(part);
       }
       const corners = ring.flatMap(([x, y]) => [new THREE.Vector3(x, y, b.base), new THREE.Vector3(x, y, b.top)]);
-      around.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(corners), edgeInk));
-      around.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(ring.map(([x, y]) => new THREE.Vector3(x, y, b.top + 0.02))), edgeInk));
-      if (b.ground_line) around.add(lineOf(b.ground_line, touch));
+      add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(corners), edgeInk));
+      add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(ring.map(([x, y]) => new THREE.Vector3(x, y, b.top + 0.02))), edgeInk));
+      if (b.ground_line) add(lineOf(b.ground_line, touch));
     }
     const unknown = new THREE.LineBasicMaterial({ color: 0xc8742f });
-    for (const b of data.unknown_buildings || []) if (b.ground_line) around.add(lineOf(b.ground_line, unknown));
-    this.drawAroundNote();
+    for (const b of data.unknown_buildings || []) {
+      if (!b.ground_line) continue;
+      const line = lineOf(b.ground_line, unknown);
+      line.userData.part = 'unknown';
+      around.add(line);
+    }
+    this.showAroundParts();
     this.invalidate();
   },
-  // The legend and, unless folded, where each part comes from; a button folds or opens it.
-  drawAroundNote() {
-    const data = this.aroundOn ? this.around : null;
-    const note = this.ui.aroundNote;
+  // The parts the shown surroundings have ([{id, count}], for the 레이어 panel's sublayers).
+  aroundParts() {
+    if (!this.aroundOn || !this.around || !this.gl) return [];
+    const counts = new Map();
+    for (const obj of this.gl.around.children) {
+      const part = obj.userData.part;
+      if (part) counts.set(part, (counts.get(part) || 0) + 1);
+    }
+    if (this.steppedOn && this.stepped) counts.set('ground', counts.get('ground') || 1); // the stepped ground stands in
+    const per = { buildings: 4, estimated: 4, onsite: 4 }; // walls, roof and two edge lines a building
+    return [...counts].map(([id, n]) => ({ id, count: Math.round(n / (per[id] || 1)) }));
+  },
+  // Turn parts of the surroundings off or on (the 레이어 panel), kept for the project.
+  setAroundParts(hidden, { save = true } = {}) {
+    this.aroundPartsHidden = new Set(hidden);
+    this.showAroundParts();
+    this.invalidate();
+    if (save) this.hooks.saveAroundParts?.([...this.aroundPartsHidden]);
+  },
+  showAroundParts() {
+    const hidden = this.aroundPartsHidden || new Set();
+    for (const obj of this.gl?.around.children || []) {
+      const part = obj.userData.part || (this.steppedOn ? 'ground' : '');
+      obj.visible = !hidden.has(part);
+    }
+  },
+  // The colour legend in one line at the bottom right while the surroundings are shown (where the
+  // data comes from is in the settings' 자료 출처, not over the drawing: 2026-11-09 지훈).
+  drawAroundLegend(data) {
+    const el = this.ui.aroundLegend;
+    el.hidden = !data;
     if (!data) return;
-    if (this.aroundNoteOpen === null) this.aroundNoteOpen = noteStartsOpen(this.root.getBoundingClientRect().width);
-    const open = this.aroundNoteOpen;
     const hex = (k) => `#${GROUND_COLORS[k].toString(16).padStart(6, '0')}`;
-    const legend = aroundLegend(data).map(([k, name]) => (GROUND_COLORS[k] === undefined
-      ? `<span><i class="${k}"></i>${name}</span>` : `<span><i style="background:${hex(k)}"></i>${name}</span>`)).join('');
-    note.classList.toggle('folded', !open);
-    note.innerHTML = `<button type="button" class="note-fold" data-ui="around-note" aria-expanded="${open}">${open ? '자료 출처 접기' : '자료 출처 보기'}</button>
-      <p class="legend">${legend}</p>
-      ${open ? aroundNote(data).map((line) => `<p>${escape(line)}</p>`).join('') : ''}`;
+    el.innerHTML = aroundLegend(data).map(([k, name]) => (GROUND_COLORS[k] === undefined
+      ? `<span><i class="${k}"></i>${escape(name)}</span>` : `<span><i style="background:${hex(k)}"></i>${escape(name)}</span>`)).join('');
+  },
+  // The surroundings' legend and where each part comes from, for the settings' 자료 출처 section
+  // (2026-11-09 지훈: not over the table): {legend: [[key, name, colour or '']], lines}, or null
+  // while the surroundings are not shown.
+  aroundInfo() {
+    const data = this.aroundOn ? this.around : null;
+    if (!data) return null;
+    const hex = (k) => (GROUND_COLORS[k] === undefined ? '' : `#${GROUND_COLORS[k].toString(16).padStart(6, '0')}`);
+    return { legend: aroundLegend(data).map(([k, name]) => [k, name, hex(k)]), lines: aroundNote(data) };
   },
   // How high a block stands: on the lowest ground under it while the surroundings are shown
   // (the same rule as the export), else on the table (0).

@@ -26,20 +26,34 @@ export const fmt = (n, digits = 0) => Number(n).toLocaleString('ko-KR', { maximu
 
 // Which papers a corner drag resizes: not a tracing sheet (it is the size of the site, to lie in
 // register over it) and not one folded into a name tag.
+// How much larger a paper's writing is than at its first size (2026-11-09 지훈: resizing a site,
+// mass, expert or note paper scales what is written on it): the smaller of the width and height
+// ratios, so the text still fits, between 0.5 and 4. 1 for photos and tracing sheets (their
+// picture fills the paper anyway).
+export function paperTextScale(p) {
+  const base = PAPER_SIZE[p?.kind];
+  if (!base || p.kind === 'photo') return 1;
+  const s = Math.min(Number(p.w) / base[0], Number(p.h) / base[1]);
+  return Number.isFinite(s) && s > 0 ? Math.round(Math.min(4, Math.max(0.5, s)) * 100) / 100 : 1;
+}
+
 export function resizable(p) {
   return Boolean(p) && p.kind !== 'tracing' && !p.folded;
 }
 
 // A paper {x, y, w, h} (middle in metres, size in CSS px) dragged by its corner `corner`
-// ('nw', 'ne', 'sw', 'se', as the paper reads: n is +y) to the table point {x, y}. The opposite
-// corner stays where it is. `ratio` keeps the paper's shape (a photo), taking the larger pull.
-export function resizedPaper(from, corner, point, { ratio = false, min = PAPER_LIMITS.min, max = PAPER_LIMITS.max } = {}) {
+// ('nw', 'ne', 'sw', 'se', as the paper reads: n is +y) to the table point {x, y}, as in a drawing
+// program (2026-11-09 지훈): the opposite corner stays where it is; `center` (Alt) keeps the middle
+// instead, so all four sides move; `ratio` (Ctrl, and always for a photo) keeps the paper's shape,
+// taking the larger pull.
+export function resizedPaper(from, corner, point, { ratio = false, center = false, min = PAPER_LIMITS.min, max = PAPER_LIMITS.max } = {}) {
   const sx = corner.includes('e') ? 1 : -1;
   const sy = corner.includes('n') ? 1 : -1;
-  const fixed = { x: from.x - (sx * from.w * PX) / 2, y: from.y - (sy * from.h * PX) / 2 };
+  const fixed = center ? { x: from.x, y: from.y } : { x: from.x - (sx * from.w * PX) / 2, y: from.y - (sy * from.h * PX) / 2 };
+  const span = center ? 2 : 1; // from the middle the pull counts on both sides
   const clamp = (v) => Math.min(max, Math.max(min, v));
-  let w = clamp((sx * (point.x - fixed.x)) / PX);
-  let h = clamp((sy * (point.y - fixed.y)) / PX);
+  let w = clamp((span * sx * (point.x - fixed.x)) / PX);
+  let h = clamp((span * sy * (point.y - fixed.y)) / PX);
   if (ratio && from.w > 0 && from.h > 0) {
     const k = Math.max(w / from.w, h / from.h);
     const lo = Math.max(min / from.w, min / from.h);
@@ -50,6 +64,7 @@ export function resizedPaper(from, corner, point, { ratio = false, min = PAPER_L
   }
   w = Math.round(w);
   h = Math.round(h);
+  if (center) return { x: from.x, y: from.y, w, h };
   return { x: fixed.x + (sx * w * PX) / 2, y: fixed.y + (sy * h * PX) / 2, w, h };
 }
 
@@ -599,7 +614,14 @@ export function layerFlags(layers) {
 // with how many things are on each (papers, and blocks on a layer of their own), whether its
 // parent hides or locks it, and which one is current. `around`: the surroundings have been
 // shown on the table; they get a row of their own (visibility only, `system`).
-export function layerRows(board, { around = false, aroundHidden = false, current = '' } = {}) {
+// The parts of the surroundings, each a sublayer of 주변 지형·건물 in the 레이어 panel.
+export const AROUND_PARTS = [
+  ['ground', '지형'], ['contours', '등고선'], ['buildings', '건물'], ['estimated', '건물(추정 높이)'],
+  ['unknown', '높이 미확인(바닥선)'], ['onsite', '대지 위 기존 건물'],
+];
+
+// `aroundParts`: [{id, count}] of the parts the shown surroundings have; `aroundPartsHidden`: a Set.
+export function layerRows(board, { around = false, aroundHidden = false, current = '', aroundParts = [], aroundPartsHidden = new Set() } = {}) {
   const layers = boardLayers(board);
   const flags = layerFlags(layers);
   const counts = new Map();
@@ -619,8 +641,28 @@ export function layerRows(board, { around = false, aroundHidden = false, current
     }
   };
   walk('', 0);
-  if (around) rows.push({ id: 'around', name: '주변 지형·건물', depth: 0, count: 0, visible: !aroundHidden, locked: false, color: '', system: true });
+  if (around) {
+    rows.push({ id: 'around', name: '주변 지형·건물', depth: 0, count: 0, visible: !aroundHidden, locked: false, color: '', system: true, children: aroundParts.length > 0 });
+    for (const [id, name] of AROUND_PARTS) {
+      const part = aroundParts.find((p) => p.id === id);
+      if (part) rows.push({ id: `around:${id}`, name, depth: 1, count: part.count || 0, visible: !aroundPartsHidden.has(id), locked: false, color: '', system: true, parentHidden: aroundHidden });
+    }
+  }
   return rows;
+}
+
+// The rows still on view in the 레이어 panel: the sublayers of a folded layer (`folded`: a Set of
+// ids), at any depth, are left out.
+export function foldedRows(rows, folded = new Set()) {
+  const out = [];
+  let under = Infinity; // the depth of a folded layer whose sublayers are being skipped
+  for (const r of rows) {
+    if (r.depth > under) continue;
+    under = Infinity;
+    out.push(r);
+    if (r.children && folded.has(r.id)) under = r.depth;
+  }
+  return out;
 }
 
 // The next free "레이어 n".
@@ -731,7 +773,7 @@ export function propertiesOf(papers, site = null, blocks = [], layers = DEFAULT_
     if (p.kind === 'expert' && p.title) rows.push(['이름', p.title]);
     if (p.kind === 'note' || p.kind === 'expert') rows.push(['글자', `${String(p.text || '').length}자`]);
     if (p.kind === 'tracing') rows.push(['선', `${(p.strokes || []).length}개`]);
-    if (p.w && p.h) rows.push(['크기', `${round1(p.w)} × ${round1(p.h)}m`]);
+    if (p.w && p.h) rows.push(['크기', `${round1(p.w * PX)} × ${round1(p.h * PX)}m`]); // paper px to metres
   }
   return { title: paperName(p), rows, note };
 }
@@ -1102,13 +1144,6 @@ export const CONTOUR_STEPS = [1, 2, 5];
 export const GROUND_COLORS = { g: 0xd9d1bf, r: 0xb3b3b0, s: 0xe6e1d6, w: 0x9cc7d9 };
 export const GROUND_NAMES = { g: '대지', r: '도로', s: '인도', w: '수계' };
 
-// The note on where the surroundings come from starts folded on a narrow table (under this many
-// px wide), so it does not cover the drawing; the designer can open it.
-export const NOTE_OPEN_WIDTH = 900;
-export function noteStartsOpen(width) {
-  return Number(width) >= NOTE_OPEN_WIDTH;
-}
-
 // The legend under the surroundings: only the ground kinds the grid has and the building kinds
 // that are drawn ([kind, name]; kind is a ground letter, 'guess' or 'unknown'). Without a ground
 // grid the ground is drawn flat as 대지.
@@ -1364,6 +1399,11 @@ export function heldPapers(board) {
 }
 
 const DOT_GLYPHS = { note: '✎', mass: '▣', tracing: '≈', expert: '◎', pdf: 'PDF', site: '◇' };
+
+// The mark a paper shows as a circle (a pin on the table, an idea on the idea board).
+export function paperGlyph(p) {
+  return ideaShape({ paper: p }).glyph;
+}
 
 // What an idea's circle and its line in the open board show: its kind, a glyph for the circle,
 // a name and a little of what it says. An idea of words shows its number.

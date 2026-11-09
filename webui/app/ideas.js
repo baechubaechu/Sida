@@ -148,9 +148,12 @@ export function carryPapers(at) {
   if (!papers.length) { showGhost(null); board?.classList.remove('is-target'); return ''; }
   const over = overIdeaBoard(at.x, at.y);
   board?.classList.toggle('is-target', over);
+  // Away from the board the paper itself (its pin in 3D) moves; over it, it shows as the circle
+  // it will be there (2026-11-09 지훈).
+  if (!over) { showGhost(null); return 'carry'; }
   const shape = ideaShape({ paper: papers[0] });
-  showGhost(at, `<span>${escape(shape.glyph)}</span>${papers.length > 1 ? `<b>${papers.length}</b>` : ''}`, `kind-${shape.kind} ${over ? 'is-over' : ''}`);
-  return over ? 'over' : 'carry';
+  showGhost(at, `<span>${escape(shape.glyph)}</span>${papers.length > 1 ? `<b>${papers.length}</b>` : ''}`, `kind-${shape.kind} is-over`);
+  return 'over';
 }
 
 export async function stowPapers(name, ids) {

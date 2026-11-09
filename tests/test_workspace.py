@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from sida import workspace
+from sida import preferences, workspace
 from sida.project import section_body
 
 
@@ -139,7 +139,22 @@ def test_delete_project_refuses_paths_outside_and_links(mock_config, project, tm
     assert (outside / "brief.md").exists() and project.path.exists()
 
 
-def test_list_order_is_kept_next_to_the_projects(mock_config):
+def test_screen_preferences_move_out_of_the_projects_folder_once(mock_config):
+    root = workspace.ensure_projects_root(mock_config)
+    (root / workspace.LIST_FILE).write_text('{"sort": "name", "order": ["a"]}', encoding="utf-8")
+    (root / workspace.PANEL_LAYOUT_FILE).write_text('{"left": {"open": false}}', encoding="utf-8")
+    assert workspace.load_list_order(mock_config) == {"sort": "name", "order": ["a"]}
+    assert workspace.load_panel_layout(mock_config)["left"]["open"] is False
+    assert not (root / workspace.LIST_FILE).exists() and not (root / workspace.PANEL_LAYOUT_FILE).exists()
+    kept = preferences.read_all()
+    assert kept["project_list"] == {"sort": "name", "order": ["a"]} and kept["panel_layout"]["left"]["open"] is False
+    # Saving writes the preferences file only.
+    workspace.save_list_order(mock_config, "recent", [])
+    assert preferences.read_all()["project_list"] == {"sort": "recent", "order": []}
+    assert not (root / workspace.LIST_FILE).exists()
+
+
+def test_list_order_is_kept_with_the_screen_preferences(mock_config):
     assert workspace.load_list_order(mock_config) == {"sort": "recent", "order": []}
     kept = workspace.save_list_order(mock_config, "custom", ["b", "a", "b", " ", 3])
     assert kept == {"sort": "custom", "order": ["b", "a"]}
@@ -154,5 +169,7 @@ def test_list_order_file_that_cannot_be_read_gives_the_default(mock_config):
     root = workspace.ensure_projects_root(mock_config)
     (root / workspace.LIST_FILE).write_text("{not json", encoding="utf-8")
     assert workspace.load_list_order(mock_config) == {"sort": "recent", "order": []}
-    (root / workspace.LIST_FILE).write_text('{"sort": "x", "order": "y"}', encoding="utf-8")
+    preferences.PREFS_PATH.write_text("{not json", encoding="utf-8")
+    assert workspace.load_list_order(mock_config) == {"sort": "recent", "order": []}
+    preferences.put("project_list", {"sort": "x", "order": "y"})
     assert workspace.load_list_order(mock_config) == {"sort": "recent", "order": []}
