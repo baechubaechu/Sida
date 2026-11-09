@@ -3,7 +3,7 @@
 
 import { latestChat, parseRoute } from './model.js';
 import { floatState } from './board-model.js';
-import { defaultDock } from './dock-model.js';
+import { DEFAULT_PANEL_RATIOS, defaultDock } from './dock-model.js';
 
 export const app = document.querySelector('#app');
 
@@ -52,7 +52,7 @@ export const ui = {
   // beside the experts before. Where it sits is kept for this visit only (no browser storage).
   ideaFloat: floatState(null), ideaEdit: '', ideaConfirm: '', ideaBusy: false, ideaDrag: '', ideaLinkNew: true,
   pane: 'board', focusComposer: false, creatingTalk: false, talkMenu: '',
-  panelRatios: { left: .24, right: .24, detail: .38 }, // the two side panels start equally wide
+  panelRatios: { ...DEFAULT_PANEL_RATIOS }, // the sides' widths as shares (dragged, kept with the layout)
   // The layers turned off on the table (the 레이어 panel).
   hiddenLayers: new Set(),
   settings: null, settingsDraft: null, settingsError: '', settingsAdvancedOpen: false, chatgptModels: null, chatgptNote: '',

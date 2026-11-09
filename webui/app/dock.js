@@ -5,7 +5,7 @@
 
 import { api } from './api.js';
 import {
-  activate, defaultDock, dockForSaving, dropTarget, movePanel, normalizeDock, resizeGroups, setSideOpen, sideShown, swapActive,
+  DEFAULT_PANEL_RATIOS, activate, defaultDock, dockForSaving, dropTarget, movePanel, normalizeDock, resizeGroups, setSideOpen, sideShown, swapActive,
 } from './dock-model.js';
 import { placeTable } from './board.js';
 import { render } from './render.js';
@@ -39,7 +39,7 @@ export function saveDock() {
 
 export function resetDock() {
   ui.dock = defaultDock();
-  ui.panelRatios = { left: .24, right: .24, detail: .38 };
+  ui.panelRatios = { ...DEFAULT_PANEL_RATIOS };
   saveDock();
 }
 

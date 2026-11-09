@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  activate, defaultDock, dockForSaving, dockOf, dropTarget, movePanel, normalizeDock, panelVisible,
+  DEFAULT_PANEL_RATIOS, activate, defaultDock, dockForSaving, dockOf, dropTarget, movePanel, normalizeDock, panelVisible,
   resizeGroups, reveal, setSideOpen, sideShown, swapActive,
 } from '../../webui/app/dock-model.js';
 
@@ -15,6 +15,13 @@ test('the default layout has Conductor on the left and the three tabs on the rig
   assert.equal(panelVisible(layout, 'layers'), true);
   assert.equal(panelVisible(layout, 'props'), false);
   assert.deepEqual(dockOf(layout, 'experts'), { side: 'right', index: 0 });
+});
+
+test('the sides start about 360px and 300px wide on a 2000px screen', async () => {
+  const { panelWidths } = await import('../../webui/app/talk-panel-model.js');
+  assert.deepEqual(panelWidths(2000, DEFAULT_PANEL_RATIOS), { left: 360, right: 300, board: 1340 });
+  // A tablet keeps the narrowest widths.
+  assert.deepEqual(panelWidths(1000, DEFAULT_PANEL_RATIOS), { left: 280, right: 240, board: 480 });
 });
 
 test('a broken or partial layout keeps every panel on screen exactly once', () => {

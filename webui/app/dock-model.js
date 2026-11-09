@@ -6,6 +6,9 @@
 export const DOCK_PANELS = { conductor: '대화', props: '속성', layers: '레이어', experts: '전문가' };
 export const DOCK_SIDES = ['left', 'right'];
 export const GROUP_MIN_HEIGHT = 120; // px: a group keeps its tabs and a few lines
+// The sides' first widths, as shares of the workspace (2026-11-09 지훈: about 360px | 300px on a
+// 2000px screen); a site or expert page on the right takes `detail`.
+export const DEFAULT_PANEL_RATIOS = Object.freeze({ left: .18, right: .15, detail: .38 });
 
 export function defaultDock() {
   return {

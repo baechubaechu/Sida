@@ -2,7 +2,7 @@
 // reset, kept as ratios with the layout on this PC (dock.js).
 
 import { panelWidths, resizePanel } from './talk-panel-model.js';
-import { dockOf, sideShown } from './dock-model.js';
+import { DEFAULT_PANEL_RATIOS, dockOf, sideShown } from './dock-model.js';
 import { saveDock } from './dock.js';
 import { placeTable } from './board.js';
 import { render } from './render.js';
@@ -127,7 +127,7 @@ app.addEventListener('dblclick', (event) => {
   const handle = event.target.closest('[data-resize-side]');
   if (!handle) return;
   const key = panelWidthKey(handle.dataset.resizeSide);
-  ui.panelRatios[key] = { left: .24, right: .24, detail: .38 }[key];
+  ui.panelRatios[key] = DEFAULT_PANEL_RATIOS[key];
   saveDock();
   render(false);
 });
