@@ -252,6 +252,14 @@ html.to-button::view-transition-new(project-frame) { animation: morph-late-in va
 .dock-ghost { position: fixed; left: 0; top: 0; z-index: 60; pointer-events: none; padding: 6px 12px; border: 1px solid var(--brand); border-radius: 8px; background: var(--surface); color: var(--brand); font-size: 14px; font-weight: 700; box-shadow: 0 8px 24px rgb(20 30 40 / .16); }
 .dock-hint { position: fixed; z-index: 59; pointer-events: none; border: 2px solid var(--brand); border-radius: var(--radius); background: color-mix(in srgb, var(--brand) 10%, transparent);
   transition: left var(--motion-100) var(--ease-out), top var(--motion-100) var(--ease-out), width var(--motion-100) var(--ease-out), height var(--motion-100) var(--ease-out); }
+/* A panel floating over the table (view-dock.js floatView): moved by its head, sized by its corner. */
+.studio { position: relative; }
+.studio > .panel.dock-float { grid-area: auto; position: absolute; z-index: 18; box-shadow: 0 12px 32px rgb(20 30 40 / .18); }
+.dock-float .dock-head { cursor: move; }
+.dock-float-resize { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none;
+  background: linear-gradient(135deg, transparent 50%, var(--line) 50%, var(--line) 60%, transparent 60%, transparent 72%, var(--line) 72%, var(--line) 82%, transparent 82%); }
+.moving-float, .moving-float * { cursor: move !important; user-select: none !important; }
+.resizing-float, .resizing-float * { cursor: nwse-resize !important; user-select: none !important; }
 .panel-toggle .dock-unfold-label { max-width: 220px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
 .panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .eyebrow { display: block; color: var(--muted); font-size: 12px; font-weight: 500; letter-spacing: .02em; margin-bottom: 5px; }

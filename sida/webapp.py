@@ -66,6 +66,7 @@ class ListOrder(BaseModel):
 class PanelLayout(BaseModel):
     left: dict = Field(default_factory=dict)
     right: dict = Field(default_factory=dict)
+    float: list = Field(default_factory=list)
     ratios: dict = Field(default_factory=dict)
 
 

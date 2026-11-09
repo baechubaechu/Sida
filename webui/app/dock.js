@@ -1,11 +1,12 @@
 // Docking the panels beside the drafting table (dock-model.js, view-dock.js): dragging a tab to
-// another group, above or below one, or to an empty side; dragging the line between two groups;
-// folding and unfolding a side; and keeping the layout on this PC's server (GET/PUT
+// another group, above or below one, to an empty side, or over the table to float it; moving and
+// sizing a floating window; dragging the line between two groups; folding and unfolding a side; and keeping the layout on this PC's server (GET/PUT
 // /api/panel-layout), read once when the first project opens.
 
 import { api } from './api.js';
 import {
-  DEFAULT_PANEL_RATIOS, activate, defaultDock, dockForSaving, dropTarget, movePanel, normalizeDock, resizeGroups, setSideOpen, sideShown, swapActive,
+  DEFAULT_PANEL_RATIOS, FLOAT_SIZE, activate, defaultDock, dockFloat, dockForSaving, dropTarget, moveFloat, movePanel, normalizeDock, resizeGroups,
+  setSideOpen, sideShown, swapActive,
 } from './dock-model.js';
 import { placeTable } from './board.js';
 import { render } from './render.js';
@@ -61,6 +62,8 @@ export function dockAction(action, button) {
     if (ui.pane !== 'board') ui.pane = 'board';
   } else if (action === 'dock-open') {
     ui.dock = setSideOpen(ui.dock, button.dataset.side, true);
+  } else if (action === 'dock-float-back') {
+    ui.dock = dockFloat(ui.dock, Number(button.dataset.index), 'right');
   } else {
     return false;
   }
@@ -80,7 +83,9 @@ export function dockDragging() { return Boolean(drag?.moving); }
 // whose side is empty or folded, a strip that takes a new group. The right side is not offered
 // while the site or an expert's page fills it.
 function dropGeometry() {
-  const groups = [...app.querySelectorAll('[data-group]')].map((el) => {
+  // Floating windows lie on top, so they come first.
+  const elements = [...app.querySelectorAll('[data-group^="float:"]'), ...app.querySelectorAll('.dock [data-group]')];
+  const groups = elements.map((el) => {
     const r = el.getBoundingClientRect();
     const [side, index] = el.dataset.group.split(':');
     return { side, index: Number(index), left: r.left, right: r.right, top: r.top, bottom: r.bottom, tabsBottom: el.querySelector('.dock-head').getBoundingClientRect().bottom };
@@ -89,11 +94,18 @@ function dropGeometry() {
   const zones = [];
   if (!sideShown(ui.dock, 'left')) zones.push({ side: 'left', left: studio.left, right: studio.left + EDGE, top: studio.top, bottom: studio.bottom });
   if (!sideShown(ui.dock, 'right') && !currentRoute.agent && !currentRoute.site) zones.push({ side: 'right', left: studio.right - EDGE, right: studio.right, top: studio.top, bottom: studio.bottom });
-  return { groups, zones };
+  const board = app.querySelector('.studio > .board')?.getBoundingClientRect() || null;
+  return { groups, zones, board, origin: studio };
 }
 
 function hintRect(target, geometry) {
   if (target.place === 'end') return geometry.zones.find((z) => z.side === target.side);
+  if (target.place === 'new') {
+    const room = geometry.origin;
+    const left = room.left + Math.max(0, Math.min(target.x, room.width - FLOAT_SIZE.w));
+    const top = room.top + Math.max(0, Math.min(target.y, room.height - FLOAT_SIZE.h));
+    return { left, top, right: left + FLOAT_SIZE.w, bottom: top + FLOAT_SIZE.h };
+  }
   const g = geometry.groups.find((x) => x.side === target.side && x.index === target.index);
   if (target.place === 'tab') return g;
   const middle = g.tabsBottom + (g.bottom - g.tabsBottom) / 2;
@@ -120,7 +132,12 @@ function endDrag(apply) {
   showHint(null);
   document.body.classList.remove('dock-dragging');
   if (apply && d.target) {
-    ui.dock = movePanel(ui.dock, d.id, d.target);
+    // A new floating window opens wholly inside the workspace.
+    const room = d.geometry.origin;
+    const target = d.target.place === 'new'
+      ? { ...d.target, x: Math.min(d.target.x, room.width - FLOAT_SIZE.w), y: Math.min(d.target.y, room.height - FLOAT_SIZE.h) }
+      : d.target;
+    ui.dock = movePanel(ui.dock, d.id, target);
     if (d.id !== 'conductor') ui.narrowSide = d.id;
     saveDock();
     deferred.render = false;
@@ -151,7 +168,8 @@ window.addEventListener('pointermove', (event) => {
     document.body.classList.add('dock-dragging');
   }
   drag.ghost.style.transform = `translate(${event.clientX + 12}px, ${event.clientY + 12}px)`;
-  drag.target = dropTarget({ x: event.clientX, y: event.clientY }, drag.geometry.groups, drag.geometry.zones);
+  const g = drag.geometry;
+  drag.target = dropTarget({ x: event.clientX, y: event.clientY }, g.groups, g.zones, g.board, g.origin);
   showHint(drag.target);
 });
 
@@ -164,6 +182,50 @@ app.addEventListener('click', (event) => {
   event.preventDefault();
   event.stopPropagation();
 }, true);
+
+// ------------------------------------------------------------------ moving and sizing a floating window
+
+let floatMove = null;
+export function floatMoving() { return Boolean(floatMove); }
+
+app.addEventListener('pointerdown', (event) => {
+  const corner = event.target.closest('[data-float-resize]');
+  const head = event.target.closest('.dock-float .dock-head');
+  if (event.button !== 0 || (!corner && (!head || event.target.closest('button')))) return;
+  const win = event.target.closest('[data-float]');
+  const index = Number(win.dataset.float);
+  event.preventDefault();
+  floatMove = { win, index, resize: Boolean(corner), pointer: event.pointerId, x: event.clientX, y: event.clientY, start: { x: win.offsetLeft, y: win.offsetTop, w: win.offsetWidth, h: win.offsetHeight }, layout: ui.dock,
+    // The workspace the window must stay over (its head at least).
+    room: app.querySelector('.studio').getBoundingClientRect() };
+  (corner || head).setPointerCapture(event.pointerId);
+  document.body.classList.add(corner ? 'resizing-float' : 'moving-float');
+});
+
+window.addEventListener('pointermove', (event) => {
+  const m = floatMove;
+  if (!m || event.pointerId !== m.pointer) return;
+  const dx = event.clientX - m.x;
+  const dy = event.clientY - m.y;
+  const s = m.start;
+  ui.dock = m.resize
+    ? moveFloat(m.layout, m.index, s.x, s.y, Math.min(s.w + dx, m.room.width - s.x), Math.min(s.h + dy, m.room.height - s.y))
+    : moveFloat(m.layout, m.index, Math.min(s.x + dx, m.room.width - s.w), Math.min(s.y + dy, m.room.height - s.h));
+  const g = ui.dock.float[m.index];
+  Object.assign(m.win.style, { left: `${g.x}px`, top: `${g.y}px`, width: `${g.w}px`, height: `${g.h}px` });
+});
+
+function endFloatMove(event, cancel) {
+  const m = floatMove;
+  if (!m || event.pointerId !== m.pointer) return;
+  floatMove = null;
+  document.body.classList.remove('resizing-float', 'moving-float');
+  if (cancel) ui.dock = m.layout;
+  else saveDock();
+  if (deferred.render || cancel) { deferred.render = false; render(false); }
+}
+window.addEventListener('pointerup', (event) => endFloatMove(event, false));
+window.addEventListener('pointercancel', (event) => endFloatMove(event, true));
 
 // ------------------------------------------------------------------ the line between two groups
 

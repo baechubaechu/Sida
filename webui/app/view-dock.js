@@ -46,6 +46,10 @@ export function sideTitle(layout, side) {
   return layout[side].groups.flatMap((g) => g.tabs).map((id) => DOCK_PANELS[id]).join(' · ');
 }
 
+function tabRow(g, narrow) {
+  return `<div class="dock-tabs" role="tablist" aria-label="${escape(g.tabs.map((id) => DOCK_PANELS[id]).join(', '))}">${g.tabs.map((id) => `<button type="button" role="tab" class="dock-tab" data-action="dock-tab" data-panel="${id}" data-focus="dock-tab-${id}" aria-selected="${g.active === id}" ${narrow ? '' : 'title="끌어서 다른 묶음·반대쪽·위아래에 붙이거나 제도판 위에 띄우기"'}>${DOCK_PANELS[id]}</button>`).join('')}</div>`;
+}
+
 // One side of the layout. `around`: the surroundings have been shown on the table (they then get a
 // layer). `narrow`: tabs are not dragged and the side does not fold (the bottom tabs switch).
 export function dockView(layout, side, { around = false, narrow = false } = {}) {
@@ -54,11 +58,23 @@ export function dockView(layout, side, { around = false, narrow = false } = {}) 
   const fold = side === 'left' ? '‹' : '›';
   return `<div class="dock dock-${side}" data-dock="${side}" aria-label="${SIDE_NAMES[side]} 패널: ${escape(sideTitle(layout, side))}">
     ${groups.map((g, i) => `<section class="panel dock-group" data-group="${side}:${i}" style="flex-grow: ${g.size}">
-      <header class="dock-head"><div class="dock-tabs" role="tablist" aria-label="${escape(g.tabs.map((id) => DOCK_PANELS[id]).join(', '))}">${g.tabs.map((id) => `<button type="button" role="tab" class="dock-tab" data-action="dock-tab" data-panel="${id}" data-focus="dock-tab-${id}" aria-selected="${g.active === id}" ${narrow ? '' : 'title="끌어서 다른 묶음이나 반대쪽, 위·아래에 붙이기"'}>${DOCK_PANELS[id]}</button>`).join('')}</div>
+      <header class="dock-head">${tabRow(g, narrow)}
         ${i === 0 && !narrow ? `<button type="button" class="ghost dock-fold" data-action="dock-fold" data-side="${side}" aria-label="${SIDE_NAMES[side]} 패널 접기" title="${SIDE_NAMES[side]} 패널 접기">${fold}</button>` : ''}</header>
       ${panelBody(g.active, around)}</section>
     ${i < groups.length - 1 && !narrow ? `<div class="dock-split" role="separator" aria-orientation="horizontal" tabindex="0" data-dock-split="${side}:${i}" data-focus="dock-split-${side}-${i}" aria-label="두 묶음 높이 조절" title="드래그 또는 ↑↓로 높이 조절 · 두 번 누르면 반반"></div>` : ''}`).join('')}
   </div>`;
+}
+
+// The floating windows over the drafting table: moved by the empty part of the head, sized by the
+// corner, put back on the right with ⇥ (or by dragging a tab onto a side). They stay inside the
+// workspace when the window gets smaller.
+export function floatView(layout, { around = false } = {}) {
+  return (layout.float || []).map((g, i) => `<section class="panel dock-group dock-float" data-group="float:${i}" data-float="${i}" role="dialog" aria-label="떠 있는 패널: ${escape(g.tabs.map((id) => DOCK_PANELS[id]).join(', '))}"
+      style="left: max(0px, min(${g.x}px, calc(100% - ${g.w}px))); top: max(0px, min(${g.y}px, calc(100% - ${g.h}px))); width: min(${g.w}px, 100%); height: min(${g.h}px, 100%)">
+      <header class="dock-head" title="끌어서 옮기기">${tabRow(g, false)}
+        <button type="button" class="ghost dock-float-back" data-action="dock-float-back" data-index="${i}" aria-label="오른쪽에 다시 붙이기" title="오른쪽에 다시 붙이기">⇥</button></header>
+      ${panelBody(g.active, around)}
+      <div class="dock-float-resize" data-float-resize="${i}" aria-hidden="true" title="끌어서 크기 조절"></div></section>`).join('');
 }
 
 // A narrow screen's fixed layout: 대화 on its own, the other panels in one group showing `active`.
@@ -67,5 +83,6 @@ export function narrowDock(active) {
   return {
     left: { open: true, groups: [{ tabs: ['conductor'], active: 'conductor', size: 1 }] },
     right: { open: true, groups: [{ tabs: others, active: others.includes(active) ? active : 'layers', size: 1 }] },
+    float: [],
   };
 }

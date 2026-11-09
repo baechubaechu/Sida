@@ -8,12 +8,12 @@ import { DOCK_PANELS, sideShown } from './dock-model.js';
 import { placeModelMaker, placeTable, table } from './board.js';
 import { ideaDragging, placeIdeaFloat } from './ideas.js';
 import { panelResizing, syncPanelWidths } from './panels.js';
-import { dockDragging, dockSplitting } from './dock.js';
+import { dockDragging, dockSplitting, floatMoving } from './dock.js';
 import { placeSiteMap } from './site.js';
 import { app, conductorScrolls, currentProjectLabel, currentRoute, deferred, expertById, newProjectDialog, settingsWarned, ui } from './state.js';
 import { commandBar } from './view-command.js';
 import { expertPage } from './view-experts.js';
-import { dockView, narrowDock, sideTitle } from './view-dock.js';
+import { dockView, floatView, narrowDock, sideTitle } from './view-dock.js';
 import { homeView, newView } from './view-home.js';
 import { ideaFloatView } from './view-ideas.js';
 import { sitePage } from './view-site.js';
@@ -76,6 +76,7 @@ function workspaceView() {
       <section class="board panel" aria-label="제도판">${boardHead(name, site, agent)}<div class="board-canvas"><div id="table-slot"></div>${ideaFloatView()}</div></section>
       ${page || dockView(layout, 'right', options)}
       ${right && !narrow ? panelSplitter('right') : ''}
+      ${narrow ? '' : floatView(layout, options)}
       ${commandBar()}
       <nav class="pane-tabs" aria-label="화면 바꾸기">${tabs.map(([id, label]) => `<button type="button" data-action="pane" data-pane="${id}" aria-pressed="${ui.pane === id}">${escape(label)}</button>`).join('')}</nav>
     </main>`;
@@ -95,7 +96,7 @@ function syncNewProject(open) {
 }
 
 export function render(fresh = true) {
-  if (panelResizing() || ideaDragging() || dockDragging() || dockSplitting() || deferred.growing) { deferred.render = true; return; } // Keep the captured handle until release.
+  if (panelResizing() || ideaDragging() || dockDragging() || dockSplitting() || floatMoving() || deferred.growing) { deferred.render = true; return; } // Keep the captured handle until release.
   // Keep typing and reading positions across redraws.
   const focused = document.activeElement?.dataset?.focus;
   const selection = focused ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;

@@ -254,6 +254,7 @@ def test_panel_layout_round_trip(client):
     layout = {
         "left": {"open": False, "groups": [{"tabs": ["conductor", "", 5], "active": "x", "size": 0.4}, {"tabs": []}]},
         "right": {"groups": [{"tabs": ["layers"], "active": "layers", "size": True}]},
+        "float": [{"tabs": ["props"], "x": 120.4, "y": -5, "w": 300, "h": "x"}, {"tabs": [1]}],
         "ratios": {"left": 0.3, "right": 7, "other": 0.2},
     }
     saved = client.put("/api/panel-layout", json=layout)
@@ -261,6 +262,7 @@ def test_panel_layout_round_trip(client):
     kept = {
         "left": {"open": False, "groups": [{"tabs": ["conductor"], "active": "conductor", "size": 0.4}]},
         "right": {"open": True, "groups": [{"tabs": ["layers"], "active": "layers", "size": 1.0}]},
+        "float": [{"tabs": ["props"], "active": "props", "x": 120, "y": 24, "w": 300, "h": 420}],
         "ratios": {"left": 0.3},
     }
     assert saved.json() == {"layout": kept}

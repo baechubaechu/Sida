@@ -128,3 +128,46 @@ test('the saved layout is the plain shape with sizes rounded', () => {
   assert.deepEqual(saved.left.groups.map((g) => g.size), [0.555, 0.445]);
   assert.deepEqual(normalizeDock(JSON.parse(JSON.stringify(saved))).left.groups.map((g) => g.tabs), [['conductor'], ['experts']]);
 });
+
+test('a tab dropped over the table floats in its own window, takes more tabs and docks back', async () => {
+  const { dockFloat, moveFloat, FLOAT_MIN, FLOAT_SIZE } = await import('../../webui/app/dock-model.js');
+  let layout = movePanel(defaultDock(), 'layers', { side: 'float', place: 'new', x: 400.4, y: -20 });
+  assert.deepEqual(layout.float, [{ tabs: ['layers'], active: 'layers', x: 400, y: 0, ...FLOAT_SIZE }]);
+  assert.deepEqual(tabsOf(layout).right, [['props', 'experts']]);
+  assert.deepEqual(dockOf(layout, 'layers'), { side: 'float', index: 0 });
+  assert.equal(panelVisible(layout, 'layers'), true);
+  // Dropping its only tab over the table again moves the window.
+  layout = movePanel(layout, 'layers', { side: 'float', place: 'new', x: 50, y: 60 });
+  assert.deepEqual([layout.float.length, layout.float[0].x, layout.float[0].y], [1, 50, 60]);
+  // Another tab joins it; the window keeps its place.
+  layout = movePanel(layout, 'props', { side: 'float', index: 0, place: 'tab' });
+  assert.deepEqual(layout.float[0].tabs, ['layers', 'props']);
+  assert.equal(layout.float[0].active, 'props');
+  assert.equal(movePanel(layout, 'props', { side: 'float', index: 0, place: 'below' }), layout);
+  // Sized by its corner, never below the minimum.
+  layout = moveFloat(layout, 0, 10, 20, 100, 900);
+  assert.deepEqual([layout.float[0].w, layout.float[0].h], [FLOAT_MIN.w, 900]);
+  // The last tab out of a window closes it.
+  const emptied = movePanel(movePanel(layout, 'props', { side: 'left', index: 0, place: 'tab' }), 'layers', { side: 'left', index: 0, place: 'below' });
+  assert.deepEqual(emptied.float, []);
+  // Docking it back puts its tabs in one group at the bottom of that side.
+  const docked = dockFloat(layout, 0, 'right');
+  assert.deepEqual(tabsOf(docked).right, [['experts'], ['layers', 'props']]);
+  assert.equal(docked.right.groups[1].active, 'props');
+  assert.deepEqual(docked.float, []);
+  // Saved and read back.
+  const back = normalizeDock(JSON.parse(JSON.stringify(dockForSaving(layout))));
+  assert.deepEqual(back.float, layout.float);
+  assert.deepEqual(normalizeDock({ float: [{ tabs: ['experts'], w: 'x', h: 10 }] }).float, [{ tabs: ['experts'], active: 'experts', x: 24, y: 24, w: FLOAT_SIZE.w, h: FLOAT_MIN.h }]);
+});
+
+test('over the table a drop floats, over a floating window it joins it', () => {
+  const groups = [
+    { side: 'float', index: 0, left: 500, right: 800, top: 100, bottom: 400, tabsBottom: 140 },
+    { side: 'left', index: 0, left: 0, right: 300, top: 0, bottom: 900, tabsBottom: 40 },
+  ];
+  const board = { left: 320, right: 1600, top: 0, bottom: 800 };
+  assert.deepEqual(dropTarget({ x: 600, y: 300 }, groups, [], board), { side: 'float', index: 0, place: 'tab' });
+  assert.deepEqual(dropTarget({ x: 1000, y: 300 }, groups, [], board, { left: 10, top: 20 }), { side: 'float', index: 0, place: 'new', x: 950, y: 264 });
+  assert.equal(dropTarget({ x: 1000, y: 850 }, groups, [], board), null);
+});

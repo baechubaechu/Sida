@@ -96,7 +96,8 @@ export function changeConductor(action) {
   const hide = action === 'close' || (action === 'toggle' && shown);
   ui.conductor = talkPanel(ui.conductor, action === 'toggle' || action === 'close' ? 'show' : action);
   if (hide) {
-    if (!narrow) ui.dock = setSideOpen(ui.dock, dockOf(ui.dock, 'conductor').side, false);
+    const side = dockOf(ui.dock, 'conductor')?.side;
+    if (!narrow && side !== 'float') ui.dock = setSideOpen(ui.dock, side, false); // a floating 대화 stays
     if (ui.pane === 'conductor') ui.pane = 'board';
   } else {
     ui.dock = reveal(ui.dock, 'conductor');
