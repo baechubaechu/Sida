@@ -127,6 +127,7 @@ export const aroundMethods = {
     around.traverse((o) => o.geometry?.dispose());
     around.clear();
     const data = this.aroundOn ? this.around : null;
+    this.drawAroundLegend(data);
     this.aroundLow = 0;
     if (!data) { this.invalidate(); return; }
     const t = data.terrain;
@@ -198,6 +199,16 @@ export const aroundMethods = {
     const unknown = new THREE.LineBasicMaterial({ color: 0xc8742f });
     for (const b of data.unknown_buildings || []) if (b.ground_line) around.add(lineOf(b.ground_line, unknown));
     this.invalidate();
+  },
+  // The colour legend in one line at the bottom right while the surroundings are shown (where the
+  // data comes from is in the settings' 자료 출처, not over the drawing: 2026-11-09 지훈).
+  drawAroundLegend(data) {
+    const el = this.ui.aroundLegend;
+    el.hidden = !data;
+    if (!data) return;
+    const hex = (k) => `#${GROUND_COLORS[k].toString(16).padStart(6, '0')}`;
+    el.innerHTML = aroundLegend(data).map(([k, name]) => (GROUND_COLORS[k] === undefined
+      ? `<span><i class="${k}"></i>${escape(name)}</span>` : `<span><i style="background:${hex(k)}"></i>${escape(name)}</span>`)).join('');
   },
   // The surroundings' legend and where each part comes from, for the settings' 자료 출처 section
   // (2026-11-09 지훈: not over the table): {legend: [[key, name, colour or '']], lines}, or null

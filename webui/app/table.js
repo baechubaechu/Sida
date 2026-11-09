@@ -93,6 +93,7 @@ export class DraftingTable {
       <div class="table-ui ui-scheme"></div>
       <div class="table-ui ui-view"><div class="ui-tilt" role="group" aria-label="보는 각도"></div><div class="ui-zoom"></div></div>
       <p class="table-ui ui-hint" role="status" hidden></p>
+      <p class="table-ui around-legend" aria-label="주변 3D 범례" hidden></p>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
       <section class="table-ui peek" aria-label="종이 내용" hidden></section>
       <section class="table-ui scheme-form" aria-label="매스안 입력" hidden></section>
@@ -113,6 +114,7 @@ export class DraftingTable {
       tilt: this.root.querySelector('.ui-tilt'),
       zoom: this.root.querySelector('.ui-zoom'),
       hint: this.root.querySelector('.ui-hint'),
+      aroundLegend: this.root.querySelector('.around-legend'),
       tray: this.root.querySelector('.tray'),
       form: this.root.querySelector('.scheme-form'),
       peek: this.root.querySelector('.peek'),

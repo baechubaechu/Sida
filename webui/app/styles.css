@@ -448,11 +448,17 @@ button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 .prop-input { flex: 1; min-width: 0; padding: 4px 0; border: 0; background: transparent; font: inherit; color: var(--text); }
 .prop-input:focus { outline: none; }
 .prop-unit { color: var(--muted); font-size: 12px; }
+/* The surroundings' colour legend over the table, one line above the view controls. */
+.around-legend { right: 16px; bottom: 64px; display: flex; flex-wrap: nowrap; align-items: center; gap: 10px; margin: 0; padding: 6px 10px; max-width: calc(100% - 32px); overflow: hidden;
+  border: 1px solid var(--line); border-radius: 8px; background: rgb(255 255 255 / .92); color: var(--text); font-size: 11px; line-height: 1.4; white-space: nowrap; pointer-events: none; }
+.around-legend[hidden] { display: none; }
+.around-legend span { flex-shrink: 0; }
+.around-legend i, .source-legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 2px; vertical-align: -1px; border: 1px solid rgb(0 0 0 / .15); }
+.around-legend i.guess, .source-legend i.guess { background: #e8d6b0; }
+.around-legend i.unknown, .source-legend i.unknown { background: none; border: 2px solid #c8742f; }
 /* 자료 출처 in settings: the surroundings' colour legend (settings.js sourcesPart). */
 .source-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 8px 0; font-size: 12px; }
-.source-legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 2px; vertical-align: -1px; border: 1px solid rgb(0 0 0 / .15); }
-.source-legend i.guess { background: #e8d6b0; }
-.source-legend i.unknown { background: none; border: 2px solid #c8742f; }
+
 .prop-ungroup { margin-top: 16px; }
 .prop-error { display: block; margin-top: 8px; color: #b42318; font-size: 12px; line-height: 16px; }
 /* The 레이어 panel, as Rhino's: tools over a table (name | current | visible | lock | colour). */
