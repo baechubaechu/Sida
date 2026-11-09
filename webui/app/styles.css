@@ -663,7 +663,7 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .peek-trace .trace { fill: none; stroke: var(--pen); stroke-width: 2; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .peek-trace .reg { stroke: var(--text); stroke-width: 1; vector-effect: non-scaling-stroke; }
 /* Undo/redo and the tools stand along the left wall of the table (2026-11-01 지훈). */
-.ui-left { left: 16px; top: 16px; display: flex; align-items: flex-start; gap: 8px; max-width: calc(100% - 32px); }
+.ui-left { left: 16px; top: 16px; display: flex; align-items: flex-start; gap: 8px; max-width: calc(100% - 32px - 232px); } /* room for the idea board at the top right */
 .ui-history { display: flex; padding: 4px; gap: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 3px 12px rgb(36 52 67 / .05); }
 .ui-history button { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 6px; color: var(--brand); }
 .ui-history button:hover { background: var(--selected); }

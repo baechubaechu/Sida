@@ -653,11 +653,11 @@ test('the idea board: text from a message, reordering, links and notes', async (
 test('the floating idea window holds to its nearest corner and stays inside the table', async () => {
   const { floatState, floatPlace, floatAnchor, IDEA_FLOAT } = await import('../../webui/app/board-model.js');
   const fresh = floatState(null);
-  assert.deepEqual(fresh, { pinned: false, corner: 'bl', dx: IDEA_FLOAT.dx, dy: IDEA_FLOAT.dy, width: IDEA_FLOAT.width, height: IDEA_FLOAT.height });
+  assert.deepEqual(fresh, { pinned: false, corner: 'tr', dx: IDEA_FLOAT.dx, dy: IDEA_FLOAT.dy, width: IDEA_FLOAT.width, height: IDEA_FLOAT.height });
   const broken = floatState({ pinned: 'yes', corner: 'middle', dx: -5, dy: 'x', width: 50, height: NaN });
   assert.equal(broken.pinned, false);
   assert.equal(floatState({ pinned: true }).pinned, true);
-  assert.equal(broken.corner, 'bl');
+  assert.equal(broken.corner, 'tr');
   assert.equal(broken.dx, IDEA_FLOAT.dx);
   assert.equal(broken.width, IDEA_FLOAT.minWidth); // never narrower than usable
   assert.equal(broken.height, IDEA_FLOAT.height);
