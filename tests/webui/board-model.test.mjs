@@ -1191,7 +1191,7 @@ test('a corner drag with Alt keeps the middle, and with Ctrl keeps the shape', a
   assert.ok(Math.abs(both.w * PX / 2 - 30) < 1e-9);
 });
 
-test('a paper's size in the properties is in metres on the table', async () => {
+test('the properties show a paper size in metres on the table', async () => {
   const { propertiesOf, PX } = await import('../../webui/app/board-model.js');
   const row = propertiesOf([{ id: 'n', kind: 'note', text: 'x', w: 200, h: 140 }]).rows.find((r) => r[0] === '크기');
   assert.equal(row[1], `${200 * PX} × ${140 * PX}m`);
