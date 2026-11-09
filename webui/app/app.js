@@ -340,9 +340,7 @@ app.addEventListener('toggle', (event) => {
 async function onSubmit(event) {
   event.preventDefault();
   const form = event.target;
-  if (form.id === 'home-talk-form') {
-    toast('Conductor와 시작하기는 아직 연결 전이에요. 지금은 자리만 보는 단계예요.', 'info');
-  } else if (form.id === 'new-project-form') {
+  if (form.id === 'new-project-form') {
     const name = form.elements.name.value.trim() || untitledName(ui.projects); // 비워 두면 무제1, 무제2, …
     const error = form.querySelector('#new-project-error');
     const fields = {};
