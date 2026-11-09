@@ -1156,3 +1156,15 @@ test('every screen script imports the functions it calls from the other scripts'
   }
   assert.deepEqual(out, []);
 });
+
+test('a resized paper scales its writing with the smaller of its width and height', async () => {
+  const { paperTextScale, PAPER_SIZE } = await import('../../webui/app/board-model.js');
+  const [w, h] = PAPER_SIZE.site;
+  assert.equal(paperTextScale({ kind: 'site', w, h }), 1);
+  assert.equal(paperTextScale({ kind: 'site', w: w * 2, h: h * 2 }), 2);
+  assert.equal(paperTextScale({ kind: 'note', w: 400, h: 140 }), 1); // wider only: the height keeps it
+  assert.equal(paperTextScale({ kind: 'expert', w: 160, h: 135 }), 0.5);
+  assert.equal(paperTextScale({ kind: 'mass', w: 30000, h: 30000 }), 4);
+  assert.equal(paperTextScale({ kind: 'photo', w: 900, h: 675 }), 1);
+  assert.equal(paperTextScale({ kind: 'tracing', w: 900, h: 900 }), 1);
+});

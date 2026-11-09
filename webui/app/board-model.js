@@ -26,6 +26,17 @@ export const fmt = (n, digits = 0) => Number(n).toLocaleString('ko-KR', { maximu
 
 // Which papers a corner drag resizes: not a tracing sheet (it is the size of the site, to lie in
 // register over it) and not one folded into a name tag.
+// How much larger a paper's writing is than at its first size (2026-11-09 지훈: resizing a site,
+// mass, expert or note paper scales what is written on it): the smaller of the width and height
+// ratios, so the text still fits, between 0.5 and 4. 1 for photos and tracing sheets (their
+// picture fills the paper anyway).
+export function paperTextScale(p) {
+  const base = PAPER_SIZE[p?.kind];
+  if (!base || p.kind === 'photo') return 1;
+  const s = Math.min(Number(p.w) / base[0], Number(p.h) / base[1]);
+  return Number.isFinite(s) && s > 0 ? Math.round(Math.min(4, Math.max(0.5, s)) * 100) / 100 : 1;
+}
+
 export function resizable(p) {
   return Boolean(p) && p.kind !== 'tracing' && !p.folded;
 }

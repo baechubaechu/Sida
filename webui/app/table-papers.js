@@ -5,7 +5,7 @@
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
 import { drawPage, pdfInfo } from './pdf-view.js';
-import { PX, PAPER_SIZE, isOverlaid, freeSpot, folded, pinnedPapers, peekSpot, paperName, resultPreview, KIND_LABELS, originLabel, figureLines, toggleSelected, fmt, photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE, MAX_PHOTO_BYTES, isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, resizable, resizedPaper } from './board-model.js';
+import { PX, PAPER_SIZE, isOverlaid, freeSpot, folded, pinnedPapers, peekSpot, paperName, resultPreview, KIND_LABELS, originLabel, figureLines, toggleSelected, fmt, photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE, MAX_PHOTO_BYTES, isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, resizable, resizedPaper, paperTextScale } from './board-model.js';
 import { PHOTO_GAP, cm, strokePath } from './table-shared.js';
 
 export const papersMethods = {
@@ -94,7 +94,10 @@ export const papersMethods = {
     this.drawn.set(p.id, key);
     const el = this.slot(p.id);
     const cls = `paper kind-${p.kind} ${state.sel ? 'is-selected' : ''} ${overlaid ? 'is-overlaid' : ''} ${state.active ? 'is-active' : ''}`;
-    const size = `width:${p.w}px;height:${p.h}px`;
+    // A resized paper's writing grows with it: laid out at its first size and zoomed (the paper
+    // still takes p.w × p.h on the table).
+    const z = paperTextScale(p);
+    const size = z === 1 ? `width:${p.w}px;height:${p.h}px` : `width:${p.w / z}px;height:${p.h / z}px;zoom:${z}`;
     const made = originLabel(p, this.hooks.experts());
     const madeTag = made ? `<span class="paper-made">${escape(made)}</span>` : '';
     const foldButton = overlaid || state.editing ? ''
