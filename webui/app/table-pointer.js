@@ -521,6 +521,12 @@ export const pointerMethods = {
       this.travel(k === 'y' || e.shiftKey ? 'redo' : 'undo');
       return;
     }
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && k === 'g') { // group, as in Rhino; with Shift, ungroup
+      e.preventDefault();
+      const problem = this.groupSelection(!e.shiftKey);
+      if (problem) this.say(problem);
+      return;
+    }
     if ((e.metaKey || e.ctrlKey) && !e.altKey && ['c', 'v', 'a'].includes(k)) {
       // Copy, paste and pick-all work on the blocks, as in SketchUp.
       if (k === 'c' && this.picked.length) { e.preventDefault(); this.copyPicked(); }

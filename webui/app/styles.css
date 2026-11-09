@@ -448,6 +448,7 @@ button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 .prop-input { flex: 1; min-width: 0; padding: 4px 0; border: 0; background: transparent; font: inherit; color: var(--text); }
 .prop-input:focus { outline: none; }
 .prop-unit { color: var(--muted); font-size: 12px; }
+.prop-ungroup { margin-top: 16px; }
 .prop-error { display: block; margin-top: 8px; color: #b42318; font-size: 12px; line-height: 16px; }
 /* The 레이어 panel, as Rhino's: tools over a table (name | current | visible | lock | colour). */
 .layer-tools { display: flex; align-items: center; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--line); flex-shrink: 0; }

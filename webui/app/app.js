@@ -218,6 +218,7 @@ app.addEventListener('click', (event) => {
   if (action.startsWith('layer-')) layerAction(action, button);
   if (action === 'clear-selection') { ui.selected = []; followSelection(false); table?.setSelected([]); render(false); }
   if (action === 'select-masses') table?.selectMasses();
+  if (action === 'ungroup') table?.command('ungroup');
   if (action === 'ask-selection') askAbout(button.dataset.compare === 'true' ? COMPARE_QUESTION : '');
   if (action === 'open-expert') location.hash = expertUrl(name, button.dataset.agent);
   if (action === 'model-apply') applyModelRecommendation();

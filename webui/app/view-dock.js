@@ -5,7 +5,7 @@
 // shows) and 전문가 (the experts), as in Rhino or CAD. On a narrow screen (≤900px) the tabs at the
 // bottom show one side at a time and the layout is fixed: 대화 alone, the rest in one group.
 
-import { boardLayers, layerRows, pickedBlocks, propertiesOf } from './board-model.js';
+import { boardLayers, groupProperties, layerRows, pickedBlocks, propertiesOf, selectedGroup } from './board-model.js';
 import { DOCK_PANELS, sideShown } from './dock-model.js';
 import { escapeHtml as escape, siteCard } from './model.js';
 import { icon } from './icons.js';
@@ -16,11 +16,14 @@ import { expertsBody } from './view-experts.js';
 function propsBody() {
   const all = ui.board?.papers || [];
   const papers = all.filter((p) => ui.selected.includes(p.id));
-  const props = propertiesOf(papers, siteCard(ui.site), papers.length ? [] : pickedBlocks(all, ui.picked), boardLayers(ui.board));
+  // A whole group shows as one (its parts and a button to take it apart).
+  const group = selectedGroup(all, ui.selected, ui.picked);
+  const props = group ? groupProperties(all, group) : propertiesOf(papers, siteCard(ui.site), papers.length ? [] : pickedBlocks(all, ui.picked), boardLayers(ui.board));
   const inner = props
     ? `<h3 class="side-title">${escape(props.title)}</h3>
       <dl class="props">${props.rows.map(([label, value, field]) => `<dt>${field ? `<label for="prop-${field.key}">${escape(label)}</label>` : escape(label)}</dt><dd>${field ? propField(field, value) : escape(value)}</dd>`).join('')}</dl>
-      ${props.note ? `<p class="side-note">${escape(props.note)}</p>` : ''}`
+      ${props.note ? `<p class="side-note">${escape(props.note)}</p>` : ''}
+      ${group ? '<button type="button" class="secondary small prop-ungroup" data-action="ungroup">그룹 풀기</button>' : ''}`
     : '<p class="side-empty">제도판에서 종이나 매스안을 고르면 여기에 속성이 나옵니다.</p>';
   return `<div class="dock-body" role="tabpanel" aria-label="속성"><div class="experts-scroll side-body">${inner}</div></div>`;
 }

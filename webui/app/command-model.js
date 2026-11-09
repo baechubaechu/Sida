@@ -29,6 +29,8 @@ export const COMMANDS = [
   { name: 'eraser', aliases: [], label: '지우개: 누르거나 끌고 지나간 동 지우기', group: 'edit' },
   { name: 'dist', aliases: ['di', 'measure', 'tape'], label: '줄자: 두 점 사이 거리', group: 'edit' },
   { name: 'delete', aliases: ['erase', 'e'], label: '고른 것 지우기', group: 'edit' },
+  { name: 'group', aliases: [], label: '고른 것을 그룹으로 묶기: 하나를 누르면 함께 골라짐 (Ctrl+G)', group: 'edit' },
+  { name: 'ungroup', aliases: [], label: '그룹 풀기 (Ctrl+Shift+G)', group: 'edit' },
   { name: 'undo', aliases: ['u'], label: '되돌리기', group: 'edit' },
   { name: 'redo', aliases: [], label: '다시 하기', group: 'edit' },
   { name: 'tray', aliases: ['ai'], label: 'AI 섹션 열고 닫기', group: 'panel' },

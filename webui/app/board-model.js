@@ -1738,3 +1738,84 @@ export function mapFit(range, w, h, pad = 8) {
   const k = Math.min((w - 2 * pad) / (2 * hx), (h - 2 * pad) / (2 * hy));
   return { k, west: -hx - (w / k - 2 * hx) / 2, north: hy + (h / k - 2 * hy) / 2 };
 }
+
+// ------------------------------------------------------------------ groups
+// A group (2026-11-09 지훈) is any papers and blocks of masses that share a `group` id: picking one
+// on the table picks them all. Only the screen uses it (sida/board.py keeps the ids).
+
+// The papers (ids) and blocks (paperId#index) in a group.
+export function groupMembers(papers, group) {
+  const ids = [];
+  const keys = [];
+  if (!group) return { ids, keys };
+  for (const p of papers) {
+    if (p.group === group) ids.push(p.id);
+    for (const [i, b] of (p.blocks || []).entries()) if (b.group === group) keys.push(blockKey(p.id, i));
+  }
+  return { ids, keys };
+}
+
+// The groups the selection touches.
+function groupsOf(papers, ids, keys) {
+  const groups = new Set();
+  for (const p of papers) if (ids.includes(p.id) && p.group) groups.add(p.group);
+  for (const g of pickedBlocks(papers, keys)) for (const i of g.indices) if (g.paper.blocks[i].group) groups.add(g.paper.blocks[i].group);
+  return groups;
+}
+
+// A selection grown to the whole of every group it touches: {ids, keys}.
+export function expandGroups(papers, ids, keys) {
+  const outIds = new Set(ids);
+  const outKeys = new Set(keys);
+  for (const group of groupsOf(papers, ids, keys)) {
+    const m = groupMembers(papers, group);
+    m.ids.forEach((id) => outIds.add(id));
+    m.keys.forEach((key) => outKeys.add(key));
+  }
+  return { ids: [...outIds], keys: [...outKeys] };
+}
+
+// The one group the selection is exactly (all of it, nothing else), or ''.
+export function selectedGroup(papers, ids, keys) {
+  const groups = groupsOf(papers, ids, keys);
+  if (groups.size !== 1) return '';
+  const [group] = groups;
+  const m = groupMembers(papers, group);
+  const same = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
+  return same(m.ids, ids) && same(m.keys, keys) ? group : '';
+}
+
+// The edits ([{id, changes}]) that put the selection in group `group` (a new id), or, with
+// group '', take every group it touches apart. A block keeps its scheme's other blocks as they are.
+export function groupChange(papers, ids, keys, group) {
+  const apart = group ? new Set() : groupsOf(papers, ids, keys);
+  // Making: the chosen ones join `group`. Taking apart: whatever is in a touched group leaves it.
+  const tag = (item, chosen) => {
+    if (group) return chosen && item.group !== group ? { ...item, group } : item;
+    if (!apart.has(item.group)) return item;
+    const { group: _, ...rest } = item;
+    return rest;
+  };
+  const out = [];
+  const picked = pickedBlocks(papers, keys);
+  for (const p of papers) {
+    const changes = {};
+    const next = tag(p, ids.includes(p.id));
+    if (next !== p) changes.group = next.group || '';
+    const indices = picked.find((g) => g.paper === p)?.indices || [];
+    const blocks = (p.blocks || []).map((b, i) => tag(b, indices.includes(i)));
+    if (blocks.some((b, i) => b !== p.blocks[i])) changes.blocks = blocks;
+    if (Object.keys(changes).length) out.push({ id: p.id, changes });
+  }
+  return out;
+}
+
+// What the 속성 panel shows for a whole group.
+export function groupProperties(papers, group) {
+  const m = groupMembers(papers, group);
+  const kinds = new Map();
+  for (const p of papers.filter((x) => m.ids.includes(x.id))) kinds.set(p.kind, (kinds.get(p.kind) || 0) + 1);
+  const rows = [['종류', '그룹'], ...[...kinds].map(([kind, n]) => [KIND_LABELS[kind] || kind, `${n}장`])];
+  if (m.keys.length) rows.push(['동', `${m.keys.length}개`]);
+  return { title: `그룹 (${m.ids.length + m.keys.length}개)`, rows, note: '하나를 누르면 함께 골라집니다. 풀려면 ungroup 명령이나 아래 버튼을 쓰세요.' };
+}

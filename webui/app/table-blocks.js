@@ -4,14 +4,21 @@
 
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { blockLayer, PX, PAPER_SIZE, riseFor, groundFor, scaleSpan, isOverlaid, blockCorners, freeSpot, folded, foldedInPlan, paperName, readScheme, schemeRows, parseBlockKey, fmt, GUMBALL_PX, GUMBALL_SCALE_PX, editBlocks, blocksCenter, blockKey, pickedBlocks, toFrame, MAX_BLOCKS, numericPushBlock, numericScaleBlocks, snapTape, massIds, changedFields } from './board-model.js';
+import { blockLayer, expandGroups, PX, PAPER_SIZE, riseFor, groundFor, scaleSpan, isOverlaid, blockCorners, freeSpot, folded, foldedInPlan, paperName, readScheme, schemeRows, parseBlockKey, fmt, GUMBALL_PX, GUMBALL_SCALE_PX, editBlocks, blocksCenter, blockKey, pickedBlocks, toFrame, MAX_BLOCKS, numericPushBlock, numericScaleBlocks, snapTape, massIds, changedFields } from './board-model.js';
 
 export const blocksMethods = {
   // The picked blocks, grouped by scheme, of the schemes that stand on the site.
   pickedGroups() {
     return pickedBlocks(this.papers, this.picked).filter((g) => g.paper.id === this.active || this.ghost);
   },
-  pickBlocks(keys) {
+  // `grow`: a building in a group brings the rest of its group (papers too).
+  pickBlocks(keys, { grow = true } = {}) {
+    if (grow) {
+      const grown = expandGroups(this.papers, [], keys);
+      keys = grown.keys;
+      const ids = grown.ids.filter((id) => !this.selected.includes(id));
+      if (ids.length) this.select([...this.selected, ...ids]);
+    }
     keys = keys.filter((key) => pickedBlocks(this.papers, [key]).every((g) => g.indices.every((i) => this.blockFree(g.paper, g.paper.blocks[i]))));
     this.picked = keys;
     this.hooks.pick?.(keys);

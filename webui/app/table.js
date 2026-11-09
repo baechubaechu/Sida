@@ -12,7 +12,7 @@
 import { icon } from './icons.js';
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { boardLayers, paperLayer, blockLayer, layerFlags, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewName, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS } from './board-model.js';
+import { boardLayers, paperLayer, blockLayer, layerFlags, expandGroups, groupChange, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewName, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS } from './board-model.js';
 import { typing, TOOLS, MODEL_TOOLS } from './table-shared.js';
 import { blocksMethods } from './table-blocks.js';
 import { aroundMethods } from './table-around.js';
@@ -233,6 +233,8 @@ export class DraftingTable {
         this.travel(name);
         return '';
       case 'tray': this.trayOpen = !this.trayOpen; this.drawTray(); this.drawControls(); return '';
+      case 'group': return this.groupSelection(true);
+      case 'ungroup': return this.groupSelection(false);
       default: return '제도판에서 쓰는 명령이 아닙니다.';
     }
   }
@@ -627,6 +629,18 @@ export class DraftingTable {
     return this.hooks.update(id, changes);
   }
 
+  // Group what is selected and picked (any papers and buildings), or take apart every group it
+  // touches. Kept for undo like any edit. Returns what to tell the designer when nothing happens.
+  groupSelection(make) {
+    const count = this.selected.length + this.picked.length;
+    if (make && count < 2) return '묶을 것을 두 개 이상 고르세요.';
+    const edits = groupChange(this.papers, this.selected, this.picked, make ? `group-${Math.random().toString(16).slice(2, 10).padEnd(8, '0')}` : '');
+    if (!edits.length) return make ? '이미 한 그룹입니다.' : '고른 것 중에 그룹이 없습니다.';
+    this.editPapers(edits);
+    this.say(make ? `${count}개를 그룹으로 묶었습니다. 하나를 누르면 함께 골라집니다.` : '그룹을 풀었습니다.');
+    return '';
+  }
+
   // Values changed in the 속성 panel ([{id, changes}], board-model propertyChange): kept for undo,
   // drawn and saved like an edit on the table.
   editPapers(list) {
@@ -648,7 +662,11 @@ export class DraftingTable {
   }
 
   select(ids) {
-    ids = ids.filter((id) => { const p = this.find(id); return !p || !this.layerLocked(p); }); // a locked layer's papers stay put
+    // A paper in a group brings the rest of its group (its buildings too); a locked layer's papers stay put.
+    const grown = expandGroups(this.papers, ids, []);
+    ids = grown.ids.filter((id) => { const p = this.find(id); return !p || !this.layerLocked(p); });
+    const keys = grown.keys.filter((key) => !this.picked.includes(key));
+    if (keys.length) this.pickBlocks([...this.picked, ...keys], { grow: false });
     this.selected = ids;
     this.hooks.select(ids);
     this.syncPapers();

@@ -1110,3 +1110,29 @@ test('the 레이어 value moves papers onto a layer and buildings onto their own
   assert.equal(onto.blocks[0].layer, 'tower');
   assert.equal(onto.blocks[1], mass.blocks[1]);
 });
+
+test('a group is picked whole, made and taken apart as edits', async () => {
+  const { expandGroups, groupChange, groupMembers, selectedGroup, groupProperties } = await import('../../webui/app/board-model.js');
+  const papers = [
+    { id: 'm', kind: 'mass', blocks: [{ floors: 1 }, { floors: 2 }, { floors: 3 }] },
+    { id: 'n', kind: 'note' }, { id: 'p', kind: 'photo' },
+  ];
+  // Group a note with two buildings of a scheme.
+  const made = groupChange(papers, ['n'], ['m#0', 'm#2'], 'g1');
+  assert.deepEqual(made.map((e) => e.id), ['m', 'n']);
+  assert.deepEqual(made[0].changes.blocks.map((b) => b.group), ['g1', undefined, 'g1']);
+  assert.equal(made[0].changes.group, undefined); // the scheme itself is not in the group
+  assert.deepEqual(made[1].changes, { group: 'g1' });
+  const grouped = papers.map((p) => ({ ...p, ...(made.find((e) => e.id === p.id)?.changes || {}) }));
+  assert.deepEqual(groupMembers(grouped, 'g1'), { ids: ['n'], keys: ['m#0', 'm#2'] });
+  // Picking one member picks them all; something outside stays as it is.
+  assert.deepEqual(expandGroups(grouped, [], ['m#2']), { ids: ['n'], keys: ['m#2', 'm#0'] });
+  assert.deepEqual(expandGroups(grouped, ['p'], []), { ids: ['p'], keys: [] });
+  assert.equal(selectedGroup(grouped, ['n'], ['m#0', 'm#2']), 'g1');
+  assert.equal(selectedGroup(grouped, ['n', 'p'], ['m#0', 'm#2']), '');
+  assert.equal(groupProperties(grouped, 'g1').title, '그룹 (3개)');
+  // Taking it apart (from any member) clears the group everywhere.
+  const apart = groupChange(grouped, [], ['m#0'], '');
+  assert.deepEqual(apart.find((e) => e.id === 'n').changes, { group: '' });
+  assert.equal(apart.find((e) => e.id === 'm').changes.blocks.some((b) => 'group' in b), false);
+});
