@@ -13,6 +13,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+from sida import preferences
 from sida.briefs import BRIEF_FIELD_KEYS, build_brief_markdown
 from sida.config import ROOT, agent_by_id, agent_inputs, agent_tier, get_agents
 from sida.engine import history_messages
@@ -31,7 +32,6 @@ from sida.project import (
     slugify,
 )
 from sida.project_documents import read_document, save_document
-from sida.storage import atomic_write_text
 from sida.worker import MODULE_HISTORY_DIRNAME
 
 SAMPLE_BRIEF = ROOT / "data" / "briefs" / "sample_brief.md"
@@ -42,18 +42,17 @@ class ProjectNotFound(LookupError):
 
 
 # How the designer keeps the project list: the chosen sort and the order the cards were dragged
-# into (folder names), in the projects folder (not a project: it has no brief).
+# into (folder names). A screen preference: kept in sida.preferences (~/Sida/preferences.json);
+# LIST_FILE in the projects folder is where it was before, moved in once.
 LIST_FILE = ".project_list.json"
+LIST_KEY = "project_list"
 LIST_SORTS = ("recent", "name", "custom")
 LIST_MAX = 5000
 
 
 def load_list_order(config: dict) -> dict:
     """{"sort", "order"}; a missing or unreadable file gives the default (recent, no order)."""
-    try:
-        data = json.loads((ensure_projects_root(config) / LIST_FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        data = {}
+    data = preferences.get(LIST_KEY, ensure_projects_root(config) / LIST_FILE)
     if not isinstance(data, dict):
         data = {}
     order = data.get("order") if isinstance(data.get("order"), list) else []
@@ -69,15 +68,17 @@ def save_list_order(config: dict, sort: str, order: list[str]) -> dict:
         raise ValueError(f"unknown sort: {sort}")
     names = list(dict.fromkeys(name for name in order if isinstance(name, str) and name.strip()))[:LIST_MAX]
     kept = {"sort": sort, "order": names}
-    atomic_write_text(ensure_projects_root(config) / LIST_FILE, json.dumps(kept, ensure_ascii=False))
+    preferences.put(LIST_KEY, kept)
     return kept
 
 
 # How the panels beside the drafting table are docked on this PC (webui/app/dock-model.js): each
 # side's groups of tabs, which side is folded, and the side widths. The screen checks the panel
 # names; here only the shape and the sizes are kept in bounds. `float`: panels floating over the
-# table, each with its place and size in px.
+# table, each with its place and size in px. A screen preference (sida.preferences);
+# PANEL_LAYOUT_FILE in the projects folder is where it was before, moved in once.
 PANEL_LAYOUT_FILE = ".panel_layout.json"
+PANEL_LAYOUT_KEY = "panel_layout"
 PANEL_SIDES = ("left", "right")
 PANEL_RATIOS = ("left", "right", "detail")
 PANEL_MAX_GROUPS = 12
@@ -140,11 +141,7 @@ def _clean_panel_layout(data) -> dict | None:
 
 def load_panel_layout(config: dict) -> dict | None:
     """The kept layout, or None (never saved, or unreadable): the screen then uses its default."""
-    try:
-        data = json.loads((ensure_projects_root(config) / PANEL_LAYOUT_FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    return _clean_panel_layout(data)
+    return _clean_panel_layout(preferences.get(PANEL_LAYOUT_KEY, ensure_projects_root(config) / PANEL_LAYOUT_FILE))
 
 
 def save_panel_layout(config: dict, layout: dict) -> dict:
@@ -152,7 +149,7 @@ def save_panel_layout(config: dict, layout: dict) -> dict:
     kept = _clean_panel_layout(layout)
     if kept is None:
         raise ValueError("panel layout must be an object")
-    atomic_write_text(ensure_projects_root(config) / PANEL_LAYOUT_FILE, json.dumps(kept, ensure_ascii=False))
+    preferences.put(PANEL_LAYOUT_KEY, kept)
     return kept
 
 
