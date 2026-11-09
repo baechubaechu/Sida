@@ -90,26 +90,35 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 /* The order menu: its text centred, with a chevron drawn like the other line icons. */
 .project-tools select { width: 140px; padding: 0 32px 0 16px; font-size: 14px; text-align: center; text-align-last: center; appearance: none; background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='m6 8 4 4 4-4' fill='none' stroke='%23616b77' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 12px center / 16px; }
 /* The latest project ("이어서 하기"), its site drawn on the left. */
-.continue { display: grid; grid-template-columns: 400px minmax(0, 1fr); margin-top: 32px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-.continue-drawing { display: grid; height: 300px; /* 4:3 with the 400px column */ background: var(--surface-subtle); border-right: 1px solid var(--line); }
+/* Start a project by talking to Conductor: the widest thing on the page. */
+.start-talk { margin-top: 32px; }
+.start-talk label { display: block; font-size: 16px; font-weight: 700; line-height: 24px; }
+.start-talk-box { display: flex; align-items: flex-end; gap: 8px; margin-top: 8px; padding: 8px 8px 8px 16px; border: 1px solid #c3cbd3; border-radius: 12px; background: var(--surface); box-shadow: 0 2px 10px #24344308; }
+.start-talk-box:focus-within { border-color: var(--brand); }
+.start-talk-box textarea { flex: 1; min-height: 40px; max-height: 160px; padding: 8px 0; border: 0; outline: none; resize: none; font-size: 16px; line-height: 24px; field-sizing: content; }
+.start-talk-send { flex: none; width: 40px; min-height: 40px; padding: 0; border-radius: 8px; }
+.start-talk .field-hint { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 16px; }
+/* The latest project, full width and tinted: bigger than any card below it. */
+.continue { display: grid; grid-template-columns: 260px minmax(0, 1fr); margin-top: 24px; border: 1px solid #cddbe8; border-radius: var(--radius); overflow: hidden; background: #f4f8fb; }
+.continue-drawing { display: grid; height: 196px; /* 4:3 with the 260px column */ background: var(--surface); border-right: 1px solid #cddbe8; }
 .continue-drawing .site-drawing { display: block; width: 100%; height: 100%; }
-.continue-body { display: flex; flex-direction: column; gap: 8px; padding: 24px 32px; }
+.continue-body { display: flex; flex-direction: column; gap: 4px; padding: 20px 24px; }
 .continue-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
 .continue h2 { font-size: 20px; line-height: 28px; letter-spacing: -.3px; overflow-wrap: anywhere; }
 .continue-tag { color: var(--muted); font-size: 12px; line-height: 16px; }
 .continue-site { font-size: 16px; line-height: 24px; }
 .continue-facts { font-size: 14px; line-height: 20px; }
 .continue-progress { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; font-size: 14px; }
-.continue-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: auto; padding-top: 16px; }
+.continue-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: auto; padding-top: 8px; }
 .continue-actions .primary, .continue-actions .secondary { min-height: 40px; padding: 8px 24px; font-size: 14px; }
-.list-label { margin: 56px 0 16px; font-size: 16px; line-height: 24px; font-weight: 700; }
-.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; }
+.list-label { margin: 48px 0 16px; font-size: 16px; line-height: 24px; font-weight: 700; }
+.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(208px, 1fr)); gap: 16px; }
 .project-card { position: relative; border: 1px solid var(--line); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
 .project-card:hover { border-color: #acbac6; box-shadow: 0 3px 14px #24344308; }
 /* The card being dragged into a new place: its spot stays as a faint outline. */
 .project-card.dragging { opacity: .35; }
 /* The site outline across the card's top edge. */
-.project-drawing { aspect-ratio: 4 / 3; margin: -24px -24px 16px; background: var(--surface-subtle); border-bottom: 1px solid var(--line); }
+.project-drawing { aspect-ratio: 3 / 2; margin: -24px -24px 16px; background: var(--surface-subtle); border-bottom: 1px solid var(--line); }
 .project-drawing .site-drawing { display: block; width: 100%; height: 100%; }
 /* No site yet: an empty dashed parcel and a note; the card adds a "대지 정하기" button under it. */
 .site-drawing.empty-drawing { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; color: var(--muted); font-size: 12px; line-height: 16px; }
@@ -900,9 +909,9 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
   .board-head { padding: 14px 16px 12px; }
   .project-tools { order: 3; width: 100%; }
   .search-box { flex: 1; width: auto; }
-  .continue { grid-template-columns: minmax(0, 1fr); }
+  .continue { grid-template-columns: 200px minmax(0, 1fr); }
   .project-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
-  .continue-drawing { height: 240px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .continue-drawing { height: auto; min-height: 150px; }
 }
 @media (max-width: 640px) {
   :root { --home-gutter: 20px; }

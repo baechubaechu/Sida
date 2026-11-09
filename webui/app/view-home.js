@@ -72,7 +72,7 @@ function continueCard(project) {
     : noSite ? '<p class="continue-facts muted">아직 대지를 정하지 않았어요.</p>' : '';
   const site = noSite ? `<a class="secondary" href="${sitePath(project.name, 'find')}">대지 정하기</a>` : '';
   return `<section class="continue" data-project="${escape(project.name)}" aria-labelledby="continue-title" style="view-transition-name: project-continue">
-    <a class="continue-drawing" href="${projectUrl(project.name)}" data-open-project tabindex="-1" aria-hidden="true">${siteDrawing(entry, 400, 300, true)}</a>
+    <a class="continue-drawing" href="${projectUrl(project.name)}" data-open-project tabindex="-1" aria-hidden="true">${siteDrawing(entry, 260, 196, true)}</a>
     <div class="continue-body">
       <div class="continue-title"><h2 id="continue-title">${label}</h2><span class="continue-tag">최근 작업</span></div>
       ${card || project.project_type ? `<p class="continue-site">${siteLine(card, project)}</p>` : ''}
@@ -101,7 +101,7 @@ export function projectCards() {
     // Over the empty drawing (outside the card's own link): what to do about the missing site.
     const site = siteSlot(entry) === 'none' ? `<div class="drawing-cta"><a class="secondary" href="${sitePath(p.name, 'find')}" aria-label="${escape(projectLabel(p))} 대지 정하기">대지 정하기</a></div>` : '';
     return `<article class="project-card" data-project="${escape(p.name)}" ${movable ? 'draggable="true"' : ''} style="view-transition-name: ${transitionName(p)}"><a class="project-open" href="${projectUrl(p.name)}" data-open-project draggable="false" aria-label="${escape(projectLabel(p))} 프로젝트 열기">
-    <div class="project-drawing">${siteDrawing(entry, 240, 180)}</div>
+    <div class="project-drawing">${siteDrawing(entry, 240, 160)}</div>
     <h3>${escape(projectLabel(p))}</h3>
     ${line ? `<p class="project-type">${line}</p>` : ''}
     <p class="project-summary">${expertDots(p)}<span>${escape(projectSummary(p))}</span></p>
@@ -141,6 +141,12 @@ export function homeView() {
           <select id="project-sort"><option value="recent" ${ui.sort === 'recent' ? 'selected' : ''}>최근 수정순</option><option value="name" ${ui.sort === 'name' ? 'selected' : ''}>이름순</option><option value="custom" ${ui.sort === 'custom' ? 'selected' : ''}>사용자 설정</option></select>
         </div>`}
         <a class="primary" href="#/new" data-open-project>${icon('plus')}새 프로젝트</a></header>
+      <form class="start-talk" id="start-talk-form">
+        <label for="start-talk-input">어떤 프로젝트를 시작할까요?</label>
+        <div class="start-talk-box"><textarea id="start-talk-input" data-focus="start-talk" rows="1" placeholder="예: 무교동 45에 근린생활시설, 1층은 카페" aria-describedby="start-talk-hint"></textarea>
+          <button type="submit" class="primary start-talk-send" aria-label="Conductor에게 보내기">${icon('send')}</button></div>
+        <p class="field-hint" id="start-talk-hint">Conductor가 이 문장으로 프로젝트를 만들고 대화를 이어 가요.</p>
+      </form>
       <div id="project-list">${projectList()}</div>
     </main></div>`;
 }
