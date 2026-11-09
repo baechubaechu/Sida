@@ -1,0 +1,10 @@
+[Unit]
+Description=Sida homepage: pull relay/site from GitHub main
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=site
+ExecStart=/opt/sida-kr/site-sync/site-pull.sh
+TimeoutStartSec=120

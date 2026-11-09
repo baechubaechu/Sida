@@ -14,7 +14,6 @@ on:
 permissions:
   contents: write
   pull-requests: read
-  actions: write   # 소개 페이지 반영(deploy-site.yml) 실행
 
 concurrency:
   group: delete-merged-branches
@@ -36,18 +35,6 @@ jobs:
               echo "유지: $ref (#$num 머지 후 새 커밋 있음)"
             fi
           done
-        env:
-          REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Deploy homepage if relay/site changed since the last deploy
-        # 자동 머지는 push 실행을 만들지 않아 deploy-site.yml이 저절로 돌지 않으므로 여기서 실행합니다.
-        if: ${{ !cancelled() }}
-        run: |
-          changed=$(gh api "repos/$REPO/commits?sha=main&path=relay/site&per_page=1" -q '.[0].commit.committer.date // ""')
-          deployed=$(gh run list --repo "$REPO" --workflow deploy-site.yml --branch main --status success --limit 1 --json createdAt -q '.[0].createdAt // ""' || true)
-          if [ -n "$changed" ] && [[ "$changed" > "$deployed" ]]; then
-            gh workflow run deploy-site.yml --repo "$REPO" --ref main && echo "소개 페이지 반영 실행 ($changed > ${deployed:-없음})"
-          fi
         env:
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
