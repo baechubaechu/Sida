@@ -137,3 +137,22 @@ def test_delete_project_refuses_paths_outside_and_links(mock_config, project, tm
     with pytest.raises(workspace.ProjectNotFound):
         workspace.delete_project(mock_config, "linked")
     assert (outside / "brief.md").exists() and project.path.exists()
+
+
+def test_list_order_is_kept_next_to_the_projects(mock_config):
+    assert workspace.load_list_order(mock_config) == {"sort": "recent", "order": []}
+    kept = workspace.save_list_order(mock_config, "custom", ["b", "a", "b", " ", 3])
+    assert kept == {"sort": "custom", "order": ["b", "a"]}
+    assert workspace.load_list_order(mock_config) == kept
+    with pytest.raises(ValueError):
+        workspace.save_list_order(mock_config, "random", [])
+    # The file is not a project, so the list does not show it.
+    assert workspace.list_project_summaries(mock_config) == []
+
+
+def test_list_order_file_that_cannot_be_read_gives_the_default(mock_config):
+    root = workspace.ensure_projects_root(mock_config)
+    (root / workspace.LIST_FILE).write_text("{not json", encoding="utf-8")
+    assert workspace.load_list_order(mock_config) == {"sort": "recent", "order": []}
+    (root / workspace.LIST_FILE).write_text('{"sort": "x", "order": "y"}', encoding="utf-8")
+    assert workspace.load_list_order(mock_config) == {"sort": "recent", "order": []}

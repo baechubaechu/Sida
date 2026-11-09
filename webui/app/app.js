@@ -3,7 +3,7 @@
 // This file routes (the address bar), wires the page's events to the actions, and starts up;
 // the state is in state.js, the HTML in view-*.js and render.js, the actions in the other files.
 
-import { projectPath as projectUrl, keepNewDraft } from './model.js';
+import { projectPath as projectUrl, keepNewDraft, untitledName } from './model.js';
 import { COMPARE_QUESTION } from './board-model.js';
 import { talkMenu } from './talk-panel-model.js';
 import { api, expertUrl, projectApi } from './api.js';
@@ -11,16 +11,16 @@ import { applyModelRecommendation, askAbout, closeTable, downloadBoard, hideVWor
 import { commandKey, focusCommandLine, runCommandLine } from './commands.js';
 import { decideProposal, newChat, runExpert, send, sendFeedback } from './experts.js';
 import { addTypedIdea, ideaAction, placeIdeaFloat, saveIdea } from './ideas.js';
-import { clearExpert, loadExpert, loadOrdinance, loadProjects, loadSession, loadSite, resetTracking, start, track } from './jobs.js';
+import { clearExpert, loadExpert, loadOrdinance, loadProjectSites, loadProjects, loadSession, loadSite, resetTracking, start, track } from './jobs.js';
 import { syncPanelWidths } from './panels.js';
-import { askDelete, createSample, openProjectInfo } from './projects.js';
+import { askDelete, createSample, keepProjectList, openProjectInfo } from './projects.js';
 import { render } from './render.js';
 import { checkRelayKey, loadSettings, openSettings } from './settings.js';
 import { checkUse, chooseRegion, findLot, prepareFind, removeUse, saveSite, searchAddress, searchUses, setOrdinanceOption, togglePick } from './site.js';
-import { app, conductorScrolls, currentRoute, draftFor, drafts, freshFind, freshUseFind, jobRunning, openingTried, route, setCurrentRoute, talkViewById, toast, ui } from './state.js';
+import { app, conductorScrolls, currentRoute, deferred, draftFor, newProjectDialog, drafts, freshFind, freshUseFind, jobRunning, openingTried, route, setCurrentRoute, talkViewById, toast, ui } from './state.js';
 import { askDeleteTalk, askFromLine, changeConductor, dismissTalkMenu, loadTalk, openTalk, sendTalk } from './talks.js';
 import { updateCommandLine } from './view-command.js';
-import { projectCards } from './view-home.js';
+import { projectList } from './view-home.js';
 
 // ------------------------------------------------------------------ routing
 
@@ -35,9 +35,12 @@ async function navigate() {
     if (ui.vworld) { ui.vworld = false; hideVWorld(); }
   }
   if (currentRoute.page !== 'project') closeTable();
-  if (currentRoute.page === 'home') {
+  if (currentRoute.page === 'home' || currentRoute.page === 'new') { // the new-project form floats over the list
     render();
     await loadProjects();
+    render();
+    if (await loadProjectSites() && currentRoute.page === 'home') render(false);
+    return;
   } else if (currentRoute.page === 'project') {
     const { name, agent } = currentRoute;
     if (previous.page !== 'project' || previous.name !== name) {
@@ -95,13 +98,105 @@ async function navigate() {
 
 // ------------------------------------------------------------------ the page's events
 
+// A project's card and its work screen are one shape that grows and shrinks (a view transition
+// pairing the card with the work screen's frame, named project-frame). Off where the browser
+// lacks view transitions or motion is reduced.
+const canMorph = () => Boolean(document.startViewTransition) && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Only the given card moves; the other cards fade with the rest of the list behind it.
+function nameMorphCard(card) {
+  for (const other of app.querySelectorAll('#project-list [style*="view-transition-name"]')) other.style.viewTransitionName = 'none';
+  if (card) card.style.viewTransitionName = 'project-frame';
+}
+
+// `change` draws the next screen (navigate draws before its first wait). Redraws while the shape
+// moves would cut the animation short, so they wait until it ends (data arriving meanwhile).
+// Only the moving shape (project-frame) is named in either state; the other cards fade with the
+// page. `toButton`: the shape ends as the list's "새 프로젝트" button; it stays the form until it
+// has shrunk there and only then turns into the blue button.
+function morphProject(direction, change, toButton = false) {
+  const root = document.documentElement;
+  root.classList.add('project-morph', direction);
+  root.classList.toggle('to-button', toButton);
+  const morph = transition(() => {
+    change();
+    for (const el of app.querySelectorAll('#project-list [style*="view-transition-name"]')) {
+      if (el.style.viewTransitionName !== 'project-frame') el.style.viewTransitionName = 'none';
+    }
+    deferred.growing = true;
+  });
+  morph.finished.finally(() => {
+    root.classList.remove('project-morph', direction, 'to-button');
+    deferred.growing = false;
+    if (deferred.render) { deferred.render = false; render(false); }
+  });
+}
+
+// Opening a project from the list: the pressed card grows into the work screen (the 3D table
+// appears once it is full size). A plain link with a modifier key (a new tab) or without motion.
+function openProjectGrowing(event) {
+  const link = event.target.closest('a[data-open-project]');
+  if (!link || event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || !canMorph()) return false;
+  // A project's card, or for a new project the dashed card or the heading's button (it grows into the form).
+  const card = link.closest('.project-card, .continue, .project-new') || (link.closest('.home-heading') ? link : null);
+  if (!card) return false;
+  event.preventDefault();
+  if (link.getAttribute('href') === '#/new') newFormFrom = link.closest('.home-heading') ? 'button' : 'card';
+  nameMorphCard(card);
+  morphProject('opening', () => {
+    history.pushState(null, '', link.getAttribute('href')); // no hashchange: navigate is called here
+    navigate();
+  });
+  return true;
+}
+
+// The new-project dialog: typing keeps a draft (it survives closing), the backdrop and Esc go back
+// to the list keeping it, "취소" goes back and forgets it.
+newProjectDialog.addEventListener('input', (event) => {
+  const { target } = event;
+  if (target.form?.id === 'new-project-form') ui.newDraft = keepNewDraft(ui.newDraft, target.name, target.value);
+});
+newProjectDialog.addEventListener('click', (event) => {
+  if (event.target === newProjectDialog) location.hash = '#/'; // the backdrop
+  if (event.target.closest('[data-new="cancel"]')) { ui.newDraft = {}; location.hash = '#/'; }
+});
+newProjectDialog.addEventListener('cancel', (event) => { // Esc: close through the route, so it animates
+  event.preventDefault();
+  location.hash = '#/';
+});
+
+// What the new-project form grew from (the dashed card or the heading's button): it shrinks back there.
+let newFormFrom = 'card';
+
+// Back to the list (a link or the browser's back): the work screen shrinks into its project's
+// card, the "이어서 하기" one when it is the latest.
+// The new-project form shrinks back into the dashed card the same way, and grows into the work
+// screen once the project is made.
+function onHashChange() {
+  const from = currentRoute.page;
+  const to = route().page;
+  if (!canMorph()) { navigate(); return; }
+  if (from === 'new' && to === 'project') { nameMorphCard(null); morphProject('opening', navigate); return; }
+  if (to !== 'home' || (from !== 'project' && from !== 'new')) { navigate(); return; }
+  const leaving = currentRoute.name;
+  nameMorphCard(null); // the list under the new-project form: nothing there moves on its own
+  morphProject('closing', () => {
+    navigate();
+    const named = `[data-project="${CSS.escape(leaving || '')}"]`;
+    const newHome = newFormFrom === 'button' ? '.home-heading .primary' : '.project-new';
+    nameMorphCard(from === 'new' ? app.querySelector(newHome) || app.querySelector('.home-heading .primary')
+      : app.querySelector(`.continue${named}`) || app.querySelector(`.project-card${named}`));
+  }, from === 'new' && newFormFrom === 'button');
+}
+
 app.addEventListener('click', (event) => {
+  if (openProjectGrowing(event)) return;
   if (!event.target.closest('.talk-more')) dismissTalkMenu();
   const button = event.target.closest('[data-action]');
   if (!button) return;
   const { action } = button.dataset;
   const { name, agent } = currentRoute;
-  if (action === 'settings') openSettings();
+  if (action === 'settings') openSettings(button.dataset.target, button);
   if (action === 'export-board') { button.closest('details')?.removeAttribute('open'); downloadBoard(name, button.dataset.format); }
   if (action === 'vworld-3d') toggleVWorld(name);
   if (action === 'sample') createSample();
@@ -160,13 +255,43 @@ app.addEventListener('click', (event) => {
   if (action === 'use-remove') removeUse(name, button.dataset.use);
 });
 
+// Redraw the project cards after a search or a new order. Cards that stay slide to their new place,
+// new ones fade in and dropped ones fade out (a view transition of the named cards only, so the
+// search field stays live while typing). Instant when the browser lacks it or motion is reduced.
+function swapProjectList() {
+  const list = document.querySelector('#project-list');
+  if (!list) return;
+  const swap = () => { list.innerHTML = projectList(); };
+  if (!document.startViewTransition || matchMedia('(prefers-reduced-motion: reduce)').matches) { swap(); return; }
+  const root = document.documentElement;
+  listMoves += 1;
+  root.classList.add('list-moving');
+  const moving = transition(swap);
+  moving.finished.finally(() => {
+    listMoves -= 1;
+    if (!listMoves) root.classList.remove('list-moving');
+  });
+}
+let listMoves = 0; // transitions still running; a newer one may start before an older one ends
+
+// A view transition that never holds the change back: the browser waits for a drawn frame before
+// it calls `update`, and a window that is not being drawn (minimised, covered) gives none, so after
+// a moment the animation is dropped and the change happens at once. Skipping is expected, so its
+// rejection is not reported.
+function transition(update) {
+  let ran = false;
+  const t = document.startViewTransition(() => { ran = true; return update(); });
+  t.ready.catch(() => {});
+  setTimeout(() => { if (!ran) t.skipTransition(); }, 300);
+  return t;
+}
+
 app.addEventListener('input', (event) => {
   const { target } = event;
   if (target.id === 'project-search') {
     ui.query = target.value;
-    document.querySelector('#project-grid').innerHTML = projectCards();
+    swapProjectList();
   }
-  if (target.form?.id === 'new-project-form') ui.newDraft = keepNewDraft(ui.newDraft, target.name, target.value);
   if (target.matches('.composer textarea')) drafts.set(target.closest('form').dataset.composer, target.value);
   if (target.id === 'command-input') {
     drafts.set('command', target.value);
@@ -184,7 +309,8 @@ app.addEventListener('input', (event) => {
 app.addEventListener('change', (event) => {
   if (event.target.id === 'project-sort') {
     ui.sort = event.target.value;
-    document.querySelector('#project-grid').innerHTML = projectCards();
+    keepProjectList();
+    swapProjectList();
   }
   const { region, pick, lot } = event.target.dataset || {};
   if (region) chooseRegion(region, event.target.value);
@@ -211,13 +337,12 @@ app.addEventListener('toggle', (event) => {
   else ui.openExperts.delete(row.dataset.agent);
 }, true);
 
-app.addEventListener('submit', async (event) => {
+async function onSubmit(event) {
   event.preventDefault();
   const form = event.target;
   if (form.id === 'new-project-form') {
-    const name = form.elements.name.value.trim();
+    const name = form.elements.name.value.trim() || untitledName(ui.projects); // 비워 두면 무제1, 무제2, …
     const error = form.querySelector('#new-project-error');
-    if (!name) { error.textContent = '프로젝트 이름을 입력해 주세요.'; form.elements.name.focus(); return; }
     const fields = {};
     for (const key of ['type', 'site', 'intention']) {
       const value = form.elements[key].value.trim();
@@ -268,7 +393,9 @@ app.addEventListener('submit', async (event) => {
     ui.revisionOpen = false;
     start(name, `${projectApi(name)}/session/experts/${encodeURIComponent(agent)}/run`, { revision, context: takePicked().ids });
   }
-});
+}
+app.addEventListener('submit', onSubmit);
+newProjectDialog.addEventListener('submit', onSubmit);
 
 app.addEventListener('keydown', (event) => {
   if (event.target.id === 'command-input') { commandKey(event); return; }
@@ -307,7 +434,7 @@ window.addEventListener('keydown', (event) => {
 
 // ------------------------------------------------------------------ start
 
-window.addEventListener('hashchange', navigate);
+window.addEventListener('hashchange', onHashChange);
 window.addEventListener('resize', () => { syncPanelWidths(); placeTable(); placeIdeaFloat(); });
 matchMedia('(max-width: 900px)').addEventListener('change', () => {
   if (currentRoute.page === 'project') render(false);

@@ -241,6 +241,14 @@ def test_main_screen_calls_only_existing_api_paths(client):
         assert any(fits(path, route) for route in routes), path
 
 
+def test_project_list_order_round_trip(client):
+    assert client.get("/api/projects").json()["list"] == {"sort": "recent", "order": []}
+    saved = client.put("/api/projects/list", json={"sort": "custom", "order": ["b", "a"]})
+    assert saved.status_code == 200 and saved.json() == {"sort": "custom", "order": ["b", "a"]}
+    assert client.get("/api/projects").json()["list"] == {"sort": "custom", "order": ["b", "a"]}
+    assert client.put("/api/projects/list", json={"sort": "random", "order": []}).status_code == 400
+
+
 def test_main_screen_files_hold_no_keys_or_placeholder_urls():
     for path in webapp.APP_DIR.rglob("*"):
         if not path.is_file() or path.suffix == ".bcmap":  # pdf.js's binary character maps

@@ -13,6 +13,18 @@
   --font: Inter, "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
   --radius: 12px;
   --home-gutter: 54px;
+  /* Motion tokens: use only these durations. */
+  --motion-100: 100ms;
+  --motion-150: 150ms;
+  --motion-200: 200ms;
+  --motion-300: 300ms;
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ease-in: cubic-bezier(.7, 0, .84, 0);
+  /* Damped spring (zeta .5): overshoots about 16% once, then settles. For press release only. */
+  --ease-spring: cubic-bezier(.34, 1.4, .64, 1);
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  :root { --ease-spring: linear(0, .094 5%, .31 10%, .565 15%, .799 20%, .981 25%, 1.097 30%, 1.153 35%, 1.161 40%, 1.139 45%, 1.1 50%, 1.059 55%, 1.023 60%, .996 65%, .98 70%, .974 75%, .974 80%, .979 85%, .986 90%, .992 95%, 1); }
 }
 * { box-sizing: border-box; }
 body { margin: 0; color: var(--text); background: var(--surface); font: 15px/1.5 var(--font); }
@@ -35,44 +47,131 @@ h1, h2, h3, p { margin: 0; }
 .primary { background: var(--brand); color: white; font-weight: 700; }
 .secondary { background: var(--surface-subtle); }
 .icon-button { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 6px; font-size: 25px; }
+/* Press feedback: squash quickly on press, spring back on release. Transform only, so layout never moves. */
+.primary, .secondary, .icon-button, .nav-link, .status-row { transition: transform var(--motion-300) var(--ease-spring); }
+.nav-link:active, .status-row:active { transform: scale(.97); transition: transform var(--motion-100) var(--ease-out); }
+.primary:active:not(:disabled), .secondary:active:not(:disabled), .icon-button:active:not(:disabled) { transform: scale(.95); transition: transform var(--motion-100) var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .primary, .secondary, .icon-button, .nav-link, .status-row { transform: none !important; } }
 .app-shell { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); min-height: 100dvh; }
-.sidebar { height: 100dvh; position: sticky; top: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 17px 14px 28px; background: var(--surface-subtle); }
-.brand { display: inline-block; align-self: flex-start; margin-left: 14px; font-size: 30px; line-height: 45px; font-weight: 700; letter-spacing: -.9px; }
-.nav-main { margin-top: 43px; }
-.nav-link { display: flex; align-items: center; min-height: 46px; padding: 10px 14px; border-radius: 7px; font-size: 14px; text-align: left; width: 100%; }
+.sidebar { height: 100dvh; position: sticky; top: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 16px 16px 24px; background: var(--surface-subtle); }
+.brand { display: inline-block; align-self: flex-start; margin-left: 16px; font-size: 28px; line-height: 40px; font-weight: 700; letter-spacing: -.8px; }
+.nav-main { margin-top: 40px; }
+.nav-link { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 12px 16px; border-radius: 8px; font-size: 14px; text-align: left; width: 100%; }
 .nav-link.active { background: var(--line); color: var(--brand); font-weight: 700; }
-.nav-new { margin-top: 16px; font-size: 15px; }
-.nav-label { margin: 56px 14px 14px; color: var(--muted); font-size: 12px; font-weight: 700; }
-.recent .nav-link { min-height: 39px; color: var(--muted); }
-.nav-row { display: flex; align-items: center; gap: 2px; }
-.nav-row .nav-link { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.nav-delete { flex-shrink: 0; padding: 6px 8px; border-radius: 6px; color: var(--muted); font-size: 12px; opacity: 0; }
-.nav-row:hover .nav-delete, .nav-row:focus-within .nav-delete { opacity: 1; }
-.nav-delete:hover, .card-delete:hover { color: #a83232; background: #a832320f; }
-.sidebar-bottom { margin-top: auto; padding-top: 40px; color: var(--muted); font-size: 13px; }
-.home { padding: 82px var(--home-gutter) 70px; }
-.home-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
-.home h1 { font-size: 35px; line-height: 52px; letter-spacing: -1px; }
-.home-heading p { color: var(--muted); font-size: 16px; margin-top: 6px; line-height: 24px; }
-.home-heading .primary { min-width: 196px; margin-top: 13px; }
-.project-tools { display: flex; justify-content: space-between; gap: 24px; margin-top: 62px; height: 51px; }
-.search-box { position: relative; width: min(624px, 70%); }
-.search-box span { position: absolute; left: 19px; top: 12px; color: var(--muted); font-size: 20px; }
-.search-box input { width: 100%; height: 51px; padding: 12px 19px 12px 47px; font-size: 15px; }
+.card-delete:hover { color: #a83232; background: #a832320f; }
+.sidebar-bottom { display: grid; gap: 8px; margin-top: auto; padding-top: 40px; }
+/* Whether Sida can work on this PC: one line each for the AI and the government data. */
+.side-status { display: grid; gap: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+.status-row { display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 8px 16px; border-radius: 8px; text-align: left; }
+.status-row:hover, .side-settings:hover { background: #e6e9ec; filter: none; }
+.status-dot { flex: none; width: 8px; height: 8px; margin-top: 4px; border-radius: 50%; }
+.status-dot.ok { background: #2f7d4f; }
+.status-dot.bad { background: #b7791f; }
+.status-text { display: grid; min-width: 0; }
+.status-label { color: var(--muted); font-size: 12px; line-height: 16px; }
+.status-value { font-size: 14px; font-weight: 600; line-height: 20px; overflow-wrap: anywhere; }
+.side-settings { font-weight: 600; }
+/* Line icons (icons.js): one size and stroke, in the text colour. */
+.icon { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.icon-large { width: 28px; height: 28px; stroke-width: 1.2; }
+.home { width: 100%; max-width: calc(1280px + 2 * var(--home-gutter)); margin: 0 auto; padding: 64px var(--home-gutter) 64px; }
+/* Heading on one line: title, search and order, new project. */
+.home-heading { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.home h1 { font-size: 28px; line-height: 40px; letter-spacing: -.8px; margin-right: auto; }
+.home-heading .primary { gap: 8px; min-height: 44px; padding: 8px 20px 8px 16px; }
+.project-tools { display: flex; flex: 0 1 auto; gap: 8px; height: 44px; }
+.search-box { position: relative; flex: 0 1 340px; min-width: 160px; }
+.search-box .icon { position: absolute; left: 14px; top: 13px; color: var(--muted); pointer-events: none; }
+.search-box input { width: 100%; height: 44px; padding: 8px 16px 8px 40px; font-size: 14px; }
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
-.project-tools select { width: 189px; padding: 0 16px; font-size: 14px; }
-.section-label { color: var(--muted); font-size: 13px; line-height: 20px; margin: 30px 0 26px; }
-.project-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; }
-.project-card { position: relative; min-height: 207px; border: 1px solid var(--line); border-top: 9px solid var(--surface-subtle); border-radius: var(--radius); display: flex; flex-direction: column; transition: border-color .15s, box-shadow .15s; }
-.project-card:hover { border-color: #acbac6; border-top-color: #dce5ec; box-shadow: 0 3px 14px #24344308; }
-.project-open { display: flex; flex-direction: column; flex: 1; padding: 22px 23px 20px; }
-.project-card h3 { font-size: 19px; line-height: 28px; overflow-wrap: anywhere; padding-right: 36px; }
+/* The order menu: its text centred, with a chevron drawn like the other line icons. */
+.project-tools select { width: 140px; padding: 0 32px 0 16px; font-size: 14px; text-align: center; text-align-last: center; appearance: none; background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='m6 8 4 4 4-4' fill='none' stroke='%23616b77' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 12px center / 16px; }
+/* The latest project ("이어서 하기"), its site drawn on the left. */
+.continue { display: grid; grid-template-columns: 400px minmax(0, 1fr); margin-top: 32px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.continue-drawing { display: grid; height: 300px; /* 4:3 with the 400px column */ background: var(--surface-subtle); border-right: 1px solid var(--line); }
+.continue-drawing .site-drawing { display: block; width: 100%; height: 100%; }
+.continue-body { display: flex; flex-direction: column; gap: 8px; padding: 24px 32px; }
+.continue-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+.continue h2 { font-size: 20px; line-height: 28px; letter-spacing: -.3px; overflow-wrap: anywhere; }
+.continue-tag { color: var(--muted); font-size: 12px; line-height: 16px; }
+.continue-site { font-size: 16px; line-height: 24px; }
+.continue-facts { font-size: 14px; line-height: 20px; }
+.continue-progress { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; font-size: 14px; }
+.continue-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: auto; padding-top: 16px; }
+.continue-actions .primary, .continue-actions .secondary { min-height: 40px; padding: 8px 24px; font-size: 14px; }
+.list-label { margin: 56px 0 16px; font-size: 16px; line-height: 24px; font-weight: 700; }
+.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; }
+.project-card { position: relative; border: 1px solid var(--line); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
+.project-card:hover { border-color: #acbac6; box-shadow: 0 3px 14px #24344308; }
+/* The card being dragged into a new place: its spot stays as a faint outline. */
+.project-card.dragging { opacity: .35; }
+/* The site outline across the card's top edge. */
+.project-drawing { aspect-ratio: 4 / 3; margin: -24px -24px 16px; background: var(--surface-subtle); border-bottom: 1px solid var(--line); }
+.project-drawing .site-drawing { display: block; width: 100%; height: 100%; }
+/* No site yet: an empty dashed parcel and a note; the card adds a "대지 정하기" button under it. */
+.site-drawing.empty-drawing { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; color: var(--muted); font-size: 12px; line-height: 16px; }
+.empty-parcel { width: 48px; height: 48px; fill: none; stroke: #9aa5b1; stroke-width: 1; stroke-linejoin: round; }
+.project-card:has(.drawing-cta) .empty-drawing { padding-bottom: 48px; }
+.drawing-cta { position: absolute; top: 0; left: 0; right: 0; aspect-ratio: 4 / 3; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 24px; pointer-events: none; }
+.drawing-cta a { pointer-events: auto; min-height: 40px; padding: 8px 16px; font-size: 14px; background: var(--surface); border: 1px solid var(--line); }
+/* Before the site arrives the drawing stays a blank box (nothing claimed yet). */
+.site-drawing.pending-drawing { height: 100%; }
+.drawing-parcel { fill: var(--selected); stroke: var(--brand); stroke-width: 1.5px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.drawing-scale path { stroke: var(--text); stroke-width: 2px; }
+.drawing-scale text, .drawing-north text { fill: var(--muted); font-size: 11px; }
+.drawing-north path { fill: var(--text); }
+.drawing-north text { text-anchor: middle; }
+.expert-dots { display: inline-flex; gap: 4px; }
+.expert-dots i { width: 8px; height: 8px; border: 1px solid var(--brand); border-radius: 50%; }
+.expert-dots i.on { background: var(--brand); }
+.project-open { display: flex; flex-direction: column; flex: 1; padding: 24px 24px 16px; }
+.project-card h3 { font-size: 16px; line-height: 24px; overflow-wrap: anywhere; }
 .card-delete { position: absolute; top: 14px; right: 14px; padding: 6px 9px; border-radius: 6px; color: var(--muted); font-size: 12px; opacity: 0; }
 .project-card:hover .card-delete, .project-card:focus-within .card-delete { opacity: 1; }
-.project-card-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 16px 12px; }
-.project-card-actions button { padding: 6px 9px; border-radius: 6px; color: var(--muted); font-size: 12px; }
+.project-card-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 16px 16px; }
+.project-card-actions button { min-height: 40px; padding: 8px 12px; border-radius: 8px; color: var(--muted); font-size: 12px; }
 .project-card-actions button:hover { background: var(--surface-subtle); color: var(--brand); }
 .project-card-actions .card-delete { position: static; opacity: 1; }
+/* Card buttons show on hover or keyboard focus; touch screens without hover always show them. */
+@media (hover: hover) { .project-card-actions { opacity: 0; transition: opacity var(--motion-150) var(--ease-out); } .project-card:hover .project-card-actions, .project-card:focus-within .project-card-actions { opacity: 1; } }
+.project-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 240px; border: 1.5px dashed #c3cbd3; border-radius: var(--radius); color: var(--muted); font-size: 14px; transition: border-color var(--motion-150) var(--ease-out), color var(--motion-150) var(--ease-out); }
+.project-new:hover { border-color: var(--brand); color: var(--brand); filter: none; }
+.card-placeholder { padding: 24px 24px 32px; }
+.card-placeholder i { display: block; height: 12px; margin-top: 12px; border-radius: 4px; background: var(--surface-subtle); }
+.card-placeholder i:nth-of-type(1) { width: 60%; height: 16px; }
+.card-placeholder i:nth-of-type(2) { width: 85%; }
+.card-placeholder i:nth-of-type(3) { width: 40%; }
+/* Cards squash a little while pressed and spring back, like the buttons. */
+.project-card { transition: transform var(--motion-300) var(--ease-spring), border-color var(--motion-150) var(--ease-out), box-shadow var(--motion-150) var(--ease-out); }
+.project-new { transition: transform var(--motion-300) var(--ease-spring), border-color var(--motion-150) var(--ease-out), color var(--motion-150) var(--ease-out); }
+.project-card:has(.project-open:active), .project-new:active { transform: scale(.98); transition-duration: var(--motion-100); transition-timing-function: var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .project-card, .project-new { transform: none !important; } }
+/* Search and order changes: only the named cards move (app.js), the rest of the page stays live. */
+html.list-moving { view-transition-name: none; }
+html.list-moving::view-transition-group(*) { animation-duration: var(--motion-200); animation-timing-function: var(--ease-out); }
+html.list-moving::view-transition-old(*), html.list-moving::view-transition-new(*) { animation-duration: var(--motion-150); }
+/* A project's card and its work screen as one shape (named in app.js): opening, the card grows into
+   the work screen's frame with the work screen showing through it, cropped; closing, the reverse.
+   The screen being left fades quickly, the one arriving a little slower. */
+html.project-morph .studio, html.project-morph #new-project-dialog { view-transition-name: project-frame; }
+/* While the shape moves, the dialog's own fade-in would be caught half-done: it appears at once. */
+html.project-morph #new-project-dialog, html.project-morph #new-project-dialog::backdrop { transition: none; }
+html.project-morph::view-transition-group(*) { animation-duration: var(--motion-300); animation-timing-function: var(--ease-out); }
+html.project-morph::view-transition-image-pair(project-frame) { overflow: hidden; border-radius: var(--radius); }
+html.project-morph::view-transition-old(project-frame), html.project-morph::view-transition-new(project-frame) { width: 100%; height: 100%; object-fit: cover; object-position: center top; }
+html.project-morph.opening::view-transition-old(project-frame) { animation-duration: var(--motion-100); }
+html.project-morph.closing::view-transition-old(project-frame) { animation-duration: var(--motion-150); }
+html.project-morph::view-transition-new(project-frame) { animation-duration: var(--motion-200); }
+/* The page behind: the screen being left stays fully drawn and the arriving one fades in over it.
+   (Fading both at once let the white page show through in the middle, a flash.) */
+html.project-morph::view-transition-old(root) { animation: none; }
+html.project-morph::view-transition-new(root) { animation: morph-root-in var(--motion-200) var(--ease-out) both; mix-blend-mode: normal; }
+@keyframes morph-root-in { from { opacity: 0; } }
+/* Back to the "새 프로젝트" button: the white form shrinks all the way, then the button fades in. */
+html.to-button::view-transition-old(project-frame) { animation: morph-hold-out var(--motion-300) linear both; }
+html.to-button::view-transition-new(project-frame) { animation: morph-late-in var(--motion-300) linear both; }
+@keyframes morph-hold-out { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes morph-late-in { 0%, 70% { opacity: 0; } 100% { opacity: 1; } }
 .project-name-edit { font: inherit; text-align: left; color: var(--brand); }
 .project-name-edit:hover { text-decoration: underline; }
 #project-info-body { display: grid; gap: 10px; }
@@ -80,23 +179,24 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 #project-info-body input, #project-info-body textarea { width: 100%; padding: 9px 12px; }
 #project-info-body .form-actions { margin-top: 12px; }
 @media (hover: none) { .nav-delete, .card-delete { opacity: 1; } }
-.project-type { color: var(--muted); font-size: 14px; margin-top: 13px; }
-.project-summary { font-size: 13px; margin-top: 20px; }
-.project-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; margin-top: auto; padding-top: 24px; }
-.project-footer span:last-child { color: var(--brand); font-size: 18px; line-height: 20px; }
+.project-type { color: var(--muted); font-size: 14px; line-height: 20px; margin-top: 4px; overflow-wrap: anywhere; }
+.project-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 14px; line-height: 20px; margin-top: 16px; }
+.project-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; margin-top: auto; padding-top: 16px; }
+.project-footer .icon { color: var(--brand); }
 .empty { color: var(--muted); padding: 60px 12px; text-align: center; grid-column: 1 / -1; }
-.new-page { min-height: 100dvh; background: var(--surface-subtle); padding: 24px 50px 70px; }
-.new-topbar { display: flex; align-items: center; gap: 166px; }
-.new-topbar .brand { margin: 0; }
-.back-link { color: var(--brand); font-size: 15px; }
-.new-project { max-width: 720px; min-height: 650px; margin: 73px auto 0; padding: 46px 50px 48px; background: white; border-radius: 16px; }
-.new-project h1 { font-size: 29px; line-height: 44px; }
-.new-project .intro { color: var(--muted); margin-top: 13px; }
-.new-project label { display: block; color: var(--muted); font-size: 13px; font-weight: 700; margin-top: 32px; }
-.new-project input, .new-project textarea { display: block; width: 100%; background: var(--surface-subtle); border-color: transparent; padding: 18px 20px; margin-top: 10px; font-size: 16px; }
-.new-project input { height: 61px; }
-.new-project textarea { min-height: 114px; font-size: 15px; }
-.new-project .form-note { color: var(--muted); font-size: 14px; margin-top: 34px; }
+/* New project: a dialog over the dimmed list. */
+#new-project-dialog { width: min(640px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); padding: 32px; border-radius: var(--radius); overflow-y: auto; }
+.new-project h1 { font-size: 28px; line-height: 40px; letter-spacing: -.8px; margin: 0; }
+.new-project .new-intro { margin: 8px 0 0; color: var(--muted); font-size: 14px; line-height: 20px; }
+.new-project label { display: block; margin-top: 24px; font-size: 14px; font-weight: 600; line-height: 20px; }
+.new-project input, .new-project textarea { display: block; width: 100%; margin-top: 8px; padding: 8px 16px; border-radius: 8px; font-size: 16px; }
+.new-project input { height: 48px; }
+.new-project textarea { min-height: 120px; line-height: 24px; }
+.new-project .field-hint { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 16px; }
+.new-project .form-error:empty { display: none; }
+.new-project .form-error { margin: 16px 0 0; font-size: 14px; }
+.new-project .form-actions { gap: 8px; margin-top: 32px; }
+.new-project .form-actions .primary, .new-project .form-actions .secondary { min-width: 0; min-height: 44px; margin: 0; padding: 8px 24px; font-size: 14px; }
 .form-actions { display: flex; justify-content: flex-end; gap: 14px; margin-top: 30px; }
 .form-actions .secondary { min-width: 132px; }
 .form-actions .primary { min-width: 189px; }
@@ -232,7 +332,23 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 .version-doc .small-text { margin-bottom: 8px; }
 dialog { max-width: min(500px, calc(100% - 32px)); padding: 28px; border: 1px solid var(--line); border-radius: 14px; color: var(--text); }
 dialog::backdrop { background: #20262d55; }
+/* Dialogs grow in a little and leave faster; instant where @starting-style or discrete transitions are missing. */
+dialog { opacity: 0; transform: scale(.97); transition: opacity var(--motion-150) var(--ease-in), transform var(--motion-150) var(--ease-in), overlay var(--motion-150) allow-discrete, display var(--motion-150) allow-discrete; }
+dialog[open] { opacity: 1; transform: none; transition-duration: var(--motion-200); transition-timing-function: var(--ease-out); }
+@starting-style { dialog[open] { opacity: 0; transform: scale(.97); } }
+dialog::backdrop { opacity: 0; transition: opacity var(--motion-150) var(--ease-in), overlay var(--motion-150) allow-discrete, display var(--motion-150) allow-discrete; }
+dialog[open]::backdrop { opacity: 1; transition-duration: var(--motion-200); }
+@starting-style { dialog[open]::backdrop { opacity: 0; } }
 .dialog-heading { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+.dialog-heading h2 { line-height: 32px; }
+.dialog-heading .icon-button { flex: none; width: 32px; height: 32px; margin-right: -6px; }
+.dialog-heading .icon-button .icon { width: 20px; height: 20px; }
+/* A dialog with a heading (settings, project info): the heading stays put and only the body
+   scrolls, inside the rounded frame, so the scroll bar never squares off the right corners. */
+dialog:has(> form > .dialog-heading) { padding: 0; overflow: hidden; }
+dialog > form:has(> .dialog-heading) { display: flex; flex-direction: column; max-height: calc(100dvh - 34px); }
+dialog > form > .dialog-heading { flex: none; padding: 24px 28px 8px; }
+#settings-body, #project-info-body { min-height: 0; overflow-y: auto; padding: 0 28px 28px; }
 dialog h2 { font-size: 21px; }
 dialog p { margin: 18px 0; }
 dialog .primary { margin-top: 10px; }
@@ -338,16 +454,51 @@ button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 .markdown th { background: var(--surface-subtle); }
 .message-list .assistant-copy.markdown { white-space: normal; line-height: 1.75; }
 .doc { font-size: 14px; line-height: 1.7; margin-top: 12px; }
-#settings-body label { display: block; margin-top: 16px; font-size: 13px; font-weight: 700; color: var(--muted); }
-#settings-body select, #settings-body input:not([type="checkbox"]) { display: block; width: 100%; margin-top: 6px; padding: 9px 12px; }
-#settings-body label.check { display: flex; align-items: center; gap: 8px; font-weight: 400; color: var(--text); font-size: 14px; }
-#settings-body .form-actions { margin-top: 22px; }
-#settings-body .form-actions .primary, #settings-body .form-actions .secondary { min-width: 0; }
-.settings-intro { margin: 16px 0 0; font-weight: 700; }
-.settings-group { margin: 18px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
-.settings-group legend { padding: 0 6px; font-size: 13px; font-weight: 700; }
-.settings-group p { margin: 6px 0; font-size: 14px; }
-.settings-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+/* Settings: a panel that slides in from the right (VectorLab: long settings belong in a side
+   panel, not a centred dialog), its parts divided by hairlines, the save button always in reach. */
+#settings-dialog { inset: 12px 12px 12px auto; margin: 0; width: min(480px, calc(100vw - 24px)); max-width: none; height: calc(100dvh - 24px); max-height: none; transform: translateX(24px); }
+#settings-dialog[open] { transform: none; }
+@starting-style { #settings-dialog[open] { opacity: 0; transform: translateX(24px); } }
+/* Opened from the list's sidebar (left): out from the left, beside the sidebar, not over it. */
+#settings-dialog.from-left { inset: 12px auto 12px calc(var(--sidebar-width) + 12px); width: min(480px, calc(100vw - var(--sidebar-width) - 24px)); transform: translateX(-24px); }
+#settings-dialog.from-left[open] { transform: none; }
+@starting-style { #settings-dialog.from-left[open] { opacity: 0; transform: translateX(-24px); } }
+#settings-form { height: 100%; max-height: none; }
+#settings-body { flex: 1; padding-bottom: 8px; }
+#settings-body p:not([class]) { margin: 0; }
+#settings-body label { display: block; margin-top: 16px; font-size: 14px; font-weight: 600; color: var(--text); }
+#settings-body select, #settings-body input:not([type="checkbox"]) { display: block; width: 100%; height: 40px; margin-top: 8px; padding: 8px 12px; border-radius: 8px; font-size: 14px; }
+#settings-body select { appearance: none; padding-right: 36px; background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='m6 8 4 4 4-4' fill='none' stroke='%23616b77' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 12px center / 16px; }
+#settings-body label.check { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+#settings-body .event-note { margin: 16px 0 0; }
+.settings-intro { margin: 8px 0 0; font-weight: 700; }
+.settings-section { padding: 24px 0; border-top: 1px solid var(--line); }
+section.settings-section:first-of-type { border-top: 0; padding-top: 8px; }
+.settings-section h3 { font-size: 16px; line-height: 24px; }
+.settings-note { margin: 4px 0 0; color: var(--muted); font-size: 14px; line-height: 20px; }
+.settings-hint { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 16px; }
+.settings-ok { margin: 12px 0 0; font-size: 14px; }
+.settings-sub { margin-top: 16px; padding: 16px; border-radius: 8px; background: var(--surface-subtle); }
+.settings-sub > p { font-size: 14px; line-height: 20px; }
+.settings-sub .secondary { background: var(--surface); border: 1px solid var(--line); }
+.settings-sub-title { margin: 16px 0 0; font-size: 14px; font-weight: 700; }
+.settings-sub > .settings-sub-title { margin: 0 0 4px; }
+.settings-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.settings-advanced summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; list-style: none; cursor: pointer; }
+.settings-advanced summary::-webkit-details-marker { display: none; }
+.settings-advanced summary::before { content: ""; width: 8px; height: 8px; margin-right: 4px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); transition: transform var(--motion-150) var(--ease-out); align-self: center; }
+.settings-advanced[open] summary::before { transform: rotate(45deg); }
+.settings-advanced summary .settings-note { margin: 0; }
+.settings-footer { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 16px; padding: 16px 28px; border-top: 1px solid var(--line); background: var(--surface); }
+.settings-footer p { margin: 0; font-size: 14px; }
+.settings-dirty { margin-right: auto !important; color: #8a5a00; font-weight: 600; }
+.settings-footer .error-text:empty { display: none; }
+.settings-footer .secondary { min-height: 40px; padding: 8px 16px; font-size: 14px; }
+.settings-footer [hidden] { display: none; }
+.settings-dirty.nudge { animation: nudge var(--motion-300) var(--ease-out); }
+@keyframes nudge { 20% { transform: translateX(-4px); } 50% { transform: translateX(4px); } 80% { transform: translateX(-2px); } }
+@media (prefers-reduced-motion: reduce) { .settings-dirty.nudge { animation: none; } }
+.settings-footer .primary { min-height: 40px; margin: 0; padding: 8px 24px; font-size: 14px; }
 dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; }
 /* ---- drafting table (제도판, table.js): WebGL below, paper (CSS3D) above, controls at the edges */
 :root { --table: #f0f2f4; --table-grid: #dde2e7; --paper: #ffffff; --trace-paper: rgb(255 255 255 / .68); --pen: #36536b; --lot: #cf3f2e; --mass: #e8ebee; --select: #36536b; --pick: #e3a008; --note: #faf3dc; --note-ink: #69572f; --ok: #2f7d4f; }
@@ -707,10 +858,8 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .site-run a { color: var(--brand); text-decoration: underline; margin-left: 6px; }
 .site-run.waiting { background: #eef3f7; border-color: #c9d6e2; }
 .picked-lots .form-actions .primary { min-height: 40px; min-width: 0; padding: 8px 18px; }
-@media (min-width: 1800px) { .home { max-width: 1500px; width: 100%; margin: auto; } }
 @media (max-width: 1200px) {
   :root { --sidebar-width: 210px; --expert-width: 290px; --home-gutter: 32px; }
-  .project-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .studio { --experts-width: 230px; }
   .studio.with-table.conductor-open { --conductor-width: 310px; }
   .studio.with-table.site-open { --side-width: minmax(320px, 34%); }
@@ -731,10 +880,11 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
   .selection-items { order: 3; flex-basis: 100%; }
   .selection-count { margin-right: auto; }
   .board-head { padding: 14px 16px 12px; }
-  .home-heading .primary { min-width: auto; padding: 12px 18px; }
-  .home-heading { flex-wrap: wrap; }
-  .project-tools { margin-top: 34px; }
-  .new-topbar { gap: 70px; }
+  .project-tools { order: 3; width: 100%; }
+  .search-box { flex: 1; width: auto; }
+  .continue { grid-template-columns: minmax(0, 1fr); }
+  .project-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .continue-drawing { height: 240px; border-right: 0; border-bottom: 1px solid var(--line); }
 }
 @media (max-width: 640px) {
   :root { --home-gutter: 20px; }
@@ -743,26 +893,17 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
   .sidebar .brand { margin: 0; font-size: 27px; line-height: 38px; }
   .sidebar .nav-main { display: flex; align-items: center; margin: 0 0 0 auto; gap: 6px; }
   .sidebar .nav-main > .nav-link { font-size: 13px; width: auto; min-height: 38px; padding: 8px 10px; margin: 0; }
-  .sidebar .recent, .sidebar .nav-label { display: none; }
   .sidebar .sidebar-bottom { margin: 0; padding: 8px 10px; width: auto; min-height: 38px; }
   .home { padding-top: 32px; }
   .home h1 { font-size: 29px; line-height: 42px; }
   .home-heading { gap: 16px; }
-  .home-heading p { font-size: 14px; max-width: 290px; }
   .home-heading .primary { margin: 0; min-height: 44px; font-size: 14px; }
   .project-tools { gap: 12px; height: 48px; }
   .search-box { width: auto; flex: 1; }
   .search-box input { height: 48px; font-size: 13px; padding-left: 37px; }
   .search-box span { left: 13px; }
   .project-tools select { width: 125px; padding: 0 9px; font-size: 12px; }
-  .project-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  .project-card { min-height: 195px; }
-  .new-page { padding: 20px 20px 40px; }
-  .new-topbar { gap: 0; justify-content: space-between; }
-  .back-link { font-size: 13px; }
-  .new-project { padding: 30px 24px; margin-top: 36px; min-height: 0; }
-  .new-project h1 { font-size: 24px; }
-  .new-project label { margin-top: 36px; }
+  .project-new { display: none; }
   .form-actions { gap: 10px; }
   .form-actions .primary, .form-actions .secondary { min-width: 0; padding: 12px 18px; font-size: 14px; }
   .chat-scroll { padding: 20px 16px; }

@@ -1,7 +1,7 @@
 // Loading a project's session, site and expert results, and following a job (a Conductor turn or
 // an expert run) on the server until it ends.
 
-import { eventNotice, sitePageFor } from './model.js';
+import { eventNotice, siteCard, sitePageFor } from './model.js';
 import { addHistory } from './command-model.js';
 import { initialTalk } from './talk-panel-model.js';
 import { ApiError, api, projectApi, sleep } from './api.js';
@@ -17,11 +17,33 @@ export function resetTracking() { trackToken += 1; trackingId = null; }
 
 export async function loadProjects() {
   try {
-    ui.projects = (await api('/api/projects')).projects;
+    const answer = await api('/api/projects');
+    ui.projects = answer.projects;
     ui.projectsError = '';
+    if (answer.list && !ui.listKept) { // taken once; later changes on this screen are the newer ones
+      ui.sort = answer.list.sort;
+      ui.customOrder = answer.list.order;
+      ui.listKept = true;
+    }
   } catch (error) {
     ui.projectsError = error.message;
   }
+}
+
+// The saved site of each listed project (address, zone, outline) for the project cards. Asked once
+// per project change; a failed request is kept as such, so the card does not claim "no site".
+const SITE_CARDS_MAX = 40;
+export async function loadProjectSites() {
+  const wanted = (ui.projects || []).slice(0, SITE_CARDS_MAX).filter((p) => ui.projectSites.get(p.name)?.stamp !== p.updated_at);
+  if (!wanted.length) return false;
+  await Promise.all(wanted.map(async (p) => {
+    try {
+      ui.projectSites.set(p.name, { stamp: p.updated_at, card: siteCard(await api(`${projectApi(p.name)}/site`)) });
+    } catch {
+      ui.projectSites.set(p.name, { stamp: p.updated_at, card: null, failed: true }); // shown as unknown, not "no site"
+    }
+  }));
+  return true;
 }
 
 export async function loadSession(name) {
