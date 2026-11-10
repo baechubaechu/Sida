@@ -43,7 +43,7 @@ from pathlib import Path
 import numpy as np
 
 from sida.board import EARTH_RADIUS
-from sida.experts.site import datago, landapi, road_marks, street_trees, terrain_pack
+from sida.experts.site import datago, ground_tiles, landapi, road_marks, street_trees, terrain_pack
 
 DEFAULT_RADIUS = 200.0  # m around the site's middle
 MAX_RADIUS = 500.0
@@ -77,6 +77,9 @@ LEDGER_RETRY = ("network", "bad_response")  # failures worth one more try, after
 LEDGER_WAIT = 0.6
 
 _cache: dict[tuple, tuple[float, dict]] = {}
+# 건축물대장 rows by PNU, kept CACHE_SECONDS so a change of range does not ask again for the parcels
+# it already asked about (in memory only).
+_ledger_cache: dict[str, tuple[float, list[dict]]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -108,67 +111,77 @@ class Frame:
 # ---------------------------------------------------------------------------
 
 
-def solve_ground(fixed: list[tuple[float, float, float]], half: float, step: float) -> np.ndarray | None:
+def solve_ground(fixed, half: float, step: float) -> np.ndarray | None:
     """
     Heights on a (n × n) grid from -half to +half (rows south to north, columns west to east)
-    that keep every fixed (x, y, z) and are smooth in between (Laplace's equation, solved by
-    red-black over-relaxation from a coarse grid up). None without a fixed point.
+    that keep every fixed (x, y, z) and are smooth in between (Laplace's equation): solved on a
+    grid half as fine first, that answer drawn up as the start, then red-black over-relaxation.
+    `fixed` is a list of (x, y, z) or an (m × 3) array. None without a fixed point.
     """
-    if not fixed:
+    f = np.asarray(fixed, dtype=float).reshape(-1, 3)
+    if not len(f):
         return None
     n = int(round(2 * half / step)) + 1
+    j = np.rint((f[:, 0] + half) / step).astype(int)
+    i = np.rint((f[:, 1] + half) / step).astype(int)
+    ok = (i >= 0) & (i < n) & (j >= 0) & (j < n)
     total = np.zeros((n, n))
     count = np.zeros((n, n))
-    for x, y, z in fixed:
-        j, i = int(round((x + half) / step)), int(round((y + half) / step))
-        if 0 <= i < n and 0 <= j < n:
-            total[i, j] += z
-            count[i, j] += 1
+    np.add.at(total, (i[ok], j[ok]), f[ok, 2])
+    np.add.at(count, (i[ok], j[ok]), 1)
     known = count > 0
     if not known.any():
         return None
     values = np.where(known, total / np.maximum(count, 1), 0.0)
     if np.ptp(values[known]) == 0:
         return np.full((n, n), float(values[known][0]))
-    grid = _coarse_start(values, known, n)
-    return _relax(grid, values, known)
+    return _solve(values, known)
 
 
-def _coarse_start(values: np.ndarray, known: np.ndarray, n: int) -> np.ndarray:
-    """A first guess: the mean of the known cells in blocks of 8, spread and smoothed."""
-    b = 8
-    m = (n + b - 1) // b
-    pad = m * b - n
-    v = np.pad(np.where(known, values, 0.0), ((0, pad), (0, pad)))
-    k = np.pad(known.astype(float), ((0, pad), (0, pad)))
-    sums = v.reshape(m, b, m, b).sum(axis=(1, 3))
-    cnts = k.reshape(m, b, m, b).sum(axis=(1, 3))
+COARSEST = 33  # cells a side below which the grid is relaxed from a flat start
+
+
+def _solve(values: np.ndarray, known: np.ndarray) -> np.ndarray:
+    """Laplace's equation with the known cells held, coarse to fine: each known cell votes for
+    the nearest cell of a grid half as fine, that grid is solved the same way, its answer is
+    drawn up (bilinear) as the start here, and a few sweeps finish it."""
+    n = values.shape[0]
+    if n <= COARSEST:
+        return _relax(np.full((n, n), float(values[known].mean())), values, known)
+    m = (n + 1) // 2  # coarse cell k lies on fine cell 2k
+    ii, jj = np.nonzero(known)
+    ci, cj = np.minimum((ii + 1) // 2, m - 1), np.minimum((jj + 1) // 2, m - 1)
+    sums = np.zeros((m, m))
+    cnts = np.zeros((m, m))
+    np.add.at(sums, (ci, cj), values[ii, jj])
+    np.add.at(cnts, (ci, cj), 1)
     coarse_known = cnts > 0
-    coarse = _relax(
-        np.where(coarse_known, sums / np.maximum(cnts, 1), values[known].mean()),
-        np.where(coarse_known, sums / np.maximum(cnts, 1), 0.0),
-        coarse_known,
-    )
-    guess = np.kron(coarse, np.ones((b, b)))[:n, :n]
-    return np.where(known, values, guess)
+    coarse = _solve(np.where(coarse_known, sums / np.maximum(cnts, 1), 0.0), coarse_known)
+    at = np.arange(n) / 2.0
+    k0 = np.minimum(np.floor(at).astype(int), m - 2)
+    t = at - k0
+    rows = coarse[k0] * (1 - t)[:, None] + coarse[k0 + 1] * t[:, None]
+    guess = rows[:, k0] * (1 - t)[None, :] + rows[:, k0 + 1] * t[None, :]
+    return _relax(guess, values, known)
 
 
 def _relax(grid: np.ndarray, values: np.ndarray, known: np.ndarray, *, tol: float = 1e-3, limit: int = 4000) -> np.ndarray:
-    """Red-black successive over-relaxation of Laplace's equation, known cells held."""
+    """Red-black successive over-relaxation of Laplace's equation, known cells held (the edge
+    mirrors the cell next to it, so the ground runs on flat past the grid)."""
     g = np.where(known, values, grid).astype(float)
     n = g.shape[0]
     omega = 2 / (1 + math.sin(math.pi / max(n, 2)))
     ii, jj = np.indices(g.shape)
-    colors = [((ii + jj) % 2 == c) & ~known for c in (0, 1)]
+    sweeps = [omega * (((ii + jj) % 2 == c) & ~known) for c in (0, 1)]
+    p = np.empty((n + 2, n + 2))
     for _ in range(limit):
         biggest = 0.0
-        for free in colors:
-            p = np.pad(g, 1, mode="edge")
-            avg = (p[:-2, 1:-1] + p[2:, 1:-1] + p[1:-1, :-2] + p[1:-1, 2:]) / 4
-            change = omega * (avg - g)
-            g[free] += change[free]
-            if free.any():
-                biggest = max(biggest, float(np.abs(change[free]).max()))
+        for weight in sweeps:
+            p[1:-1, 1:-1] = g
+            p[0, 1:-1], p[-1, 1:-1], p[1:-1, 0], p[1:-1, -1] = g[0], g[-1], g[:, 0], g[:, -1]
+            change = ((p[:-2, 1:-1] + p[2:, 1:-1] + p[1:-1, :-2] + p[1:-1, 2:]) * 0.25 - g) * weight
+            g += change
+            biggest = max(biggest, float(np.abs(change).max()))
         if biggest < tol:
             break
     return g
@@ -261,19 +274,33 @@ def _join(pieces: list[tuple[tuple, tuple]]) -> list[list[tuple]]:
     return lines
 
 
-def away_from_roads(fixed: list[tuple[float, float, float]], road_xy: np.ndarray) -> list[tuple[float, float, float]]:
+def away_from_roads(fixed, road_xy: np.ndarray):
     """The contour and spot points away from the road points: by cells of ROAD_TRUST / 2, so a
     point within ROAD_TRUST m of a road point is always dropped and one beyond about 2 × ROAD_TRUST
-    is always kept."""
+    is always kept. `fixed` is a list of (x, y, z) (a list comes back) or an (m × 3) array."""
+    f = np.asarray(fixed, dtype=float).reshape(-1, 3)
+    keep = _away(f[:, :2], np.asarray(road_xy, dtype=float).reshape(-1, 2))
+    if isinstance(fixed, np.ndarray):
+        return f[keep]
+    return [p for p, k in zip(fixed, keep, strict=True) if k]
+
+
+def _away(points: np.ndarray, road_xy: np.ndarray) -> np.ndarray:
     cell = ROAD_TRUST / 2
-    roads = {(int(math.floor(x / cell)), int(math.floor(y / cell))) for x, y in road_xy}
-    reach = range(-2, 3)
+    if not len(points) or not len(road_xy):
+        return np.ones(len(points), dtype=bool)
+    span = 1 << 20  # cells a side: keys are cx * span + cy, the offsets keep them positive
 
-    def near(x, y):
-        cx, cy = int(math.floor(x / cell)), int(math.floor(y / cell))
-        return any((cx + dx, cy + dy) in roads for dx in reach for dy in reach)
+    def keys(cx, cy):
+        return (cx + span // 2) * span + (cy + span // 2)
 
-    return [p for p in fixed if not near(p[0], p[1])]
+    roads = np.unique(keys(*np.floor(road_xy / cell).astype(np.int64).T))
+    cx, cy = np.floor(points / cell).astype(np.int64).T
+    near = np.zeros(len(points), dtype=bool)
+    for dx in range(-2, 3):
+        for dy in range(-2, 3):
+            near |= np.isin(keys(cx + dx, cy + dy), roads)
+    return ~near
 
 
 def range_key(shape: str, orient: str = DEFAULT_ORIENT) -> str:
@@ -323,45 +350,60 @@ def clip_range(points, radius: float, shape: str = DEFAULT_SHAPE) -> list[np.nda
     return parts
 
 
-def ground(frame: Frame, radius: float, *, folder: Path | None = None, shape: str = DEFAULT_SHAPE) -> dict:
+def fixed_heights(frame: Frame, found: dict) -> tuple[np.ndarray, list, bool]:
     """
-    The ground around the site from the terrain packs: {"grid" (SOLVE_STEP, relative to the
-    site's middle), "half", "step", "ground_elev" (m above sea level at the middle), "contours",
-    "sources", "areas" [(kind, local ring)], "paint": the road lines and marks with local points}.
-    {"grid": None, ...} when no pack covers the site.
-    Road heights from the 정밀도로지도 (±0.25 m) are held where there are some; contour and spot
-    heights within ROAD_TRUST m of them (±1.67 m on 1:5,000) give way, so the two do not fight.
+    The heights the ground must keep, from a terrain_pack.query: ((m × 3) local x, y, z; the
+    1:5,000 contour lines as [(elevation, local points)]; whether 정밀도로지도 road points are
+    among them). Road heights (±0.25 m) are held where there are some; contour and spot heights
+    within ROAD_TRUST m of them (±1.67 m on 1:5,000) give way, so the two do not fight.
     """
-    half = radius + MARGIN
-    found = terrain_pack.query(*frame.box(half), folder=folder)
-    fixed: list[tuple[float, float, float]] = []
+    parts = [np.empty((0, 3))]
     lines = []
     for c in found["contours"]:
         pts = frame.local(c["points"])
         lines.append((c["elev"], pts))
-        for x, y in _densify(pts, SOLVE_STEP / 2):
-            fixed.append((x, y, c["elev"]))
+        dense = _densify(pts, SOLVE_STEP / 2)
+        parts.append(np.column_stack([dense, np.full(len(dense), float(c["elev"]))]))
     if found["spots"]:
         spots = np.asarray(found["spots"], dtype=float)
-        for (x, y), z in zip(frame.local(spots[:, :2]), spots[:, 2], strict=True):
-            fixed.append((x, y, z))
+        parts.append(np.column_stack([frame.local(spots[:, :2]), spots[:, 2]]))
+    fixed = np.vstack(parts)
     roads_used = bool(found.get("road_points"))
     if roads_used:
         roads = np.asarray(found["road_points"], dtype=float)
         road_xy = frame.local(roads[:, :2])
-        fixed = away_from_roads(fixed, road_xy)
-        fixed += [(x, y, z) for (x, y), z in zip(road_xy, roads[:, 2], strict=True)]
+        fixed = np.vstack([fixed[_away(fixed[:, :2], road_xy)], np.column_stack([road_xy, roads[:, 2]])])
+    return fixed, lines, roads_used
+
+
+def ground(frame: Frame, radius: float, *, folder: Path | None = None, shape: str = DEFAULT_SHAPE,
+           tiles: bool = True) -> dict:
+    """
+    The ground around the site from the terrain packs: {"grid" (SOLVE_STEP, relative to the
+    site's middle), "half", "step", "ground_elev" (m above sea level at the middle), "contours",
+    "sources", "areas" [(kind, local ring)], "paint": the road lines and marks with local points,
+    "from_tiles": whether the heights came from tiles made ahead of time}.
+    {"grid": None, ...} when no pack covers the site.
+    The heights come from the ground tiles (ground_tiles.py) when current ones cover the whole
+    range (and `tiles`), else they are solved here from fixed_heights.
+    """
+    half = radius + MARGIN
+    found = terrain_pack.query(*frame.box(half), folder=folder)
+    fixed, lines, roads_used = fixed_heights(frame, found)
     areas = [(a["kind"], frame.local(a["ring"])) for a in found["areas"]]
     paint = {
         "lines": [{**r, "points": frame.local(r["points"])} for r in found.get("road_lines") or []],
         "marks": [{**m, "ring": frame.local(m["ring"]), "ahead": frame.local([m["ahead"]])[0] if m.get("ahead") else None}
                   for m in found.get("road_marks") or []],
     }
-    grid = solve_ground(fixed, half, SOLVE_STEP)
+    grid = tile_grid(frame, half, SOLVE_STEP, folder) if tiles and len(fixed) else None
+    from_tiles = grid is not None
+    if grid is None:
+        grid = solve_ground(fixed, half, SOLVE_STEP)
     if grid is None:
         return {"grid": None, "half": half, "step": SOLVE_STEP, "ground_elev": None, "contours": [],
                 "sources": found["sources"], "areas": areas, "buildings": found["buildings"],
-                "map_buildings": found["map_buildings"], "paint": paint}
+                "map_buildings": found["map_buildings"], "paint": paint, "from_tiles": False}
     elev0 = float(sample(grid, half, SOLVE_STEP, [0.0], [0.0])[0])
     if roads_used:  # the 1:5,000 lines no longer lie on the ground near the roads: draw them from it
         lines = grid_contours(grid, half, SOLVE_STEP, CONTOUR_EVERY)
@@ -376,8 +418,40 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None, shape: st
     return {
         "grid": grid - elev0, "half": half, "step": SOLVE_STEP, "ground_elev": round(elev0, 2),
         "contours": contours, "sources": found["sources"], "areas": areas, "buildings": found["buildings"],
-        "map_buildings": found["map_buildings"], "paint": paint,
+        "map_buildings": found["map_buildings"], "paint": paint, "from_tiles": from_tiles,
     }
+
+
+def tile_grid(frame: Frame, half: float, step: float, folder: Path | None = None) -> np.ndarray | None:
+    """The (n × n) height grid over ±half m (as solve_ground lays it out) read from the ground
+    tiles, or None when current tiles do not cover all of it."""
+    n = int(round(2 * half / step)) + 1
+    axis = -half + np.arange(n) * step
+    xx, yy = np.meshgrid(axis, axis)
+    return ground_tiles.heights(frame.lon0 + xx / frame.east, frame.lat0 + yy / frame.north, folder)
+
+
+def make_tile(ix: int, iy: int, *, folder: Path | None = None) -> dict | None:
+    """
+    One ground tile (ground_tiles.py): the ground solved over the tile and TILE_MARGIN m around
+    it, kept over the tile and its border, in the frame of the tile's middle: {"ix", "iy", "lon0",
+    "lat0", "east", "north" (m per degree), "x0", "y0", "step", "z" (rows south to north, m above
+    sea level)}. None when no height lies near the tile.
+    """
+    west, south, east, north = ground_tiles.tile_box(ix, iy)
+    frame = Frame({"lon": (west + east) / 2, "lat": (south + north) / 2})
+    hx, hy = (east - west) / 2 * frame.east, (north - south) / 2 * frame.north
+    step = ground_tiles.STEP
+    half = math.ceil((max(hx, hy) + ground_tiles.TILE_MARGIN) / step) * step  # the middle on a grid point
+    fixed, _lines, _roads = fixed_heights(frame, terrain_pack.query(*frame.box(half), folder=folder))
+    grid = solve_ground(fixed, half, step)
+    if grid is None:
+        return None
+    mid = int(round(half / step))
+    cx, cy = ground_tiles.cells(hx, hy)
+    z = grid[mid - cy:mid + cy + 1, mid - cx:mid + cx + 1]
+    return {"ix": ix, "iy": iy, "lon0": frame.lon0, "lat0": frame.lat0, "east": frame.east, "north": frame.north,
+            "x0": -cx * step, "y0": -cy * step, "step": step, "z": z}
 
 
 CLASS_CODES = {"site": "g", "road": "r", "sidewalk": "s", "water": "w"}
@@ -405,14 +479,20 @@ def inside_many(points: np.ndarray, ring: np.ndarray) -> np.ndarray:
 
 def classify(points: np.ndarray, areas: list[tuple[str, np.ndarray]]) -> str:
     """One letter per point (CLASS_CODES): what the ground is there, 'g' outside every area."""
+    points = np.asarray(points, dtype=float).reshape(-1, 2)
     codes = np.full(len(points), "g", dtype="<U1")
     taken = np.zeros(len(points), dtype=bool)
+    order = np.argsort(points[:, 0], kind="stable")  # each ring tests only the points in its x span
+    xs = points[order, 0]
     for kind in CLASS_ORDER:
         for k, ring in areas:
             if k == kind and len(ring) >= 3:
-                hit = inside_many(points, ring) & ~taken
+                near = order[np.searchsorted(xs, ring[:, 0].min()):np.searchsorted(xs, ring[:, 0].max(), side="right")]
+                if not len(near):
+                    continue
+                hit = near[inside_many(points[near], ring) & ~taken[near]]
                 codes[hit] = CLASS_CODES[kind]
-                taken |= hit
+                taken[hit] = True
     return "".join(codes)
 
 
@@ -461,6 +541,8 @@ def _area(ring: np.ndarray) -> float:
 def _inside(pt, ring: np.ndarray) -> bool:
     x, y = pt
     xs, ys = ring[:, 0], ring[:, 1]
+    if x < xs.min() or x > xs.max() or y < ys.min() or y > ys.max():
+        return False
     xj, yj = np.roll(xs, 1), np.roll(ys, 1)
     cross = (ys > y) != (yj > y)
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -539,6 +621,8 @@ OVERLAP = 0.5  # share of a building's outline a 1:5,000 building must cover to 
 def overlap_share(a: np.ndarray, b: np.ndarray, gap: float = 0.5) -> float:
     """About how much of ring `a`'s area ring `b` covers (points `gap` m apart over `a`'s box)."""
     lo, hi = a.min(axis=0), a.max(axis=0)
+    if np.any(b.min(axis=0) > hi) or np.any(b.max(axis=0) < lo):
+        return 0.0
     xs = np.arange(lo[0] + gap / 2, hi[0], gap)
     ys = np.arange(lo[1] + gap / 2, hi[1], gap)
     if not len(xs) or not len(ys):
@@ -550,10 +634,34 @@ def overlap_share(a: np.ndarray, b: np.ndarray, gap: float = 0.5) -> float:
     return float((in_a & inside_many(pts, b)).sum() / in_a.sum())
 
 
-def map_floors(ring: np.ndarray, mapped: list[tuple[np.ndarray, float, str]]) -> tuple[float, str] | None:
-    """(floors, use) of the 1:5,000 building over this outline, or None."""
+class Boxes:
+    """The bounding boxes of many rings, to skip at once the ones that cannot touch a point or
+    another ring (the polygon tests are the slow part)."""
+
+    def __init__(self, rings):
+        rings = list(rings)
+        self.lo = np.array([r.min(axis=0) for r in rings], dtype=float).reshape(-1, 2)
+        self.hi = np.array([r.max(axis=0) for r in rings], dtype=float).reshape(-1, 2)
+
+    def holding(self, pt) -> np.ndarray:
+        """Indices (in order) of the rings whose box holds the point."""
+        pt = np.asarray(pt, dtype=float)
+        return np.flatnonzero(np.all((self.lo <= pt) & (self.hi >= pt), axis=1))
+
+    def meeting(self, ring: np.ndarray) -> np.ndarray:
+        """Indices (in order) of the rings whose box meets this ring's box."""
+        lo, hi = ring.min(axis=0), ring.max(axis=0)
+        return np.flatnonzero(np.all((self.lo <= hi) & (self.hi >= lo), axis=1))
+
+
+def map_floors(ring: np.ndarray, mapped: list[tuple[np.ndarray, float, str]],
+               boxes: Boxes | None = None) -> tuple[float, str] | None:
+    """(floors, use) of the 1:5,000 building over this outline, or None. `boxes`: the Boxes of
+    `mapped`'s rings, when it is asked many times."""
     middle = ring.mean(axis=0)
-    for other, floors, use in mapped:
+    boxes = boxes or Boxes(r for r, _f, _u in mapped)
+    for k in boxes.meeting(ring):  # a building that touches this one has a box that meets its box
+        other, floors, use = mapped[k]
         if _inside(middle, other) or _inside(other.mean(axis=0), ring) or overlap_share(ring, other) > OVERLAP:
             return floors, use
     return None
@@ -567,6 +675,16 @@ def _pack_features(buildings: list[dict]) -> list[dict]:
          "shape": {"type": "Polygon", "coordinates": [b["ring"]]}}
         for b in buildings
     ]
+
+
+def _ledger_rows(pnu: str) -> list[dict]:
+    """datago.buildings for this PNU, from memory when it was asked within CACHE_SECONDS."""
+    hit = _ledger_cache.get(pnu)
+    if hit and time.time() - hit[0] < CACHE_SECONDS:
+        return hit[1]
+    rows = datago.buildings(pnu)
+    _ledger_cache[pnu] = (time.time(), rows)
+    return rows
 
 
 def surroundings(
@@ -617,8 +735,10 @@ def surroundings(
             if in_range(middle, radius, shape)[0]:
                 found.append((ring, f["properties"], abs(_area(ring)), middle))
     inner = set()
+    found_boxes = Boxes(f[0] for f in found)
     for i, (_ring, _p, area, middle) in enumerate(found):
-        for j, (ring_j, _pj, area_j, _mj) in enumerate(found):
+        for j in found_boxes.holding(middle):
+            ring_j, _pj, area_j, _mj = found[j]
             if i != j and area_j > area and _inside(middle, ring_j):
                 inner.add(i)
                 break
@@ -630,7 +750,7 @@ def surroundings(
     records: dict[str, list[dict]] = {}
     wanted = sorted({p for p in pnus.values() if p})
     if wanted:
-        look = ledger or datago.buildings
+        look = ledger or _ledger_rows
 
         def one(pnu):
             for again in (False, True):
@@ -654,6 +774,8 @@ def surroundings(
               "unknown": 0, "inner": len(inner)}
     map_rings = [(r, float(m["floors"]), m.get("use", "")) for m in mapped or [] for r in _rings(
         {"type": "Polygon", "coordinates": [m["ring"]]}, frame)]
+    map_boxes = Boxes(r for r, _f, _u in map_rings)
+    map_areas = [abs(_area(r)) for r, _f, _u in map_rings]
 
     # Each parcel's 대장 동 on its outlines, one to one; a 동 without an outline in the file takes
     # one from the 1:5,000 map (a downloaded file: it can be exported), else from VWorld (screen only).
@@ -680,8 +802,8 @@ def surroundings(
             arch = row.get("building_area_m2") or 0
             if arch <= 0:
                 continue
-            fits = [(abs(abs(_area(r)) / arch - 1), k, r) for k, (r, _f, _u) in enumerate(map_rings)
-                    if k not in used_maps and AREA_MATCH[0] <= abs(_area(r)) / arch <= AREA_MATCH[1] and here(r)]
+            fits = [(abs(map_areas[k] / arch - 1), k, r) for k, (r, _f, _u) in enumerate(map_rings)
+                    if k not in used_maps and AREA_MATCH[0] <= map_areas[k] / arch <= AREA_MATCH[1] and here(r)]
             source = "map"
             if not fits and not for_export:
                 if vworld_rings is None:
@@ -752,10 +874,10 @@ def surroundings(
             floors = asked
             height, source = floors * storey_height(use), "api_estimate"
             # What the file export uses instead: VWorld's floors stay on the screen (제19조)
-            lent = map_floors(ring, map_rings)
+            lent = map_floors(ring, map_rings, map_boxes)
             offline = {"height": round(lent[0] * storey_height(use or lent[1]), 2), "source": "map_estimate",
                        "floors": int(lent[0])} if lent else None
-        elif (lent := map_floors(ring, map_rings)) is not None:
+        elif (lent := map_floors(ring, map_rings, map_boxes)) is not None:
             floors = int(lent[0])
             use = use or lent[1]
             height, source = floors * storey_height(use), "map_estimate"
