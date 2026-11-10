@@ -20,6 +20,13 @@ Road points are heights on the road surface from the 국토지리정보원 정�
 ±0.25 m): its lane links, lane lines and road markings on ordinary roads (no tunnels, bridges,
 underpasses or overpasses), at most one point per metre. Where they are, the ground follows them
 rather than the 1:5,000 contours (±1.67 m in height).
+
+Road lines and road marks are the paint on those roads, from the same 정밀도로지도: lane lines
+(B2 노면선표시: its Type, colour and line, and Kind, what the line is) as [lon, lat] lines, and road
+marks (B3 노면표시: arrows, crossings) as the [lon, lat] rectangle the mark covers plus a point 1 m
+ahead of its middle in the direction of travel (from the lane link it names). Each keeps the
+정밀도로지도 ID, so a road in two downloads (a district and a pilot zone) is drawn once. How they
+are drawn is road_marks.py's business.
 """
 
 from __future__ import annotations
@@ -50,6 +57,10 @@ CREATE TABLE IF NOT EXISTS road_points (id INTEGER PRIMARY KEY, lon REAL NOT NUL
 CREATE VIRTUAL TABLE IF NOT EXISTS road_points_box USING rtree(id, west, east, south, north);
 CREATE TABLE IF NOT EXISTS map_buildings (id INTEGER PRIMARY KEY, ring TEXT NOT NULL, floors REAL NOT NULL, use TEXT NOT NULL);
 CREATE VIRTUAL TABLE IF NOT EXISTS map_buildings_box USING rtree(id, west, east, south, north);
+CREATE TABLE IF NOT EXISTS road_lines (id INTEGER PRIMARY KEY, ref TEXT NOT NULL, type TEXT NOT NULL, kind TEXT NOT NULL, points TEXT NOT NULL);
+CREATE VIRTUAL TABLE IF NOT EXISTS road_lines_box USING rtree(id, west, east, south, north);
+CREATE TABLE IF NOT EXISTS road_marks (id INTEGER PRIMARY KEY, ref TEXT NOT NULL, type TEXT NOT NULL, kind TEXT NOT NULL, ring TEXT NOT NULL, ahead TEXT NOT NULL);
+CREATE VIRTUAL TABLE IF NOT EXISTS road_marks_box USING rtree(id, west, east, south, north);
 """
 
 
@@ -85,6 +96,36 @@ def add_road_point(conn: sqlite3.Connection, lon: float, lat: float, elev: float
     """One height on the road surface (정밀도로지도): [lon, lat] and m above sea level."""
     cur = conn.execute("INSERT INTO road_points (lon, lat, elev) VALUES (?, ?, ?)", (lon, lat, float(elev)))
     conn.execute("INSERT INTO road_points_box VALUES (?, ?, ?, ?, ?)", (cur.lastrowid, lon, lon, lat, lat))
+
+
+def _points(points) -> str:
+    return json.dumps([[round(x, 7), round(y, 7)] for x, y in points], separators=(",", ":"))
+
+
+def add_road_line(conn: sqlite3.Connection, ref: str, type_: str, kind: str, points: list[list[float]]) -> None:
+    """One lane line (정밀도로지도 B2): its ID, Type and Kind codes as written, and [lon, lat] points."""
+    if len(points) < 2:
+        return
+    lons = [p[0] for p in points]
+    lats = [p[1] for p in points]
+    cur = conn.execute("INSERT INTO road_lines (ref, type, kind, points) VALUES (?, ?, ?, ?)",
+                       (str(ref), str(type_), str(kind), _points(points)))
+    conn.execute("INSERT INTO road_lines_box VALUES (?, ?, ?, ?, ?)", (cur.lastrowid, min(lons), max(lons), min(lats), max(lats)))
+
+
+def add_road_mark(conn: sqlite3.Connection, ref: str, type_: str, kind: str, ring: list[list[float]],
+                  ahead: list[float] | None) -> None:
+    """One road mark (정밀도로지도 B3): its ID, Type and Kind codes, the [lon, lat] ring it covers, and
+    the [lon, lat] point 1 m ahead of its middle in the direction of travel (None: not known)."""
+    if len(ring) < 3:
+        return
+    lons = [p[0] for p in ring]
+    lats = [p[1] for p in ring]
+    cur = conn.execute(
+        "INSERT INTO road_marks (ref, type, kind, ring, ahead) VALUES (?, ?, ?, ?, ?)",
+        (str(ref), str(type_), str(kind), _points(ring), _points([ahead]) if ahead else ""),
+    )
+    conn.execute("INSERT INTO road_marks_box VALUES (?, ?, ?, ?, ?)", (cur.lastrowid, min(lons), max(lons), min(lats), max(lats)))
 
 
 def add_spot(conn: sqlite3.Connection, lon: float, lat: float, elev: float) -> None:
@@ -154,10 +195,13 @@ def query(west: float, south: float, east: float, north: float, folder: Path | N
     folder: {"contours": [{"elev", "points": [[lon, lat]]}], "spots": [[lon, lat, elev]],
     "areas": [{"kind", "ring": [[lon, lat]]}], "buildings": [{"ring", **BUILDING_FIELDS}],
     "map_buildings": [{"ring", "floors", "use"}], "road_points": [[lon, lat, elev]],
-    "sources": [pack meta]}. Empty lists when no pack covers the box.
+    "road_lines": [{"type", "kind", "points"}], "road_marks": [{"type", "kind", "ring", "ahead" (or None)}],
+    "sources": [pack meta]}. Empty lists when no pack covers the box. A road line or mark found in
+    two packs (the same 정밀도로지도 ID) comes once.
     """
     out: dict = {"contours": [], "spots": [], "areas": [], "buildings": [], "map_buildings": [],
-                 "road_points": [], "sources": []}
+                 "road_points": [], "road_lines": [], "road_marks": [], "sources": []}
+    seen: set[tuple[str, str]] = set()
     for path in packs(folder):
         with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as conn:
             lines = conn.execute(
@@ -190,7 +234,17 @@ def query(west: float, south: float, east: float, north: float, folder: Path | N
                 "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",
                 (west, east, south, north),
             ).fetchall() if _has_table(conn, "road_points") else []
-            if lines or points or areas or houses or mapped or roads:
+            paint = conn.execute(
+                "SELECT r.ref, r.type, r.kind, r.points FROM road_lines r JOIN road_lines_box b ON b.id = r.id "
+                "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",
+                (west, east, south, north),
+            ).fetchall() if _has_table(conn, "road_lines") else []
+            marks = conn.execute(
+                "SELECT r.ref, r.type, r.kind, r.ring, r.ahead FROM road_marks r JOIN road_marks_box b ON b.id = r.id "
+                "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",
+                (west, east, south, north),
+            ).fetchall() if _has_table(conn, "road_marks") else []
+            if lines or points or areas or houses or mapped or roads or paint or marks:
                 out["sources"].append(dict(conn.execute("SELECT key, value FROM meta")))
         out["contours"] += [{"elev": elev, "points": json.loads(text)} for elev, text in lines]
         out["spots"] += [[lon, lat, elev] for lon, lat, elev in points]
@@ -198,6 +252,15 @@ def query(west: float, south: float, east: float, north: float, folder: Path | N
         out["buildings"] += [{"ring": json.loads(ring), **json.loads(attrs)} for ring, attrs in houses]
         out["map_buildings"] += [{"ring": json.loads(ring), "floors": floors, "use": use} for ring, floors, use in mapped]
         out["road_points"] += [[lon, lat, elev] for lon, lat, elev in roads]
+        for ref, type_, kind, text in paint:
+            if not ref or ("line", ref) not in seen:
+                seen.add(("line", ref))
+                out["road_lines"].append({"type": type_, "kind": kind, "points": json.loads(text)})
+        for ref, type_, kind, ring, ahead in marks:
+            if not ref or ("mark", ref) not in seen:
+                seen.add(("mark", ref))
+                out["road_marks"].append({"type": type_, "kind": kind, "ring": json.loads(ring),
+                                          "ahead": json.loads(ahead)[0] if ahead else None})
     return out
 
 

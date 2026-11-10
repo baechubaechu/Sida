@@ -64,7 +64,8 @@ def test_pack_query_returns_only_what_touches_the_box(pack):
     assert found["sources"][0]["source_date"] == "2026-10-01"
     assert [a["kind"] for a in found["areas"]] == ["water", "sidewalk"]
     assert terrain_pack.query(west, south, east, north, folder=pack / "none") == {
-        "contours": [], "spots": [], "areas": [], "buildings": [], "map_buildings": [], "road_points": [], "sources": []}
+        "contours": [], "spots": [], "areas": [], "buildings": [], "map_buildings": [], "road_points": [],
+        "road_lines": [], "road_marks": [], "sources": []}
     with pytest.raises(ValueError):
         terrain_pack.add_area(None, "lake", [])
 
@@ -705,3 +706,59 @@ def test_whether_the_surroundings_were_on_is_kept_beside_the_range(tmp_path):
     assert context_range.shown(tmp_path) is True  # and saving a range keeps it
     context_range.save_shown(tmp_path, False)
     assert context_range.shown(tmp_path) is False
+
+
+def _roads_pack(folder, name="r", ref_prefix="B"):
+    """A roads pack with a yellow centre line along y = -40 from x = -300 to 300, a straight arrow
+    heading east at (20, -42), one with no link and a crossing."""
+    conn = terrain_pack.create(folder / f"{name}{terrain_pack.SUFFIX}", {"name": name, "kind": "roads", "source": "정밀도로지도"})
+    terrain_pack.add_road_line(conn, f"{ref_prefix}2_1", "111", "501", [lonlat(-300, -40), lonlat(300, -40)])
+    terrain_pack.add_road_line(conn, "", "212", "503", [lonlat(-20, -44), lonlat(20, -44)])  # no ID: never merged
+    arrow = [lonlat(x, y) for x, y in ((17.5, -42.35), (22.5, -42.35), (22.5, -41.65), (17.5, -41.65), (17.5, -42.35))]
+    terrain_pack.add_road_mark(conn, f"{ref_prefix}3_1", "1", "5371", arrow, lonlat(21, -42))
+    terrain_pack.add_road_mark(conn, f"{ref_prefix}3_2", "1", "5372", [lonlat(x + 10, y) for x, y in ((0, -38), (5, -38), (5, -37), (0, -37))], None)
+    terrain_pack.add_road_mark(conn, f"{ref_prefix}3_3", "5", "5321", [lonlat(x, y) for x, y in ((40, -45), (44, -45), (44, -35), (40, -35))], lonlat(43, -40))
+    terrain_pack.add_road_mark(conn, f"{ref_prefix}3_4", "1", "5371", [lonlat(x, y) for x, y in ((900, 0), (905, 0), (905, 1), (900, 1))], None)  # far off
+    conn.commit()
+    conn.close()
+
+
+def test_a_road_line_or_mark_in_two_packs_comes_once(pack):
+    _roads_pack(pack, "r1")
+    _roads_pack(pack, "r2")  # the same 정밀도로지도 IDs, as in a district and a pilot zone download
+    found = terrain_pack.query(*lonlat(-200, -200), *lonlat(200, 200), folder=pack)
+    assert [r["kind"] for r in found["road_lines"]] == ["501", "503", "503"]  # the line without an ID is not merged
+    assert sorted(m["kind"] for m in found["road_marks"]) == ["5321", "5371", "5372"]
+    arrow = next(m for m in found["road_marks"] if m["kind"] == "5371")
+    assert arrow["ahead"] == pytest.approx(lonlat(21, -42)) and arrow["type"] == "1"
+    assert next(m for m in found["road_marks"] if m["kind"] == "5372")["ahead"] is None
+
+
+def test_the_road_paint_lies_on_the_ground_within_the_range_and_goes_to_the_files(pack, monkeypatch):
+    fake_vworld_layers(monkeypatch)
+    assert context3d.build(plan_for_site(), 200, folder=pack, ledger=ledger, use_cache=False)["road_marks"] is None
+    _roads_pack(pack)
+    out = context3d.build(plan_for_site(), 100, folder=pack, ledger=ledger, use_cache=False)
+    paint = out["road_marks"]
+    lines = {(g["color"], g["width"]): g["pieces"] for g in paint["lines"]}
+    (centre,) = lines[("yellow", 0.15)]
+    xs = [p[0] for p in centre]
+    assert min(xs) == pytest.approx(-100) and max(xs) == pytest.approx(100)  # cut at the range's edge
+    t = out["terrain"]
+    grid = np.asarray(t["z"]).reshape(t["n"], t["n"])
+    for x, y, z in centre[::10]:
+        ground = float(context3d.sample(grid, -t["min"], t["step"], [x], [y])[0])
+        assert z == pytest.approx(ground + 0.03, abs=0.01)  # on the drawn ground, just above it
+    assert len(lines[("white", 0.15)]) == 5  # 40 m dashed: 3 m every 8 m
+    kinds = {m["kind"]: m for m in paint["marks"]}
+    assert set(kinds) == {"5371", "5372", "5321"}  # the far one is outside the range
+    assert kinds["5371"]["name"] == "직진" and max(p[0] for s in kinds["5371"]["shapes"] for p in s) == pytest.approx(22.5, abs=0.02)
+    assert kinds["5372"]["shapes"] == [] and kinds["5372"]["outline"]  # no link: the way is not known
+    stripes = np.asarray(kinds["5321"]["shapes"])
+    assert len(stripes) == 10 and np.ptp(stripes[0][:, 0]) == pytest.approx(4)  # 4 m stripes, east like the traffic
+
+    layers = {layer["short"]: layer for layer in context3d.export_layers(out)}
+    assert {"차선 - 황색", "차선 - 백색", "노면표시"} <= set(layers) and "차선 - 청색" not in layers
+    assert layers["차선 - 황색"]["parent"] == context3d.EXPORT_GROUP
+    assert all(c["closed"] for c in layers["노면표시"]["curves"])
+    assert len(layers["노면표시"]["curves"]) == len(kinds["5371"]["shapes"]) + 1 + 10  # the outline without a link too

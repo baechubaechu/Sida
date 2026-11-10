@@ -1219,3 +1219,21 @@ test('a folded layer hides its sublayers at any depth, and only those', async ()
   assert.deepEqual(ids(['tower']), ['mass', 'tower', 'low', 'note', 'around', 'around:ground']);
   assert.deepEqual(ids(['around', 'note']), ['mass', 'tower', 'top', 'low', 'note', 'around']);
 });
+
+test('road paint becomes ribbons of its real width, filled marks and outlines', async () => {
+  const { paintTriangles, AROUND_PARTS } = await import('../../webui/app/board-model.js');
+  const tri = paintTriangles({
+    lines: [{ color: 'yellow', width: 0.2, pieces: [[[0, 0, 1], [10, 0, 2]], [[0, 5, 0], [0, 5, 0]]] }],
+    marks: [{ kind: '5371', shapes: [[[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]]], outline: null },
+      { kind: '5372', shapes: [], outline: [[0, 0, 0], [5, 0, 0], [5, 1, 0], [0, 0, 0]] }],
+  });
+  const ys = tri.lines.yellow.filter((_, i) => i % 3 === 1);
+  assert.equal(tri.lines.yellow.length, 18); // one quad: the zero-length piece adds nothing
+  assert.deepEqual([Math.min(...ys), Math.max(...ys)], [-0.1, 0.1]); // 0.2 m wide around the line
+  assert.equal(tri.lines.yellow[2], 1); // each end keeps its own height
+  assert.equal(tri.marks.length, 2 * 9); // a square as two triangles
+  assert.equal(tri.outlines.length, 3 * 6); // three edges of the outline
+  assert.deepEqual(tri.counts, { lanes: 2, marks: 2 });
+  assert.deepEqual(paintTriangles(null).counts, { lanes: 0, marks: 0 });
+  assert.ok(AROUND_PARTS.some(([id]) => id === 'lanes') && AROUND_PARTS.some(([id]) => id === 'marks'));
+});
