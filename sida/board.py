@@ -79,8 +79,8 @@ from sida.storage import atomic_write_text
 
 BOARD_FILE = "board.json"
 SITE_ID = "site"
-KINDS = ("site", "mass", "note", "tracing", "expert", "photo")
-DESIGNER_KINDS = ("mass", "note", "tracing")  # what the screen may add
+KINDS = ("site", "mass", "note", "tracing", "expert", "photo", "section")
+DESIGNER_KINDS = ("mass", "note", "tracing", "section")  # what the screen may add
 AI_KINDS = ("mass", "note")  # what the Conductor may put in the AI section
 MAX_TRAY = 40  # the AI section keeps the newest papers
 PREVIEW_LINES = 12
@@ -97,7 +97,7 @@ PLACEMENT = ("x", "y", "w", "h")
 ARRANGE = (*PLACEMENT, "folded", "layer", "group")
 PAPER_SIZE = {
     "site": (300, 250), "mass": (300, 210), "note": (200, 140), "tracing": (300, 250), "expert": (320, 270),
-    "photo": (300, 225),
+    "photo": (300, 225), "section": (360, 220),
 }
 PAPER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 CONTEXT_MODES = ("auto", "full", "names")
@@ -132,7 +132,16 @@ LAYER_COLOR = re.compile(r"#[0-9a-fA-F]{6}")
 # The layers a table starts with: one for each kind of paper (their ids are the kinds).
 DEFAULT_LAYERS = (
     ("site", "대지"), ("mass", "매스"), ("tracing", "트레이싱지"), ("note", "메모"), ("photo", "사진"), ("expert", "전문가 결과"),
+    ("section", "단면"),
 )
+# A section (단면, 2026-11-11 지훈): a line drawn across the site, the side it looks toward, how far
+# beyond it the drawing shows and the scale it is printed at. The drawing itself is made from the
+# table and the surroundings each time (sida/board_section.py), so it follows every change.
+SECTION_SCALES = (100, 200, 300, 500, 600, 1000, 1200, 2000, 2500, 5000)
+DEFAULT_SECTION_SCALE = 500
+DEFAULT_SECTION_DEPTH = 60.0
+MAX_SECTION_DEPTH = 1000.0
+MAX_SECTION_REACH = 5000.0  # metres from the site's middle a section line may reach
 
 
 def default_layers() -> list[dict]:
@@ -273,6 +282,9 @@ def add_paper(project_path: Path, data: dict) -> dict:
             raise ValueError(f"a paper with this id already exists: {paper_id}")
         paper = clean_paper({**data, "id": paper_id, "kind": kind})
         board["papers"].append(paper)
+        if kind == "section" and not any(x["id"] == "section" for x in board["layers"]) and len(board["layers"]) < MAX_LAYERS:
+            # a table saved before sections had no layer for them
+            board["layers"].append({"id": "section", "name": "단면", "parent": "", "visible": True, "locked": False, "color": ""})
         board = _save(project_path, board)
     return {"paper": paper, "rev": board["rev"]}
 
@@ -879,6 +891,20 @@ def _stroke(raw, index: int) -> list[list[float]]:
     return points
 
 
+def _section_line(raw) -> list[list[float]]:
+    """Two points [[x, y], [x, y]] in metres around the site's middle, at least 1 m apart."""
+    if not isinstance(raw, list) or len(raw) != 2:
+        raise ValueError("a section needs its line: two points [[x, y], [x, y]]")
+    points = []
+    for point in raw:
+        if not isinstance(point, list) or len(point) != 2:
+            raise ValueError("a section line point must be [x, y]")
+        points.append([round(_number(v, "section line", low=-MAX_SECTION_REACH, high=MAX_SECTION_REACH), 2) for v in point])
+    if math.dist(points[0], points[1]) < 1:
+        raise ValueError("a section line must be at least 1 m long")
+    return points
+
+
 def clean_paper(data: dict) -> dict:
     """A paper with only the fields its kind holds, checked. Raises ValueError."""
     kind = data["kind"]
@@ -917,6 +943,20 @@ def clean_paper(data: dict) -> dict:
         paper["title"] = title
         paper["strokes"] = [_stroke(s, i) for i, s in enumerate(strokes)]
         paper["overlaid"] = bool(data.get("overlaid", False))
+    elif kind == "section":
+        paper["title"] = title
+        paper["line"] = _section_line(data.get("line"))
+        flip = data.get("flip", False)
+        if not isinstance(flip, bool):
+            raise ValueError("flip must be true or false")
+        paper["flip"] = flip
+        paper["depth"] = _number(data.get("depth", DEFAULT_SECTION_DEPTH), "depth", high=MAX_SECTION_DEPTH)
+        if paper["depth"] < 0:  # 0: only what the line cuts
+            raise ValueError("depth must be 0 or more")
+        scale = data.get("scale", DEFAULT_SECTION_SCALE)
+        if scale not in SECTION_SCALES or isinstance(scale, bool):
+            raise ValueError(f"scale must be one of {', '.join(map(str, SECTION_SCALES))}")
+        paper["scale"] = int(scale)
     elif kind == "photo":  # the file is named by the server (add_photo) and never changes
         file = data.get("file")
         if not isinstance(file, str) or not PHOTO_FILE.fullmatch(file):
@@ -1014,12 +1054,15 @@ def paper_name(paper: dict) -> str:
         return f"{paper.get('title') or paper.get('agent')} 결과"
     if kind == "photo":
         return paper.get("title") or "사진"
+    if kind == "section":
+        name = paper.get("title") or "A"
+        return f"단면 {name}–{name}′"
     return paper.get("title") or kind
 
 
 KIND_WORDS = {
     "site": "site", "mass": "massing scheme", "note": "note", "tracing": "tracing sheet",
-    "expert": "expert result", "photo": "photo",
+    "expert": "expert result", "photo": "photo", "section": "section",
 }
 
 
@@ -1082,6 +1125,18 @@ def paper_text(paper: dict, site: dict | None) -> str:
         return (
             f"{head}: a photo the designer put on the table. The image itself is not sent; "
             "ask the designer what it shows if it matters."
+        )
+    if kind == "section":
+        (x0, y0), (x1, y1) = paper["line"]
+        dx, dy = x1 - x0, y1 - y0
+        nx, ny = (dy, -dx) if not paper.get("flip") else (-dy, dx)  # the side it looks toward
+        bearing = math.degrees(math.atan2(nx, ny)) % 360
+        return (
+            f"{head}: a section line from ({_m(x0)}, {_m(y0)}) to ({_m(x1)}, {_m(y1)}) m around the site's "
+            f"middle (x east, y north), {_m(math.hypot(dx, dy))} m long, looking toward bearing {bearing:.0f}° "
+            f"(0 = north), showing what stands up to {paper['depth']:g} m beyond the cut, drawn at 1:{paper['scale']}. "
+            "The drawing cuts the ground, the scheme shown in 3D and the buildings around; ask the designer "
+            "what they want checked on it."
         )
     if kind == "mass":
         area = (site or {}).get("area_m2")

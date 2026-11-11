@@ -17,11 +17,12 @@ export const TOOLS = [
   { id: 'note', label: '메모', cmd: 'note' },
   { id: 'pen', label: '펜', cmd: 'pen' },
   { id: 'person', label: '사람', cmd: 'people', hint: '바닥이나 매스 지붕을 누르면 사람이 섭니다. 도구 옆에서 종류를 고르거나 대지 주변에 한 번에 뿌릴 수 있습니다. 세운 사람은 끌어서 옮깁니다.' },
+  { id: 'section', label: '단면', cmd: 'section', hint: '평면에서 끌어 단면선을 긋습니다. 화살표 쪽을 봅니다. Shift는 15° 단위.' },
 ];
 // The tape and the radius tool measure with two clicks (table-measure.js), not a drag.
 export const MEASURE_TOOLS = new Set(['tape', 'radius']);
 export const MODEL_TOOLS = new Set(TOOLS.filter((t) => t.group === 'model').map((t) => t.id));
-export const DETAIL_KINDS = { site: '대지 자료', mass: '매스안', expert: '전문가 검토', tracing: '트레이싱', note: '설계 메모', photo: '사진' };
+export const DETAIL_KINDS = { site: '대지 자료', mass: '매스안', expert: '전문가 검토', tracing: '트레이싱', note: '설계 메모', photo: '사진', section: '단면도' };
 export const PHOTO_GAP = 3; // metres between photos dropped together
 export const cm = (metres) => Math.round(metres * 100) / 100; // pen points are kept to the centimetre
 export const strokePath = (pts) => pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(2)} ${(-y).toFixed(2)}`).join(' ');

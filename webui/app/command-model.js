@@ -21,6 +21,7 @@ export const COMMANDS = [
   { name: 'mass', aliases: [], label: '숫자로 매스안 만들기', group: 'draw' },
   { name: 'people', aliases: ['person', 'figure'], label: '사람 배치: 바닥이나 매스 지붕을 눌러 사람 모형(1.7m) 세우기, 대지 주변에 뿌리기', group: 'draw' },
   { name: 'photo', aliases: ['picture', 'image', 'img'], label: '사진·PDF 올리기 (끌어다 놓거나 붙여넣어도 됨)', group: 'draw' },
+  { name: 'section', aliases: ['sec'], label: '단면: 평면에서 끌어 단면선 긋기 (단면도 종이·3D 자르기·SVG/PDF/DXF)', group: 'draw' },
   // SketchUp's basic tools on blocks (2026-11-02 지훈), with the AutoCAD short names.
   { name: 'rect', aliases: ['rec', 'rectangle'], label: '사각형: 끌어서 새 동 그리기', group: 'draw' },
   { name: 'pushpull', aliases: ['pp', 'push'], label: '밀고끌기: 끌어서 조절 · 클릭하면 층수·길이 입력', group: 'draw' },

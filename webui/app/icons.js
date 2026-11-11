@@ -22,6 +22,8 @@ const PATHS = {
   tape: '<rect x="2.5" y="6.5" width="15" height="7" rx="1"/><path d="M6 6.5v3M9 6.5v2M12 6.5v3M15 6.5v2"/>',
   radius: '<circle cx="10" cy="10" r="7"/><path d="M10 10h7"/><circle cx="10" cy="10" r=".9"/>',
   note: '<path d="M4 3.5h12v9l-4 4H4z"/><path d="M12 16.5v-4h4M7 7.5h6M7 10.5h4"/>',
+  // A section line with its arrows toward the looked-at side.
+  section: '<path d="M3 10h14" stroke-dasharray="3 1.6"/><path d="M4 10V5.5l-2 2M4 5.5l2 2M16 10V5.5l-2 2M16 5.5l2 2"/>',
   pen: '<path d="m13.5 3.5 3 3L7 16H4v-3z"/><path d="m11.5 5.5 3 3"/>',
   mass: '<path d="m10 2.5 6.5 3.5v8L10 17.5 3.5 14V6z"/><path d="M10 9.5V17.5M10 9.5l6.5-3.5M10 9.5 3.5 6"/>',
   trace: '<path d="m10 3 7.5 4L10 11 2.5 7z"/><path d="m2.5 10.5 7.5 4 7.5-4"/><path d="m2.5 14 7.5 4 7.5-4" stroke-dasharray="2 2"/>',

@@ -475,6 +475,7 @@ export const blocksMethods = {
     if (preview) build(preview, true, new THREE.Color(this.colors.ghost));
     this.drawFigures(active);
     this.drawPeople(); // a person on a roof follows its floors
+    this.drawSections(); // a section's drawing and the 3D cut follow the masses
     this.invalidate();
   },
   // ------------------------------------------------------------------ figures while editing

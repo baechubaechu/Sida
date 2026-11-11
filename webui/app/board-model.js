@@ -27,7 +27,7 @@ export const VIEW_LIMITS = { min: 12, max: 2500 }; // metres of table shown top 
 export const TRACE_MARGIN = 14; // metres of tracing paper around the site
 // A paper dragged by a corner keeps its size between these (CSS px of paper; 1 px is 0.1 m).
 export const PAPER_LIMITS = { min: 60, max: 4000 };
-export const PAPER_SIZE = { site: [300, 250], mass: [300, 210], note: [200, 140], expert: [320, 270], photo: [300, 225] };
+export const PAPER_SIZE = { site: [300, 250], mass: [300, 210], note: [200, 140], expert: [320, 270], photo: [300, 225], section: [360, 220] };
 export const MAX_BLOCKS = 20;
 export const MAX_CONTEXT = 8; // papers one message may carry (board.MAX_CONTEXT)
 
@@ -849,6 +849,7 @@ export function paperName(paper) {
   if (paper.kind === 'tracing') return paper.title || '트레이싱지';
   if (paper.kind === 'expert') return `${paper.title || paper.agent} 결과`;
   if (paper.kind === 'photo') return paper.title || '사진';
+  if (paper.kind === 'section') return `단면 ${paper.title || 'A'}–${paper.title || 'A'}′`;
   return paper.title || paper.kind;
 }
 
@@ -871,7 +872,7 @@ export function resultPreview(text, maxLines = Infinity) {
   return out.join('\n');
 }
 
-export const KIND_LABELS = { site: '대지', mass: '매스안', note: '메모', tracing: '트레이싱지', expert: '전문가 결과', photo: '사진' };
+export const KIND_LABELS = { site: '대지', mass: '매스안', note: '메모', tracing: '트레이싱지', expert: '전문가 결과', photo: '사진', section: '단면' };
 
 // ------------------------------------------------------------------ layers and properties
 // The 레이어 and 속성 panels, as in Rhino. The designer's layers are saved with the board
@@ -879,7 +880,7 @@ export const KIND_LABELS = { site: '대지', mass: '매스안', note: '메모', 
 // parent. A paper names its layer (`layer`), a block of a mass may name its own; without one a
 // paper is on its kind's layer (the default layers' ids are the kinds), a block on its scheme's.
 
-export const DEFAULT_LAYERS = [['site', '대지'], ['mass', '매스'], ['tracing', '트레이싱지'], ['note', '메모'], ['photo', '사진'], ['expert', '전문가 결과']]
+export const DEFAULT_LAYERS = [['site', '대지'], ['mass', '매스'], ['tracing', '트레이싱지'], ['note', '메모'], ['photo', '사진'], ['expert', '전문가 결과'], ['section', '단면']]
   .map(([id, name]) => ({ id, name, parent: '', visible: true, locked: false, color: '' }));
 
 export function boardLayers(board) {
@@ -1122,8 +1123,13 @@ export const PROPERTY_FIELDS = {
   d: { key: 'd', type: 'number', min: 0.5, max: 1000, step: 0.1, unit: 'm' },
   a: { key: 'a', type: 'number', min: -180, max: 180, step: 1, unit: '°' },
   layer: { key: 'layer', type: 'layer' }, // a choice of the board's layers
+  // a section: how far beyond the cut it shows, and the scale it prints at (1:n, one of SECTION_SCALES)
+  depth: { key: 'depth', type: 'number', min: 0, max: 1000, step: 10, unit: 'm' },
+  scale: { key: 'scale', type: 'number', min: 100, max: 5000, step: 100, unit: '', whole: true,
+    choices: [100, 200, 300, 500, 600, 1000, 1200, 2000, 2500, 5000] },
 };
-const NAMED = new Set(['mass', 'tracing', 'photo']); // the kinds with a name the designer gives
+const NAMED = new Set(['mass', 'tracing', 'photo', 'section']); // the kinds with a name the designer gives
+const SECTION_KEYS = new Set(['depth', 'scale']);
 const round1 = (v) => Math.round(v * 10) / 10;
 
 // One value for all, or '' when they differ.
@@ -1152,6 +1158,10 @@ export function propertiesOf(papers, site = null, blocks = [], layers = DEFAULT_
     note = blocksOverlap(blocks)
       ? `${OVERLAP_NOTE} 동 하나를 누르면 그 동의 층수·크기와 건폐율 몫을 봅니다.`
       : '제도판의 동을 더한 값입니다. 동끼리 겹친 부분은 빼지 않습니다. 동 하나를 누르면 그 동의 층수·크기와 건폐율 몫을 봅니다.';
+  } else if (p.kind === 'section') {
+    const [[x0, y0], [x1, y1]] = p.line || [[0, 0], [0, 0]];
+    rows.push(['길이', `${round1(Math.hypot(x1 - x0, y1 - y0))}m`], ['뒤쪽 깊이', p.depth ?? 60, PROPERTY_FIELDS.depth], ['축척 (1:n)', p.scale ?? 500, PROPERTY_FIELDS.scale]);
+    note = '단면선 양 끝을 제도판에서 끌어 옮길 수 있습니다. 뒤쪽 깊이 0은 자른 것만 그립니다.';
   } else if (p.kind === 'site') {
     if (site) rows.push(['주소', site.address || '미확인'], ['용도지역', site.zones?.join(', ') || '미확인'], ['대지면적', site.area]);
     else note = '대지를 정하면 주소·용도지역·면적이 나옵니다.';
@@ -1224,9 +1234,14 @@ export function propertyChange(papers, blocks, key, raw, layers = DEFAULT_LAYERS
     if (!value || !Number.isFinite(n)) return { error: '숫자를 넣어 주세요.' };
     if (field.whole && !Number.isInteger(n)) return { error: '정수로 넣어 주세요.' };
     if (n < field.min || n > field.max) return { error: `${field.min}에서 ${field.max} 사이로 넣어 주세요.` };
+    if (field.choices && !field.choices.includes(n)) return { error: `${field.choices.join(', ')} 중 하나로 넣어 주세요.` };
     value = Math.round(n * 100) / 100;
   } else {
     value = value.slice(0, field.max);
+  }
+  if (SECTION_KEYS.has(key)) {
+    if (papers.length !== 1 || papers[0].kind !== 'section') return { error: '이 종이에는 없는 값입니다.' };
+    return (papers[0][key] ?? (key === 'depth' ? 60 : 500)) === value ? [] : [{ id: papers[0].id, changes: { [key]: value } }];
   }
   if (papers.length === 1 && (key === 'title' || key === 'floor_height')) {
     const p = papers[0];

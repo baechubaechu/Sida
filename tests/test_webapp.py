@@ -1273,6 +1273,26 @@ def test_board_api_exports_the_table_as_cad_and_rhino_files(client, project):
     assert client.get("/api/projects/nope/board/export").status_code == 404
 
 
+def test_board_api_keeps_a_section_and_gives_its_drawing_as_svg_pdf_and_dxf(client, project):
+    base = f"/api/projects/{project.name}/board"
+    client.post(f"{base}/papers", json={"kind": "mass", "id": "mass-a", "title": "안 A", "blocks": [{"w": 30, "d": 20, "floors": 4}]})
+    r = client.post(f"{base}/papers", json={"kind": "section", "id": "sec-a", "title": "A", "line": [[-40, 0], [40, 0]]})
+    assert r.status_code == 201 and r.json()["paper"]["depth"] == 60 and r.json()["paper"]["scale"] == 500
+    assert "section" in [layer["id"] for layer in client.get(base).json()["layers"]]
+    assert client.patch(f"{base}/papers/sec-a", json={"flip": True, "scale": 200}).json()["paper"]["flip"] is True
+
+    r = client.get(f"{base}/sections/sec-a/export", params={"format": "svg", "active": "mass-a"})
+    assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml")
+    assert "filename*=UTF-8''" in r.headers["content-disposition"] and 'data-part="mass"' in r.text
+    assert client.get(f"{base}/sections/sec-a/export", params={"format": "pdf"}).content[:5] == b"%PDF-"
+    assert "단면-매스".encode() in client.get(f"{base}/sections/sec-a/export", params={"format": "dxf"}).content
+
+    assert client.get(f"{base}/sections/sec-a/export", params={"format": "3dm"}).status_code == 400
+    assert client.get(f"{base}/sections/mass-a/export").status_code == 400
+    assert client.get(f"{base}/sections/nope/export").status_code == 404
+    assert client.post(f"{base}/papers", json={"kind": "section", "line": [[0, 0], [0.5, 0]]}).status_code == 400
+
+
 def test_board_api_places_and_discards_ai_papers(client, project):
     from sida import board
 

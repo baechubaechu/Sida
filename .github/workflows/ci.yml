@@ -15,7 +15,7 @@ jobs:
         with:
           node-version: "22"
       - name: Test web screen helpers (offline)
-        run: node --test tests/webui/model.test.mjs tests/webui/board-model.test.mjs tests/webui/command-model.test.mjs tests/webui/talk-panel.test.mjs tests/webui/dock-model.test.mjs
+        run: node --test tests/webui/model.test.mjs tests/webui/board-model.test.mjs tests/webui/command-model.test.mjs tests/webui/talk-panel.test.mjs tests/webui/dock-model.test.mjs tests/webui/section-model.test.mjs
       - name: Check browser scripts
         run: for f in webui/app/*.js; do node --check "$f"; done
 

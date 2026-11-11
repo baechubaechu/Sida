@@ -702,6 +702,22 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .paper.kind-photo .pdf-page { width: 100%; height: 100%; background: #fff; pointer-events: none; }
 .pdf-page .pdf-canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
 .pdf-page.is-broken { background: repeating-linear-gradient(45deg, var(--surface-subtle) 0 8px, var(--surface) 8px 16px); }
+/* Section papers (단면, section-model.js sectionSvg): the drawing in the screen's own neutral colours. */
+.kind-section .paper-head { border-top: 4px solid var(--line); }
+.section-sheet { flex: 1; min-height: 0; display: flex; background: var(--surface); }
+.section-sheet.is-large { border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+.section-drawing { width: 100%; height: 100%; display: block; }
+.section-drawing .sec-datum { stroke: var(--line); stroke-width: .6; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.section-drawing .sec-beyond { fill: var(--surface); stroke: color-mix(in srgb, var(--muted) 55%, transparent); stroke-width: .8; vector-effect: non-scaling-stroke; }
+.section-drawing .sec-ground { fill: color-mix(in srgb, var(--muted) 22%, transparent); stroke: none; }
+.section-drawing .sec-ground-line { fill: none; stroke: var(--text); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.section-drawing .sec-mass { fill: var(--text); stroke: var(--text); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.section-drawing .sec-floor { stroke: var(--surface); stroke-width: .7; vector-effect: non-scaling-stroke; }
+.section-drawing .sec-building { fill: color-mix(in srgb, var(--muted) 45%, transparent); stroke: var(--muted); stroke-width: .8; vector-effect: non-scaling-stroke; }
+.section-drawing .is-estimate { stroke-dasharray: 3 2; }
+.section-drawing .sec-text { fill: var(--muted); font-family: var(--font); }
+.section-drawing .sec-end { fill: var(--text); font-family: var(--font); font-weight: 700; }
+.detail-files { display: inline-flex; gap: 4px; }
 /* Corner grips (table.js resizeGesture): a steady size on the screen whatever the zoom. */
 .paper-grip { position: absolute; z-index: 2; width: clamp(6px, calc(20px / var(--paper-zoom, 1)), 36px); aspect-ratio: 1; transform: translate(-50%, -50%); }
 .paper-grip[data-grip="nw"] { left: 0; top: 0; cursor: nwse-resize; }
@@ -717,6 +733,8 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .paper.kind-photo .paper-tag { top: auto; bottom: 8px; max-width: calc(100% - 20px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background: rgb(20 26 32 / .72); color: #fff; }
 .paper-tag { position: absolute; left: 10px; top: 8px; padding: 3px 10px; border-radius: 999px; background: var(--pen); color: var(--paper); font-size: 13px; font-weight: 600; cursor: move; }
 .floor-tag { font: 700 28px var(--font); color: var(--text); pointer-events: none; transition: opacity .2s; }
+.section-tag { font: 700 26px var(--font); color: var(--muted); pointer-events: none; }
+.section-tag.is-on { color: var(--text); }
 .table-ui { position: absolute; z-index: 2; }
 .tape-snap { position: absolute; left: 0; top: 0; z-index: 3; pointer-events: none; width: 10px; height: 10px; margin: -5px; border: 2px solid #126b89; background: #fff; box-shadow: 0 0 0 2px rgb(255 255 255 / .8); }
 .tape-snap[hidden] { display: none; }

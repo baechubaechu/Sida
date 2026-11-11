@@ -2,6 +2,7 @@
 // when a project opens, fed from the board API, and laid over the redrawn page.
 
 import { expertPath, parseRecommendation, boardExport, siteCard } from './model.js';
+import { sectionExport } from './section-model.js';
 import { keepSelected, pickedNames, addQuestion, readModelSummary, rangeQuery, pickedBlocks, propertyChange, boardLayers } from './board-model.js';
 import { VWorldView } from './vworld-view.js';
 import { api, expertUrl, projectApi } from './api.js';
@@ -121,6 +122,8 @@ function tableHooks(name) {
     showProps: () => { ui.dock = reveal(ui.dock, 'props'); ui.narrowSide = 'props'; render(false); },
     // A PDF found to have several pages: the 속성 panel shows its page buttons.
     pdfPages: () => render(false),
+    // A section's drawing as a file (SVG, PDF or DXF), drawn by the server like the table's files.
+    sectionFile: (id, format, title) => downloadSection(name, id, format, title),
     // A paper carried toward the idea board, and papers dropped into it.
     carry: (at) => carryPapers(at),
     stow: (ids) => stowPapers(name, ids),
@@ -237,19 +240,7 @@ export async function downloadBoard(name, format) {
   say(`export — ${filename}을(를) 만드는 중입니다. 주변 3D를 넣느라 1분 넘게 걸릴 수 있습니다.`);
   render(false);
   try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      let detail = '';
-      try { detail = (await response.json()).detail; } catch { /* not JSON */ }
-      throw new Error(typeof detail === 'string' && detail ? detail : `요청이 실패했습니다 (${response.status})`);
-    }
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(await response.blob());
-    link.download = filename;
-    link.hidden = true;
-    document.body.append(link);
-    link.click();
-    setTimeout(() => { link.remove(); URL.revokeObjectURL(link.href); }, 10000);
+    await fetchDownload(url, filename);
     say(`export — ${filename}을(를) 내려받았습니다.`);
     toast(`${filename}을(를) 내려받았습니다.`);
   } catch (error) {
@@ -260,6 +251,37 @@ export async function downloadBoard(name, format) {
     ui.exporting = '';
   }
   render(false);
+}
+
+// A file from the server into the designer's downloads; a refusal comes back as its message.
+async function fetchDownload(url, filename) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    let detail = '';
+    try { detail = (await response.json()).detail; } catch { /* not JSON */ }
+    throw new Error(typeof detail === 'string' && detail ? detail : `요청이 실패했습니다 (${response.status})`);
+  }
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(await response.blob());
+  link.download = filename;
+  link.hidden = true;
+  document.body.append(link);
+  link.click();
+  setTimeout(() => { link.remove(); URL.revokeObjectURL(link.href); }, 10000);
+}
+
+// A section drawing (단면) as SVG, PDF or DXF, for the scheme the table shows.
+async function downloadSection(name, id, format, title) {
+  const { url, filename } = sectionExport(name, id, format, table?.active || '', currentProjectLabel(name), title);
+  toast(`${filename}을(를) 만드는 중입니다.`);
+  try {
+    await fetchDownload(url, filename);
+    say(`section — ${filename}을(를) 내려받았습니다.`);
+  } catch (error) {
+    const text = error instanceof TypeError ? 'Sida 서버에 연결할 수 없습니다.' : error.message;
+    say(`section: ${text}`, 'warn');
+    toast(`단면도를 내려받지 못했습니다: ${text}`, 'error');
+  }
 }
 
 // The laser files for a site model: the zip goes to the designer's downloads; the server's summary
