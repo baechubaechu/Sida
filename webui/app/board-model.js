@@ -331,6 +331,18 @@ export function parseBlockKey(key) {
   return { id: key.slice(0, at), index: Number(key.slice(at + 1)) };
 }
 
+// The papers the 속성 panel describes: the table's own copy while it is open, which an edit changes
+// at once (a copy made by the gumball, a turn, a typed size), else the board as last read from the
+// server. Reading only the server's copy left the panel empty right after a copy (the new block
+// was not there yet) and showed the old size or angle until the page was opened again.
+export function panelPapers(tablePapers, boardPapers) {
+  return tablePapers || boardPapers || [];
+}
+
+// Changes to a paper that the 속성 panel shows (a move of the paper on the table is not one).
+export const PANEL_FIELDS = ['blocks', 'floor_height', 'title', 'layer', 'group'];
+export const changesPanel = (changes) => PANEL_FIELDS.some((key) => key in (changes || {}));
+
 // The picked blocks still on the table, grouped by scheme: [{ paper, indices }].
 export function pickedBlocks(papers, keys) {
   const out = [];

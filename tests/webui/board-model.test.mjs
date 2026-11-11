@@ -18,6 +18,7 @@ import {
   emptyMeasure, measureLength, measureClick, siteCircles, circlePoints, MAX_CIRCLES,
   PERSON_KINDS, personId, insideRing, ringGap, blockUnder, nearestBlock, personNote, groundClass, scatterSpots, PERSON_GAP,
   gumballTurn, turnedDelta, fromFrame, ratioBlocks, stretchBlocks, reachAlong, gumballClick, gumballNumberField, numericGumball, snapPivot, normalTurn,
+  panelPapers, changesPanel,
 } from '../../webui/app/board-model.js';
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -1568,4 +1569,21 @@ test('the pivot catches on a nearby corner or middle, else follows the pointer',
   const spots = [{ point: { x: 1, y: 1 }, screen: { x: 100, y: 100 } }, { point: { x: 2, y: 2 }, screen: { x: 106, y: 100 } }];
   assert.deepEqual(snapPivot({ x: 105, y: 101 }, { x: 9, y: 9 }, spots), { x: 2, y: 2 });
   assert.deepEqual(snapPivot({ x: 300, y: 300 }, { x: 9, y: 9 }, spots), { x: 9, y: 9 });
+});
+
+test("the 속성 panel reads the table's papers, so a copy or a turn shows at once", () => {
+  // 2026-11-11: right after an Alt-copy the panel was empty (the server's copy had no new block
+  // yet), and a turned or resized block showed its old angle and size until the page reopened.
+  const server = [{ id: 'm', kind: 'mass', blocks: [{ u: 0, v: 0, w: 10, d: 6, floors: 2 }] }];
+  const live = [{ id: 'm', kind: 'mass', blocks: [{ u: 0, v: 0, w: 10, d: 6, floors: 2 }, { u: 5, v: 0, w: 10, d: 6, floors: 2, a: 40 }] }];
+  assert.equal(pickedBlocks(panelPapers(null, server), ['m#1']).length, 0); // what the panel saw before
+  const picked = pickedBlocks(panelPapers(live, server), ['m#1']);
+  assert.equal(picked[0].paper.blocks[1].a, 40);
+  assert.equal(panelPapers(undefined, server), server); // no table yet: the server's copy
+  assert.deepEqual(panelPapers(undefined, undefined), []);
+  // Blocks, floor height, names, layers and groups redraw the panel; moving a paper does not.
+  assert.equal(changesPanel({ blocks: [] }), true);
+  assert.equal(changesPanel({ title: 'A' }), true);
+  assert.equal(changesPanel({ x: 1, y: 2 }), false);
+  assert.equal(changesPanel(undefined), false);
 });

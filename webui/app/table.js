@@ -12,7 +12,7 @@
 import { icon } from './icons.js';
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { boardLayers, paperLayer, blockLayer, layerFlags, expandGroups, groupChange, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewName, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS } from './board-model.js';
+import { boardLayers, paperLayer, blockLayer, layerFlags, expandGroups, groupChange, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewName, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS, changesPanel } from './board-model.js';
 import { typing, TOOLS, MODEL_TOOLS } from './table-shared.js';
 import { blocksMethods } from './table-blocks.js';
 import { aroundMethods } from './table-around.js';
@@ -689,7 +689,9 @@ export class DraftingTable {
   // ------------------------------------------------------------------ edits
 
   save(id, changes) {
-    return this.hooks.update(id, changes);
+    const saved = this.hooks.update(id, changes);
+    if (changesPanel(changes)) this.hooks.edited?.(); // the 속성 panel shows the new values now
+    return saved;
   }
 
   // Group what is selected and picked (any papers and buildings), or take apart every group it
