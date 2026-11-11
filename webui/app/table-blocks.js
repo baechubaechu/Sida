@@ -4,7 +4,7 @@
 
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { blockLayer, expandGroups, PX, PAPER_SIZE, riseFor, groundFor, scaleSpan, isOverlaid, blockCorners, freeSpot, folded, foldedInPlan, paperName, readScheme, schemeRows, parseBlockKey, fmt, GUMBALL_PX, GUMBALL_SCALE_PX, editBlocks, blocksCenter, blockKey, pickedBlocks, toFrame, MAX_BLOCKS, numericPushBlock, numericScaleBlocks, snapTape, massIds, changedFields, figuresBand, blockTag } from './board-model.js';
+import { blockLayer, expandGroups, PX, PAPER_SIZE, riseFor, groundFor, scaleSpan, isOverlaid, blockCorners, freeSpot, folded, foldedInPlan, paperName, readScheme, schemeRows, parseBlockKey, fmt, GUMBALL_PX, GUMBALL_SCALE_PX, editBlocks, blocksCenter, blockKey, pickedBlocks, toFrame, MAX_BLOCKS, numericPushBlock, numericScaleBlocks, snapTape, massIds, changedFields, figuresBand, blockTag, gumballTurn, fromFrame, snapPivot, gumballNumberField, numericGumball, GUMBALL_RING_PX } from './board-model.js';
 
 const MAX_TAGS = 12; // picked blocks that get a tag; more would cover the table
 
@@ -22,14 +22,53 @@ export const blocksMethods = {
       if (ids.length) this.select([...this.selected, ...ids]);
     }
     keys = keys.filter((key) => pickedBlocks(this.papers, [key]).every((g) => g.indices.every((i) => this.blockFree(g.paper, g.paper.blocks[i]))));
+    // Picking other blocks brings the gumball's pivot back to their middle.
+    if (keys.length !== this.picked.length || keys.some((k) => !this.picked.includes(k))) this.gumPivot = null;
     this.picked = keys;
     this.hooks.pick?.(keys);
     this.drawMasses();
   },
   // The gumball (or a building) taking hold: what the drag edits, the picked blocks as they were.
-  gumballGesture(grip, e) {
-    const from = new Map(this.pickedGroups().map((g) => [g.paper.id, { blocks: g.paper.blocks, indices: g.indices }]));
-    return { kind: 'gumball', grip, axes: this.gumAxes, g0: this.ground(e.clientX, e.clientY), x: e.clientX, y: e.clientY, moved: false, from };
+  // `handle`: taken by one of the gumball's grips (not a building), so a click opens a number
+  // input, Alt copies and Ctrl on the middle square moves the pivot.
+  gumballGesture(grip, e, { handle = false } = {}) {
+    const groups = this.pickedGroups();
+    const from = new Map(groups.map((g) => [g.paper.id, { blocks: g.paper.blocks, indices: g.indices }]));
+    const blocks = groups.flatMap((g) => g.indices.map((i) => g.paper.blocks[i]));
+    const frame = this.site?.plan?.frame;
+    const center = this.gumballCenter(frame, blocks);
+    const ctrl = e.ctrlKey || e.metaKey;
+    const copy = handle && e.altKey && ['free', 'u', 'v'].includes(grip);
+    if (copy) this.altResized = true; // the Alt let go after the drag does not open the browser's menu
+    return {
+      kind: 'gumball', grip, handle, axes: this.gumAxes, turn: gumballTurn(blocks), g0: this.ground(e.clientX, e.clientY),
+      x: e.clientX, y: e.clientY, moved: false, from, copy,
+      pivotMove: handle && grip === 'free' && ctrl, pivoted: Boolean(this.gumPivot),
+      center, centerUV: center && toFrame(frame, center.x, center.y),
+    };
+  },
+  // The gumball's pivot on the table: where Ctrl moved it, else the middle of the picked blocks.
+  gumballCenter(frame, blocks) {
+    if (!blocks.length) return null;
+    return this.gumPivot ? fromFrame(frame, this.gumPivot.u, this.gumPivot.v) : blocksCenter(frame, blocks);
+  },
+  // Ctrl+drag on the middle square: the pivot follows the pointer, catching on the picked blocks'
+  // corners and middles.
+  movePivot(e) {
+    const frame = this.site?.plan?.frame;
+    const p = this.ground(e.clientX, e.clientY);
+    if (!p || !this.gl) return;
+    const blocks = this.pickedGroups().flatMap((g) => g.indices.map((i) => g.paper.blocks[i]));
+    const r = this.root.getBoundingClientRect();
+    const screen = (x, y) => { const at = new THREE.Vector3(x, y, 0).project(this.gl.camera); return { x: r.left + ((at.x + 1) / 2) * r.width, y: r.top + ((1 - at.y) / 2) * r.height }; };
+    const middle = (b) => { const m = fromFrame(frame, b.u, b.v); return [m.x, m.y]; };
+    const all = blocksCenter(frame, blocks);
+    const points = [...blocks.flatMap((b) => [...blockCorners(frame, b), middle(b)]), [all.x, all.y]];
+    const spots = points.map(([x, y]) => ({ point: { x, y }, screen: screen(x, y) }));
+    const at = snapPivot({ x: e.clientX, y: e.clientY }, p, spots);
+    this.gumPivot = toFrame(frame, at.x, at.y);
+    this.say('기준점을 옮겼습니다. 회전과 크기 조절이 이 점을 기준으로 됩니다. Ctrl을 누른 채 가운데 네모를 한 번 누르면 되돌립니다.');
+    this.invalidate();
   },
   // Delete takes the picked blocks out of their schemes; a scheme keeps at least one.
   removePicked() {
@@ -143,6 +182,25 @@ export const blocksMethods = {
     this.ui.number.showModal();
     this.ui.number.querySelector('input').select();
   },
+  // A click on a gumball grip: a number input for what that grip does (gumballNumberField).
+  openGumballNumber(gesture) {
+    const groups = [...gesture.from].map(([id, from]) => ({ id, blocks: structuredClone(from.blocks), indices: [...from.indices] }));
+    if (!groups.length) return;
+    const first = groups[0].blocks[groups[0].indices[0]];
+    const field = gumballNumberField(gesture.grip, first);
+    if (!field) return;
+    this.numberEdit = { gumball: gesture.grip, groups, center: gesture.centerUV, turn: gesture.turn };
+    const count = groups.reduce((n, g) => n + g.indices.length, 0);
+    this.ui.number.innerHTML = `<form data-form="tool-number" novalidate>
+      <header><h2 id="tool-number-title">${field.title} 수치 입력</h2><button type="button" data-ui="number-cancel" aria-label="수치 입력 닫기">×</button></header>
+      <p class="source">고른 동 ${count}개</p>
+      <label for="tool-number-value">${field.label}</label><input id="tool-number-value" name="value" type="${field.text ? 'text' : 'number'}" inputmode="decimal" step="${gesture.grip === 'z' ? '1' : 'any'}" value="${escape(String(field.value))}" autocomplete="off" autofocus>
+      <p id="tool-number-help">${field.help}</p><p class="form-error" role="alert"></p>
+      <footer><button type="button" data-ui="number-cancel">취소</button><button type="submit" class="primary-small">적용</button></footer>
+    </form>`;
+    this.ui.number.showModal();
+    this.ui.number.querySelector('input').select();
+  },
   applyToolNumber() {
     const edit = this.numberEdit;
     if (!edit) return;
@@ -163,8 +221,9 @@ export const blocksMethods = {
     for (const group of edit.groups) {
       const paper = this.papers.find((p) => p.id === group.id);
       if (!paper || JSON.stringify(paper.blocks) !== JSON.stringify(group.blocks)) { error = '입력 중 동이 바뀌었습니다. 닫고 조절할 동을 다시 눌러 주세요.'; break; }
-      const result = edit.push ? numericPushBlock(paper.blocks[group.indices[0]], edit.face, value)
-        : numericScaleBlocks(paper.blocks, group.indices, edit.center, value);
+      const result = edit.gumball ? numericGumball(paper.blocks, group.indices, { grip: edit.gumball, value, center: edit.center, turn: edit.turn })
+        : edit.push ? numericPushBlock(paper.blocks[group.indices[0]], edit.face, value)
+          : numericScaleBlocks(paper.blocks, group.indices, edit.center, value);
       if (result.error) { error = result.error; break; }
       const blocks = edit.push ? paper.blocks.map((b, i) => i === group.indices[0] ? result.block : b) : result.blocks;
       if (JSON.stringify(blocks) !== JSON.stringify(paper.blocks)) changes.push({ paper, blocks });
@@ -172,6 +231,12 @@ export const blocksMethods = {
     if (error) { this.ui.number.querySelector('.form-error').textContent = error; return; }
     const before = new Map(changes.map(({ paper }) => [paper.id, paper.blocks]));
     for (const { paper, blocks } of changes) paper.blocks = blocks;
+    // A typed move takes a moved pivot along with the blocks.
+    if (this.gumPivot && ['free', 'u', 'v'].includes(edit.gumball) && changes.length) {
+      const { paper, blocks } = changes[0];
+      const i = edit.groups.find((g) => g.id === paper.id).indices[0];
+      this.gumPivot = { u: this.gumPivot.u + blocks[i].u - before.get(paper.id)[i].u, v: this.gumPivot.v + blocks[i].v - before.get(paper.id)[i].v };
+    }
     this.saveBlocks(before);
     this.drawMasses();
     this.ui.number.close();
@@ -267,13 +332,16 @@ export const blocksMethods = {
     const paper = this.papers.find((p) => p.id === this.active && p.kind === 'mass');
     if (paper) this.pickBlocks(paper.blocks.map((_, i) => blockKey(paper.id, i)));
   },
-  // The gumball on the picked blocks, drawn over the scene: u, v and z arrows, size squares on
-  // u and v, and a square in the middle.
+  // The gumball on the picked blocks, drawn over the scene: red, green and blue arrows, size
+  // squares on red and green, the rotate ring between them and a square at the pivot. Red and
+  // green follow the picked blocks' own turn when they share one (gumballTurn).
   placeGumball() {
     const el = this.gumEl;
     const groups = this.tool === 'select' ? this.pickedGroups() : [];
     const frame = this.site?.plan?.frame;
-    const c = blocksCenter(frame, groups.flatMap((g) => g.indices.map((i) => g.paper.blocks[i])));
+    const blocks = groups.flatMap((g) => g.indices.map((i) => g.paper.blocks[i]));
+    const turning = this.gesture?.kind === 'gumball' && this.gesture.grip === 'rotate' && this.gesture.center ? this.gesture : null;
+    const c = turning ? turning.center : this.gumballCenter(frame, blocks); // a turn keeps its pivot
     this.gumAxes = null;
     if (!c || !this.gl) { el.hidden = true; return; }
     const { camera } = this.gl;
@@ -285,7 +353,7 @@ export const blocksMethods = {
     };
     const [cx, cy, cz] = screen(c.x, c.y);
     if (cz > 1 || cx < -40 || cx > w + 40 || cy < -40 || cy > h + 40) { el.hidden = true; return; }
-    const a = frame?.angle || 0;
+    const a = (frame?.angle || 0) + (gumballTurn(blocks) * Math.PI) / 180;
     const rise = riseFor(this.view.tilt); // the buildings stand this much of their height
     const axes = {};
     const place = (sel, along, at, size) => {
@@ -314,6 +382,38 @@ export const blocksMethods = {
       const [bx, by] = [ex - dx * 12, ey - dy * 12];
       g.querySelector('polygon').setAttribute('points', `${ex + dx * 4},${ey + dy * 4} ${bx - dy * 6},${by + dx * 6} ${bx + dy * 6},${by - dx * 6}`);
     }
+    // The rotate ring: a quarter circle on the ground between the red and green arrows, about
+    // GUMBALL_RING_PX across on the screen. Hidden near edge-on (an elevation), where it would be
+    // a flat line.
+    const perMetre = Math.max(Math.hypot(...axes.u), Math.hypot(...axes.v));
+    const radius = perMetre >= 0.5 ? GUMBALL_RING_PX / perMetre : 0;
+    const arc = (r, from, to, n) => Array.from({ length: n + 1 }, (_, k) => {
+      const t = from + ((to - from) * k) / n;
+      return screen(c.x + r * Math.cos(t), c.y + r * Math.sin(t));
+    });
+    const ringPts = radius ? arc(radius, a + 0.12, a + Math.PI / 2 - 0.12, 20) : [];
+    const span = (pts, i) => Math.max(...pts.map((p) => p[i])) - Math.min(...pts.map((p) => p[i]));
+    const ringShown = ringPts.length && Math.min(span(ringPts, 0), span(ringPts, 1)) >= 6;
+    const ring = el.querySelector('[data-gumball="rotate"]');
+    ring.style.display = ringShown ? '' : 'none';
+    const path = (pts) => pts.map(([x, y], k) => `${k ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+    if (ringShown) for (const p of ring.querySelectorAll('path')) p.setAttribute('d', path(ringPts));
+    // While turning: a fan from where the drag began through the angle swept, and the angle.
+    const fan = el.querySelector('.gb-fan');
+    const label = el.querySelector('.gb-angle');
+    const sweep = turning?.sweep && radius ? turning.sweep : 0;
+    fan.setAttribute('display', sweep ? '' : 'none');
+    label.setAttribute('display', sweep ? '' : 'none');
+    if (sweep) {
+      const to = turning.t0 + (sweep * Math.PI) / 180;
+      fan.setAttribute('d', `${path([[cx, cy], ...arc(radius * 1.5, turning.t0, to, Math.max(2, Math.ceil(Math.abs(sweep) / 3)))])} Z`);
+      const [lx, ly] = screen(c.x + radius * 1.9 * Math.cos((turning.t0 + to) / 2), c.y + radius * 1.9 * Math.sin((turning.t0 + to) / 2));
+      label.setAttribute('x', lx); label.setAttribute('y', ly + 4);
+      label.textContent = `${sweep > 0 ? '+' : ''}${sweep}°`;
+    }
+    const pivot = el.querySelector('.gb-pivot');
+    pivot.setAttribute('display', this.gumPivot ? '' : 'none');
+    pivot.setAttribute('cx', cx); pivot.setAttribute('cy', cy);
     place('.gb-free', [0, 0], 0, 14);
     this.gumAxes = axes;
     el.hidden = false;

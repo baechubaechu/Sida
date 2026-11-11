@@ -2,7 +2,7 @@
 // tools' gestures, dragging papers and blocks, carrying papers to the idea board.
 // Methods of DraftingTable (table.js adds them to its prototype).
 
-import { PX, PAPER_SIZE, zoomAround, dragMode, wheelZoom, orbitBy, panBy, EDGE_TILT, isOverlaid, blockCorners, paperName, toggleSelected, boxPick, boxMode, parseBlockKey, fmt, frameDelta, editBlocks, axisDrag, blockKey, toFrame, rectBlock, pushBlock, copyBlocks, turnBlocks, scaleBlocks, snapAngle, MAX_BLOCKS, numericToolClick, isPdfFile, buildingInfo, eyeKey } from './board-model.js';
+import { PX, PAPER_SIZE, zoomAround, dragMode, wheelZoom, orbitBy, panBy, EDGE_TILT, isOverlaid, blockCorners, paperName, toggleSelected, boxPick, boxMode, parseBlockKey, fmt, frameDelta, editBlocks, axisDrag, blockKey, toFrame, rectBlock, pushBlock, copyBlocks, turnBlocks, scaleBlocks, snapAngle, MAX_BLOCKS, numericToolClick, turnedDelta, reachAlong, stretchBlocks, ratioBlocks, normalTurn, gumballClick, isPdfFile, buildingInfo, eyeKey } from './board-model.js';
 import { SNAP, typing, MODEL_TOOLS, MEASURE_TOOLS, cm, strokePath } from './table-shared.js';
 
 export const pointerMethods = {
@@ -217,7 +217,7 @@ export const pointerMethods = {
     // Asked where to stand (눈높이): a left click on the ground stands there; other buttons still move the view.
     if (this.eyePicking && e.button === 0) { this.gesture = { kind: 'eye-pick', x: e.clientX, y: e.clientY, moved: false }; return; }
     const grip = e.button === 0 && this.gumAxes && e.target.closest('[data-gumball]')?.dataset.gumball;
-    if (grip) { this.gesture = this.gumballGesture(grip, e); return; }
+    if (grip) { this.gesture = this.gumballGesture(grip, e, { handle: true }); return; }
     const corner = e.button === 0 && !e.shiftKey && e.target.closest('[data-grip]'); // Alt and Ctrl change how it resizes
     if (corner) { this.gesture = this.resizeGesture(corner, e); if (this.gesture) return; }
     const mode = dragMode({ button: e.button, shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, alt: e.altKey });
@@ -326,27 +326,48 @@ export const pointerMethods = {
       if (Math.hypot(e.clientX - g.x, e.clientY - g.y) > 3) g.moved = true;
     } else if (g.kind === 'gumball') {
       if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 3) return;
+      if (g.pivotMove) { g.moved = true; this.movePivot(e); return; }
       let delta = {};
       let up = 0; // metres up, for the z arrow
+      const frame = this.site?.plan?.frame;
       const ground = ['free', 'rotate', 'scale'].includes(g.grip);
       const p = ground && g.g0 && this.ground(e.clientX, e.clientY);
       if (ground && !p) return;
+      let m = 0; // metres along the grip's arrow
       if (g.grip === 'free') {
-        delta = frameDelta(this.site?.plan?.frame, p.x - g.g0.x, p.y - g.g0.y);
+        delta = frameDelta(frame, p.x - g.g0.x, p.y - g.g0.y);
       } else if (!ground) {
-        const m = axisDrag(g.axes[{ w: 'u', d: 'v' }[g.grip] || g.grip], e.clientX - g.x, e.clientY - g.y);
+        m = axisDrag(g.axes[{ w: 'u', d: 'v' }[g.grip] || g.grip], e.clientX - g.x, e.clientY - g.y);
+        // The red and green arrows point along the gumball, turned with the picked blocks.
+        if (g.grip === 'u') delta = turnedDelta(g.turn, m, 0);
+        if (g.grip === 'v') delta = turnedDelta(g.turn, 0, m);
         // A size square widens on both sides, about each block's middle.
-        delta = { u: { du: m }, v: { dv: m }, w: { dw: 2 * m }, d: { dd: 2 * m } }[g.grip] || {};
+        if (g.grip === 'w') delta = { dw: 2 * m };
+        if (g.grip === 'd') delta = { dd: 2 * m };
         if (g.grip === 'z') up = m;
       }
       const c = g.center;
-      // Rotate: the angle swept about the middle, in 5° steps (Shift: 1°). Scale: how much further
+      // Rotate: the angle swept about the pivot, in 5° steps (Shift: 1°). Scale: how much further
       // from the middle the pointer is than where it started.
-      const sweep = g.grip === 'rotate' && snapAngle((Math.atan2(p.y - c.y, p.x - c.x) - Math.atan2(g.g0.y - c.y, g.g0.x - c.x)) * 180 / Math.PI, e.shiftKey ? 1 : 5);
+      if (g.grip === 'rotate') {
+        g.t0 = Math.atan2(g.g0.y - c.y, g.g0.x - c.x);
+        g.sweep = snapAngle(normalTurn((Math.atan2(p.y - c.y, p.x - c.x) - g.t0) * 180 / Math.PI), e.shiftKey ? 1 : 5);
+      }
+      const sweep = g.sweep || 0;
       const r0 = g.grip === 'scale' && Math.hypot(g.g0.x - c.x, g.g0.y - c.y);
       if (g.grip === 'scale' && r0 < 0.5) return;
       const k = g.grip === 'scale' && Math.max(0.05, Math.round((Math.hypot(p.x - c.x, p.y - c.y) / r0) * 100) / 100);
+      // A size square with Shift keeps each block's proportions; with the pivot moved off the
+      // middle it stretches the blocks from the pivot, as in Rhino.
+      const sized = g.grip === 'w' || g.grip === 'd';
+      const firstFrom = [...g.from.values()][0];
+      const first = firstFrom?.blocks[firstFrom.indices[0]];
+      const picked = [...g.from.values()].flatMap((f) => f.indices.map((i) => f.blocks[i]));
+      const reach = sized && g.pivoted && !e.shiftKey && reachAlong(frame, picked, g.centerUV, g.turn, g.grip);
+      const stretch = reach >= 0.5 && Math.max(0.05, (reach + m) / reach);
+      const ratio = sized && e.shiftKey && first && Math.max(0.05, (first[g.grip] + 2 * m) / first[g.grip]);
       g.moved = true;
+      g.delta = delta;
       g.copies = new Map();
       for (const q of this.papers) {
         const from = g.from.get(q.id);
@@ -358,10 +379,16 @@ export const pointerMethods = {
           g.copies.set(q.id, done.indices);
         } else if (g.grip === 'rotate') q.blocks = turnBlocks(from.blocks, from.indices, g.centerUV, sweep);
         else if (g.grip === 'scale') q.blocks = scaleBlocks(from.blocks, from.indices, g.centerUV, k);
+        else if (ratio) q.blocks = g.pivoted ? scaleBlocks(from.blocks, from.indices, g.centerUV, ratio) : ratioBlocks(from.blocks, from.indices, ratio);
+        else if (stretch) q.blocks = stretchBlocks(from.blocks, from.indices, g.centerUV, g.turn, g.grip, stretch);
         else q.blocks = editBlocks(from.blocks, from.indices, { ...delta, df: up / (q.floor_height || 4.2) });
       }
-      if (g.grip === 'rotate') this.say(`회전 ${sweep}°`);
+      if (g.grip === 'rotate') this.say(`회전 ${sweep}°${e.shiftKey ? ' (1° 단위)' : ''}`);
       if (g.grip === 'scale') this.say(`크기 ${k}배`);
+      if (sized && first) {
+        const b = this.papers.find((q) => q.id === [...g.from.keys()][0])?.blocks[firstFrom.indices[0]];
+        if (b) this.say(`${ratio ? '비율 유지 · ' : ''}가로 ${fmt(b.w, 1)} m · 세로 ${fmt(b.d, 1)} m`);
+      }
       this.drawMasses();
     } else if (g.kind === 'push') {
       if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 3) return;
@@ -513,6 +540,7 @@ export const pointerMethods = {
       return;
     }
     if (cancelled && (g?.kind === 'push' || g?.kind === 'gumball')) {
+      if (g.kind === 'gumball' && g.pivotMove) this.gumPivot = g.pivoted ? g.centerUV : null;
       const before = g.kind === 'push' ? new Map([[g.id, g.before]]) : new Map([...g.from].map(([id, from]) => [id, from.blocks]));
       for (const paper of this.papers) if (before.has(paper.id)) paper.blocks = before.get(paper.id);
       this.drawMasses();
@@ -527,12 +555,24 @@ export const pointerMethods = {
         this.syncPapers();
         this.save(p.id, { strokes: p.strokes });
       }
+    } else if (g?.kind === 'gumball' && g.pivotMove) {
+      // Ctrl+click on the middle square (no drag) brings the pivot back to the middle.
+      if (!g.moved && this.gumPivot) { this.gumPivot = null; this.say('기준점을 가운데로 되돌렸습니다.'); }
+      this.invalidate();
     } else if (g?.kind === 'gumball' && g.moved) {
       this.saveBlocks(new Map([...g.from].map(([id, f]) => [id, f.blocks])));
+      // A moved pivot goes with the blocks it stands by.
+      if (this.gumPivot && !g.copy && ['free', 'u', 'v'].includes(g.grip) && g.delta) {
+        const { du = 0, dv = 0 } = g.delta;
+        this.gumPivot = { u: this.gumPivot.u + Math.round(du * 10) / 10, v: this.gumPivot.v + Math.round(dv * 10) / 10 };
+      }
+      if (g.grip === 'rotate') this.invalidate(); // the fan goes
       // A copy leaves the copies picked, as in SketchUp.
       if (g.copies?.size) this.pickBlocks([...g.copies].flatMap(([id, indices]) => indices.map((i) => blockKey(id, i))));
     } else if (g?.kind === 'push' && g.moved) {
       this.saveBlocks(new Map([[g.id, g.before]]));
+    } else if (gumballClick(g, cancelled)) {
+      this.openGumballNumber(g);
     } else if (numericToolClick(g, cancelled)) {
       this.openToolNumber(g);
     } else if (g?.kind === 'rect') {

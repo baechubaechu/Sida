@@ -345,12 +345,136 @@ export function pickedBlocks(papers, keys) {
   return out;
 }
 
-// The gumball on the picked blocks, as in Rhino: arrows along the site's u (red) and v (green)
-// and a square in the middle move them on the ground; the blue arrow raises or lowers them a
-// floor at a time; the small squares on the u and v arrows widen or narrow them about their
-// middles. Blocks stand in the site's frame, so a move on the table becomes a move in u and v.
+// The gumball on the picked blocks, as in Rhino: red and green arrows and a square in the middle
+// move them on the ground; the blue arrow raises or lowers them a floor at a time; the small
+// squares on the red and green arrows widen or narrow them; the blue ring between the red and
+// green arrows turns them (2026-11-11 지훈: "검볼 기능 완전하게, 회전 포함"). The red and green
+// arrows follow the picked blocks' own turn when they share one (otherwise the site's u and v),
+// so a size square widens a turned block the way its arrow points. Blocks stand in the site's
+// frame, so a move on the table becomes a move in u and v.
 export const GUMBALL_PX = 72; // arrow length on the screen
 export const GUMBALL_SCALE_PX = 44; // where the size squares sit on the arrows
+export const GUMBALL_RING_PX = 56; // radius of the rotate ring on the screen
+
+// The turn (degrees from the site's u) the gumball's red arrow takes: the picked blocks' own
+// when they all share it, else 0 (the site's u).
+export function gumballTurn(blocks) {
+  if (!blocks.length) return 0;
+  const a = blocks[0].a || 0;
+  return blocks.every((b) => (b.a || 0) === a) ? a : 0;
+}
+
+// A move of `along` metres on the gumball's red arrow and `across` on its green one (the
+// gumball turned by `turn` degrees) as a move along the site's u and v.
+export function turnedDelta(turn, along, across = 0) {
+  const t = rad(turn || 0);
+  return { du: along * Math.cos(t) - across * Math.sin(t), dv: along * Math.sin(t) + across * Math.cos(t) };
+}
+
+// A point in the site's frame (u, v) on the table.
+export function fromFrame(frame, u, v) {
+  const f = frame || { x: 0, y: 0, angle: 0 };
+  return { x: f.x + u * Math.cos(f.angle) - v * Math.sin(f.angle), y: f.y + u * Math.sin(f.angle) + v * Math.cos(f.angle) };
+}
+
+// Shift on a size square: the blocks at `indices` grown by k each about its own middle, width
+// and depth alike (10 cm steps, never under 1 m); floors stay.
+export function ratioBlocks(blocks, indices, k) {
+  return blocks.map((b, i) => (indices.includes(i) ? { ...b, w: Math.max(1, step10(b.w * k)), d: Math.max(1, step10(b.d * k)) } : b));
+}
+
+// A size square with the gumball's pivot moved off the middle (as in Rhino, it scales from the
+// pivot): the blocks at `indices` stretched by k along the gumball's red ('w') or green ('d')
+// arrow about `pivot` (u, v), their middles spreading along that arrow and their width (or
+// depth) following.
+export function stretchBlocks(blocks, indices, pivot, turn, along, k) {
+  const t = rad(turn || 0);
+  const [ax, ay] = along === 'w' ? [Math.cos(t), Math.sin(t)] : [-Math.sin(t), Math.cos(t)];
+  return blocks.map((b, i) => {
+    if (!indices.includes(i)) return b;
+    const s = (b.u - pivot.u) * ax + (b.v - pivot.v) * ay; // how far along the arrow the middle is
+    const shift = s * (k - 1);
+    return { ...b, u: cm2(b.u + shift * ax), v: cm2(b.v + shift * ay), [along]: Math.max(1, step10(b[along] * k)) };
+  });
+}
+
+// How far the blocks reach from `pivot` along the gumball's arrow ('w' red, 'd' green): what a
+// size square stretches when the pivot is off the middle.
+export function reachAlong(frame, blocks, pivot, turn, along) {
+  const t = rad(turn || 0);
+  const [ax, ay] = along === 'w' ? [Math.cos(t), Math.sin(t)] : [-Math.sin(t), Math.cos(t)];
+  let far = -Infinity;
+  for (const b of blocks) {
+    for (const [x, y] of blockCorners(frame, b)) {
+      const { u, v } = toFrame(frame, x, y);
+      far = Math.max(far, (u - pivot.u) * ax + (v - pivot.v) * ay);
+    }
+  }
+  return far;
+}
+
+// A click (no drag) on one of the gumball's grips opens a number input, as Rhino's gumball does.
+export function gumballClick(gesture, cancelled = false) {
+  return Boolean(!cancelled && gesture?.kind === 'gumball' && gesture.handle && !gesture.moved && !gesture.pivotMove && !gesture.numeric);
+}
+
+// What the number input asks for each grip of the gumball.
+export function gumballNumberField(grip, block) {
+  switch (grip) {
+    case 'u': return { title: '이동', label: '빨간 화살표 방향 거리 (m)', value: 0, help: '화살표 쪽이 +, 반대쪽은 -입니다.' };
+    case 'v': return { title: '이동', label: '초록 화살표 방향 거리 (m)', value: 0, help: '화살표 쪽이 +, 반대쪽은 -입니다.' };
+    case 'free': return { title: '이동', label: '빨간, 초록 화살표 방향 거리 (m)', value: '0, 0', text: true, help: '두 수를 쉼표로 나눠 입력하세요. 예: 5, -2' };
+    case 'w': return { title: '크기', label: '가로 (m)', value: block?.w ?? '', help: '고른 동 모두 이 가로 길이가 됩니다. 동 가운데를 기준으로, 1~1000m.' };
+    case 'd': return { title: '크기', label: '세로 (m)', value: block?.d ?? '', help: '고른 동 모두 이 세로 길이가 됩니다. 동 가운데를 기준으로, 1~1000m.' };
+    case 'z': return { title: '층수', label: '층수', value: block?.floors ?? '', help: '고른 동 모두 이 층수가 됩니다. 1~200층.' };
+    case 'rotate': return { title: '회전', label: '각도 (°)', value: 0, help: '반시계 방향이 +입니다. 검볼 가운데(기준점)를 중심으로 돕니다. -360~360°.' };
+    default: return null;
+  }
+}
+
+// A number typed for a gumball grip, applied to the blocks at `indices`: { blocks } or { error }.
+// `center` is the pivot (u, v) a turn goes round; `turn` is the gumball's (gumballTurn).
+export function numericGumball(blocks, indices, { grip, value, center, turn = 0 }) {
+  if (!indices.length || indices.some((i) => !blocks[i])) return { error: '조절할 동을 다시 골라 주세요.' };
+  const move = (along, across) => {
+    if (![along, across].every((n) => Number.isFinite(n) && Math.abs(n) <= 1000)) return { error: '거리는 -1000~1000m 사이 숫자로 입력해 주세요.' };
+    const { du, dv } = turnedDelta(turn, along, across);
+    return { blocks: blocks.map((b, i) => (indices.includes(i) ? { ...b, u: cm2(b.u + du), v: cm2(b.v + dv) } : b)) };
+  };
+  if (grip === 'free') {
+    const parts = String(value ?? '').split(/[,\s]+/).filter(Boolean).map(Number);
+    if (parts.length !== 2 || parts.some((n) => !Number.isFinite(n))) return { error: '두 수를 쉼표로 나눠 입력해 주세요. 예: 5, -2' };
+    return move(parts[0], parts[1]);
+  }
+  const n = toolNumber(value);
+  if (!Number.isFinite(n)) return { error: '숫자로 입력해 주세요.' };
+  switch (grip) {
+    case 'u': return move(n, 0);
+    case 'v': return move(0, n);
+    case 'w': case 'd':
+      if (n < 1 || n > 1000) return { error: '길이는 1~1000m 사이 숫자로 입력해 주세요.' };
+      return { blocks: blocks.map((b, i) => (indices.includes(i) ? { ...b, [grip]: cm2(n) } : b)) };
+    case 'z':
+      if (!Number.isInteger(n) || n < 1 || n > 200) return { error: '층수는 1~200 사이 정수로 입력해 주세요.' };
+      return { blocks: blocks.map((b, i) => (indices.includes(i) ? { ...b, floors: n } : b)) };
+    case 'rotate':
+      if (Math.abs(n) > 360) return { error: '각도는 -360~360° 사이로 입력해 주세요.' };
+      return { blocks: turnBlocks(blocks, indices, center, n) };
+    default: return { error: '조절할 손잡이를 다시 눌러 주세요.' };
+  }
+}
+
+// Where to put the gumball's pivot while it is dragged with Ctrl: the nearest corner or middle
+// of the picked blocks within `radius` pixels of the pointer, else where the pointer is.
+// `spots` are [{ point, screen }] (point on the table, screen in pixels).
+export function snapPivot(pointer, ground, spots, radius = 10) {
+  let best = null;
+  for (const s of spots) {
+    const d = Math.hypot(pointer.x - s.screen.x, pointer.y - s.screen.y);
+    if (d <= radius && (!best || d < best.d)) best = { d, point: s.point };
+  }
+  return best ? best.point : ground;
+}
 
 // A move (dx, dy) on the table as a move along the site's u and v.
 export function frameDelta(frame, dx, dy) {
@@ -553,6 +677,12 @@ export function numericScaleBlocks(blocks, indices, center, value) {
   const result = scaleBlocks(blocks, indices, center, k);
   if (indices.some((i) => !Number.isFinite(result[i].u) || !Number.isFinite(result[i].v))) return { error: '조절 후 위치가 너무 큽니다. 배율을 줄여 주세요.' };
   return { blocks: result };
+}
+
+// An angle in degrees brought within -180..180 (a drag past the back of the ring keeps turning
+// the short way).
+export function normalTurn(deg) {
+  return ((((deg + 180) % 360) + 360) % 360) - 180;
 }
 
 // An angle kept to steps (5° by default), as SketchUp's protractor snaps.
