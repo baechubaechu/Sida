@@ -1,7 +1,7 @@
 """The drafting table (제도판): sheets of paper laid around the site, saved in the project.
 
 Independent of HTTP and of the screen. The table is stored as board.json in the project
-folder: {"rev", "papers", "tray", "pins", "ideas", "hidden"}. The designer adds, moves and edits papers one
+folder: {"rev", "papers", "tray", "pins", "ideas", "hidden", "people", "layers"}. The designer adds, moves and edits papers one
 at a time (the screen and the AI write to the same file, so nobody saves it whole).
 
 `layers` (2026-11-09 지훈, as in Rhino) are the designer's layers, in order: {id, name, parent ('' at
@@ -18,6 +18,13 @@ A group (2026-11-09 지훈: "아무 개체끼리 묶을 수 있게") is any pape
 `hidden` (2026-11-07) lists the buildings of the VWorld 3D map the designer hid around the site
 (their model ids, so the site's own old building can be taken away from under a scheme). Only the
 screen reads it; it is not geometry and does not go to the AI or into the export.
+
+`people` (2026-11-10 지훈: "사람 배치해보는 기능") are the scale figures the designer stands about
+the site in 3D, to feel how large a scheme is: {id, x, y, turn, kind, roof}. x and y are metres in
+the plan's own coordinates (the site plan's, the same as the surroundings), `turn` is the way the
+person faces in degrees clockwise from north, `kind` is PERSON_KINDS, and `roof` (kept only when
+true) stands them on the roof of the scheme's building under them instead of the ground. Like
+`hidden` they are for the screen only: not sent to the AI, not in the export (yet).
 
 The idea board (`ideas`, 2026-11-05) is the designer's ordered list of main ideas, kept beside
 the table. Only the designer writes it; every Conductor call and expert run reads the ideas
@@ -112,6 +119,10 @@ ORPHAN_SECONDS = 24 * 3600  # a removed photo's file is kept this long, so the s
 MAX_IDEAS = 40
 MAX_HIDDEN = 300  # hidden VWorld 3D buildings kept per project
 MAX_HIDDEN_ID = 80
+# Scale figures (`people`): what each kind is, and how many one table keeps.
+PERSON_KINDS = ("stand", "walk", "child")
+MAX_PEOPLE = 400
+MAX_COORD = 100000.0  # metres from the middle of the site plan
 MAX_IDEA_TEXT = 600
 MAX_IDEA_PAPERS = 8
 TALK_ID = re.compile(r"\d{2,4}")  # the Conductor talk ids of sida/talks.py
@@ -152,7 +163,7 @@ def _site_paper() -> dict:
 
 
 def _empty() -> dict:
-    return {"rev": 0, "papers": [_site_paper()], "tray": [], "pins": [], "ideas": [], "hidden": [], "layers": default_layers()}
+    return {"rev": 0, "papers": [_site_paper()], "tray": [], "pins": [], "ideas": [], "hidden": [], "people": [], "layers": default_layers()}
 
 
 log = logging.getLogger(__name__)
@@ -202,12 +213,20 @@ def load_board(project_path: Path) -> dict:
         idea["papers"] = [i for i in idea.get("papers") or [] if i in there]
     hidden = data.get("hidden") if isinstance(data.get("hidden"), list) else []
     hidden = [h for h in hidden if isinstance(h, str) and h]
+    people = []
+    for raw in data.get("people") if isinstance(data.get("people"), list) else []:
+        try:  # a hand-edited person that no longer reads is left out, not the whole table
+            person = clean_person(raw, len(people))
+        except ValueError:
+            continue
+        if all(p["id"] != person["id"] for p in people):
+            people.append(person)
     try:
         layers = clean_layers(data["layers"]) if isinstance(data.get("layers"), list) and data["layers"] else default_layers()
     except ValueError:
         layers = default_layers()
     return {"rev": int(data.get("rev") or 0), "papers": papers, "tray": tray, "pins": pins, "ideas": ideas,
-            "hidden": hidden, "layers": layers}
+            "hidden": hidden, "people": people[:MAX_PEOPLE], "layers": layers}
 
 
 def _save(project_path: Path, board: dict) -> dict:
@@ -650,6 +669,49 @@ def set_hidden(project_path: Path, ids: list) -> dict:
         board["hidden"] = ids
         board = _save(project_path, board)
     return {"hidden": board["hidden"], "rev": board["rev"]}
+
+
+def clean_person(raw, index: int) -> dict:
+    """One scale figure, checked (a new one gets an id). Raises ValueError."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"people[{index}] must be an object")
+    person_id = raw.get("id") or f"person-{uuid.uuid4().hex[:8]}"
+    if not (isinstance(person_id, str) and PAPER_ID.fullmatch(person_id)):
+        raise ValueError(f"people[{index}].id must be an id")
+    kind = raw.get("kind", "stand")
+    if kind not in PERSON_KINDS:
+        raise ValueError(f"people[{index}].kind must be one of {', '.join(PERSON_KINDS)}")
+    x = _number(raw.get("x"), f"people[{index}].x")
+    y = _number(raw.get("y"), f"people[{index}].y")
+    if abs(x) > MAX_COORD or abs(y) > MAX_COORD:
+        raise ValueError(f"people[{index}] is too far from the site")
+    turn = _number(raw.get("turn", 0), f"people[{index}].turn") % 360
+    roof = raw.get("roof", False)
+    if not isinstance(roof, bool):
+        raise ValueError(f"people[{index}].roof must be true or false")
+    person = {"id": person_id, "x": round(x, 3), "y": round(y, 3), "turn": round(turn, 1) % 360, "kind": kind}
+    if roof:
+        person["roof"] = True
+    return person
+
+
+def set_people(project_path: Path, raw: list) -> dict:
+    """
+    The scale figures standing about the site (`people`). Replaces the list; [] takes them all
+    away. Returns {people, rev}. Raises ValueError.
+    """
+    if not isinstance(raw, list):
+        raise ValueError("people must be a list")
+    if len(raw) > MAX_PEOPLE:
+        raise ValueError(f"at most {MAX_PEOPLE} people")
+    people = [clean_person(item, index) for index, item in enumerate(raw)]
+    if len({p["id"] for p in people}) != len(people):
+        raise ValueError("each person needs an id of their own")
+    with _lock:
+        board = load_board(project_path)
+        board["people"] = people
+        board = _save(project_path, board)
+    return {"people": board["people"], "rev": board["rev"]}
 
 
 def clean_layers(raw) -> list[dict]:

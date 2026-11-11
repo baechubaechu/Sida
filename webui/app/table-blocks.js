@@ -374,6 +374,7 @@ export const blocksMethods = {
     const preview = this.tray.find((p) => p.id === this.preview);
     if (preview) build(preview, true, new THREE.Color(this.colors.ghost));
     this.drawFigures(active);
+    this.drawPeople(); // a person on a roof follows its floors
     this.invalidate();
   },
   // ------------------------------------------------------------------ figures while editing

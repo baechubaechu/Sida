@@ -16,6 +16,7 @@ import {
   isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, PDF_MAX_SIDE, PDF_MAX_AREA, resizable, resizedPaper, PAPER_LIMITS,
   EYE, groundAt, eyeStart, eyeCamera, eyeLook, eyeWalk, eyeZoom, eyeKey,
   emptyMeasure, measureLength, measureClick, siteCircles, circlePoints, MAX_CIRCLES,
+  PERSON_KINDS, personId, insideRing, ringGap, blockUnder, nearestBlock, personNote, groundClass, scatterSpots, PERSON_GAP,
 } from '../../webui/app/board-model.js';
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -1415,3 +1416,75 @@ test('every three.js name the screen uses is in the bundled three.js', async () 
   assert.ok(used.size > 20);
   assert.deepEqual([...used].filter((name) => bundled[name] === undefined), []);
 });
+
+// ------------------------------------------------------------------ people (사람 배치)
+
+// A repeatable random source for the scatter.
+function seeded(seed) {
+  return () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+}
+const SQUARE = [[-10, -10], [10, -10], [10, 10], [-10, 10]];
+const FRAME = { x: 0, y: 0, angle: 0 };
+
+test('a person is inside a ring or a known distance from its edges', () => {
+  assert.ok(insideRing(SQUARE, 0, 0));
+  assert.ok(!insideRing(SQUARE, 11, 0));
+  close(ringGap(SQUARE, 13, 0), 3);
+  close(ringGap(SQUARE, 0, 0), 10);
+});
+
+test('a person on a roof stands on the tallest block under them; the note says the scale in person heights', () => {
+  const blocks = [{ u: 0, v: 0, w: 20, d: 20, floors: 4 }, { u: 5, v: 5, w: 6, d: 6, floors: 12 }];
+  assert.equal(blockUnder(FRAME, blocks, -5, -5), 0);
+  assert.equal(blockUnder(FRAME, blocks, 5, 5), 1); // the tower over the podium
+  assert.equal(blockUnder(FRAME, blocks, 30, 0), -1);
+  assert.deepEqual(nearestBlock(FRAME, blocks, 15, 0), { index: 0, gap: 5 });
+  assert.equal(nearestBlock(FRAME, [], 0, 0), null);
+  assert.equal(personNote({ kind: 'stand' }, blocks[1]), '서 있는 사람 1.7 m · 가까운 동 12층 50.4 m, 사람 키로 약 30명 높이');
+  assert.equal(personNote({ kind: 'child', roof: true }, null), '아이 1.1 m · 옥상');
+  assert.equal(PERSON_KINDS.child.height, 1.1);
+});
+
+test('a new person gets an id the server takes', () => {
+  assert.match(personId(() => 0.5), /^person-[0-9a-f]{8}$/);
+  assert.match(personId(() => 0), /^person-0{8}$/);
+});
+
+test('the ground under a point of the surroundings: road, sidewalk, outside the range', () => {
+  const terrain = { min: 0, step: 10, n: 2, z: [0, 0, 0, 0], classes: ['r', 's', 'g', 'x'] };
+  assert.equal(groundClass(terrain, 1, 1), 'r');
+  assert.equal(groundClass(terrain, 9, 1), 's');
+  assert.equal(groundClass(terrain, 10, 10), 'x');
+  assert.equal(groundClass(terrain, -20, 0), 'x');
+  assert.equal(groundClass(null, 0, 0), '');
+});
+
+test('scattered people stand near the site, off buildings and roads, apart from each other', () => {
+  const block = [[-5, -5], [5, -5], [5, 5], [-5, 5]];
+  const people = [{ id: 'a', x: 8, y: 8, turn: 0, kind: 'stand' }];
+  const spots = scatterSpots({ rings: [SQUARE], obstacles: [block], people, count: 12, reach: 6, rand: seeded(7) });
+  assert.equal(spots.length, 12);
+  for (const s of spots) {
+    assert.ok(!insideRing(block, s.x, s.y) && ringGap(block, s.x, s.y) >= 0.6, `off the building: ${s.x}, ${s.y}`);
+    assert.ok(insideRing(SQUARE, s.x, s.y) || ringGap(SQUARE, s.x, s.y) <= 6, 'within reach of the site');
+    assert.ok(['stand', 'walk', 'child'].includes(s.kind) && s.turn >= 0 && s.turn < 360);
+  }
+  const all = [...people, ...spots];
+  for (let i = 0; i < all.length; i += 1) {
+    for (let j = i + 1; j < all.length; j += 1) assert.ok(Math.hypot(all[i].x - all[j].x, all[i].y - all[j].y) >= PERSON_GAP);
+  }
+  assert.deepEqual(scatterSpots({ rings: [SQUARE], obstacles: [block], people, count: 12, reach: 6, rand: seeded(7) }), spots); // repeatable
+  // With the surroundings: the road (here everything west of x = 0) is left alone.
+  const terrain = { min: -40, step: 1, n: 81, z: new Array(81 * 81).fill(0), classes: Array.from({ length: 81 * 81 }, (_, k) => (k % 81 < 40 ? 'r' : 's')) };
+  for (const s of scatterSpots({ rings: [SQUARE], terrain, count: 10, rand: seeded(3) })) assert.ok(s.x >= -0.5, `off the road: ${s.x}`);
+  assert.deepEqual(scatterSpots({ rings: [], count: 5 }), []); // no site, nobody
+});
+
+test('a change of people is kept for undo, which sends back the list before it', () => {
+  const step = [{ op: 'people', before: [], after: [{ id: 'p' }] }];
+  const history = recordStep(createHistory(), step);
+  assert.equal(history.past.length, 1);
+  assert.deepEqual(undoStep(history).step, [{ op: 'people', before: [{ id: 'p' }], after: [] }]);
+  assert.equal(recordStep(createHistory(), [{ op: 'people', before: [{ id: 'p' }], after: [{ id: 'p' }] }]).past.length, 0); // nothing changed
+});
+

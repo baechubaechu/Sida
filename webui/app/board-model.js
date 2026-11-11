@@ -1200,6 +1200,7 @@ export function changedFields(before, after) {
 
 function worthKeeping(edit) {
   if (edit.op === 'update') return Object.keys(edit.after || {}).length > 0 && !same(edit.before, edit.after);
+  if (edit.op === 'people') return !same(edit.before, edit.after);
   return UNDOABLE_KINDS.includes(edit.paper?.kind);
 }
 
@@ -1212,6 +1213,7 @@ export function recordStep(history, edits) {
 export function invertStep(step) {
   return [...step].reverse().map((e) => {
     if (e.op === 'update') return { op: 'update', id: e.id, before: e.after, after: e.before };
+    if (e.op === 'people') return { op: 'people', before: e.after, after: e.before };
     return { op: e.op === 'add' ? 'remove' : 'add', paper: e.paper };
   });
 }
@@ -2104,3 +2106,117 @@ export function groupProperties(papers, group) {
   if (m.keys.length) rows.push(['동', `${m.keys.length}개`]);
   return { title: `그룹 (${m.ids.length + m.keys.length}개)`, rows, note: '하나를 누르면 함께 골라집니다. 풀려면 ungroup 명령이나 아래 버튼을 쓰세요.' };
 }
+
+// ------------------------------------------------------------------ people (사람 배치)
+// Scale figures stood about the site in 3D to feel how large a scheme is (2026-11-10 지훈:
+// "사람 배치해보는 기능", 2026-11-11 "제도판 3D부터"). A person is {id, x, y, turn, kind, roof?}:
+// x, y in the plan's metres, turn the way they face (degrees clockwise from north, as the eye's
+// yaw), roof standing them on the roof of the scheme's building under them. Saved as a whole list
+// (PUT .../board/people); the screen only, never sent to the AI.
+
+export const PERSON_KINDS = {
+  stand: { label: '서 있는 사람', short: '서기', height: 1.7 },
+  walk: { label: '걷는 사람', short: '걷기', height: 1.7 },
+  child: { label: '아이', short: '아이', height: 1.1 },
+};
+export const MAX_PEOPLE = 400;
+export const SCATTER_COUNT = 12; // people the 뿌리기 button stands at once
+export const SCATTER_REACH = 15; // metres around the site they may stand in
+export const PERSON_GAP = 1.2; // metres kept between two people scattered
+
+export function personId(rand = Math.random) {
+  return `person-${Math.floor(rand() * 0x100000000).toString(16).padStart(8, '0').slice(-8)}`;
+}
+
+// A point inside a closed ring [[x, y], ...] (even-odd).
+export function insideRing(ring, x, y) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+// How far a point is from a ring's edges, in metres (0 on an edge).
+export function ringGap(ring, x, y) {
+  let best = Infinity;
+  for (let i = 0; i < ring.length; i += 1) {
+    const [ax, ay] = ring[i], [bx, by] = ring[(i + 1) % ring.length];
+    const dx = bx - ax, dy = by - ay;
+    const len = dx * dx + dy * dy;
+    const t = len ? clampTo(((x - ax) * dx + (y - ay) * dy) / len, 0, 1) : 0;
+    best = Math.min(best, Math.hypot(x - (ax + t * dx), y - (ay + t * dy)));
+  }
+  return best;
+}
+
+// The block of a scheme a point stands on (the tallest, where blocks overlap): its index, or -1.
+export function blockUnder(frame, blocks, x, y) {
+  let found = -1;
+  (blocks || []).forEach((b, i) => {
+    if (insideRing(blockCorners(frame, b), x, y) && (found < 0 || b.floors > blocks[found].floors)) found = i;
+  });
+  return found;
+}
+
+// The block of a scheme nearest a point and how far off it is ({index, gap}, 0 inside), or null.
+export function nearestBlock(frame, blocks, x, y) {
+  let best = null;
+  (blocks || []).forEach((b, index) => {
+    const ring = blockCorners(frame, b);
+    const gap = insideRing(ring, x, y) ? 0 : ringGap(ring, x, y);
+    if (!best || gap < best.gap) best = { index, gap };
+  });
+  return best;
+}
+
+// What the table says about a picked person: their height, and the nearest building of the scheme
+// in person heights (a scale the designer can feel).
+export function personNote(person, block, floorHeight = 4.2) {
+  const kind = PERSON_KINDS[person?.kind] || PERSON_KINDS.stand;
+  const head = `${kind.label} ${kind.height} m${person?.roof ? ' · 옥상' : ''}`;
+  if (!block) return head;
+  const h = block.floors * floorHeight;
+  return `${head} · 가까운 동 ${block.floors}층 ${fmt(h, 1)} m, 사람 키로 약 ${Math.round(h / kind.height)}명 높이`;
+}
+
+// What the ground is at a point of the surroundings (board-model GROUND_COLORS keys: g ground,
+// r road, s sidewalk, w water, x outside the range), or '' with no surroundings.
+export function groundClass(terrain, x, y) {
+  if (!terrain?.n || !terrain.classes?.length) return '';
+  const { min, step, n } = terrain;
+  const i = Math.round((x - min) / step), j = Math.round((y - min) / step);
+  if (i < 0 || j < 0 || i >= n || j >= n) return OUTSIDE;
+  return terrain.classes[j * n + i] || '';
+}
+
+// Where the 뿌리기 button stands `count` people: on open ground inside the site or within `reach`
+// metres of it, out of the scheme's buildings and those around (`obstacles`, rings) by 0.6 m,
+// PERSON_GAP from anyone already there, and with the surroundings shown off the road and water.
+// Most of those on a sidewalk walk; a few are children. `rand` makes it repeatable in tests.
+export function scatterSpots({ rings = [], obstacles = [], terrain = null, people = [], count = SCATTER_COUNT, reach = SCATTER_REACH, rand = Math.random } = {}) {
+  const points = rings.flat();
+  if (!points.length) return [];
+  const xs = points.map((p) => p[0]), ys = points.map((p) => p[1]);
+  const box = { x0: Math.min(...xs) - reach, x1: Math.max(...xs) + reach, y0: Math.min(...ys) - reach, y1: Math.max(...ys) + reach };
+  const taken = people.filter((p) => !p.roof).map((p) => [p.x, p.y]);
+  const out = [];
+  for (let tries = 0; out.length < count && tries < count * 200; tries += 1) {
+    const x = box.x0 + rand() * (box.x1 - box.x0);
+    const y = box.y0 + rand() * (box.y1 - box.y0);
+    const onSite = rings.some((r) => insideRing(r, x, y));
+    if (!onSite && !rings.some((r) => ringGap(r, x, y) <= reach)) continue;
+    if (obstacles.some((r) => insideRing(r, x, y) || ringGap(r, x, y) < 0.6)) continue;
+    const ground = groundClass(terrain, x, y);
+    if (['r', 'w', OUTSIDE].includes(ground)) continue;
+    if (taken.some(([px, py]) => Math.hypot(px - x, py - y) < PERSON_GAP)) continue;
+    const k = rand();
+    const walking = ground === 's' ? 0.75 : 0.4;
+    const kind = k < 0.12 ? 'child' : k < 0.12 + walking * 0.88 ? 'walk' : 'stand';
+    out.push({ x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100, turn: Math.round(rand() * 360) % 360, kind });
+    taken.push([x, y]);
+  }
+  return out;
+}
+

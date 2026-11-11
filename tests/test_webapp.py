@@ -1481,6 +1481,18 @@ def test_delete_talk_is_blocked_during_running_project_job(client, project):
     assert client.get(f"/api/projects/{project.name}/talks/01").status_code == 200
 
 
+def test_people_stood_about_the_site_are_kept_per_project(client, project):
+    url = f"/api/projects/{project.name}/board/people"
+    body = client.put(url, json={"people": [{"id": "p1", "x": 2, "y": -3, "turn": 45, "kind": "walk"}, {"x": 0, "y": 0, "roof": True}]}).json()
+    assert body["people"][0] == {"id": "p1", "x": 2.0, "y": -3.0, "turn": 45.0, "kind": "walk"}
+    assert body["people"][1]["roof"] is True and body["people"][1]["kind"] == "stand"
+    assert client.get(f"/api/projects/{project.name}/board").json()["people"] == body["people"]
+    assert client.put(url, json={"people": []}).json()["people"] == []  # 모두 지우기
+    for bad in ({"people": "p1"}, {"people": [{"x": 0, "y": 0, "kind": "dog"}]}, {}):
+        assert client.put(url, json=bad).status_code == 400
+    assert client.put("/api/projects/nope/board/people", json={"people": []}).status_code == 404
+
+
 def test_hidden_3d_buildings_are_kept_per_project_and_only_as_ids(client, project):
     url = f"/api/projects/{project.name}/board/hidden"
     body = client.put(url, json={"ids": ["B001DS53735237_00", "B001DS53925204_00", "B001DS53735237_00"]}).json()

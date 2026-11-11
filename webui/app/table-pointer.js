@@ -107,6 +107,8 @@ export const pointerMethods = {
     const t = e.target.closest('button, [data-open-expert]');
     if (!t) return;
     if (t.dataset.eye) { this.eyeAction(t.dataset.eye); return; }
+    if (t.dataset.personKind) { this.personKind = t.dataset.personKind; this.drawPersonBar(); return; }
+    if (t.dataset.person) { this.personAction(t.dataset.person); return; }
     if (t.dataset.ui === 'view-scale') { this.openViewScale(); return; }
     if (t.dataset.ui === 'number-cancel') { this.ui.number.close(); return; }
     if (t.dataset.openExpert) { this.closeDetail(); this.hooks.openExpert(t.dataset.openExpert); return; }
@@ -224,6 +226,16 @@ export const pointerMethods = {
     if (mode) { this.gesture = { kind: mode, g0: (v.tilt < EDGE_TILT && g0) || { x: v.x, y: v.y }, edge: v.tilt >= EDGE_TILT || !g0, v, x: e.clientX, y: e.clientY, moved: false, button: e.button }; return; }
     if (e.button !== 0) return;
     if (MEASURE_TOOLS.has(this.tool)) { this.measureDown(e); return; } // a click, not a drag
+    // A person (사람 배치) is picked and dragged with the select or 사람 tool; the 사람 tool stands a new one.
+    const person = (this.tool === 'select' || this.tool === 'person') && this.personAt(e.clientX, e.clientY);
+    if (person) {
+      this.pickPerson(person);
+      const p = this.people.find((q) => q.id === person);
+      this.gesture = { kind: 'person', id: person, from: { x: p.x, y: p.y }, before: this.people, g0: (v.tilt < EDGE_TILT && g0) || null, x: e.clientX, y: e.clientY, moved: false };
+      return;
+    }
+    if (this.personPicked) this.pickPerson('');
+    if (this.tool === 'person') { this.gesture = { kind: 'person-add', x: e.clientX, y: e.clientY, moved: false }; return; }
     if (MODEL_TOOLS.has(this.tool)) { this.gesture = this.modelGesture(e, g0); return; }
     // Empty table (or the sky above it, in a view near edge-on): a selection box, as in Rhino.
     const box = { kind: 'box', x: e.clientX, y: e.clientY, add: e.shiftKey, remove: e.ctrlKey || e.metaKey, moved: false };
@@ -286,6 +298,16 @@ export const pointerMethods = {
     if ((g.kind === 'orbit' || g.kind === 'pan' || g.kind === 'zoom') && !g.told && Math.hypot(e.clientX - g.x, e.clientY - g.y) > 6) {
       g.told = true;
       this.hooks.viewMoved?.();
+    }
+    if (g.kind === 'person' || g.kind === 'person-add') {
+      if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 4) return;
+      g.moved = true;
+      const p = g.kind === 'person' && g.g0 && this.ground(e.clientX, e.clientY);
+      if (!p) return;
+      const at = { x: Math.round((g.from.x + p.x - g.g0.x) * 100) / 100, y: Math.round((g.from.y + p.y - g.g0.y) * 100) / 100 };
+      this.people = g.before.map((q) => (q.id === g.id ? { ...q, ...at } : q));
+      this.drawPeople();
+      return;
     }
     if (g.kind === 'eye' || g.kind === 'eye-pick') {
       if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 4) return;
@@ -447,6 +469,17 @@ export const pointerMethods = {
         else this.say('땅 위를 눌러 주세요. 건물이나 하늘에는 설 수 없습니다.');
       } else if (p) this.moveEye({ x: p.x, y: p.y });
     }
+    if (g?.kind === 'person') {
+      const after = this.people;
+      this.people = g.before;
+      if (g.moved && !cancelled && after !== g.before) this.changePeople(after);
+      else this.drawPeople();
+    }
+    if (g?.kind === 'person-add' && !g.moved && !cancelled) {
+      const spot = this.personSpot(g.x, g.y);
+      if (spot?.wall) this.say('벽에는 세울 수 없습니다. 바닥이나 매스 지붕을 누르세요.');
+      else if (spot) this.addPersonAt(spot);
+    }
     if (g?.kind === 'move') {
       // Dropped on the idea board: the circle flies in, and the papers (and their pins) stay hidden
       // where they were on the table until the board comes back without them.
@@ -597,8 +630,9 @@ export const pointerMethods = {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     // No letter or number shortcuts (2026-11-02 지훈): a word typed on the table goes to the
     // command line (app.js). Only Delete and Esc act here.
-    if (k === 'delete' || k === 'backspace') { e.preventDefault(); if (this.picked.length) this.removePicked(); else this.removeSelected(); }
+    if (k === 'delete' || k === 'backspace') { e.preventDefault(); if (this.removePickedPerson()) return; if (this.picked.length) this.removePicked(); else this.removeSelected(); }
     else if (k === 'escape') {
+      if (this.personPicked) { this.pickPerson(''); return; }
       if (this.detailId) { this.closeDetail(); return; }
       if (this.cancelMeasure()) return; // first the line or circle being drawn, then what was measured
       if (this.peekId) { this.peekId = ''; this.drawPins(); this.drawPeek(); return; }

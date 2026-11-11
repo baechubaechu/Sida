@@ -36,6 +36,8 @@ test("SketchUp's basic tools are commands too, with the AutoCAD short names", ()
   assert.equal(named('di'), 'dist');
   assert.equal(named('eye'), 'eye'); // 눈높이 보기
   assert.equal(named('walk'), 'eye');
+  assert.equal(named('people'), 'people'); // 사람 배치
+  assert.equal(named('person'), 'people');
   assert.equal(named('갯ㅁㅅㄷ'), 'rotate'); // typed with the Korean keyboard on
   assert.equal(named('ㄴㅊ믿'), 'scale');
 });
@@ -59,7 +61,7 @@ test('a single Korean letter or a Korean word is never a command', () => {
 });
 
 test('suggestions follow the word being typed and stop at a space', () => {
-  assert.deepEqual(suggest('p').map((c) => c.name), ['plan', 'persp', 'pen', 'photo', 'pushpull']);
+  assert.deepEqual(suggest('p').map((c) => c.name), ['plan', 'persp', 'pen', 'people', 'photo', 'pushpull']);
   assert.deepEqual(suggest('z').map((c) => c.name), ['zoom']);
   assert.equal(findCommand('picture').command.name, 'photo'); // Rhino's word for it
   assert.equal(findCommand('perspective').command.name, 'persp'); // one 3D view (2026-11-01)

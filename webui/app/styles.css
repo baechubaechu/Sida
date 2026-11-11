@@ -660,7 +660,7 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .gb-free { fill: color-mix(in srgb, var(--brand) 25%, white); stroke: var(--brand); stroke-width: 1.5; }
 .gb-free:hover { fill: var(--brand); }
 .table:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
-.table.tool-pen, .table.tool-note, .table.tool-model { cursor: crosshair; }
+.table.tool-pen, .table.tool-note, .table.tool-model, .table.tool-person { cursor: crosshair; }
 .table-stage, .table-gl, .table-css { position: absolute; inset: 0; }
 .table-css { pointer-events: none; }
 .table-error { position: absolute; inset: 40% 20px auto; text-align: center; color: var(--muted); }
@@ -853,6 +853,11 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .table.is-eye .table-stage { cursor: grab; }
 .table.is-eye .table-stage:active { cursor: grabbing; }
 .table.eye-picking .table-stage { cursor: crosshair; }
+/* 사람 배치: the 사람 tool's options, in the tool bar beside it (as the 주변 3D range is). */
+.person-options { display: contents; }
+.person-options > button { border-radius: 6px; padding: 7px 9px; font-size: 12px; color: var(--text); white-space: nowrap; }
+.person-options > button:hover:not(:disabled) { background: var(--surface-subtle); }
+.person-options > button:disabled { color: var(--muted); opacity: .55; cursor: default; }
 /* Where the surroundings in 3D come from, and that they are not a survey (주변 3D). */
 .tray { left: 0; top: 0; bottom: 0; width: var(--tray-width); display: none; flex-direction: column; gap: 10px; padding: 14px; overflow-y: auto; background: var(--surface); border-right: 1px solid var(--line); box-shadow: 6px 0 18px rgb(0 0 0 / .08); z-index: 3; cursor: auto; user-select: text; }
 .tray.open { display: flex; }

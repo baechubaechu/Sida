@@ -16,6 +16,7 @@ export const TOOLS = [
   { id: 'radius', label: '반경', cmd: 'radius', group: 'model', hint: '중심을 찍고 끝점을 찍으면 원과 반경이 남습니다. 명령줄에 radius를 치고 500처럼 반경을 넣으면 대지 가운데에 원을 그립니다. Esc는 지웁니다.' },
   { id: 'note', label: '메모', cmd: 'note' },
   { id: 'pen', label: '펜', cmd: 'pen' },
+  { id: 'person', label: '사람', cmd: 'people', hint: '바닥이나 매스 지붕을 누르면 사람이 섭니다. 도구 옆에서 종류를 고르거나 대지 주변에 한 번에 뿌릴 수 있습니다. 세운 사람은 끌어서 옮깁니다.' },
 ];
 // The tape and the radius tool measure with two clicks (table-measure.js), not a drag.
 export const MEASURE_TOOLS = new Set(['tape', 'radius']);
