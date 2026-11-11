@@ -130,7 +130,7 @@ export const pointerMethods = {
       if (!this.root.contains(document.activeElement)) this.root.focus({ preventScroll: true });
       return;
     }
-    if (t.dataset.tilt) { this.showView(t.dataset.tilt); return; }
+    if (t.dataset.tilt) { this.showView(t.dataset.tilt, t.dataset.corner); return; }
     const id = t.dataset.id;
     switch (t.dataset.trayAction) {
       case 'place': this.placeFromTray(id); return;
