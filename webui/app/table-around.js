@@ -280,11 +280,18 @@ export const aroundMethods = {
     this.invalidate();
     if (save) this.hooks.saveAroundParts?.([...this.aroundPartsHidden]);
   },
+  // At eye level the building on the site follows the 지금 건물 / 매스안 choice instead, solid
+  // when shown (on the table it is see-through, so a mass inside it shows).
   showAroundParts() {
     const hidden = this.aroundPartsHidden || new Set();
     for (const obj of this.gl?.around.children || []) {
       const part = obj.userData.part || (this.steppedOn ? 'ground' : '');
-      obj.visible = !hidden.has(part);
+      obj.visible = part === 'onsite' && this.eye ? this.eyeBefore : !hidden.has(part);
+      if (part === 'onsite' && obj.isMesh && obj.material.transparent !== !this.eye) {
+        obj.material.transparent = !this.eye;
+        obj.material.opacity = this.eye ? 1 : 0.35;
+        obj.material.needsUpdate = true;
+      }
     }
   },
   // The colour legend in one line at the bottom right while the surroundings are shown (where the

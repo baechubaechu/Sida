@@ -34,6 +34,8 @@ test("SketchUp's basic tools are commands too, with the AutoCAD short names", ()
   assert.equal(named('scale'), 'scale');
   assert.equal(named('eraser'), 'eraser');
   assert.equal(named('di'), 'dist');
+  assert.equal(named('eye'), 'eye'); // 눈높이 보기
+  assert.equal(named('walk'), 'eye');
   assert.equal(named('갯ㅁㅅㄷ'), 'rotate'); // typed with the Korean keyboard on
   assert.equal(named('ㄴㅊ믿'), 'scale');
 });

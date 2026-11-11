@@ -2,7 +2,7 @@
 // tools' gestures, dragging papers and blocks, carrying papers to the idea board.
 // Methods of DraftingTable (table.js adds them to its prototype).
 
-import { PX, PAPER_SIZE, zoomAround, dragMode, wheelZoom, orbitBy, panBy, EDGE_TILT, isOverlaid, blockCorners, paperName, toggleSelected, boxPick, boxMode, parseBlockKey, fmt, frameDelta, editBlocks, axisDrag, blockKey, toFrame, rectBlock, pushBlock, copyBlocks, turnBlocks, scaleBlocks, snapAngle, MAX_BLOCKS, numericToolClick, isPdfFile, buildingInfo } from './board-model.js';
+import { PX, PAPER_SIZE, zoomAround, dragMode, wheelZoom, orbitBy, panBy, EDGE_TILT, isOverlaid, blockCorners, paperName, toggleSelected, boxPick, boxMode, parseBlockKey, fmt, frameDelta, editBlocks, axisDrag, blockKey, toFrame, rectBlock, pushBlock, copyBlocks, turnBlocks, scaleBlocks, snapAngle, MAX_BLOCKS, numericToolClick, isPdfFile, buildingInfo, eyeKey } from './board-model.js';
 import { SNAP, typing, MODEL_TOOLS, cm, strokePath } from './table-shared.js';
 
 export const pointerMethods = {
@@ -106,6 +106,7 @@ export const pointerMethods = {
   onClick(e) {
     const t = e.target.closest('button, [data-open-expert]');
     if (!t) return;
+    if (t.dataset.eye) { this.eyeAction(t.dataset.eye); return; }
     if (t.dataset.ui === 'view-scale') { this.openViewScale(); return; }
     if (t.dataset.ui === 'number-cancel') { this.ui.number.close(); return; }
     if (t.dataset.openExpert) { this.closeDetail(); this.hooks.openExpert(t.dataset.openExpert); return; }
@@ -143,11 +144,12 @@ export const pointerMethods = {
       case 'trace': this.layTracing(); break;
       case 'photo': this.pickPhotos(); break;
       case 'around': this.toggleAround(); break;
+      case 'eye': this.toggleEye(); break;
       case 'model-panel': this.openModel(); break;
       case 'model-stepped': this.toggleStepped(); break;
       case 'delete': this.removeSelected(); break;
       case 'tray': this.trayOpen = !this.trayOpen; this.drawTray(); this.drawControls(); break;
-      case 'north': this.animateTo({ turn: 0 }); break;
+      case 'north': if (this.eye) this.moveEye({ yaw: 0 }); else this.animateTo({ turn: 0 }); break;
       case 'zoom-in': this.animateTo({ span: this.view.span / 1.4 }, 200); break;
       case 'zoom-out': this.animateTo({ span: this.view.span * 1.4 }, 200); break;
       case 'fit': this.fit(); break;
@@ -175,6 +177,7 @@ export const pointerMethods = {
     const v = this.view;
     this.tween += 1;
     const pinch = e.ctrlKey || e.metaKey;
+    if (this.eye) { this.zoomEye(wheelZoom(e.deltaY, e.deltaMode, pinch)); return; } // the lens, standing still
     if (!pinch && e.shiftKey && !e.deltaX) {
       this.setView({ ...v, turn: v.turn + e.deltaY * 0.15 });
     } else if (!pinch && e.deltaX) {
@@ -207,6 +210,10 @@ export const pointerMethods = {
     this.root.setPointerCapture(e.pointerId);
     this.tween += 1;
     const v = this.view;
+    // At eye level any button drags the look about; a left click on the ground walks there.
+    if (this.eye) { this.gesture = { kind: 'eye', x: e.clientX, y: e.clientY, eye: this.eye, button: e.button, moved: false }; return; }
+    // Asked where to stand (눈높이): a left click on the ground stands there; other buttons still move the view.
+    if (this.eyePicking && e.button === 0) { this.gesture = { kind: 'eye-pick', x: e.clientX, y: e.clientY, moved: false }; return; }
     const grip = e.button === 0 && this.gumAxes && e.target.closest('[data-gumball]')?.dataset.gumball;
     if (grip) { this.gesture = this.gumballGesture(grip, e); return; }
     const corner = e.button === 0 && !e.shiftKey && e.target.closest('[data-grip]'); // Alt and Ctrl change how it resizes
@@ -278,6 +285,12 @@ export const pointerMethods = {
     if ((g.kind === 'orbit' || g.kind === 'pan' || g.kind === 'zoom') && !g.told && Math.hypot(e.clientX - g.x, e.clientY - g.y) > 6) {
       g.told = true;
       this.hooks.viewMoved?.();
+    }
+    if (g.kind === 'eye' || g.kind === 'eye-pick') {
+      if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 4) return;
+      g.moved = true;
+      if (g.kind === 'eye') this.lookEye(g.eye, e.clientX - g.x, e.clientY - g.y);
+      return;
     }
     if (g.kind === 'orbit') {
       // As in Rhino the model turns with the hand: drag right and its near side comes right,
@@ -431,6 +444,13 @@ export const pointerMethods = {
   onUp(cancelled = false) {
     const g = this.gesture;
     this.gesture = null;
+    if ((g?.kind === 'eye' || g?.kind === 'eye-pick') && !g.moved && !cancelled && g.button !== 2) {
+      const p = this.eyeHit(g.x, g.y);
+      if (g.kind === 'eye-pick') {
+        if (p) this.enterEye(p);
+        else this.say('땅 위를 눌러 주세요. 건물이나 하늘에는 설 수 없습니다.');
+      } else if (p) this.moveEye({ x: p.x, y: p.y });
+    }
     if (g?.kind === 'move') {
       // Dropped on the idea board: the circle flies in, and the papers (and their pins) stay hidden
       // where they were on the table until the board comes back without them.
@@ -555,6 +575,11 @@ export const pointerMethods = {
   onKey(e) {
     if (typing(e.target) || e.target.closest?.('dialog')) return;
     const k = e.key.toLowerCase();
+    if ((this.eye || this.eyePicking) && !(e.metaKey || e.ctrlKey || e.altKey)) {
+      const move = this.eye && eyeKey(e.key, e.shiftKey);
+      if (move) { e.preventDefault(); this.stepEye(move); return; }
+      if (k === 'escape') { e.preventDefault(); if (this.eye) this.exitEye(); else this.cancelEyePick(); return; }
+    }
     if ((e.metaKey || e.ctrlKey) && (k === 'z' || k === 'y')) {
       e.preventDefault();
       this.travel(k === 'y' || e.shiftKey ? 'redo' : 'undo');
