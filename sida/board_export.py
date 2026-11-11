@@ -9,6 +9,12 @@ the AI section are left out: only what the designer laid on the table goes out. 
 tracing sheet the designer put on a layer of their own (board `layers`, 2026-11-09) goes out on a
 layer of that name instead ("매스 - 타워" for a sublayer, in the layer's colour when it has one).
 
+Each thing that came from a paper carries the paper's `id` (a block of a mass as `<paper id>:<block
+index>`, a parcel as `site:<pnu>`, the origin mark as `origin`) and its `kind`; `to_3dm` writes them
+on the object as user strings `sida.id` and `sida.kind` (and `sida.project`, `sida.origin` on the
+origin mark), so the Rhino plugin can tell Sida's objects from the designer's and send a changed
+block back with its id (sida/experts/rhino/snapshot.py). DXF carries no ids.
+
 `to_dxf` and `to_3dm` write that scene. DXF (AutoCAD 2013) keeps masses as MESH entities and
 lines as polylines; 3dm keeps masses as closed extrusions, lines as polyline curves and the
 labels as text dots. Both are in metres.
@@ -214,12 +220,13 @@ def export_scene(project_path: Path, *, active: str | None = None, hooks=None) -
     site = layer(_unique(SITE_LAYER, taken), COLORS["site"])
     site["linetype"] = "DASHED"  # drawn dashed on the screen too
     for parcel in (plan or {}).get("parcels") or []:
+        parcel_id = f"site:{parcel.get('pnu') or ''}"
         for ring in parcel["rings"]:
-            site["curves"].append({"points": [[x, y, 0.0] for x, y in ring], "closed": True})
+            site["curves"].append({"points": [[x, y, 0.0] for x, y in ring], "closed": True, "id": parcel_id, "kind": "site"})
         label = parcel.get("address") or parcel.get("pnu")
         if label and parcel["rings"]:
             x, y = board._centroid(parcel["rings"][0])
-            site["labels"].append({"at": [round(x, 3), round(y, 3), 0.0], "text": str(label)})
+            site["labels"].append({"at": [round(x, 3), round(y, 3), 0.0], "text": str(label), "id": parcel_id, "kind": "site"})
     if site["curves"]:
         layers.append(site)
 
@@ -228,15 +235,17 @@ def export_scene(project_path: Path, *, active: str | None = None, hooks=None) -
         mass = layer(name, COLORS["mass"], parent=MASS_GROUP, visible=not active or paper["id"] == active)
         mass["short"] = name.removeprefix(f"{MASS_GROUP} - ")
         storey = float(paper.get("floor_height") or board.DEFAULT_FLOOR_HEIGHT)
-        for block in paper.get("blocks") or []:
+        for index, block in enumerate(paper.get("blocks") or []):
             outline = block_outline(frame, block)
             height = round(block["floors"] * storey, 4)
             base = mass_base(outline, ground)
             into = own.get(block.get("layer")) or own.get(paper.get("layer")) or mass
-            into["solids"].append({"outline": _ccw(outline), "base": base, "height": height})
+            block_id = f"{paper['id']}:{index}"
+            into["solids"].append({"outline": _ccw(outline), "base": base, "height": height, "id": block_id, "kind": "mass"})
             cx = sum(x for x, _ in outline) / 4
             cy = sum(y for _, y in outline) / 4
-            into["labels"].append({"at": [round(cx, 3), round(cy, 3), round(base + height, 4)], "text": f"{block['floors']}F"})
+            into["labels"].append({"at": [round(cx, 3), round(cy, 3), round(base + height, 4)], "text": f"{block['floors']}F",
+                                   "id": block_id, "kind": "mass"})
         if mass["solids"]:
             layers.append(mass)
 
@@ -246,9 +255,10 @@ def export_scene(project_path: Path, *, active: str | None = None, hooks=None) -
         name = _unique(f"{TRACING_GROUP} - {layer_name(board.paper_name(paper), paper['id'])}", taken)
         sheet = own.get(paper.get("layer")) or layer(name, COLORS["tracing"], parent=TRACING_GROUP)
         sheet.setdefault("short", name.removeprefix(f"{TRACING_GROUP} - "))
-        for stroke in paper["strokes"]:
+        for index, stroke in enumerate(paper["strokes"]):
             if len(stroke) >= 2:
-                sheet["curves"].append({"points": [[x, y, 0.0] for x, y in stroke], "closed": False})
+                sheet["curves"].append({"points": [[x, y, 0.0] for x, y in stroke], "closed": False,
+                                        "id": f"{paper['id']}:{index}", "kind": "tracing"})
         if sheet not in own.values():
             layers.append(sheet)
     layers.extend(x for x in own.values() if x["solids"] or x["curves"])
@@ -266,9 +276,9 @@ def export_scene(project_path: Path, *, active: str | None = None, hooks=None) -
     if plan and plan.get("origin"):
         origin = plan["origin"]
         mark = layer(_unique(ORIGIN_LAYER, taken), COLORS["origin"])
-        mark["labels"].append({"at": [0.0, 0.0, 0.0], "text": origin_text(origin)})
+        mark["labels"].append({"at": [0.0, 0.0, 0.0], "text": origin_text(origin), "id": "origin", "kind": "origin"})
         layers.append(mark)
-    return {"origin": origin, "layers": layers}
+    return {"origin": origin, "project": Path(project_path).name, "layers": layers}
 
 
 def origin_text(origin: dict) -> str:
@@ -397,13 +407,26 @@ def to_3dm(scene: dict) -> bytes:
         if parent is not None:  # a sublayer shows only its own part under the group
             name = scene_layer.get("short") or name
         index = add_layer(name, scene_layer["color"], scene_layer["visible"], parent)
-        attributes = r.ObjectAttributes()
-        attributes.LayerIndex = index
+
+        def attrs(item: dict, layer_index: int = index) -> r.ObjectAttributes:
+            """Attributes on the layer, with Sida's id and kind as user strings when the item has them."""
+            attributes = r.ObjectAttributes()
+            attributes.LayerIndex = layer_index
+            if item.get("id"):
+                attributes.SetUserString("sida.id", str(item["id"]))
+                attributes.SetUserString("sida.kind", str(item.get("kind") or ""))
+            if item.get("kind") == "origin":
+                attributes.SetUserString("sida.project", str(scene.get("project") or ""))
+                origin = scene.get("origin") or {}
+                attributes.SetUserString("sida.origin", f"{origin.get('lon')},{origin.get('lat')}")
+            return attributes
+
+        attributes = attrs({})
         for curve in scene_layer["curves"]:
             points = [r.Point3d(*p) for p in curve["points"]]
             if curve["closed"]:
                 points.append(points[0])
-            model.Objects.AddPolyline(points, attributes)
+            model.Objects.AddPolyline(points, attrs(curve))
         for solid in scene_layer["solids"]:
             outline = [r.Point3d(x, y, 0.0) for x, y in solid["outline"]]
             outline.append(outline[0])
@@ -412,7 +435,7 @@ def to_3dm(scene: dict) -> bytes:
                 continue
             if solid["base"]:
                 body.Translate(r.Vector3d(0, 0, solid["base"]))
-            model.Objects.AddExtrusion(body, attributes)
+            model.Objects.AddExtrusion(body, attrs(solid))
         for surface in scene_layer.get("surfaces") or []:
             if surface.get("clip_radius") is not None:  # a round ground: a mesh of the cells inside
                 mesh = _mesh(r, surface)
@@ -423,7 +446,7 @@ def to_3dm(scene: dict) -> bytes:
             if body is not None:
                 model.Objects.AddSurface(body, attributes)
         for label in scene_layer["labels"]:
-            model.Objects.AddTextDot(label["text"], r.Point3d(*label["at"]), attributes)
+            model.Objects.AddTextDot(label["text"], r.Point3d(*label["at"]), attrs(label))
     handle, path = tempfile.mkstemp(suffix=".3dm")
     os.close(handle)
     try:

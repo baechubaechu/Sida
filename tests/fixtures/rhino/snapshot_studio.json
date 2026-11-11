@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "rhino": {"version": "8.12", "file": "studio.3dm", "units": "m"},
+  "origin": {"lon": 126.978, "lat": 37.568, "matches_project": true},
+  "layers": [
+    {"path": "Program::Housing", "meaning": "housing", "color": "#c86432", "floor_height": 3.0},
+    {"path": "Program::Shop", "meaning": "commercial", "color": "#3264c8", "floor_height": 4.0},
+    {"path": "Context::Buildings", "meaning": "surroundings", "color": "", "floor_height": null},
+    {"path": "Sketch", "meaning": "", "color": "", "floor_height": null}
+  ],
+  "objects": [
+    {"id": "a1", "sida_id": "mass-a:0", "layer": "Program::Housing", "name": "동 A", "volume": 2160.0, "height": 12.0,
+     "footprint": [[0, 0], [20, 0], [20, 9], [0, 9]],
+     "floors": [{"z": 0.0, "area": 180.0}, {"z": 3.0, "area": 180.0}, {"z": 6.0, "area": 180.0}, {"z": 9.0, "area": 180.0}],
+     "mesh": {"v": [[0, 0, 0], [20, 0, 0], [20, 9, 0], [0, 9, 0], [0, 0, 12], [20, 0, 12], [20, 9, 12], [0, 9, 12]],
+              "f": [[0, 1, 2, 3], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]]}},
+    {"id": "b1", "sida_id": null, "layer": "Program::Shop", "name": "", "volume": 720.0, "height": 4.0,
+     "footprint": [[10, 0], [30, 0], [30, 9], [10, 9]],
+     "floors": [{"z": 0.0, "area": 180.0}]},
+    {"id": "c1", "sida_id": null, "layer": "Program::Housing", "name": "열린 면", "volume": null, "height": 6.0,
+     "footprint": [[40, 0], [50, 0], [50, 5], [40, 5]], "floors": []},
+    {"id": "n1", "sida_id": null, "layer": "Context::Buildings", "volume": 9000.0, "height": 30.0,
+     "footprint": [[-60, -60], [-30, -60], [-30, -30], [-60, -30]], "floors": [{"z": 0.0, "area": 900.0}]},
+    {"id": "s1", "sida_id": null, "layer": "Sketch", "volume": null, "footprint": null, "floors": []}
+  ],
+  "views": [{"kind": "plan", "file": "plan.png"}, {"kind": "axo", "file": "axo.png"}]
+}

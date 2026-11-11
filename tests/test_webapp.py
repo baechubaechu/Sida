@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from sida import config as sida_config
 from sida import engine, errors, providers, runtime, webapp
 from sida.briefs import BRIEF_FIELD_KEYS
-from tests.conftest import land_fixture
+from tests.conftest import ROOT, land_fixture
 
 
 @pytest.fixture
@@ -1271,6 +1271,51 @@ def test_board_api_exports_the_table_as_cad_and_rhino_files(client, project):
     assert client.get(f"{base}/export", params={"format": "pdf"}).status_code == 400
     assert client.get(f"{base}/export", params={"format": "dxf", "active": "nope"}).status_code == 400
     assert client.get("/api/projects/nope/board/export").status_code == 404
+
+
+def test_rhino_api_takes_a_snapshot_with_its_views_lays_the_paper_and_answers_live_figures(client, project):
+    import json as _json
+
+    from sida.experts.rhino import snapshot as rhino_snapshot
+
+    hello = client.get("/api/rhino/hello").json()
+    assert hello["ok"] is True and hello["schema"] == 1 and {"code": "housing", "word": "주거", "built": True} in hello["meanings"]
+
+    raw = _json.loads((ROOT / "tests" / "fixtures" / "rhino" / "snapshot_studio.json").read_text(encoding="utf-8"))
+    base = f"/api/projects/{project.name}/rhino"
+    png = rhino_snapshot.PNG + b"\x00" * 8
+    files = [("views", ("plan.png", png, "image/png")), ("views", ("axo.png", png, "image/png"))]
+    r = client.post(f"{base}/snapshots", data={"snapshot": _json.dumps(raw)}, files=files)
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["snapshot"]["file"] == "studio.3dm" and body["snapshot"]["objects"] == 5
+    assert body["figures"]["floor_area_m2"] == 900.0 and body["figures"]["far_pct"] is None  # no site looked up
+    assert body["figures"]["lines"][0] == "연면적 900.0㎡ (주거 720.0, 상업 180.0)" and body["figures"]["limits"] == []
+    assert body["paper"]["id"] == "rhino" and body["paper"]["title"] == "studio" and body["paper"]["figures"]["lines"]
+    snapshot_id = body["snapshot"]["id"]
+
+    got = client.get(f"/api/projects/{project.name}/board").json()
+    assert [p["id"] for p in got["papers"]] == ["site", "rhino"]
+    assert [s["id"] for s in client.get(f"{base}/snapshots").json()["snapshots"]] == [snapshot_id]
+    one = client.get(f"{base}/snapshots/{snapshot_id}").json()
+    assert one["snapshot"]["objects"][0]["sida_id"] == "mass-a:0" and one["figures"]["footprint_m2"] == 320.0
+    image = client.get(f"{base}/snapshots/{snapshot_id}/views/plan.png")
+    assert image.status_code == 200 and image.content == png and image.headers["content-type"] == "image/png"
+    assert client.get(f"{base}/snapshots/{snapshot_id}/views/eye.png").status_code == 404
+    assert client.get(f"{base}/snapshots/20261111-000000-0000").status_code == 404
+
+    live = client.post(f"{base}/figures", json={**raw, "views": [], "objects": raw["objects"][:2]})
+    assert live.status_code == 200 and live.json()["figures"]["floor_area_m2"] == 900.0 and live.json()["figures"]["unmeasured"] == []
+    assert [s["id"] for s in client.get(f"{base}/snapshots").json()["snapshots"]] == [snapshot_id]  # nothing saved
+
+    bad = client.post(f"{base}/snapshots", data={"snapshot": _json.dumps({**raw, "schema": 3})}, files=files)
+    assert bad.status_code == 400 and "schema must be 1" in bad.json()["detail"]
+    assert client.post(f"{base}/snapshots", data={"snapshot": "{not json"}, files=files).status_code == 400
+    missing = client.post(f"{base}/snapshots", data={"snapshot": _json.dumps(raw)}, files=files[:1])
+    assert missing.status_code == 400 and "axo.png" in missing.json()["detail"]
+    assert client.delete(f"{base}/snapshots/{snapshot_id}").status_code == 200
+    assert client.get(f"{base}/snapshots").json()["snapshots"] == []
+    assert client.get("/api/projects/nope/rhino/snapshots").status_code == 404
 
 
 def test_board_api_places_and_discards_ai_papers(client, project):
