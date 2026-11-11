@@ -22,6 +22,8 @@ z = 0, so the site, the schemes and the surroundings line up without moving anyt
   ("site"), from the pack's areas (1:5,000 수치지형도 polygons) and the road parcels.
 - Road paint: the 정밀도로지도 lane lines and road marks (arrows, crossings) of a roads pack,
   laid on the drawn ground (road_marks.py).
+- Street trees: set out along the kerb of the pack's sidewalks by a rule (street_trees.py), for
+  the picture only; no file of real tree positions is used.
 - A building stands at the middle height of the ground along its outline, and its foundation
   goes down to the lowest point there, so on a slope no side floats; its line on the ground
   follows the terrain.
@@ -41,7 +43,7 @@ from pathlib import Path
 import numpy as np
 
 from sida.board import EARTH_RADIUS
-from sida.experts.site import datago, landapi, road_marks, terrain_pack
+from sida.experts.site import datago, landapi, road_marks, street_trees, terrain_pack
 
 DEFAULT_RADIUS = 200.0  # m around the site's middle
 MAX_RADIUS = 500.0
@@ -912,6 +914,13 @@ def export_layers(around: dict) -> list[dict]:
     marks += [{"points": m["outline"], "closed": True} for m in paint.get("marks") or [] if m.get("outline")]
     if marks:
         out.append(layer("노면표시", (90, 90, 90), curves=marks))
+    trees = around.get("trees") or {}
+    if trees.get("points"):
+        r = trees["crown"] / 2
+        ring = [(r * math.cos(a), r * math.sin(a)) for a in np.linspace(0, 2 * math.pi, 16, endpoint=False)]
+        crowns = [{"points": [[round(x + dx, 2), round(y + dy, 2), z] for dx, dy in ring], "closed": True}
+                  for x, y, z in trees["points"]]
+        out.append(layer("가로수(표현용)", (110, 150, 90), curves=crowns))
     if around.get("building_source", {}).get("pack"):
         groups = {"측정 높이": [], "추정 높이": []}
         unknown = [{"points": b["ground_line"], "closed": False} for b in around.get("unknown_buildings") or [] if b.get("ground_line")]
@@ -953,6 +962,26 @@ def paint_on(paint: dict, terrain: dict | None, radius: float, shape: str = DEFA
     if not lines and not marks:
         return None
     return road_marks.drawing(lines, marks, z_at)
+
+
+def trees_on(areas: list[tuple[str, np.ndarray]], outlines: list, terrain: dict | None, radius: float,
+             shape: str = DEFAULT_SHAPE) -> dict | None:
+    """The street trees within the range set out by street_trees' rule, standing on the drawn
+    ground: {"rule", "height", "crown", "points": [[x, y, z]]}, or None when there are none."""
+    spots = street_trees.place(areas, outlines)
+    if not spots:
+        return None
+    xy = np.asarray(spots, dtype=float)
+    xy = xy[in_range(xy, radius, shape)]
+    if not len(xy):
+        return None
+    if terrain:
+        grid = np.asarray(terrain["z"], dtype=float).reshape(terrain["n"], terrain["n"])
+        z = sample(grid, -terrain["min"], terrain["step"], xy[:, 0], xy[:, 1])
+    else:
+        z = np.zeros(len(xy))
+    return {"rule": street_trees.RULE, "height": street_trees.HEIGHT, "crown": street_trees.CROWN,
+            "points": [[round(float(x), 2), round(float(y), 2), round(float(h), 2)] for (x, y), h in zip(xy, z, strict=True)]}
 
 
 def cached(plan: dict, radius: float = DEFAULT_RADIUS, *, shape: str = DEFAULT_SHAPE, orient: str = DEFAULT_ORIENT,
@@ -1039,6 +1068,8 @@ def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = N
         ],
         "contours": g["contours"],
         "road_marks": paint_on(g["paint"], terrain, radius, key_shape),
+        "trees": trees_on(g["areas"], [b["outline"] for b in around["buildings"]]
+                          + [b["outline"] for b in around["unknown_buildings"]], terrain, radius, key_shape),
         **around,
         "seconds": round(time.perf_counter() - started, 1),
     }

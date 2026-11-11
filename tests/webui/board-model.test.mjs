@@ -1239,6 +1239,24 @@ test('road paint becomes ribbons of its real width, filled marks and outlines', 
   assert.ok(AROUND_PARTS.some(([id]) => id === 'lanes') && AROUND_PARTS.some(([id]) => id === 'marks'));
 });
 
+test('street trees become a crown and a trunk standing on each point, and show in the legend and notes', async () => {
+  const { treeTriangles, aroundLegend, aroundNote, AROUND_PARTS } = await import('../../webui/app/board-model.js');
+  const trees = { points: [[10, 20, 3], [30, 20, 4]], height: 8, crown: 5.2, rule: '인도 규칙 (표현용)' };
+  const tri = treeTriangles(trees, { around: 6, rings: 4 });
+  assert.equal(tri.count, 2);
+  // 4 bands of 6 quads, the two at the poles one triangle each: 36 triangles a crown, 8 a trunk
+  assert.equal(tri.crowns.length, 2 * 36 * 9);
+  assert.equal(tri.trunks.length, 2 * 8 * 9);
+  const zs = tri.crowns.slice(0, 36 * 9).filter((_, i) => i % 3 === 2);
+  assert.ok(Math.abs(Math.max(...zs) - (3 + 8)) < 1e-9); // the crown's top at the tree's height above its ground
+  assert.ok(Math.min(...tri.trunks.filter((_, i) => i % 3 === 2)) === 3); // the first trunk stands on its ground
+  assert.deepEqual(treeTriangles(null), { crowns: [], trunks: [], count: 0 });
+  const context = { terrain: { classes: 'gs' }, buildings: [], counts: {}, trees };
+  assert.deepEqual(aroundLegend(context).map(([k]) => k), ['g', 's', 'trees']);
+  assert.ok(aroundNote(context).some((line) => line.startsWith('가로수: 인도 규칙')));
+  assert.ok(AROUND_PARTS.some(([id]) => id === 'trees'));
+});
+
 // ------------------------------------------------------------------ eye level (눈높이 보기)
 test('the ground under the eye is read off the surroundings grid, the nearest edge off it', () => {
   // 3 × 3 points 10 m apart from -10: rising 1 m every 10 m to the east

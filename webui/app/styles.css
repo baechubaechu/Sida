@@ -456,6 +456,7 @@ button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 .around-legend i, .source-legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 2px; vertical-align: -1px; border: 1px solid rgb(0 0 0 / .15); }
 .around-legend i.guess, .source-legend i.guess { background: #e8d6b0; }
 .around-legend i.unknown, .source-legend i.unknown { background: none; border: 2px solid #c8742f; }
+.around-legend i.trees, .source-legend i.trees { background: #8fae7c; border-radius: 50%; }
 /* 자료 출처 in settings: the surroundings' colour legend (settings.js sourcesPart). */
 .source-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 8px 0; font-size: 12px; }
 

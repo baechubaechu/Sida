@@ -762,3 +762,16 @@ def test_the_road_paint_lies_on_the_ground_within_the_range_and_goes_to_the_file
     assert layers["차선 - 황색"]["parent"] == context3d.EXPORT_GROUP
     assert all(c["closed"] for c in layers["노면표시"]["curves"])
     assert len(layers["노면표시"]["curves"]) == len(kinds["5371"]["shapes"]) + 1 + 10  # the outline without a link too
+
+
+def test_street_trees_stand_along_the_packs_sidewalks(pack, monkeypatch):
+    fake_vworld_layers(monkeypatch)
+    assert context3d.build(plan_for_site(), 200, folder=pack, ledger=ledger, use_cache=False)["trees"] is None  # its one sidewalk is too small
+    conn = terrain_pack.create(pack / f"walks{terrain_pack.SUFFIX}", {"name": "walks", "kind": "areas", "source": "made up"})
+    terrain_pack.add_area(conn, "road", [lonlat(x, y) for x, y in ((-200, -80), (200, -80), (200, -70), (-200, -70))])
+    terrain_pack.add_area(conn, "sidewalk", [lonlat(x, y) for x, y in ((-200, -70), (200, -70), (200, -66), (-200, -66))])
+    conn.commit()
+    conn.close()
+    trees = context3d.build(plan_for_site(), 100, folder=pack, ledger=ledger, use_cache=False)["trees"]
+    assert trees["points"] and all(abs(x) <= 100 and y == pytest.approx(-68.8, abs=0.01) for x, y, _ in trees["points"])
+    assert "표현용" in trees["rule"]

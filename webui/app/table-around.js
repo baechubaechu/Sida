@@ -4,7 +4,7 @@
 
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { viewFor, blockCorners, RANGE_SIZES, RANGE_SHAPES, RANGE_ORIENTS, DEFAULT_RANGE, parseRange, OUTSIDE, terrainFaces, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, paintTriangles, PAINT_COLORS } from './board-model.js';
+import { viewFor, blockCorners, RANGE_SIZES, RANGE_SHAPES, RANGE_ORIENTS, DEFAULT_RANGE, parseRange, OUTSIDE, terrainFaces, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, paintTriangles, PAINT_COLORS, treeTriangles, TREE_COLORS } from './board-model.js';
 
 export const aroundMethods = {
   // ------------------------------------------------------------------ the site's surroundings
@@ -189,6 +189,7 @@ export const aroundMethods = {
       }
     }
     if (data.road_marks && !(this.steppedOn && this.stepped)) this.drawPaint(around, data.road_marks);
+    if (data.trees && !(this.steppedOn && this.stepped)) this.drawTrees(around, data.trees);
     const lineOf = (points, material) => new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(points.map(([x, y, z]) => new THREE.Vector3(x, y, z))), material);
     const touch = new THREE.LineBasicMaterial({ color: 0x5f646b });
@@ -260,6 +261,26 @@ export const aroundMethods = {
       geom.setAttribute('position', new THREE.Float32BufferAttribute(tri.outlines, 3));
       add(new THREE.LineSegments(geom, new THREE.LineBasicMaterial({ color: PAINT_COLORS.white })), 'marks', tri.marks.length ? 0 : tri.counts.marks);
     }
+  },
+  // The street trees set out by the rule (표현용), on the drawn ground like the paint.
+  drawTrees(group, trees) {
+    const tri = treeTriangles(trees);
+    const mesh = (positions, color) => {
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geom.computeVertexNormals();
+      const m = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ color }));
+      m.castShadow = true;
+      m.receiveShadow = true;
+      m.userData.part = 'trees';
+      return m;
+    };
+    if (!tri.count) return;
+    const crowns = mesh(tri.crowns, TREE_COLORS.crown);
+    crowns.userData.count = tri.count; // the panel counts trees, not meshes
+    const trunks = mesh(tri.trunks, TREE_COLORS.trunk);
+    trunks.userData.count = 0;
+    group.add(crowns, trunks);
   },
   // The parts the shown surroundings have ([{id, count}], for the 레이어 panel's sublayers).
   aroundParts() {

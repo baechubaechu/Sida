@@ -688,6 +688,7 @@ export function layerFlags(layers) {
 export const AROUND_PARTS = [
   ['ground', '지형'], ['contours', '등고선'], ['buildings', '건물'], ['estimated', '건물(추정 높이)'],
   ['unknown', '높이 미확인(바닥선)'], ['onsite', '대지 위 기존 건물'], ['lanes', '차선'], ['marks', '노면표시'],
+  ['trees', '가로수(표현용)'],
 ];
 
 // `aroundParts`: [{id, count}] of the parts the shown surroundings have; `aroundPartsHidden`: a Set.
@@ -1249,8 +1250,50 @@ export function paintTriangles(paint) {
   return out;
 }
 
+// The street trees (context trees: set out by a rule along the kerbs, not surveyed) as triangles:
+// each a round crown of `around` × `rings` facets on a square trunk, standing on its point
+// {points: [[x, y, z]], height, crown}. {crowns, trunks: [x, y, z, ...], count}.
+export const TREE_COLORS = { crown: 0x8fae7c, trunk: 0x8a7a62 };
+export function treeTriangles(trees, { around = 8, rings = 5 } = {}) {
+  const out = { crowns: [], trunks: [], count: 0 };
+  if (!trees?.points?.length) return out;
+  const r = (trees.crown || 5) / 2;
+  const height = Math.max(trees.height || 8, 2 * r);
+  const t = Math.max(0.12, r * 0.08); // half the trunk's width
+  // the crown's points from the bottom pole up, ring by ring
+  const unit = [];
+  for (let j = 0; j <= rings; j++) {
+    const phi = Math.PI * (j / rings - 0.5);
+    unit.push(Array.from({ length: around }, (_, i) => {
+      const th = (2 * Math.PI * i) / around;
+      return [Math.cos(phi) * Math.cos(th), Math.cos(phi) * Math.sin(th), Math.sin(phi)];
+    }));
+  }
+  for (const [x, y, z] of trees.points) {
+    out.count += 1;
+    const cz = z + height - r;
+    const at = ([u, v, w]) => [x + u * r, y + v * r, cz + w * r];
+    for (let j = 0; j < rings; j++) {
+      for (let i = 0; i < around; i++) {
+        const k = (i + 1) % around;
+        const a = at(unit[j][i]), b = at(unit[j][k]), c = at(unit[j + 1][k]), d = at(unit[j + 1][i]);
+        if (j > 0) out.crowns.push(...a, ...b, ...c);
+        if (j < rings - 1) out.crowns.push(...a, ...c, ...d);
+      }
+    }
+    const top = cz - r * 0.6;
+    const corners = [[-t, -t], [t, -t], [t, t], [-t, t]];
+    corners.forEach(([u, v], i) => {
+      const [u2, v2] = corners[(i + 1) % 4];
+      out.trunks.push(x + u, y + v, z, x + u2, y + v2, z, x + u2, y + v2, top,
+        x + u, y + v, z, x + u2, y + v2, top, x + u, y + v, top);
+    });
+  }
+  return out;
+}
+
 // The legend under the surroundings: only the ground kinds the grid has and the building kinds
-// that are drawn ([kind, name]; kind is a ground letter, 'guess' or 'unknown'). Without a ground
+// that are drawn ([kind, name]; kind is a ground letter, 'guess', 'unknown' or 'trees'). Without a ground
 // grid the ground is drawn flat as 대지.
 export function aroundLegend(context) {
   if (!context) return [];
@@ -1259,7 +1302,8 @@ export function aroundLegend(context) {
   const c = context.counts || {};
   const guess = (context.buildings || []).some((b) => ESTIMATED.has(b.height_source));
   return [...ground, ...(guess ? [['guess', '추정 높이']] : []),
-    ...(c.unknown || context.unknown_buildings?.length ? [['unknown', '높이 미확인(바닥선)']] : [])];
+    ...(c.unknown || context.unknown_buildings?.length ? [['unknown', '높이 미확인(바닥선)']] : []),
+    ...(context.trees?.points?.length ? [['trees', '가로수(표현용)']] : [])];
 }
 
 // Where a block of a mass stands (z of its floor), the same as board_export.mass_base(outline,
@@ -1438,6 +1482,7 @@ export function aroundNote(context) {
     '필지·도로 필지: 브이월드 연속지적도 (화면 표시용, 저장하지 않음)',
   ];
   if (c.estimate || c.api_estimate || c.map_estimate) lines.push('추정 높이는 층수 × 층고(주거 2.9m, 업무·상업 3.8m, 그 밖 3.3m)로, 실제 높이가 아닙니다.');
+  if (context.trees?.points?.length) lines.push(`가로수: ${context.trees.rule || '규칙으로 놓은 표현용'}`);
   if (context.disclaimer) lines.push(context.disclaimer);
   return lines;
 }
