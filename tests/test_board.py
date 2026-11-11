@@ -762,7 +762,7 @@ def test_a_damaged_board_does_not_stop_the_conductor_or_an_expert_run(make_sessi
 
 
 def test_layers_start_one_per_kind_and_are_replaced_whole(tmp_path):
-    assert [x["id"] for x in board.load_board(tmp_path)["layers"]] == ["site", "mass", "tracing", "note", "photo", "expert"]
+    assert [x["id"] for x in board.load_board(tmp_path)["layers"]] == ["site", "mass", "tracing", "note", "photo", "expert", "section"]
     layers = [*board.default_layers(), {"id": "layer-tower", "name": "타워", "parent": "mass", "visible": False, "color": "#AABBCC"}]
     saved = board.set_layers(tmp_path, layers)["layers"]
     assert saved[-1] == {"id": "layer-tower", "name": "타워", "parent": "mass", "visible": False, "locked": False, "color": "#aabbcc"}
@@ -895,3 +895,23 @@ def test_people_never_reach_the_ai(tmp_path):
     assert "walker-77" not in board.board_index(saved)
     assert "walker-77" not in board.conductor_block(board.select(tmp_path, ["mass-a"]), saved, "full")
 
+
+def test_a_section_keeps_its_line_side_depth_and_scale(tmp_path):
+    sec = board.add_paper(tmp_path, {"kind": "section", "title": "A", "line": [[-30, 0], [30.004, 0]], "junk": 1})["paper"]
+    assert (sec["line"], sec["flip"], sec["depth"], sec["scale"]) == ([[-30.0, 0.0], [30.0, 0.0]], False, 60.0, 500)
+    assert board.paper_name(sec) == "단면 A–A′" and "junk" not in sec
+    moved = board.update_paper(tmp_path, sec["id"], {"flip": True, "depth": 0, "scale": 200, "line": [[0, 0], [0, 50]]})["paper"]
+    assert (moved["flip"], moved["depth"], moved["scale"], moved["line"]) == (True, 0, 200, [[0, 0], [0, 50]])
+    text = board.paper_text(moved, None)
+    assert "50.0 m long" in text and "bearing 270°" in text and "1:200" in text  # going north, flipped: looks west
+    for bad in ({"line": [[0, 0], [0.5, 0]]}, {"line": [[0, 0]]}, {"line": [[0, 0], [9000, 0]]}, {"scale": 333},
+                {"scale": True}, {"flip": "yes"}, {"depth": 5000}):
+        with pytest.raises(ValueError):
+            board.update_paper(tmp_path, sec["id"], bad)
+
+
+def test_a_table_saved_before_sections_gets_their_layer_with_the_first_one(tmp_path):
+    board.set_layers(tmp_path, board.default_layers()[:2])
+    board.add_paper(tmp_path, {"kind": "section", "line": [[0, 0], [10, 0]]})
+    board.add_paper(tmp_path, {"kind": "section", "line": [[0, 0], [0, 10]]})
+    assert [layer["id"] for layer in board.load_board(tmp_path)["layers"]] == ["site", "mass", "section"]

@@ -915,23 +915,44 @@ def export_layers(around: dict) -> list[dict]:
     if around.get("building_source", {}).get("pack"):
         groups = {"측정 높이": [], "추정 높이": []}
         unknown = [{"points": b["ground_line"], "closed": False} for b in around.get("unknown_buildings") or [] if b.get("ground_line")]
-        for b in around.get("buildings") or []:
-            if b.get("display_only"):  # an outline from VWorld: for the screen only (이용약관 제19조)
-                continue
-            height, source = b["height"], b["height_source"]
-            if source == "api_estimate":  # VWorld's floors are for the screen only: fall back without them
-                if not b.get("offline"):
-                    unknown.append({"points": b["ground_line"], "closed": False})
-                    continue
-                height, source = b["offline"]["height"], b["offline"]["source"]
-            key = "추정 높이" if source in ESTIMATES else "측정 높이"
-            groups[key].append({"outline": b["outline"], "base": b["base"], "height": round(b["ground"] + height - b["base"], 2)})
+        solids, lent = file_buildings(around)
+        unknown += [{"points": line, "closed": False} for line in lent]
+        for b in solids:
+            groups["추정 높이" if b["estimate"] else "측정 높이"].append(
+                {"outline": b["outline"], "base": b["base"], "height": b["height"]})
         for short, solids in groups.items():
             if solids:
                 out.append(layer(f"건물 - {short}", (200, 200, 200) if short == "측정 높이" else (220, 200, 160), solids=solids))
         if unknown:
             out.append(layer("건물 - 높이 미확인(바닥선)", (200, 120, 50), curves=unknown))
     return out
+
+
+def file_buildings(around: dict) -> tuple[list[dict], list[list]]:
+    """
+    The buildings a file may hold (the export and the section drawing): solids from the bottom of
+    the foundation, {outline, base, height (to the roof), estimate, on_site}, and the ground lines
+    of those whose height is only known from VWorld (they fall back to a ground line). Outlines and
+    floors from VWorld stay on the screen (이용약관 제19조). Nothing when the buildings did not come
+    from the map files.
+    """
+    solids: list[dict] = []
+    lines: list[list] = []
+    if not around.get("building_source", {}).get("pack"):
+        return solids, lines
+    for b in around.get("buildings") or []:
+        if b.get("display_only"):  # an outline from VWorld: for the screen only (이용약관 제19조)
+            continue
+        height, source = b["height"], b["height_source"]
+        if source == "api_estimate":  # VWorld's floors are for the screen only: fall back without them
+            if not b.get("offline"):
+                if b.get("ground_line"):
+                    lines.append(b["ground_line"])
+                continue
+            height, source = b["offline"]["height"], b["offline"]["source"]
+        solids.append({"outline": b["outline"], "base": b["base"], "height": round(b["ground"] + height - b["base"], 2),
+                       "estimate": source in ESTIMATES, "on_site": bool(b.get("on_site"))})
+    return solids, lines
 
 
 def paint_on(paint: dict, terrain: dict | None, radius: float, shape: str = DEFAULT_SHAPE) -> dict | None:
