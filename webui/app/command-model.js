@@ -41,6 +41,7 @@ export const COMMANDS = [
   { name: 'talks', aliases: ['history'], label: 'Conductor 대화 목록 열고 닫기', group: 'panel' },
   { name: 'idea', aliases: ['ideas'], label: '아이디어 보드 펴기 (제도판 위 창)', group: 'panel' },
   { name: 'export', aliases: ['exp'], label: '내보내기: CAD(DXF)·라이노(3dm) 파일로', group: 'panel' },
+  { name: 'eye', aliases: ['walk'], label: '눈높이 보기: 땅 위 한 점을 눌러 그 자리 사람 눈높이(1.6m)에서 매스 보기', group: 'view' },
   { name: 'vworld', aliases: ['vw'], label: '브이월드 3D 지도에 매스안 세워 보기 (건물을 누르면 숨김)', group: 'view' },
   { name: 'settings', aliases: ['options'], label: '설정 열기', group: 'panel' },
   { name: 'help', aliases: ['?'], label: '명령 목록 보기', group: 'panel' },

@@ -818,6 +818,19 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .view-scale-bar i { display: block; height: 5px; border: solid currentColor; border-width: 0 1px 1px; }
 .ui-hint { pointer-events: none; left: 50%; bottom: 76px; transform: translateX(-50%); padding: 10px 14px; border-radius: 8px; background: var(--brand); color: white; font-size: 12px; max-width: min(520px, 90%); }
 .ui-hint[hidden] { display: none; }
+/* 눈높이 보기: standing in the street. The bar along the top; the pins, the gumball and the
+   modelling tools go away, as nothing on the table is edited from the street. */
+.eye-bar { left: 50%; top: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 3px 12px rgb(36 52 67 / .05); white-space: nowrap; }
+.eye-bar[hidden] { display: none; }
+.eye-title { font-size: 12px; font-weight: 700; color: var(--text); margin-right: 4px; }
+.eye-bar > button { border-radius: 6px; padding: 8px 11px; font-size: 12px; color: var(--text); }
+.eye-bar > button:hover { background: var(--surface-subtle); }
+.table.is-eye .table-pins, .table.is-eye .table-gumball, .table.is-eye .ui-tools, .table.is-eye .tape-snap { display: none; }
+.table.is-eye .ui-tilt input[type="range"], .table.is-eye .tilt-read, .table.is-eye .ui-zoom { display: none; } /* the compass stays: it shows which way the eye faces */
+.table.is-eye .ui-tilt { padding-right: 0; border-right: 0; }
+.table.is-eye .table-stage { cursor: grab; }
+.table.is-eye .table-stage:active { cursor: grabbing; }
+.table.eye-picking .table-stage { cursor: crosshair; }
 /* Where the surroundings in 3D come from, and that they are not a survey (주변 3D). */
 .tray { left: 0; top: 0; bottom: 0; width: var(--tray-width); display: none; flex-direction: column; gap: 10px; padding: 14px; overflow-y: auto; background: var(--surface); border-right: 1px solid var(--line); box-shadow: 6px 0 18px rgb(0 0 0 / .08); z-index: 3; cursor: auto; user-select: text; }
 .tray.open { display: flex; }

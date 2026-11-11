@@ -14,6 +14,7 @@ import {
   invertStep, HISTORY_LIMIT, planDrawing, dragMode, wheelZoom, orbitBy, viewName, viewFor, panBy,
   photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_MAX_SIDE, MAX_PHOTOS_AT_ONCE, KIND_LABELS,
   isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, PDF_MAX_SIDE, PDF_MAX_AREA, resizable, resizedPaper, PAPER_LIMITS,
+  EYE, groundAt, eyeStart, eyeCamera, eyeLook, eyeWalk, eyeZoom, eyeKey,
 } from '../../webui/app/board-model.js';
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -1236,4 +1237,73 @@ test('road paint becomes ribbons of its real width, filled marks and outlines', 
   assert.deepEqual(tri.counts, { lanes: 2, marks: 2 });
   assert.deepEqual(paintTriangles(null).counts, { lanes: 0, marks: 0 });
   assert.ok(AROUND_PARTS.some(([id]) => id === 'lanes') && AROUND_PARTS.some(([id]) => id === 'marks'));
+});
+
+// ------------------------------------------------------------------ eye level (눈높이 보기)
+test('the ground under the eye is read off the surroundings grid, the nearest edge off it', () => {
+  // 3 × 3 points 10 m apart from -10: rising 1 m every 10 m to the east
+  const terrain = { min: -10, step: 10, n: 3, z: [0, 1, 2, 0, 1, 2, 0, 1, 2] };
+  close(groundAt(terrain, 0, 0), 1);
+  close(groundAt(terrain, 5, -3), 1.5);
+  close(groundAt(terrain, 40, 0), 2); // east of the grid: its east edge
+  assert.equal(groundAt(null, 3, 4), 0); // no surroundings: the table
+});
+
+test('the eye starts facing the middle of the site, or the way the view faced when on it', () => {
+  const south = eyeStart({ x: 0, y: -50 });
+  close(south.yaw, 0); // south of the site it looks north
+  close(eyeStart({ x: 30, y: 0 }).yaw, 270); // east of it, west
+  assert.equal(eyeStart({ x: 0.5, y: 0.5 }, { x: 0, y: 0 }, -30).yaw, 330);
+  assert.equal(south.pitch, EYE.pitch);
+  assert.equal(south.fov, EYE.fov);
+});
+
+test('the eye camera stands 1.6 m above the ground and looks along its yaw', () => {
+  const c = eyeCamera({ x: 2, y: 3, yaw: 90, pitch: 0, fov: 50 }, 12);
+  assert.deepEqual(c.position, [2, 3, 12 + EYE.height]);
+  close(c.target[0], 12); close(c.target[1], 3); close(c.target[2], 12 + EYE.height); // east, level
+  assert.deepEqual(c.up, [0, 0, 1]);
+  assert.equal(c.fov, 50);
+  const up = eyeCamera({ x: 0, y: 0, yaw: 0, pitch: 30, fov: 60 });
+  assert.ok(up.target[2] > up.position[2] && up.target[1] > 0); // looking up, to the north
+});
+
+test('dragging turns the eye the way the scene follows the hand, the pitch kept within limits', () => {
+  const eye = { x: 0, y: 0, yaw: 10, pitch: 0, fov: EYE.fov };
+  assert.ok(eyeLook(eye, 100, 0).yaw > 300); // drag right: the view turns left, past north
+  assert.ok(eyeLook(eye, 0, 50).pitch > 0); // drag down: it looks up
+  assert.equal(eyeLook(eye, 0, 1e5).pitch, EYE.maxPitch);
+  assert.equal(eyeLook(eye, 0, -1e5).pitch, -EYE.maxPitch);
+});
+
+test('the eye walks along the way it faces and the wheel narrows or widens the lens', () => {
+  const east = eyeWalk({ x: 0, y: 0, yaw: 90, pitch: 0, fov: 60 }, 5);
+  close(east.x, 5); close(east.y, 0);
+  const right = eyeWalk({ x: 0, y: 0, yaw: 0, pitch: 0, fov: 60 }, 0, 2); // facing north, a step right is east
+  close(right.x, 2); close(right.y, 0);
+  assert.ok(eyeZoom({ fov: 60 }, 0.8).fov < 60);
+  assert.equal(eyeZoom({ fov: 60 }, 100).fov, EYE.maxFov);
+  assert.equal(eyeZoom({ fov: 60 }, 0.01).fov, EYE.minFov);
+});
+
+test('only the arrow keys move the eye: letters stay the command line\'s', () => {
+  assert.deepEqual(eyeKey('ArrowUp'), { ahead: EYE.step, turn: 0 });
+  assert.deepEqual(eyeKey('ArrowDown', true), { ahead: -EYE.run, turn: 0 });
+  assert.ok(eyeKey('ArrowLeft').turn < 0 && eyeKey('ArrowRight').turn > 0);
+  assert.equal(eyeKey('w'), null);
+});
+
+test('every three.js name the screen uses is in the bundled three.js', async () => {
+  // A name missing from webui/app/vendor/three.js is undefined at run time: the 주변 3D drawing
+  // stopped part way at THREE.Float32BufferAttribute (2026-11-11). Add it to scripts/three-vendor/entry.js.
+  const { readFile, readdir } = await import('node:fs/promises');
+  const dir = new URL('../../webui/app/', import.meta.url);
+  const bundled = await import(new URL('vendor/three.js', dir).href);
+  const used = new Set();
+  for (const name of await readdir(dir)) {
+    if (!name.endsWith('.js')) continue;
+    for (const m of (await readFile(new URL(name, dir), 'utf8')).matchAll(/\bTHREE\.([A-Za-z0-9_]+)/g)) used.add(m[1]);
+  }
+  assert.ok(used.size > 20);
+  assert.deepEqual([...used].filter((name) => bundled[name] === undefined), []);
 });

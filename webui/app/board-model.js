@@ -204,6 +204,76 @@ export function lerpView(a, b, k) {
   };
 }
 
+// ------------------------------------------------------------------ eye level
+// 눈높이 보기 (2026-11-09 지훈, made 2026-11-11): standing on the ground at a point and looking
+// about, as someone in the street would see the masses, the building now on the site hidden.
+// An eye is {x, y, yaw, pitch, fov}: yaw in degrees as a view's turn (0 north, growing
+// clockwise), pitch up from level, fov the camera's vertical field of view.
+export const EYE = { height: 1.6, fov: 60, minFov: 20, maxFov: 90, pitch: 5, maxPitch: 60, step: 1, run: 5, turn: 5 };
+
+const wrap = (deg) => ((deg % 360) + 360) % 360;
+const clampTo = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+// The ground's height at (x, y) on the surroundings' grid {min, step, n, z} (bilinear, as the
+// ground mesh is drawn); a point off the grid takes its nearest edge; 0 without the grid.
+export function groundAt(terrain, x, y) {
+  if (!terrain?.n || !terrain.z?.length) return 0;
+  const { min, step, n, z } = terrain;
+  const u = clampTo((x - min) / step, 0, n - 1), v = clampTo((y - min) / step, 0, n - 1);
+  const i = Math.min(Math.floor(u), n - 2), j = Math.min(Math.floor(v), n - 2);
+  const a = u - i, b = v - j, k = j * n + i;
+  const south = (1 - a) * z[k] + a * z[k + 1];
+  const north = (1 - a) * z[k + n] + a * z[k + n + 1];
+  return (1 - b) * south + b * north;
+}
+
+// Standing at `point`, facing `target` (the middle of the site); standing on it (closer than
+// 2 m), facing the way the view faced (`turn`). Level but for a slight look up at the buildings.
+export function eyeStart(point, target = { x: 0, y: 0 }, turn = 0) {
+  const dx = target.x - point.x, dy = target.y - point.y;
+  const yaw = Math.hypot(dx, dy) < 2 ? wrap(turn) : wrap((Math.atan2(dx, dy) * 180) / Math.PI);
+  return { x: point.x, y: point.y, yaw, pitch: EYE.pitch, fov: EYE.fov };
+}
+
+// The camera for an eye on ground `z`: EYE.height above it, looking along yaw and pitch, z up.
+export function eyeCamera(eye, z = 0) {
+  const yaw = rad(eye.yaw), pitch = rad(eye.pitch);
+  const position = [eye.x, eye.y, z + EYE.height];
+  const look = [Math.sin(yaw) * Math.cos(pitch), Math.cos(yaw) * Math.cos(pitch), Math.sin(pitch)];
+  return { fov: eye.fov || EYE.fov, position, target: position.map((p, i) => p + look[i] * 10), up: [0, 0, 1] };
+}
+
+// Looking about by a drag of (dx, dy) screen pixels: the scene follows the hand, as in a street
+// view (drag right and the view turns left; drag down and it looks up). A wider lens turns faster.
+export function eyeLook(eye, dx, dy) {
+  const k = 0.12 * ((eye.fov || EYE.fov) / EYE.fov);
+  return { ...eye, yaw: wrap(eye.yaw - dx * k), pitch: clampTo(eye.pitch + dy * k, -EYE.maxPitch, EYE.maxPitch) };
+}
+
+// `ahead` metres forward along the ground (negative: back) and `side` metres to the right.
+export function eyeWalk(eye, ahead, side = 0) {
+  const yaw = rad(eye.yaw);
+  return { ...eye, x: eye.x + Math.sin(yaw) * ahead + Math.cos(yaw) * side, y: eye.y + Math.cos(yaw) * ahead - Math.sin(yaw) * side };
+}
+
+// The lens after one wheel event (wheelZoom's factor): rolling forward narrows it (zooms in).
+export function eyeZoom(eye, factor) {
+  return { ...eye, fov: clampTo((eye.fov || EYE.fov) * factor, EYE.minFov, EYE.maxFov) };
+}
+
+// What a key does at eye level: the arrows walk (↑ ↓, Shift runs) and turn (← →); letters stay
+// the command line's (no one-letter shortcuts, 2026-11-02 지훈). null for any other key.
+export function eyeKey(key, shift = false) {
+  const step = shift ? EYE.run : EYE.step;
+  switch (key) {
+    case 'ArrowUp': return { ahead: step, turn: 0 };
+    case 'ArrowDown': return { ahead: -step, turn: 0 };
+    case 'ArrowLeft': return { ahead: 0, turn: -EYE.turn * (shift ? 3 : 1) };
+    case 'ArrowRight': return { ahead: 0, turn: EYE.turn * (shift ? 3 : 1) };
+    default: return null;
+  }
+}
+
 // ------------------------------------------------------------------ the site and papers
 
 // The site's bounds; without site facts, a 60 m square around 0, 0 so the table still works.

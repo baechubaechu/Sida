@@ -19,6 +19,7 @@ import { aroundMethods } from './table-around.js';
 import { papersMethods } from './table-papers.js';
 import { detailMethods } from './table-detail.js';
 import { pointerMethods } from './table-pointer.js';
+import { eyeMethods } from './table-eye.js';
 
 export class DraftingTable {
   // hooks: { add(paper), update(id, changes), remove(id), place(id, placement), discard(id),
@@ -74,6 +75,9 @@ export class DraftingTable {
     this.steppedOn = false;
     this.aroundLow = 0;
     this.contourStep = 1;
+    this.eye = null; // 눈높이 보기: {x, y, yaw, pitch, fov, back} while standing in the street (table-eye.js)
+    this.eyePicking = false; // the 눈높이 button waits for the point to stand on
+    this.eyeBefore = false; // at eye level: the building on the site (true) or the masses (false)
     this.root = document.createElement('div');
     this.root.className = 'table';
     this.root.tabIndex = 0;
@@ -92,6 +96,7 @@ export class DraftingTable {
         <div class="ui-tools" role="toolbar" aria-label="제도판 도구"></div></div>
       <div class="table-ui ui-scheme"></div>
       <div class="table-ui ui-view"><div class="ui-tilt" role="group" aria-label="보는 각도"></div><div class="ui-zoom"></div></div>
+      <div class="table-ui eye-bar" role="toolbar" aria-label="눈높이 보기" hidden></div>
       <p class="table-ui ui-hint" role="status" hidden></p>
       <p class="table-ui around-legend" aria-label="주변 3D 범례" hidden></p>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
@@ -114,6 +119,7 @@ export class DraftingTable {
       tilt: this.root.querySelector('.ui-tilt'),
       zoom: this.root.querySelector('.ui-zoom'),
       hint: this.root.querySelector('.ui-hint'),
+      eye: this.root.querySelector('.eye-bar'),
       aroundLegend: this.root.querySelector('.around-legend'),
       tray: this.root.querySelector('.tray'),
       form: this.root.querySelector('.scheme-form'),
@@ -220,12 +226,13 @@ export class DraftingTable {
       case 'plan': this.showView('plan'); return '';
       case 'persp': this.showView('3d'); return '';
       case 'zoom': this.fit(); return '';
-      case 'north': this.animateTo({ turn: 0 }); return '';
+      case 'north': if (this.eye) this.moveEye({ yaw: 0 }); else this.animateTo({ turn: 0 }); return '';
       case 'select': case 'note': case 'pen': this.setTool(name); return '';
       case 'rect': case 'move': case 'rotate': case 'scale': this.setTool(name); return '';
       case 'pushpull': this.setTool('push'); return '';
       case 'eraser': this.setTool('erase'); return '';
       case 'dist': this.setTool('tape'); return '';
+      case 'eye': this.toggleEye(); return '';
       case 'copy': this.setTool('move', { copy: true }); return '';
       case 'trace': this.layTracing(); return '';
       case 'mass': this.openForm(); return '';
@@ -259,6 +266,7 @@ export class DraftingTable {
       table: color('--table', '#e9ecee'), line: color('--table-grid', '#d9dfe4'), lot: color('--lot', '#cf3f2e'),
       mass: color('--mass', '#e8ebee'), ink: color('--text', '#20262d'), pen: color('--pen', '#2b5d8a'),
       ghost: color('--brand', '#36536b'), pick: color('--pick', '#e3a008'), // a picked block, yellow as in Rhino
+      sky: color('--eye-sky', '#dfe7ee'), // behind the buildings at eye level
     };
     let renderer;
     try {
@@ -352,9 +360,13 @@ export class DraftingTable {
     if (!this.gl || !this.root.isConnected || !this.root.clientWidth) return;
     const { renderer, cssRenderer, scene, cssScene, camera, desk, grid, catcher, horizon, lot, masses, traces, around, labels, objects } = this.gl;
     const v = this.view;
-    this.aimCamera(camera, v);
-    const rise = riseFor(v.tilt);
+    const eye = this.eye; // at eye level: the camera stands in the street and everything stands up
+    if (eye) this.aimEye(camera, eye);
+    else this.aimCamera(camera, v);
+    scene.background.set(eye ? this.colors.sky : this.colors.table);
+    const rise = eye ? 1 : riseFor(v.tilt);
     masses.scale.z = rise;
+    masses.visible = !(eye && this.eyeBefore); // 지금 건물: the street as it is, without the masses
     // The surroundings rise with the masses; the table top goes below the lowest ground under them.
     const shown = Boolean(this.aroundOn && this.around);
     around.visible = shown && !this.aroundHidden;
@@ -362,12 +374,12 @@ export class DraftingTable {
     desk.position.z = shown ? Math.min(0, this.aroundLow) * rise - 0.5 : 0;
     catcher.position.z = desk.position.z + 0.01;
     // Lying flat for an elevation the ground fades away and only the buildings stand, on a ground line.
-    const ground = groundFor(v.tilt);
+    const ground = eye ? 1 : groundFor(v.tilt);
     grid.material.opacity = ground;
     grid.visible = !shown;
     catcher.material.opacity = 0.22 * ground;
     lot.visible = ground > 0.5 && !this.layerHidden(this.papers.find((p) => p.kind === 'site') || { kind: 'site' });
-    horizon.visible = ground < 1;
+    horizon.visible = !eye && ground < 1;
     horizon.material.opacity = 1 - ground;
     horizon.position.set(v.x, v.y, 0.1);
     horizon.rotation.z = (-v.turn * Math.PI) / 180; // across the view, square to where the viewer faces
@@ -375,7 +387,7 @@ export class DraftingTable {
     // In plan the papers lie on the table. Once it leans they fold into pins (drawn over the
     // scene, upright), and an overlaid tracing's lines lie on the ground.
     // A paper the designer folded stays a pin in plan too.
-    const fold = folded(v.tilt);
+    const fold = Boolean(eye) || folded(v.tilt);
     const shut = new Set(foldedInPlan(this.papers, this.home));
     traces.visible = fold && ground > 0.5;
     const off = new Set(this.papers.filter((p) => this.layerHidden(p)).map((p) => p.id)); // layers turned off
@@ -554,10 +566,11 @@ export class DraftingTable {
         ${masses.map((p) => `<button type="button" data-active="${escape(p.id)}" aria-pressed="${this.active === p.id}">${escape(paperName(p))}</button>`).join('')}</div>
       ${masses.length > 1 ? `<label class="check"><input type="checkbox" data-ui="ghost" ${this.ghost ? 'checked' : ''}> 다른 안 겹쳐 보기</label>` : ''}` : '';
     this.ui.tilt.innerHTML = `<div class="seg" role="group" aria-label="평면 또는 3D">
-        ${[['plan', '평면', 'plan'], ['3d', '3D', 'persp']].map(([id, label, k]) => `<button type="button" data-tilt="${id}" title="${label} (명령: ${k})" aria-pressed="${viewName(v.tilt) === id}">${label}</button>`).join('')}</div>
+        ${[['plan', '평면', 'plan'], ['3d', '3D', 'persp']].map(([id, label, k]) => `<button type="button" data-tilt="${id}" title="${label} (명령: ${k})" aria-pressed="${!this.eye && viewName(v.tilt) === id}">${label}</button>`).join('')}
+        <button type="button" data-ui="eye" title="눈높이 (명령: eye) — 땅 위 한 점을 눌러 그 자리 사람 눈높이에서 매스 보기" aria-pressed="${Boolean(this.eye || this.eyePicking)}">눈높이</button></div>
       <input type="range" min="0" max="${MAX_TILT}" value="${Math.round(v.tilt)}" aria-label="기울기 각도" title="기울이면 배치도가 3D가 됩니다" data-ui="tilt-range">
       <span class="num tilt-read">${Math.round(v.tilt)}°</span>
-      <button type="button" class="compass" data-ui="north" title="북쪽을 위로"><span style="transform: rotate(${-v.turn}deg)" aria-hidden="true">▲</span><small>N</small></button>`;
+      <button type="button" class="compass" data-ui="north" title="${this.eye ? '북쪽 보기' : '북쪽을 위로'}"><span style="transform: rotate(${-(this.eye ? this.eye.yaw : v.turn)}deg)" aria-hidden="true">▲</span><small>N</small></button>`;
     this.ui.zoom.innerHTML = `<span class="scale-readout">${this.scaleReadout()}</span>
       <button type="button" data-ui="zoom-in" aria-label="확대">+</button>
       <button type="button" data-ui="zoom-out" aria-label="축소">−</button>
@@ -573,12 +586,13 @@ export class DraftingTable {
     if (range && document.activeElement !== range) range.value = String(Math.round(v.tilt));
     const needle = this.ui.tilt.querySelector('.compass span');
     if (needle) needle.style.transform = `rotate(${-v.turn}deg)`;
-    for (const b of this.ui.tilt.querySelectorAll('[data-tilt]')) b.setAttribute('aria-pressed', String(viewName(v.tilt) === b.dataset.tilt));
+    for (const b of this.ui.tilt.querySelectorAll('[data-tilt]')) b.setAttribute('aria-pressed', String(!this.eye && viewName(v.tilt) === b.dataset.tilt));
     const scale = this.ui.zoom.querySelector('.scale-readout');
     if (scale) scale.innerHTML = this.scaleReadout();
   }
 
   setView(v) {
+    this.leaveEye(); // any move of the view leaves eye level
     this.view = v;
     this.updateReadouts();
     this.invalidate();
@@ -602,6 +616,7 @@ export class DraftingTable {
 
   // The plan or the 3D view (board-model.js viewFor): the buttons, keys 1·2 and plan/persp.
   showView(name) {
+    if (this.eye) this.exitEye(); // from eye level: first the view it came from
     const target = viewFor(name, this.view);
     if (target) this.animateTo(target);
   }
@@ -708,4 +723,4 @@ export class DraftingTable {
   }
 }
 
-Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods);
+Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods, eyeMethods);
