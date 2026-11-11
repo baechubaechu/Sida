@@ -1237,3 +1237,18 @@ test('road paint becomes ribbons of its real width, filled marks and outlines', 
   assert.deepEqual(paintTriangles(null).counts, { lanes: 0, marks: 0 });
   assert.ok(AROUND_PARTS.some(([id]) => id === 'lanes') && AROUND_PARTS.some(([id]) => id === 'marks'));
 });
+
+test('every three.js name the screen uses is in the bundled three.js', async () => {
+  // A name missing from webui/app/vendor/three.js is undefined at run time: the 주변 3D drawing
+  // stopped part way at THREE.Float32BufferAttribute (2026-11-11). Add it to scripts/three-vendor/entry.js.
+  const { readFile, readdir } = await import('node:fs/promises');
+  const dir = new URL('../../webui/app/', import.meta.url);
+  const bundled = await import(new URL('vendor/three.js', dir).href);
+  const used = new Set();
+  for (const name of await readdir(dir)) {
+    if (!name.endsWith('.js')) continue;
+    for (const m of (await readFile(new URL(name, dir), 'utf8')).matchAll(/\bTHREE\.([A-Za-z0-9_]+)/g)) used.add(m[1]);
+  }
+  assert.ok(used.size > 20);
+  assert.deepEqual([...used].filter((name) => bundled[name] === undefined), []);
+});
