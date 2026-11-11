@@ -19,12 +19,13 @@ namespace SidaRhino.Commands
             try
             {
                 var client = new SidaClient();
-                if (client.Hello() == null)
+                var meanings = client.Hello();
+                if (meanings == null)
                 {
                     RhinoApp.WriteLine("Sida: Sida 앱이 꺼져 있습니다. run.bat으로 켠 뒤 다시 하세요.");
                     return Result.Failure;
                 }
-                var snapshot = SnapshotBuilder.Build(doc, withMeshes: true);
+                var snapshot = SnapshotBuilder.Build(doc, Meanings.Built(meanings), withMeshes: true);
                 var views = SnapshotBuilder.Capture(doc, snapshot);
                 var answer = client.Push(project, snapshot, views);
                 RhinoApp.WriteLine($"Sida: 보냈습니다 (스냅샷 {answer.SnapshotId}).");

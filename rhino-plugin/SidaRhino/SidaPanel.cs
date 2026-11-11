@@ -189,7 +189,7 @@ namespace SidaRhino
             }
             try
             {
-                var answer = _client.Figures(project, SnapshotBuilder.Build(doc, withMeshes: false));
+                var answer = _client.Figures(project, SnapshotBuilder.Build(doc, Meanings.Built(_meanings), withMeshes: false));
                 _figures.Text = string.Join(Environment.NewLine, answer.Lines);
             }
             catch (SidaException exc)

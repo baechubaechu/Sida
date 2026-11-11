@@ -24,10 +24,15 @@ plugin pulled from Sida sends its work back in the same place):
      "origin": {"lon": 126.97, "lat": 37.56, "matches_project": true},      (optional)
      "layers": [{"path": "Program::Housing", "meaning": "housing", "color": "#c86432", "floor_height": 3.0}],
      "objects": [{"id": "<rhino guid>", "sida_id": "mass-a:0" | null, "layer": "Program::Housing",
-                  "name": "", "volume": 4200.0 | null, "height": 12.0 | null,
-                  "footprint": [[x, y], ...] | null, "floors": [{"z": 0.0, "area": 240.0}, ...],
+                  "name": "", "volume": 4200.0 | null, "height": 12.0 | null, "base": 0.0 | null,
+                  "footprint": [[x, y], ...] | [[[x, y], ...], ...] | null, "floors": [{"z": 0.0, "area": 240.0}, ...],
                   "mesh": {"v": [[x, y, z], ...], "f": [[a, b, c], ...]}}],                 (optional)
      "views": [{"kind": "plan", "file": "plan.png"}, {"kind": "axo", "file": "axo.png"}]}
+
+A footprint is one ring or several: a ring inside another is a hole (a courtyard) and a ring
+apart is another piece, read by the even-odd rule; it is kept as a list of rings. `base` is
+the z of the object's lowest point, so the height of the whole is the highest top above the
+lowest base and not the tallest single object.
 """
 
 from __future__ import annotations
@@ -48,6 +53,7 @@ MAX_LAYERS = 500
 MAX_OBJECTS = 2000
 MAX_FLOORS = 200
 MAX_OUTLINE = 500
+MAX_RINGS = 50  # pieces and holes of one footprint
 MAX_MESH_VERTICES = 20000  # a larger mesh is dropped from the snapshot; the figures stay
 MAX_VIEWS = 8
 MAX_VIEW_BYTES = 10 * 1024 * 1024
@@ -109,6 +115,24 @@ def _points(raw, what: str, dims: int, limit: int) -> list[list[float]]:
     return out
 
 
+def _rings(raw, what: str) -> list[list[list[float]]]:
+    """A footprint as rings: the plugin sends one ring ([[x, y], ...]) or several."""
+    if not isinstance(raw, list) or not raw:
+        raise ValueError(f"{what} must be a ring of points or a list of rings")
+    first = raw[0]
+    single = not (isinstance(first, (list, tuple)) and first and isinstance(first[0], (list, tuple)))
+    rings = [raw] if single else raw
+    if len(rings) > MAX_RINGS:
+        raise ValueError(f"{what} must have at most {MAX_RINGS} rings")
+    out = []
+    for i, ring in enumerate(rings):
+        outline = _points(ring, what if single else f"{what}[{i}]", 2, MAX_OUTLINE)
+        if len(outline) < 3:
+            raise ValueError(f"{what} needs at least 3 points in a ring")
+        out.append(outline)
+    return out
+
+
 def _layer(raw, index: int) -> dict:
     if not isinstance(raw, dict):
         raise ValueError(f"layers[{index}] must be an object")
@@ -163,14 +187,12 @@ def _object(raw, index: int) -> dict:
         "name": _text(raw.get("name"), f"{what}.name", 120),
         "volume": None if raw.get("volume") is None else round(_number(raw["volume"], f"{what}.volume", low=0), 3),
         "height": None if raw.get("height") is None else round(_number(raw["height"], f"{what}.height", low=0), 3),
+        "base": None if raw.get("base") is None else round(_number(raw["base"], f"{what}.base"), 3),
         "footprint": None,
         "floors": [],
     }
     if raw.get("footprint") is not None:
-        outline = _points(raw["footprint"], f"{what}.footprint", 2, MAX_OUTLINE)
-        if len(outline) < 3:
-            raise ValueError(f"{what}.footprint needs at least 3 points")
-        item["footprint"] = outline
+        item["footprint"] = _rings(raw["footprint"], f"{what}.footprint")
     floors = raw.get("floors") or []
     if not isinstance(floors, list) or len(floors) > MAX_FLOORS:
         raise ValueError(f"{what}.floors must be a list of at most {MAX_FLOORS} floors")
@@ -255,35 +277,59 @@ def meaning_of(snapshot: dict) -> dict[str, str]:
     return {layer["path"]: layer["meaning"] for layer in snapshot["layers"]}
 
 
-def _union_area(outlines: list[list[list[float]]]) -> float:
-    """The ground the outlines cover together (overlaps counted once)."""
+def _shape(rings: list[list[list[float]]]):
+    """One footprint as a shape, by the even-odd rule: a ring inside another is a hole."""
     from shapely.geometry import Polygon
+
+    shape = None
+    for ring in rings:
+        part = Polygon(ring)
+        if not part.is_valid:
+            part = part.buffer(0)
+        if not part.is_empty:
+            shape = part if shape is None else shape.symmetric_difference(part)
+    return shape
+
+
+def _union_area(footprints: list[list[list[list[float]]]]) -> float:
+    """The ground the footprints cover together (overlaps counted once, courtyards left out)."""
     from shapely.ops import unary_union
 
-    shapes = []
-    for outline in outlines:
-        shape = Polygon(outline)
-        if not shape.is_valid:
-            shape = shape.buffer(0)
-        if not shape.is_empty:
-            shapes.append(shape)
+    shapes = [shape for shape in map(_shape, footprints) if shape is not None and not shape.is_empty]
     return float(unary_union(shapes).area) if shapes else 0.0
+
+
+def counted_floors(item: dict, floor_height: float | None) -> list[dict]:
+    """
+    The floors of an object that count as floors. The plugin cuts the body at every floor
+    height from its base, so a mass a little taller than its storeys (a parapet, a roof slab)
+    gets one cut too many: a level counts only when the body fills at least half a storey above
+    it. Without the layer's floor height or the object's base and height, all cuts count.
+    """
+    if not floor_height or item["base"] is None or item["height"] is None:
+        return item["floors"]
+    top = item["base"] + item["height"]
+    return [floor for floor in item["floors"] if floor["z"] + floor_height / 2 <= top + 0.001]
 
 
 def figures(snapshot: dict, site_area: float | None) -> dict:
     """
     Floor area, footprint, volume and height of the objects whose layers mean building, by
     meaning and in all; coverage and FAR only with a known site area. Objects Rhino could not
-    measure are listed as unmeasured, never estimated.
+    measure are listed as unmeasured, and those on a layer without a floor height as such
+    (they have a footprint but no floor area); nothing is estimated.
     """
     meaning = meaning_of(snapshot)
+    floor_heights = {layer["path"]: layer["floor_height"] for layer in snapshot["layers"]}
     by: dict[str, dict] = {}
     outlines: list = []
     unmeasured: list[str] = []
+    no_floor_height: list[str] = []
     unassigned = 0
     volume = 0.0
     volume_known = True
-    height = None
+    tallest = None
+    spans: list[tuple[float, float]] | None = []  # (base, top) of every built object; None once one has no base
     for item in snapshot["objects"]:
         code = meaning.get(item["layer"], "")
         if not code:
@@ -294,17 +340,28 @@ def figures(snapshot: dict, site_area: float | None) -> dict:
         part = by.setdefault(code, {"meaning": code, "word": MEANINGS[code]["word"], "floor_area_m2": 0.0,
                                      "footprint_m2": 0.0, "objects": 0})
         part["objects"] += 1
-        part["floor_area_m2"] += sum(f["area"] for f in item["floors"])
+        floor_height = floor_heights.get(item["layer"])
+        part["floor_area_m2"] += sum(f["area"] for f in counted_floors(item, floor_height))
         if item["footprint"]:
             part["footprint_m2"] += _union_area([item["footprint"]])
             outlines.append(item["footprint"])
-        if item["volume"] is None or not item["floors"]:
-            unmeasured.append(item["id"])
+        if item["volume"] is None:
             volume_known = False
         else:
             volume += item["volume"]
+        if item["footprint"] and not item["floors"] and not floor_height:
+            no_floor_height.append(item["id"])
+        elif item["volume"] is None or not item["floors"] or not item["footprint"]:
+            unmeasured.append(item["id"])
         if item["height"] is not None:
-            height = item["height"] if height is None else max(height, item["height"])
+            tallest = item["height"] if tallest is None else max(tallest, item["height"])
+            if item["base"] is None:
+                spans = None
+            elif spans is not None:
+                spans.append((item["base"], item["base"] + item["height"]))
+    # With every base known the height is the highest top above the lowest base (a tower on a
+    # podium is one height); otherwise only the tallest single object can be said.
+    height = max(top for _base, top in spans) - min(base for base, _top in spans) if spans else tallest
     floor_area = sum(p["floor_area_m2"] for p in by.values())
     footprint = _union_area(outlines)
     out = {
@@ -317,6 +374,7 @@ def figures(snapshot: dict, site_area: float | None) -> dict:
         "site_area_m2": site_area,
         "objects": sum(p["objects"] for p in by.values()),
         "unmeasured": unmeasured,
+        "no_floor_height": no_floor_height,
         "unassigned": unassigned,
         "by_meaning": [
             {**p, "floor_area_m2": round(p["floor_area_m2"], 1), "footprint_m2": round(p["footprint_m2"], 1)}
@@ -371,6 +429,8 @@ def figure_lines(fig: dict) -> list[str]:
         lines.append(f"부피 {fig['volume_m3']:,.1f}㎥")
     if fig["unmeasured"]:
         lines.append(f"잴 수 없는 개체 {len(fig['unmeasured'])}개 (닫히지 않은 도형)")
+    if fig.get("no_floor_height"):
+        lines.append(f"층고를 정하지 않은 레이어의 개체 {len(fig['no_floor_height'])}개 (연면적에서 제외)")
     if fig["unassigned"]:
         lines.append(f"의미 없는 레이어의 개체 {fig['unassigned']}개 (수치에서 제외)")
     return lines

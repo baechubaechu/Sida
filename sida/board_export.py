@@ -34,6 +34,7 @@ building floats on a slope; without it masses stand at z = 0. The saved table is
 from __future__ import annotations
 
 import io
+import itertools
 import math
 import os
 import re
@@ -408,20 +409,25 @@ def to_3dm(scene: dict) -> bytes:
             name = scene_layer.get("short") or name
         index = add_layer(name, scene_layer["color"], scene_layer["visible"], parent)
 
-        def attrs(item: dict, layer_index: int = index) -> r.ObjectAttributes:
-            """Attributes on the layer, with Sida's id and kind as user strings when the item has them."""
+        def attrs(item: dict, layer_index: int = index, layer_name: str = scene_layer["name"],
+                  made=itertools.count()) -> r.ObjectAttributes:  # noqa: B008 (one counter for each layer)
+            """Attributes on the layer, with Sida's id and kind as user strings. What has no id of
+            its own (the surroundings, the ground) is numbered within its layer as `context`,
+            so the plugin can tell everything Sida sent from what the designer drew."""
             attributes = r.ObjectAttributes()
             attributes.LayerIndex = layer_index
             if item.get("id"):
                 attributes.SetUserString("sida.id", str(item["id"]))
                 attributes.SetUserString("sida.kind", str(item.get("kind") or ""))
+            else:
+                attributes.SetUserString("sida.id", f"context:{layer_name}:{next(made)}")
+                attributes.SetUserString("sida.kind", "context")
             if item.get("kind") == "origin":
                 attributes.SetUserString("sida.project", str(scene.get("project") or ""))
                 origin = scene.get("origin") or {}
                 attributes.SetUserString("sida.origin", f"{origin.get('lon')},{origin.get('lat')}")
             return attributes
 
-        attributes = attrs({})
         for curve in scene_layer["curves"]:
             points = [r.Point3d(*p) for p in curve["points"]]
             if curve["closed"]:
@@ -440,11 +446,11 @@ def to_3dm(scene: dict) -> bytes:
             if surface.get("clip_radius") is not None:  # a round ground: a mesh of the cells inside
                 mesh = _mesh(r, surface)
                 if mesh is not None:
-                    model.Objects.AddMesh(mesh, attributes)
+                    model.Objects.AddMesh(mesh, attrs(surface))
                 continue
             body = _nurbs(r, surface)
             if body is not None:
-                model.Objects.AddSurface(body, attributes)
+                model.Objects.AddSurface(body, attrs(surface))
         for label in scene_layer["labels"]:
             model.Objects.AddTextDot(label["text"], r.Point3d(*label["at"]), attrs(label))
     handle, path = tempfile.mkstemp(suffix=".3dm")

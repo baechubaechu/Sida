@@ -158,6 +158,21 @@ def test_every_object_from_a_paper_carries_sidas_id_and_kind_for_the_rhino_plugi
     board_export.to_dxf(scene)  # the ids do not trouble the DXF writer
 
 
+def test_what_has_no_id_of_its_own_goes_out_numbered_as_context_so_a_second_pull_can_replace_it(tmp_path):
+    _table(tmp_path)
+    scene = board_export.export_scene(tmp_path, hooks=HOOKS)
+    around = board_export.layer("주변 건물", (128, 128, 128))
+    around["solids"] = [{"outline": [[40, 0], [50, 0], [50, 8], [40, 8]], "base": 0.0, "height": 9.0},
+                        {"outline": [[60, 0], [70, 0], [70, 8], [60, 8]], "base": 0.0, "height": 6.0}]
+    scene["layers"].append(around)
+    path = tmp_path / "context.3dm"
+    path.write_bytes(board_export.to_3dm(scene))
+    model = rhino3dm.File3dm.Read(str(path))
+    assert all(o.Attributes.GetUserString("sida.id") for o in model.Objects)
+    context = sorted(o.Attributes.GetUserString("sida.id") for o in model.Objects if o.Attributes.GetUserString("sida.kind") == "context")
+    assert context == ["context:주변 건물:0", "context:주변 건물:1"]
+
+
 def test_a_missing_package_is_a_plain_message_not_a_crash(tmp_path, monkeypatch):
     def missing(scene):
         raise ModuleNotFoundError("No module named 'rhino3dm'", name="rhino3dm")

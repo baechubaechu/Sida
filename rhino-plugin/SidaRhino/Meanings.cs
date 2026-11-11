@@ -51,6 +51,18 @@ namespace SidaRhino
             doc.Layers.Modify(layer, layerIndex, true);
         }
 
+        /// <summary>The meaning codes Sida counts as building, as it said in /api/rhino/hello.</summary>
+        public static HashSet<string> Built(IEnumerable<Meaning> meanings)
+        {
+            var codes = new HashSet<string>();
+            foreach (var meaning in meanings)
+            {
+                if (meaning.Built)
+                    codes.Add(meaning.Code);
+            }
+            return codes;
+        }
+
         /// <summary>Every layer with its meaning and floor height, in table order.</summary>
         public static IReadOnlyList<(Layer Layer, string Meaning, double? FloorHeight)> All(RhinoDoc doc)
         {

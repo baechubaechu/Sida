@@ -85,6 +85,51 @@ def test_figures_count_built_meanings_only_merge_overlapping_footprints_and_neve
     assert "잴 수 없는 개체 1개 (닫히지 않은 도형)" in lines and "의미 없는 레이어의 개체 1개 (수치에서 제외)" in lines
 
 
+def test_a_courtyard_is_left_out_of_the_footprint_and_a_second_piece_is_counted():
+    raw = studio()
+    raw["objects"] = [raw["objects"][0]]
+    raw["objects"][0]["footprint"] = [
+        [[0, 0], [20, 0], [20, 20], [0, 20]],      # the block: 400
+        [[5, 5], [15, 5], [15, 15], [5, 15]],      # its courtyard: -100
+        [[30, 0], [40, 0], [40, 10], [30, 10]],    # a wing apart: +100
+    ]
+    clean = snapshot.clean_snapshot(raw)
+    assert len(clean["objects"][0]["footprint"]) == 3
+    assert snapshot.figures(clean, 1000.0)["footprint_m2"] == 400.0
+    assert snapshot.clean_snapshot(studio())["objects"][0]["footprint"] == [[[0.0, 0.0], [20.0, 0.0], [20.0, 9.0], [0.0, 9.0]]]
+    raw["objects"][0]["footprint"] = [[[0, 0], [1, 0], [1, 1]]] * (snapshot.MAX_RINGS + 1)
+    with pytest.raises(ValueError, match="at most 50 rings"):
+        snapshot.clean_snapshot(raw)
+
+
+def test_the_height_is_the_highest_top_above_the_lowest_base_when_every_base_is_known():
+    raw = studio()
+    tower, podium = raw["objects"][0], raw["objects"][1]
+    podium.update(base=0.0, height=4.0)
+    tower.update(base=4.0, height=12.0)   # stands on the podium
+    raw["objects"] = [tower, podium]
+    assert snapshot.figures(snapshot.clean_snapshot(raw), None)["height_m"] == 16.0
+    del podium["base"]                    # one base unknown: only the tallest single object can be said
+    assert snapshot.figures(snapshot.clean_snapshot(raw), None)["height_m"] == 12.0
+
+
+def test_a_cut_through_less_than_half_a_storey_is_not_a_floor_and_a_layer_without_floor_height_is_said():
+    raw = studio()
+    block = raw["objects"][0]
+    block.update(base=0.0, height=13.0, volume=2340.0)       # 3 m storeys and a 1 m parapet
+    block["floors"] = [{"z": z, "area": 180.0} for z in (0.0, 3.0, 6.0, 9.0, 12.0)]
+    raw["objects"] = [block]
+    assert snapshot.figures(snapshot.clean_snapshot(raw), None)["floor_area_m2"] == 720.0  # four floors, not five
+    block["height"] = 13.5                                    # half a storey above the last level: a floor
+    assert snapshot.figures(snapshot.clean_snapshot(raw), None)["floor_area_m2"] == 900.0
+
+    raw["layers"][0]["floor_height"] = None
+    block["floors"] = []
+    fig = snapshot.figures(snapshot.clean_snapshot(raw), None)
+    assert fig["no_floor_height"] == ["a1"] and fig["unmeasured"] == [] and fig["volume_m3"] == 2340.0
+    assert "층고를 정하지 않은 레이어의 개체 1개 (연면적에서 제외)" in snapshot.figure_lines(fig)
+
+
 def test_a_snapshot_without_built_objects_has_no_volume_and_no_areas():
     raw = studio()
     raw["objects"] = [raw["objects"][3]]  # only the surroundings

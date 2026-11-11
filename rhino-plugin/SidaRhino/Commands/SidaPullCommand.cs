@@ -26,6 +26,8 @@ namespace SidaRhino.Commands
                 }
                 var count = Importer.Import(doc, client.Export3dm(project));
                 RhinoApp.WriteLine($"Sida: 제도판을 가져왔습니다 ({count}개 개체, 레이어 {Importer.ParentLayer}).");
+                if (Importer.KeptLast > 0)
+                    RhinoApp.WriteLine($"Sida: 전에 가져온 뒤 고친 개체 {Importer.KeptLast}개는 그대로 두었습니다 (이제 내 개체입니다).");
                 return Result.Success;
             }
             catch (SidaException exc)
