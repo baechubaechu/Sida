@@ -237,6 +237,10 @@ export const pointerMethods = {
     if (this.personPicked) this.pickPerson('');
     if (this.tool === 'person') { this.gesture = { kind: 'person-add', x: e.clientX, y: e.clientY, moved: false }; return; }
     if (MODEL_TOOLS.has(this.tool)) { this.gesture = this.modelGesture(e, g0); return; }
+    if (this.tool === 'section') { this.gesture = this.sectionGesture(e, g0); return; }
+    // A press on an end of a selected section's line drags that end.
+    const end = this.tool === 'select' && !e.shiftKey && this.sectionEndAt(e.clientX, e.clientY);
+    if (end) { this.gesture = end; return; }
     // Empty table (or the sky above it, in a view near edge-on): a selection box, as in Rhino.
     const box = { kind: 'box', x: e.clientX, y: e.clientY, add: e.shiftKey, remove: e.ctrlKey || e.metaKey, moved: false };
     if (!g0) {
@@ -299,6 +303,7 @@ export const pointerMethods = {
       g.told = true;
       this.hooks.viewMoved?.();
     }
+    if (g.kind === 'section' || g.kind === 'section-end') { this.sectionMove(g, e); return; }
     if (g.kind === 'person' || g.kind === 'person-add') {
       if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 4) return;
       g.moved = true;
@@ -489,6 +494,11 @@ export const pointerMethods = {
   onUp(cancelled = false) {
     const g = this.gesture;
     this.gesture = null;
+    if (g?.kind === 'section' || g?.kind === 'section-end') {
+      this.sectionUp(g, cancelled);
+      if (this.pending) { const view = this.pending; this.pending = null; this.setBoard(view); }
+      return;
+    }
     if ((g?.kind === 'eye' || g?.kind === 'eye-pick') && !g.moved && !cancelled && g.button !== 2) {
       const p = this.eyeHit(g.x, g.y);
       if (g.kind === 'eye-pick') {

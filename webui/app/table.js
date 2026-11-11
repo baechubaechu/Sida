@@ -22,6 +22,7 @@ import { pointerMethods } from './table-pointer.js';
 import { eyeMethods } from './table-eye.js';
 import { measureMethods } from './table-measure.js';
 import { peopleMethods } from './table-people.js';
+import { sectionMethods } from './table-section.js';
 
 export class DraftingTable {
   // hooks: { add(paper), update(id, changes), remove(id), place(id, placement), discard(id),
@@ -249,6 +250,7 @@ export class DraftingTable {
       case 'radius': this.setTool('radius'); return '';
       case 'eye': this.toggleEye(); return '';
       case 'people': this.setTool('person'); return '';
+      case 'section': this.setTool('section'); return '';
       case 'copy': this.setTool('move', { copy: true }); return '';
       case 'trace': this.layTracing(); return '';
       case 'mass': this.openForm(); return '';
@@ -340,7 +342,7 @@ export class DraftingTable {
     const people = new THREE.Group(); // the scale figures standing up (3D), in plan metres
     const peopleMarks = new THREE.Group(); // the same people as circles in plan
     scene.add(lot, masses, traces, draft, around, people, peopleMarks);
-    this.gl = { renderer, cssRenderer, scene, cssScene, camera, desk, grid, catcher, horizon, lot, masses, traces, draft, around, people, peopleMarks, labels: [], objects: new Map(), raycaster: new THREE.Raycaster() };
+    this.gl = { renderer, cssRenderer, scene, cssScene, camera, sun, desk, grid, catcher, horizon, lot, masses, traces, draft, around, people, peopleMarks, labels: [], objects: new Map(), raycaster: new THREE.Raycaster() };
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(this.root);
   }
@@ -418,6 +420,7 @@ export class DraftingTable {
     const off = new Set(this.papers.filter((p) => this.layerHidden(p)).map((p) => p.id)); // layers turned off
     for (const [id, obj] of objects) obj.visible = !fold && !shut.has(id) && !off.has(id);
     if (fold !== this.root.classList.contains('is-3d')) this.foldChanged(fold);
+    this.applyCut(fold, rise);
     this.root.classList.toggle('has-folded', shut.size > 0);
     // How large a paper px is on the screen, for the corner grips (a steady size on the screen)
     // and the PDF pages (drawn again, a moment after a zoom, as sharp as they are now seen).
@@ -772,4 +775,4 @@ export class DraftingTable {
   }
 }
 
-Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods, eyeMethods, measureMethods, peopleMethods);
+Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods, eyeMethods, measureMethods, peopleMethods, sectionMethods);

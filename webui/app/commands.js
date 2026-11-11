@@ -96,7 +96,7 @@ function cancelCommand() {
 }
 
 const TABLE_COMMANDS = new Set(['plan', 'persp', 'iso', 'zoom', 'north', 'select', 'note', 'pen', 'trace', 'mass', 'photo', 'delete', 'undo', 'redo', 'tray',
-  'rect', 'pushpull', 'move', 'copy', 'rotate', 'scale', 'eraser', 'dist', 'radius', 'eye', 'people', 'group', 'ungroup']);
+  'rect', 'pushpull', 'move', 'copy', 'rotate', 'scale', 'eraser', 'dist', 'radius', 'eye', 'people', 'group', 'ungroup', 'section']);
 
 function runCommand(name, command) {
   if (!command) return;

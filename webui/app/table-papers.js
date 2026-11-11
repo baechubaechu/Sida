@@ -139,6 +139,7 @@ export const papersMethods = {
     }
     this.drawPins();
     this.drawPeek();
+    this.drawSections();
     this.invalidate();
   },
   drawPaper(p) {
@@ -146,6 +147,7 @@ export const papersMethods = {
     const state = {
       p: { ...p, x: 0, y: 0 }, sel: this.selected.includes(p.id), overlaid, editing: this.editing === p.id,
       active: this.active === p.id, f: this.figures[p.id], site: p.kind === 'site' ? this.site : null,
+      cut: p.kind === 'section' ? this.sectionKey() : '',
     };
     const key = JSON.stringify(state);
     if (this.drawn.get(p.id) === key) return;
@@ -223,6 +225,7 @@ export const papersMethods = {
           <button type="button" class="paper-link" data-open-expert="${escape(p.agent || '')}">결과 문서 보기 ↗</button>`,
       };
     }
+    if (p.kind === 'section') return { title: paperName(p), body: this.sectionBody(p) };
     return { title: paperName(p), body: '' };
   },
   traceSvg(p) {
