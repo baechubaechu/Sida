@@ -17,6 +17,8 @@ import {
   EYE, groundAt, eyeStart, eyeCamera, eyeLook, eyeWalk, eyeZoom, eyeKey,
   emptyMeasure, measureLength, measureClick, siteCircles, circlePoints, MAX_CIRCLES,
   PERSON_KINDS, personId, insideRing, ringGap, blockUnder, nearestBlock, personNote, groundClass, scatterSpots, PERSON_GAP,
+  gumballTurn, turnedDelta, fromFrame, ratioBlocks, stretchBlocks, reachAlong, gumballClick, gumballNumberField, numericGumball, snapPivot, normalTurn,
+  panelPapers, changesPanel,
 } from '../../webui/app/board-model.js';
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -1488,3 +1490,100 @@ test('a change of people is kept for undo, which sends back the list before it',
   assert.equal(recordStep(createHistory(), [{ op: 'people', before: [{ id: 'p' }], after: [{ id: 'p' }] }]).past.length, 0); // nothing changed
 });
 
+test('the gumball follows turned blocks: its arrows take their shared turn, else the site', () => {
+  // 2026-11-11 지훈 "검볼 기능 완전하게 (회전 포함)": before, the arrows stayed on the site's u
+  // and v while a size square widened a turned block along its own side.
+  assert.equal(gumballTurn([{ a: 30 }, { a: 30 }]), 30);
+  assert.equal(gumballTurn([{ a: 30 }, {}]), 0);
+  assert.equal(gumballTurn([{}]), 0);
+  assert.equal(gumballTurn([]), 0);
+  // A move along the turned arrows becomes a move in the site's u and v.
+  const red = turnedDelta(90, 5, 0);
+  close(red.du, 0);
+  close(red.dv, 5);
+  const green = turnedDelta(30, 0, 2);
+  close(green.du, -1);
+  close(green.dv, Math.sqrt(3));
+  // fromFrame undoes toFrame.
+  const frame = { x: 100, y: 50, angle: 0.4 };
+  const back = toFrame(frame, fromFrame(frame, 7, -3).x, fromFrame(frame, 7, -3).y);
+  close(back.u, 7);
+  close(back.v, -3);
+  // A drag past the back of the ring turns the short way.
+  assert.equal(normalTurn(-350), 10);
+  assert.equal(normalTurn(190), -170);
+});
+
+test('the gumball sizes: Shift keeps proportions, a moved pivot stretches from the pivot', () => {
+  const blocks = [{ u: 0, v: 0, w: 10, d: 6, floors: 2 }, { u: 30, v: 0, w: 8, d: 8, floors: 3 }];
+  const r = ratioBlocks(blocks, [0], 1.5);
+  assert.deepEqual([r[0].u, r[0].w, r[0].d, r[0].floors], [0, 15, 9, 2]);
+  assert.equal(r[1], blocks[1]);
+  assert.equal(ratioBlocks(blocks, [0], 0.01)[0].w, 1);
+  // Pivot at the block's −u side (u −5): the far side moves out, the near side stays put.
+  const pivot = { u: -5, v: 0 };
+  assert.equal(reachAlong(null, [blocks[0]], pivot, 0, 'w'), 10);
+  const s = stretchBlocks(blocks, [0], pivot, 0, 'w', 1.4);
+  assert.deepEqual([s[0].u, s[0].w, s[0].d], [2, 14, 6]); // −5 … 9
+  // Turned 90° the red arrow looks along v, so the stretch moves the middle along v.
+  const t = stretchBlocks([{ u: 0, v: 3, w: 6, d: 4, floors: 1, a: 90 }], [0], { u: 0, v: 0 }, 90, 'w', 2);
+  close(t[0].u, 0);
+  close(t[0].v, 6);
+  assert.equal(t[0].w, 12);
+});
+
+test('a click on a gumball grip opens a number input; the number edits the picked blocks', () => {
+  assert.equal(gumballClick({ kind: 'gumball', grip: 'u', handle: true, moved: false }), true);
+  assert.equal(gumballClick({ kind: 'gumball', grip: 'u', handle: true, moved: true }), false);
+  assert.equal(gumballClick({ kind: 'gumball', grip: 'free', handle: false, moved: false }), false); // a building pressed
+  assert.equal(gumballClick({ kind: 'gumball', grip: 'free', handle: true, moved: false, pivotMove: true }), false);
+  assert.equal(gumballClick({ kind: 'gumball', grip: 'scale', handle: false, numeric: true, moved: false }), false);
+  assert.equal(gumballClick({ kind: 'gumball', grip: 'u', handle: true, moved: false }, true), false);
+  for (const grip of ['u', 'v', 'free', 'w', 'd', 'z', 'rotate']) assert.ok(gumballNumberField(grip, { w: 10, d: 6, floors: 3 }).label);
+  assert.equal(gumballNumberField('w', { w: 10, d: 6, floors: 3 }).value, 10);
+  assert.equal(gumballNumberField('nope'), null);
+  const blocks = [{ u: 0, v: 0, w: 10, d: 6, floors: 2, a: 90 }, { u: 30, v: 0, w: 8, d: 8, floors: 3 }];
+  // Moves go along the gumball's turned arrows.
+  const moved = numericGumball(blocks, [0], { grip: 'u', value: '2.35', turn: 90 }).blocks;
+  close(moved[0].u, 0);
+  close(moved[0].v, 2.35);
+  assert.equal(moved[1], blocks[1]);
+  const both = numericGumball(blocks, [0, 1], { grip: 'free', value: '5, -2', turn: 0 }).blocks;
+  assert.deepEqual(both.map((b) => [b.u, b.v]), [[5, -2], [35, -2]]);
+  assert.ok(numericGumball(blocks, [0], { grip: 'free', value: '5' }).error);
+  assert.deepEqual(numericGumball(blocks, [0, 1], { grip: 'w', value: '12.5' }).blocks.map((b) => b.w), [12.5, 12.5]);
+  assert.ok(numericGumball(blocks, [0], { grip: 'd', value: '0.5' }).error);
+  assert.equal(numericGumball(blocks, [1], { grip: 'z', value: '7' }).blocks[1].floors, 7);
+  assert.ok(numericGumball(blocks, [1], { grip: 'z', value: '2.5' }).error);
+  // A typed turn goes round the pivot.
+  const turned = numericGumball(blocks, [1], { grip: 'rotate', value: '90', center: { u: 0, v: 0 } }).blocks[1];
+  close(turned.u, 0);
+  close(turned.v, 30);
+  assert.equal(turned.a, 90);
+  assert.ok(numericGumball(blocks, [1], { grip: 'rotate', value: '400', center: { u: 0, v: 0 } }).error);
+  assert.ok(numericGumball(blocks, [5], { grip: 'z', value: '3' }).error);
+  assert.ok(numericGumball(blocks, [0], { grip: 'u', value: '' }).error);
+});
+
+test('the pivot catches on a nearby corner or middle, else follows the pointer', () => {
+  const spots = [{ point: { x: 1, y: 1 }, screen: { x: 100, y: 100 } }, { point: { x: 2, y: 2 }, screen: { x: 106, y: 100 } }];
+  assert.deepEqual(snapPivot({ x: 105, y: 101 }, { x: 9, y: 9 }, spots), { x: 2, y: 2 });
+  assert.deepEqual(snapPivot({ x: 300, y: 300 }, { x: 9, y: 9 }, spots), { x: 9, y: 9 });
+});
+
+test("the 속성 panel reads the table's papers, so a copy or a turn shows at once", () => {
+  // 2026-11-11: right after an Alt-copy the panel was empty (the server's copy had no new block
+  // yet), and a turned or resized block showed its old angle and size until the page reopened.
+  const server = [{ id: 'm', kind: 'mass', blocks: [{ u: 0, v: 0, w: 10, d: 6, floors: 2 }] }];
+  const live = [{ id: 'm', kind: 'mass', blocks: [{ u: 0, v: 0, w: 10, d: 6, floors: 2 }, { u: 5, v: 0, w: 10, d: 6, floors: 2, a: 40 }] }];
+  assert.equal(pickedBlocks(panelPapers(null, server), ['m#1']).length, 0); // what the panel saw before
+  const picked = pickedBlocks(panelPapers(live, server), ['m#1']);
+  assert.equal(picked[0].paper.blocks[1].a, 40);
+  assert.equal(panelPapers(undefined, server), server); // no table yet: the server's copy
+  assert.deepEqual(panelPapers(undefined, undefined), []);
+  // Blocks, floor height, names, layers and groups redraw the panel; moving a paper does not.
+  assert.equal(changesPanel({ blocks: [] }), true);
+  assert.equal(changesPanel({ title: 'A' }), true);
+  assert.equal(changesPanel({ x: 1, y: 2 }), false);
+  assert.equal(changesPanel(undefined), false);
+});

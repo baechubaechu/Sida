@@ -12,7 +12,7 @@
 import { icon } from './icons.js';
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { boardLayers, paperLayer, blockLayer, layerFlags, expandGroups, groupChange, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewName, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS } from './board-model.js';
+import { boardLayers, paperLayer, blockLayer, layerFlags, expandGroups, groupChange, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewName, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS, changesPanel } from './board-model.js';
 import { typing, TOOLS, MODEL_TOOLS } from './table-shared.js';
 import { blocksMethods } from './table-blocks.js';
 import { aroundMethods } from './table-around.js';
@@ -93,9 +93,12 @@ export class DraftingTable {
       <div class="table-box" hidden></div>
       <div class="tape-snap" hidden aria-hidden="true"><span></span></div>
       <div class="table-gumball" hidden aria-hidden="true"><svg>
-        ${['u', 'v', 'z'].map((a) => `<g data-gumball="${a}" class="gb-${a}"><line class="gb-hit"/><line class="gb-shaft"/><polygon class="gb-head"/></g>`).join('')}
-        ${['w', 'd'].map((a) => `<rect data-gumball="${a}" class="gb-size gb-${a === 'w' ? 'u' : 'v'}" width="10" height="10"><title>${a === 'w' ? '가로' : '세로'} 크기</title></rect>`).join('')}
-        <rect data-gumball="free" class="gb-free" width="14" height="14"/>
+        <path class="gb-fan" display="none"/><text class="gb-angle" display="none"></text>
+        <g data-gumball="rotate" class="gb-z"><path class="gb-hit"/><path class="gb-ring"/><title>회전 (끌기: 5°, Shift 1° · 누르면 각도 입력)</title></g>
+        ${[['u', '빨간 화살표 방향으로 이동 (누르면 거리 입력 · Alt 끌기 복사)'], ['v', '초록 화살표 방향으로 이동 (누르면 거리 입력 · Alt 끌기 복사)'], ['z', '층수 (누르면 층수 입력)']].map(([a, tip]) => `<g data-gumball="${a}" class="gb-${a}"><line class="gb-hit"/><line class="gb-shaft"/><polygon class="gb-head"/><title>${tip}</title></g>`).join('')}
+        ${['w', 'd'].map((a) => `<rect data-gumball="${a}" class="gb-size gb-${a === 'w' ? 'u' : 'v'}" width="10" height="10"><title>${a === 'w' ? '가로' : '세로'} 크기 (Shift 비율 유지 · 누르면 길이 입력)</title></rect>`).join('')}
+        <circle class="gb-pivot" r="11" display="none"/>
+        <rect data-gumball="free" class="gb-free" width="14" height="14"><title>이동 (누르면 거리 입력 · Alt 끌기 복사 · Ctrl 끌기 기준점 옮기기, Ctrl 누르기 기준점 되돌리기)</title></rect>
       </svg></div>
       <div class="table-ui ui-left"><div class="ui-history" role="group" aria-label="편집 기록"></div>
         <div class="ui-tools" role="toolbar" aria-label="제도판 도구"></div></div>
@@ -686,7 +689,9 @@ export class DraftingTable {
   // ------------------------------------------------------------------ edits
 
   save(id, changes) {
-    return this.hooks.update(id, changes);
+    const saved = this.hooks.update(id, changes);
+    if (changesPanel(changes)) this.hooks.edited?.(); // the 속성 panel shows the new values now
+    return saved;
   }
 
   // Group what is selected and picked (any papers and buildings), or take apart every group it

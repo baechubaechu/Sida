@@ -5,7 +5,7 @@
 // shows) and 전문가 (the experts), as in Rhino or CAD. On a narrow screen (≤900px) the tabs at the
 // bottom show one side at a time and the layout is fixed: 대화 alone, the rest in one group.
 
-import { boardLayers, foldedRows, groupProperties, layerRows, pickedBlocks, propertiesOf, selectedGroup } from './board-model.js';
+import { boardLayers, foldedRows, groupProperties, layerRows, panelPapers, pickedBlocks, propertiesOf, selectedGroup } from './board-model.js';
 import { DOCK_PANELS, sideShown } from './dock-model.js';
 import { escapeHtml as escape, siteCard } from './model.js';
 import { icon } from './icons.js';
@@ -15,7 +15,7 @@ import { conductorBody } from './view-conductor.js';
 import { expertsBody } from './view-experts.js';
 
 function propsBody() {
-  const all = ui.board?.papers || [];
+  const all = panelPapers(table?.papers, ui.board?.papers);
   const papers = all.filter((p) => ui.selected.includes(p.id));
   // A whole group shows as one (its parts and a button to take it apart).
   const group = selectedGroup(all, ui.selected, ui.picked);

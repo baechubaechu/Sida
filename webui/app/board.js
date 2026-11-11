@@ -108,6 +108,8 @@ function tableHooks(name) {
       followSelection(ids.length > 0 || ui.picked.length > 0);
       render(false);
     },
+    // A block or paper changed on the table: the 속성 panel (it reads the table's papers) redraws.
+    edited: () => render(false),
     // Buildings picked on their own (paperId#index): the 속성 panel shows them.
     pick: (keys) => {
       ui.picked = keys;

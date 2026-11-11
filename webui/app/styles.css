@@ -659,6 +659,12 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 [data-gumball]:hover .gb-shaft { stroke-width: 4; }
 .gb-free { fill: color-mix(in srgb, var(--brand) 25%, white); stroke: var(--brand); stroke-width: 1.5; }
 .gb-free:hover { fill: var(--brand); }
+.gb-ring { fill: none; stroke: var(--gb); stroke-width: 3; stroke-linecap: round; }
+[data-gumball="rotate"] .gb-hit { fill: none; }
+[data-gumball="rotate"]:hover .gb-ring { stroke-width: 5; }
+.gb-fan { fill: color-mix(in srgb, #3b6fd6 16%, transparent); stroke: #3b6fd6; stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
+.gb-angle { font: 600 12px var(--font); fill: var(--text); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; text-anchor: middle; pointer-events: none; }
+.gb-pivot { fill: none; stroke: var(--brand); stroke-width: 1.5; pointer-events: none; }
 .table:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 .table.tool-pen, .table.tool-note, .table.tool-model, .table.tool-person { cursor: crosshair; }
 .table-stage, .table-gl, .table-css { position: absolute; inset: 0; }
