@@ -1,7 +1,7 @@
 // The drafting table on the screen (table.js), the VWorld 3D view and the model board panel: made
 // when a project opens, fed from the board API, and laid over the redrawn page.
 
-import { expertPath, parseRecommendation, boardExport } from './model.js';
+import { expertPath, parseRecommendation, boardExport, siteCard } from './model.js';
 import { keepSelected, pickedNames, addQuestion, readModelSummary, rangeQuery, pickedBlocks, propertyChange, boardLayers } from './board-model.js';
 import { VWorldView } from './vworld-view.js';
 import { api, expertUrl, projectApi } from './api.js';
@@ -81,6 +81,8 @@ function tableHooks(name) {
       return api(`${projectApi(name)}/board/photos`, { method: 'POST', form });
     }, true),
     photoUrl: (id) => `${projectApi(name)}/board/photos/${encodeURIComponent(id)}`,
+    // The saved site's area and statutory caps, for the figures shown while blocks are edited.
+    siteCard: () => siteCard(ui.site),
     // The site's surroundings in 3D (ground, nearby buildings): GET .../site/context.
     // range {size, shape, orient}: as asked; none: the project's saved range.
     context: (range) => api(`${projectApi(name)}/site/context${range ? `?${rangeQuery(range)}` : ''}`),

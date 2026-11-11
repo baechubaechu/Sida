@@ -98,6 +98,8 @@ export class DraftingTable {
       <div class="table-ui ui-view"><div class="ui-tilt" role="group" aria-label="보는 각도"></div><div class="ui-zoom"></div></div>
       <div class="table-ui eye-bar" role="toolbar" aria-label="눈높이 보기" hidden></div>
       <p class="table-ui ui-hint" role="status" hidden></p>
+      <p class="table-ui figure-band" role="status" aria-label="매스안 건폐율·용적률" hidden></p>
+      <div class="block-tags" aria-hidden="true"></div>
       <p class="table-ui around-legend" aria-label="주변 3D 범례" hidden></p>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
       <section class="table-ui peek" aria-label="종이 내용" hidden></section>
@@ -119,6 +121,8 @@ export class DraftingTable {
       tilt: this.root.querySelector('.ui-tilt'),
       zoom: this.root.querySelector('.ui-zoom'),
       hint: this.root.querySelector('.ui-hint'),
+      band: this.root.querySelector('.figure-band'),
+      tags: this.root.querySelector('.block-tags'),
       eye: this.root.querySelector('.eye-bar'),
       aroundLegend: this.root.querySelector('.around-legend'),
       tray: this.root.querySelector('.tray'),
@@ -407,6 +411,7 @@ export class DraftingTable {
     cssRenderer.render(cssScene, camera);
     if (fold || shut.size) this.placePins(fold ? null : shut);
     this.placeGumball();
+    this.placeBlockTags();
   }
 
   openViewScale() {

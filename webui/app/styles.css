@@ -818,6 +818,24 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .view-scale-bar i { display: block; height: 5px; border: solid currentColor; border-width: 0 1px 1px; }
 .ui-hint { pointer-events: none; left: 50%; bottom: 76px; transform: translateX(-50%); padding: 10px 14px; border-radius: 8px; background: var(--brand); color: white; font-size: 12px; max-width: min(520px, 90%); }
 .ui-hint[hidden] { display: none; }
+/* While blocks are picked: the scheme's coverage and FAR against the caps along the foot of the
+   table, and each picked block's area and share of the site over it. Past a cap is said in words
+   (초과, underlined), not in a colour of its own. */
+.figure-band { left: 16px; bottom: 64px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin: 0; padding: 8px 12px; max-width: calc(100% - 32px);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 3px 12px rgb(36 52 67 / .05); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
+.figure-band[hidden] { display: none; }
+.figure-band .band-title { color: var(--text); font-weight: 700; overflow-wrap: anywhere; }
+.figure-band strong { color: var(--text); font-size: 13px; }
+.figure-band .is-over strong, .figure-band em { text-decoration: underline; text-underline-offset: 3px; }
+.figure-band em { font-style: normal; font-weight: 700; color: var(--text); }
+.block-tags { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
+.block-tag { position: absolute; left: 0; top: 0; padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 12px; line-height: 16px; white-space: nowrap; font-variant-numeric: tabular-nums; box-shadow: 0 2px 8px rgb(36 52 67 / .08); }
+.block-tag[hidden] { display: none; }
+.table.is-eye .figure-band, .table.is-eye .block-tags { display: none; }
+.table.tray-open .figure-band { left: calc(var(--tray-width) + 16px); max-width: calc(100% - var(--tray-width) - 32px); }
+/* The band sits over the view controls; the legend and the hints step up above it. */
+.table.has-band .around-legend { bottom: 112px; }
+.table.has-band .ui-hint { bottom: 124px; }
 /* 눈높이 보기: standing in the street. The bar along the top; the pins, the gumball and the
    modelling tools go away, as nothing on the table is edited from the street. */
 .eye-bar { left: 50%; top: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 3px 12px rgb(36 52 67 / .05); white-space: nowrap; }

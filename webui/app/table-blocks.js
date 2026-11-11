@@ -4,7 +4,9 @@
 
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { blockLayer, expandGroups, PX, PAPER_SIZE, riseFor, groundFor, scaleSpan, isOverlaid, blockCorners, freeSpot, folded, foldedInPlan, paperName, readScheme, schemeRows, parseBlockKey, fmt, GUMBALL_PX, GUMBALL_SCALE_PX, editBlocks, blocksCenter, blockKey, pickedBlocks, toFrame, MAX_BLOCKS, numericPushBlock, numericScaleBlocks, snapTape, massIds, changedFields } from './board-model.js';
+import { blockLayer, expandGroups, PX, PAPER_SIZE, riseFor, groundFor, scaleSpan, isOverlaid, blockCorners, freeSpot, folded, foldedInPlan, paperName, readScheme, schemeRows, parseBlockKey, fmt, GUMBALL_PX, GUMBALL_SCALE_PX, editBlocks, blocksCenter, blockKey, pickedBlocks, toFrame, MAX_BLOCKS, numericPushBlock, numericScaleBlocks, snapTape, massIds, changedFields, figuresBand, blockTag } from './board-model.js';
+
+const MAX_TAGS = 12; // picked blocks that get a tag; more would cover the table
 
 export const blocksMethods = {
   // The picked blocks, grouped by scheme, of the schemes that stand on the site.
@@ -375,7 +377,65 @@ export const blocksMethods = {
     if (this.ghost) for (const p of this.papers) if (p.kind === 'mass' && p.id !== this.active) build(p, true);
     const preview = this.tray.find((p) => p.id === this.preview);
     if (preview) build(preview, true, new THREE.Color(this.colors.ghost));
+    this.drawFigures(active);
     this.invalidate();
+  },
+  // ------------------------------------------------------------------ figures while editing
+  // The site's area and caps for the figures (siteCard() of the saved site), or just the area the
+  // board was sent; null without either.
+  figureSite() {
+    const card = this.hooks.siteCard?.();
+    if (card?.areaM2) return card;
+    return this.site?.area_m2 ? { areaM2: this.site.area_m2, bcr: null, far: null } : null;
+  },
+  // While blocks of the scheme standing in 3D are picked (and so while they are pushed, moved or
+  // sized), the band at the foot of the table shows its coverage and FAR against the caps, and
+  // each picked block a tag with its area and share of the site (2026-11-11 지훈). Figures by the
+  // rule in board-model.js (massFigures), as the 속성 panel shows them.
+  drawFigures(active) {
+    const site = this.figureSite();
+    const band = this.ui.band;
+    const keys = new Set(this.picked);
+    const picked = active?.kind === 'mass' && (active.blocks || []).some((_, i) => keys.has(blockKey(active.id, i)));
+    const info = picked ? figuresBand(active, site) : null;
+    band.hidden = !info;
+    this.root.classList.toggle('has-band', Boolean(info));
+    band.innerHTML = info ? `<b class="band-title">${escape(info.title)}</b>${info.items.map((item) => `<span class="band-item${item.over ? ' is-over' : ''}">${escape(item.label)} <strong>${escape(item.value)}</strong>${item.cap ? ` / ${escape(item.cap)}` : ''}${item.over ? ' <em>초과</em>' : ''}</span>`).join('')}${info.overlap ? '<span class="band-note">겹친 동 있음 · 실제보다 크게 나옴</span>' : ''}` : '';
+    const frame = this.site?.plan?.frame || { x: 0, y: 0, angle: 0 };
+    this.tagSpots = [];
+    for (const { paper, indices } of this.pickedGroups()) {
+      for (const i of indices) {
+        const b = paper.blocks[i];
+        if (this.layerFlags.hidden.has(blockLayer(paper, b, this.layers))) continue;
+        if (this.tagSpots.length >= MAX_TAGS) break;
+        this.tagSpots.push({ corners: blockCorners(frame, b), z: this.blockBase(frame, b) + b.floors * (paper.floor_height || 4.2), text: blockTag(paper, i, site) });
+      }
+    }
+    this.ui.tags.innerHTML = this.tagSpots.map((s) => `<span class="block-tag">${escape(s.text)}</span>`).join('');
+  },
+  // The tags over their blocks: above the top corner highest on the screen, so they stay clear of
+  // the gumball in the middle.
+  placeBlockTags() {
+    const spots = this.tagSpots || [];
+    const els = this.ui.tags.children;
+    if (!spots.length || !this.gl) return;
+    const { camera } = this.gl;
+    const w = this.size?.w || this.root.clientWidth;
+    const h = this.size?.h || this.root.clientHeight;
+    const rise = riseFor(this.view.tilt);
+    spots.forEach((spot, k) => {
+      const el = els[k];
+      if (!el) return;
+      let best = null;
+      for (const [x, y] of spot.corners) {
+        const at = new THREE.Vector3(x, y, spot.z * rise).project(camera);
+        if (at.z > 1) continue;
+        const sx = ((at.x + 1) / 2) * w, sy = ((1 - at.y) / 2) * h;
+        if (!best || sy < best[1]) best = [sx, sy];
+      }
+      el.hidden = !best || best[0] < -40 || best[0] > w + 40 || best[1] < -40 || best[1] > h + 40;
+      if (!el.hidden) el.style.transform = `translate(${best[0]}px, ${best[1]}px) translate(-50%, calc(-100% - 6px))`;
+    });
   },
   // ------------------------------------------------------------------ papers
 
