@@ -43,7 +43,11 @@ namespace SidaRhino
         {
             try
             {
-                using var doc = GetJson("/api/rhino/hello");
+                using var response = Http.GetAsync(BaseUrl + "/api/rhino/hello").GetAwaiter().GetResult();
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    throw new SidaException("켜져 있는 Sida가 라이노 연결보다 오래된 버전입니다. Sida를 업데이트한 뒤 다시 하세요.");
+                EnsureOk(response);
+                using var doc = JsonDocument.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
                 var root = doc.RootElement;
                 if (!root.TryGetProperty("ok", out var ok) || !ok.GetBoolean())
                     return null;
