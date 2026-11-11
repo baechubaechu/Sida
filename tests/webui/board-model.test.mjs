@@ -1041,6 +1041,76 @@ test('the properties tab sums a mass scheme against the site and its statutory c
   assert.equal(propertiesOf([]), null);
 });
 
+test('a picked building shows its share of the site and the scheme against the caps', async () => {
+  const { propertiesOf, pickedBlocks } = await import('../../webui/app/board-model.js');
+  const mass = { id: 'm', kind: 'mass', title: 'A안', floor_height: 4, blocks: [{ u: -20, v: 0, w: 12, d: 10, floors: 5 }, { u: 10, v: 0, w: 8, d: 9, floors: 3 }] };
+  const site = { areaM2: 400, bcr: 60, far: 250 };
+  const row = (props, label) => props.rows.find((r) => r[0] === label)?.[1];
+  const one = propertiesOf([], site, pickedBlocks([mass], ['m#1']));
+  assert.equal(row(one, '바닥면적'), '72㎡');
+  assert.equal(row(one, '건폐율 몫'), '18%');
+  assert.equal(row(one, '용적률 몫'), '54%');
+  assert.equal(row(one, '매스안 건폐율'), '48% (법정 60% 이하)');
+  assert.equal(row(one, '매스안 용적률'), '204% (법정 250% 이하)');
+  assert.equal(row(one, '건폐율 여유'), '48㎡ 남음');
+  assert.equal(row(one, '용적률 여유'), '184㎡ 남음');
+  assert.ok(one.note.includes('400㎡'));
+  assert.equal(one.note.includes('겹친'), false);
+  // Both: their shares added up.
+  const both = propertiesOf([], site, pickedBlocks([mass], ['m#0', 'm#1']));
+  assert.equal(row(both, '건폐율 몫 합'), '48%');
+  assert.equal(row(both, '용적률 몫 합'), '204%');
+  // Past a cap: said in words, and the floor over it.
+  const big = { ...mass, blocks: [mass.blocks[0], { ...mass.blocks[1], w: 14 }] };
+  const over = propertiesOf([], site, pickedBlocks([big], ['m#1']));
+  assert.equal(row(over, '매스안 건폐율'), '61.5% (법정 60% 초과)');
+  assert.equal(row(over, '건폐율 여유'), '6㎡ 넘음');
+  // No site area: the shares are 미확인, and no scheme ratios.
+  const unknown = propertiesOf([], null, pickedBlocks([mass], ['m#1']));
+  assert.equal(row(unknown, '건폐율·용적률'), '미확인 (대지면적 모름)');
+  assert.equal(row(unknown, '매스안 건폐율'), undefined);
+  // The scheme itself also shows the floor left under the caps.
+  const scheme = propertiesOf([mass], site);
+  assert.equal(row(scheme, '건폐율'), '48% (법정 60% 이하)');
+  assert.equal(row(scheme, '건폐율 여유'), '48㎡ 남음');
+});
+
+test('blocks that overlap are told, as their shared part is counted twice', async () => {
+  const { blocksOverlap, propertiesOf, pickedBlocks } = await import('../../webui/app/board-model.js');
+  const a = { u: 0, v: 0, w: 10, d: 10, floors: 1 };
+  assert.equal(blocksOverlap([a, { ...a, u: 10 }]), false); // side by side, touching
+  assert.equal(blocksOverlap([a, { ...a, u: 9 }]), true);
+  assert.equal(blocksOverlap([a, { ...a, u: 12, a: 45 }]), true); // a turned corner reaches in
+  assert.equal(blocksOverlap([a, { ...a, u: 13, a: 45 }]), false);
+  assert.equal(blocksOverlap([a]), false);
+  const mass = { id: 'm', kind: 'mass', title: 'A안', blocks: [a, { ...a, u: 5 }] };
+  const site = { areaM2: 400, bcr: 60, far: 250 };
+  assert.ok(propertiesOf([mass], site).note.includes('두 번'));
+  assert.ok(propertiesOf([], site, pickedBlocks([mass], ['m#0'])).note.includes('두 번'));
+});
+
+test('the band and tags while blocks are edited follow the same rule', async () => {
+  const { figuresBand, blockTag, massFigures } = await import('../../webui/app/board-model.js');
+  const mass = { id: 'm', kind: 'mass', title: '안 A', blocks: [{ u: -20, v: 0, w: 12, d: 10, floors: 5 }, { u: 10, v: 0, w: 14, d: 9, floors: 3 }] };
+  const site = { areaM2: 400, bcr: 60, far: 250 };
+  const band = figuresBand(mass, site);
+  assert.equal(band.title, '안 A');
+  assert.deepEqual(band.items, [
+    { label: '건폐율', value: '61.5%', cap: '법정 60%', over: true },
+    { label: '용적률', value: '244.5%', cap: '법정 250%', over: false },
+  ]);
+  assert.equal(band.overlap, false);
+  // Without caps: the ratios alone. Without the area: the areas and why.
+  assert.deepEqual(figuresBand(mass, { areaM2: 400, bcr: null, far: null }).items.map((i) => [i.cap, i.over]), [['', false], ['', false]]);
+  assert.deepEqual(figuresBand(mass, null).items.map((i) => i.value), ['246㎡', '978㎡', '미확인 (대지면적 모름)']);
+  assert.equal(figuresBand({ blocks: [] }, site), null);
+  assert.equal(blockTag(mass, 1, site), '2동 · 126㎡ · 건폐율 31.5%');
+  assert.equal(blockTag(mass, 0, null), '1동 · 120㎡');
+  // Exactly at the cap is within it.
+  assert.equal(figuresBand({ title: 'x', blocks: [{ u: 0, v: 0, w: 20, d: 12, floors: 1 }] }, site).items[0].over, false);
+  assert.equal(massFigures([], { areaM2: 0, bcr: 60 }).coverage, null);
+});
+
 test('a picked building shows its floors and size to change; several share their floors', async () => {
   const { propertiesOf, pickedBlocks } = await import('../../webui/app/board-model.js');
   const mass = { id: 'm', kind: 'mass', title: 'A안', floor_height: 4, blocks: [{ u: 0, v: 0, w: 10, d: 20, floors: 3 }, { u: 0, v: 0, w: 5, d: 10, floors: 1, a: 30 }] };

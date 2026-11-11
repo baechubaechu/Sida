@@ -1,7 +1,8 @@
 // Helpers for the drafting table (제도판) that touch neither the DOM nor three.js, so
 // tests/webui/board-model.test.mjs can check them. The table is the x–y plane in metres,
 // x east, y north, 0, 0 the middle of the site (GET .../board → site.plan).
-// Figures (coverage, FAR) are never computed here: they come from the server (`figures`).
+// A scheme's papers show the server's figures (`figures`); while blocks are edited the screen
+// works out the same figures by the same rule (massFigures) so they follow the hand.
 
 import { SECTION_LABELS } from './model.js';
 
@@ -787,6 +788,92 @@ export function moveLayer(layers, id, direction) {
 
 const m2 = (v) => `${Math.round(v * 10) / 10}㎡`;
 
+// ------------------------------------------------------------------ figures of blocks
+
+// What blocks add up to, by the same rule as the server's mass_figures (sida/board.py): a
+// footprint is width × depth, a floor area footprint × floors, and both are set against the
+// site's area from government data (`site`: siteCard(); none, or no area: no ratios). Overlaps
+// between blocks are not taken out. `bcr` and `far` are the zone's statutory caps (%), or null.
+export function massFigures(blocks, site = null) {
+  const footprint = blocks.reduce((sum, b) => sum + b.w * b.d, 0);
+  const gross = blocks.reduce((sum, b) => sum + b.w * b.d * b.floors, 0);
+  const area = site?.areaM2 > 0 ? site.areaM2 : null;
+  const cap = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  return {
+    footprint, gross, area,
+    coverage: area ? (footprint / area) * 100 : null,
+    far: area ? (gross / area) * 100 : null,
+    bcr: area ? cap(site.bcr) : null,
+    farCap: area ? cap(site.far) : null,
+  };
+}
+
+const pct = (v) => `${Math.round(v * 10) / 10}%`;
+const over = (value, cap) => cap !== null && value > cap + 1e-9;
+
+// A ratio with its statutory cap: "50% (법정 80% 이하)", "85% (법정 80% 초과)", or "50%".
+function ratioText(value, cap) {
+  if (cap === null) return pct(value);
+  return `${pct(value)} (법정 ${cap}% ${over(value, cap) ? '초과' : '이하'})`;
+}
+
+// How much floor is left under a cap (or past it): "48㎡ 남음", "6㎡ 넘음".
+function roomText(used, capPct, area) {
+  const room = (capPct / 100) * area - used;
+  return room < -1e-9 ? `${m2(-room)} 넘음` : `${m2(Math.max(room, 0))} 남음`;
+}
+
+// The scheme's ratios against the caps, as rows of the 속성 panel; [] without the site's area.
+function schemeRatioRows(f, prefix = '') {
+  if (f.coverage === null) return [];
+  const rows = [[`${prefix}건폐율`, ratioText(f.coverage, f.bcr)], [`${prefix}용적률`, ratioText(f.far, f.farCap)]];
+  if (f.bcr !== null) rows.push(['건폐율 여유', roomText(f.footprint, f.bcr, f.area)]);
+  if (f.farCap !== null) rows.push(['용적률 여유', roomText(f.gross, f.farCap, f.area)]);
+  return rows;
+}
+
+// Whether two of the blocks overlap (more than touching): their figures then count the shared
+// part twice. Separating axes of the two rectangles, in the site's frame.
+export function blocksOverlap(blocks) {
+  const shapes = blocks.map((b) => blockCorners(null, { ...b, u: b.u || 0, v: b.v || 0 }));
+  const apart = (a, b) => [a, b].some((poly) => poly.some((p, i) => {
+    const q = poly[(i + 1) % poly.length];
+    const n = [q[1] - p[1], p[0] - q[0]];
+    const len = Math.hypot(...n);
+    if (len < 1e-9) return false;
+    const along = (pts) => pts.map(([x, y]) => (x * n[0] + y * n[1]) / len);
+    const ra = along(a), rb = along(b);
+    return Math.max(...ra) <= Math.min(...rb) + 1e-6 || Math.max(...rb) <= Math.min(...ra) + 1e-6;
+  }));
+  for (let i = 0; i < shapes.length; i++) {
+    for (let j = i + 1; j < shapes.length; j++) if (!apart(shapes[i], shapes[j])) return true;
+  }
+  return false;
+}
+
+const OVERLAP_NOTE = '겹친 동이 있어 겹친 부분이 두 번 더해졌습니다. 실제 면적보다 크게 나옵니다.';
+
+// The band along the foot of the table while a scheme's blocks are picked or edited: its name and
+// either its ratios against the caps ({label, value, cap, over}) or, without the site's area, its
+// areas and why the ratios are missing. null without blocks.
+export function figuresBand(paper, site = null) {
+  const blocks = paper?.blocks || [];
+  if (!blocks.length) return null;
+  const f = massFigures(blocks, site);
+  const items = f.coverage === null
+    ? [{ label: '건축면적', value: m2(f.footprint) }, { label: '연면적', value: m2(f.gross) }, { label: '건폐율·용적률', value: '미확인 (대지면적 모름)' }]
+    : [{ label: '건폐율', value: pct(f.coverage), cap: f.bcr === null ? '' : `법정 ${f.bcr}%`, over: over(f.coverage, f.bcr) },
+      { label: '용적률', value: pct(f.far), cap: f.farCap === null ? '' : `법정 ${f.farCap}%`, over: over(f.far, f.farCap) }];
+  return { title: paperName(paper), items, overlap: blocksOverlap(blocks) };
+}
+
+// The tag beside a picked block: "2동 · 72㎡ · 건폐율 18%" (without the site's area, no ratio).
+export function blockTag(paper, index, site = null) {
+  const b = paper.blocks[index];
+  const f = massFigures([b], site);
+  return `${index + 1}동 · ${m2(f.footprint)}${f.coverage === null ? '' : ` · 건폐율 ${pct(f.coverage)}`}`;
+}
+
 // What the 속성 panel shows for the selected papers, or (when no paper is selected) the buildings
 // picked on their own (`blocks`: pickedBlocks()): {title, rows: [[label, value, field?]], note}.
 // A row with a `field` ({key, type: 'text' | 'number', min, max, step, unit}) can be changed in
@@ -810,7 +897,7 @@ const round1 = (v) => Math.round(v * 10) / 10;
 const shared = (values) => (new Set(values).size === 1 ? values[0] : '');
 
 export function propertiesOf(papers, site = null, blocks = [], layers = DEFAULT_LAYERS) {
-  if (!papers.length) return blocks.length ? blockProperties(blocks, layers) : null;
+  if (!papers.length) return blocks.length ? blockProperties(blocks, layers, site) : null;
   const layerRow = ['레이어', shared(papers.map((p) => paperLayer(p, layers))), PROPERTY_FIELDS.layer];
   if (papers.length > 1) {
     const kinds = new Map();
@@ -825,17 +912,13 @@ export function propertiesOf(papers, site = null, blocks = [], layers = DEFAULT_
   if (p.kind === 'mass') {
     const blocks = p.blocks || [];
     const floorHeight = p.floor_height || 4.2;
-    const footprint = blocks.reduce((sum, b) => sum + b.w * b.d, 0);
-    const gross = blocks.reduce((sum, b) => sum + b.w * b.d * b.floors, 0);
+    const f = massFigures(blocks, site);
     const top = blocks.reduce((max, b) => Math.max(max, b.floors), 0);
     rows.push(['동', `${blocks.length}개`], ['층고', floorHeight, PROPERTY_FIELDS.floor_height], ['최고 층수', `${top}층 (${round1(top * floorHeight)}m)`],
-      ['건축면적', m2(footprint)], ['연면적', m2(gross)]);
-    const area = site?.areaM2;
-    if (area) {
-      rows.push(['건폐율', `${Math.round(footprint / area * 1000) / 10}%${site.bcr !== null && site.bcr !== undefined ? ` (법정 ${site.bcr}% 이하)` : ''}`],
-        ['용적률', `${Math.round(gross / area * 1000) / 10}%${site.far !== null && site.far !== undefined ? ` (법정 ${site.far}% 이하)` : ''}`]);
-    }
-    note = '제도판의 동을 더한 값입니다. 동끼리 겹친 부분은 빼지 않았습니다. 동 하나를 누르면 그 동의 층수·크기를 바꿀 수 있습니다.';
+      ['건축면적', m2(f.footprint)], ['연면적', m2(f.gross)], ...schemeRatioRows(f));
+    note = blocksOverlap(blocks)
+      ? `${OVERLAP_NOTE} 동 하나를 누르면 그 동의 층수·크기와 건폐율 몫을 봅니다.`
+      : '제도판의 동을 더한 값입니다. 동끼리 겹친 부분은 빼지 않습니다. 동 하나를 누르면 그 동의 층수·크기와 건폐율 몫을 봅니다.';
   } else if (p.kind === 'site') {
     if (site) rows.push(['주소', site.address || '미확인'], ['용도지역', site.zones?.join(', ') || '미확인'], ['대지면적', site.area]);
     else note = '대지를 정하면 주소·용도지역·면적이 나옵니다.';
@@ -849,22 +932,35 @@ export function propertiesOf(papers, site = null, blocks = [], layers = DEFAULT_
 }
 
 // The buildings picked on their own: one shows its floors, width, depth and turn to change; several
-// show how many and their floors (changed for all at once; empty when they differ).
-function blockProperties(groups, layers) {
+// show how many and their floors (changed for all at once; empty when they differ). Both show
+// their share of the site (건폐율·용적률 몫) and, when they are of one scheme, the scheme's ratios
+// against the caps and the floor left under them (`site`: siteCard()).
+function blockProperties(groups, layers, site = null) {
   const all = groups.flatMap((g) => g.indices.map((i) => g.paper.blocks[i]));
   const layerRow = ['레이어', shared(groups.flatMap((g) => g.indices.map((i) => blockLayer(g.paper, g.paper.blocks[i], layers)))), PROPERTY_FIELDS.layer];
-  const floorArea = all.reduce((sum, b) => sum + b.w * b.d, 0);
-  const gross = all.reduce((sum, b) => sum + b.w * b.d * b.floors, 0);
-  if (all.length === 1) {
+  const own = massFigures(all, site);
+  const several = all.length > 1;
+  const shareRows = own.coverage === null
+    ? [['건폐율·용적률', '미확인 (대지면적 모름)']]
+    : [[several ? '건폐율 몫 합' : '건폐율 몫', pct(own.coverage)], [several ? '용적률 몫 합' : '용적률 몫', pct(own.far)]];
+  // The whole scheme, when the picked blocks are all of one.
+  const scheme = groups.length === 1 ? groups[0].paper : null;
+  const schemeRows = scheme && own.coverage !== null ? schemeRatioRows(massFigures(scheme.blocks, site), '매스안 ') : [];
+  const notes = [];
+  if (own.coverage !== null) notes.push(`몫은 대지면적 ${m2(own.area)}에 대한 ${several ? '고른 동들의' : '이 동의'} 비율입니다.`);
+  if (scheme && blocksOverlap(scheme.blocks)) notes.push(OVERLAP_NOTE);
+  if (!several) {
     const [{ paper, indices: [i] }] = groups;
     const b = all[0];
     return { title: `${paperName(paper)} · ${i + 1}동`, rows: [['종류', '동'], layerRow, ['층수', b.floors, PROPERTY_FIELDS.floors],
       ['폭', round1(b.w), PROPERTY_FIELDS.w], ['깊이', round1(b.d), PROPERTY_FIELDS.d], ['각도', b.a || 0, PROPERTY_FIELDS.a],
-      ['높이', `${round1(b.floors * (paper.floor_height || 4.2))}m`], ['바닥면적', m2(floorArea)], ['연면적', m2(gross)]], note: '' };
+      ['높이', `${round1(b.floors * (paper.floor_height || 4.2))}m`], ['바닥면적', m2(own.footprint)], ['연면적', m2(own.gross)],
+      ...shareRows, ...schemeRows], note: notes.join(' ') };
   }
   const floors = new Set(all.map((b) => b.floors));
+  if (floors.size > 1) notes.unshift('층수가 서로 다릅니다. 값을 넣으면 고른 동이 모두 그 층수가 됩니다.');
   return { title: `동 ${all.length}개`, rows: [['종류', '동'], layerRow, ['층수', floors.size === 1 ? all[0].floors : '', PROPERTY_FIELDS.floors],
-    ['바닥면적 합', m2(floorArea)], ['연면적 합', m2(gross)]], note: floors.size > 1 ? '층수가 서로 다릅니다. 값을 넣으면 고른 동이 모두 그 층수가 됩니다.' : '' };
+    ['바닥면적 합', m2(own.footprint)], ['연면적 합', m2(own.gross)], ...shareRows, ...schemeRows], note: notes.join(' ') };
 }
 
 // A value typed into the 속성 panel, checked: [{id, changes}] for the papers it changes, or
