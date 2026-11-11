@@ -12,7 +12,7 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest  # plain net7.0, so no Windows is needed to build
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -23,4 +23,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: SidaRhino.rhp
-          path: rhino-plugin/SidaRhino/bin/Release/net7.0-windows/SidaRhino.rhp
+          path: rhino-plugin/SidaRhino/bin/Release/net7.0/SidaRhino.rhp

@@ -146,7 +146,7 @@ namespace SidaRhino
         {
             areaM2 = 0;
             var plane = new Plane(new Point3d(0, 0, z), Vector3d.ZAxis);
-            Curve[]? curves = brep != null ? Brep.CreateContourCurves(brep, plane) : mesh != null ? Mesh.CreateContourCurves(mesh, plane) : null;
+            Curve[]? curves = brep != null ? Brep.CreateContourCurves(brep, plane) : mesh != null ? Mesh.CreateContourCurves(mesh, plane, 0.001 / toMetres) : null;
             if (curves == null)
                 return null;
             Polyline? best = null;

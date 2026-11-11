@@ -10,14 +10,14 @@
 
 v1에서 아직 안 되는 것(설계상): 바닥 외곽선은 가장 낮은 점 5cm 위 단면이라 위층이 튀어나온 부분은 빠집니다. 층고를 정하지 않은 레이어의 개체는 층별 면적이 없어 Sida에서 "잴 수 없음"이 됩니다. 캡처는 Top·Perspective 뷰 그대로입니다.
 
-## 빌드 (지훈 PC)
+## 빌드
 
-필요한 것: .NET SDK 7 이상, 라이노 8. RhinoCommon은 NuGet에서 받으므로 빌드에 라이노가 필요하지 않습니다.
+필요한 것: .NET SDK 8. RhinoCommon은 NuGet에서 받으므로 빌드에 라이노도 Windows도 필요하지 않습니다(대상은 `net7.0`, Linux에서도 빌드됩니다). PR마다 GitHub Actions(`rhino-plugin.yml`)가 빌드해 `.rhp`를 결과물로 올립니다.
 
 ```powershell
 cd rhino-plugin\SidaRhino
 dotnet build -c Release
-# → bin\Release\net7.0-windows\SidaRhino.rhp
+# → bin\Release\net7.0\SidaRhino.rhp
 ```
 
 라이노에서 시험: `PlugInManager` → 설치 → 위 `.rhp`. 또는 라이노 명령창에서 `_-PlugInManager _Load`로 경로를 줍니다. 그 뒤 `SidaPanel`.
@@ -27,7 +27,7 @@ Sida 앱이 같은 PC에서 `run.bat`으로 떠 있어야 합니다(`127.0.0.1:8
 ## Yak 패키지 (CBT 배포)
 
 ```powershell
-mkdir dist; copy SidaRhino\bin\Release\net7.0-windows\SidaRhino.rhp dist\; copy manifest.yml dist\
+mkdir dist; copy SidaRhino\bin\Release\net7.0\SidaRhino.rhp dist\; copy manifest.yml dist\
 cd dist; & "C:\Program Files\Rhino 8\System\Yak.exe" build
 ```
 
@@ -37,7 +37,7 @@ cd dist; & "C:\Program Files\Rhino 8\System\Yak.exe" build
 
 1. Sida에서 대지 조회, 매스안 하나(블록 2개).
 2. 라이노 8 빈 문서(단위 m 또는 mm) → `SidaPanel` → 프로젝트 고르기 → "Sida에서 가져오기". 대지 경계·매스·주변 3D가 같은 자리에 들어오는지.
-3. 블록 하나를 밀고 층을 올리고, 새 레이어에 곶선 매스를 하나 더. 패널에서 레이어 의미(주거·상업)와 층고를 지정.
+3. 블록 하나를 밀고 층을 올리고, 새 레이어에 곡선 매스를 하나 더. 패널에서 레이어 의미(주거·상업)와 층고를 지정.
 4. "수치만 보기": 연면적·건폐율·용적률이 손계산과 같은지. "Sida로 보내기": Sida 제도판에 "라이노 작업" 종이가 생기는지.
 5. 같은 파일에서 다시 "Sida에서 가져오기": 설계자 레이어가 그대로인지.
 6. Sida를 끄고 "Sida로 보내기": 패널에 한국어 안내가 나오고 라이노가 멈추지 않는지.

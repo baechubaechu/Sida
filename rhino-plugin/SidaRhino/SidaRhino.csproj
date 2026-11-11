@@ -4,23 +4,24 @@
        table from Sida, pushes what Rhino measured back, and shows a panel. The rules and the
        figures live in Sida (sida/experts/rhino/). See ../README.md to build and install. -->
   <PropertyGroup>
-    <TargetFramework>net7.0-windows</TargetFramework>
+    <TargetFramework>net7.0</TargetFramework>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <TargetExt>.rhp</TargetExt>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
-    <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>SidaRhino</AssemblyName>
     <RootNamespace>SidaRhino</RootNamespace>
     <Version>0.1.0</Version>
     <Authors>Sida team</Authors>
     <Description>Sida for Rhino: pull the drafting table, push the model's figures back.</Description>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <NoWarn>NU1701</NoWarn>
+    <NoWarn>NU1701;CA1416</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="RhinoCommon" Version="8.12.24254.15001" ExcludeAssets="runtime" />
+    <!-- Rhino brings its own copies at run time, so neither is copied next to the .rhp. -->
+    <PackageReference Include="RhinoCommon" Version="8.12.24282.7001" ExcludeAssets="runtime" />
+    <PackageReference Include="System.Drawing.Common" Version="7.0.0" ExcludeAssets="runtime" />
   </ItemGroup>
 
 </Project>

@@ -56,7 +56,11 @@ namespace SidaRhino
             _layers.Columns.Add(new GridColumn { HeaderText = "레이어", Editable = false, Width = 160,
                 DataCell = new TextBoxCell { Binding = Binding.Property((LayerRow r) => r.Path) } });
             _layers.Columns.Add(new GridColumn { HeaderText = "의미", Editable = true, Width = 110,
-                DataCell = new ComboBoxCell { Binding = Binding.Property((LayerRow r) => r.Meaning), DataStore = MeaningItems() } });
+                DataCell = new ComboBoxCell
+                {
+                    Binding = Binding.Delegate<LayerRow, object>(r => r.Meaning, (r, value) => r.Meaning = value as string ?? ""),
+                    DataStore = MeaningItems(),
+                } });
             _layers.Columns.Add(new GridColumn { HeaderText = "층고 (m)", Editable = true, Width = 70,
                 DataCell = new TextBoxCell { Binding = Binding.Property((LayerRow r) => r.FloorHeight) } });
             _layers.CellEdited += (s, e) => RowEdited(e.Item as LayerRow);

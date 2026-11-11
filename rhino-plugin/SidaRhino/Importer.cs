@@ -90,8 +90,9 @@ namespace SidaRhino
                     Name = item.Attributes.Name,
                 };
                 var keys = item.Attributes.GetUserStrings();
-                foreach (string key in keys.AllKeys)
-                    attributes.SetUserString(key, keys[key]);
+                foreach (string? key in keys.AllKeys)
+                    if (key != null)
+                        attributes.SetUserString(key, keys[key]);
                 if (doc.Objects.Add(geometry, attributes) != Guid.Empty)
                     count++;
                 if (attributes.GetUserString("sida.kind") == "origin")
