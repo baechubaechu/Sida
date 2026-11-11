@@ -11,7 +11,7 @@ import {
   snapTape,
   folded, foldedInPlan, pinnedPapers, peekSpot, resultPreview,
   massIds, canCompare, COMPARE_QUESTION, addQuestion, createHistory, changedFields, recordStep, undoStep, redoStep,
-  invertStep, HISTORY_LIMIT, planDrawing, dragMode, wheelZoom, orbitBy, viewName, viewFor, panBy,
+  invertStep, HISTORY_LIMIT, planDrawing, dragMode, wheelZoom, orbitBy, viewName, viewFor, viewMode, isoCorner, ISO_TILT, ISO_TURNS, PARALLEL_FOV, panBy,
   photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_MAX_SIDE, MAX_PHOTOS_AT_ONCE, KIND_LABELS,
   isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, PDF_MAX_SIDE, PDF_MAX_AREA, resizable, resizedPaper, PAPER_LIMITS,
   EYE, groundAt, eyeStart, eyeCamera, eyeLook, eyeWalk, eyeZoom, eyeKey,
@@ -537,11 +537,55 @@ test('two views as in Rhino: the plan and one 3D view whose angle the mouse sets
   assert.equal(viewName(20), '3d');
   assert.equal(viewName(70), '3d');
   // From a plan the 3D button stands the table up, turned a little; in 3D it leaves the angle alone.
-  assert.deepEqual(viewFor('3d', { tilt: 0, turn: 0 }), { tilt: TILT.persp, turn: -30 });
-  assert.deepEqual(viewFor('3d', { tilt: 0, turn: 40 }), { tilt: TILT.persp, turn: 40 });
+  assert.deepEqual(viewFor('3d', { tilt: 0, turn: 0 }), { tilt: TILT.persp, turn: -30, para: 0 });
+  assert.deepEqual(viewFor('3d', { tilt: 0, turn: 40 }), { tilt: TILT.persp, turn: 40, para: 0 });
   assert.equal(viewFor('3d', { tilt: 60, turn: 15 }), null);
-  assert.deepEqual(viewFor('plan', { tilt: 60, turn: 15, z: 8 }), { tilt: 0, turn: 0, z: 0 });
+  assert.deepEqual(viewFor('plan', { tilt: 60, turn: 15, z: 8 }), { tilt: 0, turn: 0, z: 0, para: 0 });
   assert.deepEqual(Object.keys(TILT), ['plan', 'persp']);
+});
+
+test('the iso view: a parallel view from a corner, at the angle where the three axes look equal', () => {
+  close(Math.cos((ISO_TILT * Math.PI) / 180), 1 / Math.sqrt(3), 1e-5);
+  // From a plan the iso button looks from the south-west, facing north-east.
+  const iso = viewFor('iso', { tilt: 0, turn: 0 });
+  assert.deepEqual(iso, { tilt: ISO_TILT, turn: 45, para: 1 });
+  const v = { x: 0, y: 0, span: 100, tilt: 0, turn: 0, ...iso };
+  assert.equal(isoCorner(v), 'sw');
+  assert.equal(viewMode(v), 'iso');
+  const c = cameraFor(v);
+  assert.ok(c.position[0] < 0 && c.position[1] < 0, 'the viewer stands south-west of the target');
+  // Parallel: a very narrow lens from far away, the span still in frame, the depth range tight.
+  close(c.fov, PARALLEL_FOV);
+  close(2 * c.dist * Math.tan((c.fov * Math.PI) / 360), 100, 1e-6);
+  assert.ok(c.dist > 10000 && c.near > c.dist - 5000 && c.far < c.dist + 5000);
+  // Halfway the lens narrows between the 3D lens and the parallel one, the span kept.
+  const half = cameraFor({ ...v, para: 0.5 });
+  const lens = cameraFor({ ...v, para: 0 }).fov;
+  assert.ok(half.fov < lens && half.fov > PARALLEL_FOV);
+  close(2 * half.dist * Math.tan((half.fov * Math.PI) / 360), 100, 1e-6);
+  close(lerpView({ ...v, para: 0 }, v, 0.25).para, 0.25);
+  // The iso button again turns a quarter round; a corner button goes to that corner.
+  assert.equal(viewFor('iso', v).turn, ISO_TURNS.se);
+  assert.equal(isoCorner({ ...v, turn: -45 }), 'se');
+  assert.equal(isoCorner({ ...v, turn: 45 + 360 }), 'sw');
+  assert.deepEqual(viewFor('iso', v, 'ne'), { tilt: ISO_TILT, turn: -135, para: 1 });
+  assert.equal(viewFor('iso', v, 'sw'), null);
+  // From a 3D view it takes the corner nearest the way the view faces.
+  assert.equal(viewFor('iso', { tilt: 40, turn: 170 }).turn, ISO_TURNS.nw);
+  // Turned off the corner it stays parallel (as in Rhino): still the iso button, no corner lit.
+  const turned = { ...v, turn: 60 };
+  assert.equal(isoCorner(turned), null);
+  assert.equal(viewMode(turned), 'iso');
+  assert.equal(viewFor('iso', turned).turn, ISO_TURNS.sw);
+  // The 3D button opens the lens again without moving; a scheme shown in 3D keeps it parallel.
+  assert.deepEqual(viewFor('persp', v), { para: 0 });
+  assert.equal(viewFor('persp', { ...v, para: 0 }), null);
+  assert.equal(viewFor('3d', v), null);
+  assert.equal(viewMode({ ...v, para: 0 }), 'persp');
+  assert.equal(viewMode({ ...v, tilt: 0 }), 'plan');
+  assert.equal(viewFor('plan', v).para, 0);
+  // A view without para (saved before the iso view) is a perspective view, as before.
+  assert.deepEqual(cameraFor({ x: 0, y: 0, span: 100, tilt: 35, turn: 0 }), cameraFor({ x: 0, y: 0, span: 100, tilt: 35, turn: 0, para: 0 }));
 });
 
 test('the table lies down to 90° for elevations, and an elevation pans with the mouse', () => {

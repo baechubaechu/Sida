@@ -10,6 +10,17 @@ export const PX = 0.1; // metres per CSS pixel of paper lying on the table
 // Two views, as in Rhino's Top and Perspective (2026-11-01 지훈): the plan, and one 3D view whose
 // angle the right mouse button sets. `persp` is where the 3D button lands from a plan.
 export const TILT = { plan: 0, persp: 35 };
+// The iso view (2026-11-11 지훈): a parallel view from one corner of the site. The table leans
+// acos(1/√3) so the three axes look equally long, and the viewer faces along a diagonal.
+// ISO_TURNS: the turn (the way the viewer faces) for each corner the viewer stands at.
+export const ISO_TILT = 54.7356;
+export const ISO_TURNS = { sw: 45, se: -45, ne: -135, nw: 135 };
+const ISO_NEXT = { sw: 'se', se: 'ne', ne: 'nw', nw: 'sw' }; // the iso button again: a quarter turn round
+// A parallel view is drawn with a very long lens from far away, so every check that works for
+// the 3D view (picking, snapping, pins) works unchanged; at this lens a building 100 m deeper
+// in the picture is drawn under 1% smaller, which the eye reads as parallel.
+export const PARALLEL_FOV = 0.5;
+const PARALLEL_DEPTH = 4000; // metres kept in front of and behind the target in a parallel view
 export const MAX_TILT = 90; // lying flat to the table shows elevations (2026-11-01 지훈)
 export const FOLD_TILT = 10; // past this lean papers fold into pins, so the model reads (2026-10-26)
 export const VIEW_LIMITS = { min: 12, max: 2500 }; // metres of table shown top to bottom
@@ -82,19 +93,27 @@ export function riseFor(tilt) {
   return Math.max(0.004, smooth(3, 28, tilt));
 }
 
-// Camera position, up vector and lens for a view {x, y, span, tilt, turn, z}. The camera turns
+// Camera position, up vector and lens for a view {x, y, span, tilt, turn, z, para}. The camera turns
 // about one fixed point, the target (x, y, z), as in Rhino: no angle moves it (2026-11-02 지훈:
 // the pivot seemed to change part way through an orbit). z (metres, 0 when left out) lifts the
-// target off the table, so an elevation can be panned up a tower.
+// target off the table, so an elevation can be panned up a tower. para, 0 to 1 (0 when left
+// out), narrows the lens toward PARALLEL_FOV while the camera backs off, so `span` stays in
+// frame: 1 is a parallel view, and the steps between flatten the perspective smoothly.
+// near and far hold the depth range tight around the target, so a far camera still sorts
+// surfaces a centimetre apart.
 export function cameraFor(v) {
   const z = v.z || 0;
-  const fov = lensFor(v.tilt);
+  const para = Math.min(1, Math.max(0, v.para || 0));
+  const lens = lensFor(v.tilt);
+  const fov = para ? lens * (PARALLEL_FOV / lens) ** para : lens;
   const dist = v.span / 2 / Math.tan(rad(fov) / 2);
   const t = rad(v.tilt);
   const fx = Math.sin(rad(v.turn));
   const fy = Math.cos(rad(v.turn)); // the direction the viewer faces on the table
   return {
     fov, dist,
+    near: para ? Math.max(dist * 0.05, dist - PARALLEL_DEPTH) : dist * 0.05,
+    far: para ? Math.min(dist * 20, dist + PARALLEL_DEPTH) : dist * 20,
     position: [v.x - fx * dist * Math.sin(t), v.y - fy * dist * Math.sin(t), z + dist * Math.cos(t)],
     up: [fx * Math.cos(t), fy * Math.cos(t), Math.sin(t)],
     target: [v.x, v.y, z],
@@ -149,18 +168,45 @@ export function orbitBy(v, dx, dy) {
   return { turn: v.turn + dx * 0.3, tilt: Math.min(MAX_TILT, Math.max(0, v.tilt - dy * 0.25)) };
 }
 
-// Which view button is lit: 'plan' near 0°, '3d' at any other lean.
+// Which view a lean is: 'plan' near 0°, '3d' at any other lean.
 export function viewName(tilt) {
   return tilt < PLAN_TILT ? 'plan' : '3d';
 }
 
-// Where a view button (or the keys 1 and 2, or the plan/persp commands) takes the view `v`.
-// The plan faces north. The 3D button leaves a 3D view as it is, and from a plan stands the
-// table up to TILT.persp, turned a little so the masses read. null: nothing to do.
-export function viewFor(name, v) {
-  if (name === 'plan') return { tilt: TILT.plan, turn: 0, z: 0 };
-  if (name !== '3d' || viewName(v.tilt) === '3d') return null;
-  return { tilt: TILT.persp, turn: v.turn || -30 };
+// Which view button is lit for the view `v`: 'plan' near 0°, 'iso' for a parallel view at any
+// other lean (turned off the corner too, as Rhino keeps a parallel view parallel), else 'persp'.
+export function viewMode(v) {
+  if (viewName(v.tilt) === 'plan') return 'plan';
+  return (v.para || 0) >= 0.5 ? 'iso' : 'persp';
+}
+
+const wrapTurn = (a) => ((((a + 180) % 360) + 360) % 360) - 180;
+
+// The corner a parallel view looks from ('sw', 'se', 'ne', 'nw'), or null when it is not an
+// iso view (perspective, another lean, or turned off the diagonal).
+export function isoCorner(v) {
+  if ((v.para || 0) < 0.999 || Math.abs(v.tilt - ISO_TILT) > 0.5) return null;
+  return Object.keys(ISO_TURNS).find((c) => Math.abs(wrapTurn(v.turn - ISO_TURNS[c])) < 0.5) || null;
+}
+
+// Where a view button (or the plan, persp and iso commands) takes the view `v`. null: nothing to do.
+// - 'plan' faces north.
+// - '3d' (a scheme shown in 3D, the surroundings turned on) leaves any leaning view as it is,
+//   parallel or not, and from a plan stands the table up to TILT.persp, turned a little.
+// - 'persp' (the 3D button) is '3d' in perspective: from a parallel view it only opens the lens.
+// - 'iso' goes to the iso view from `corner`; without one, from the corner nearest the way the
+//   view faces (south-west from a plan), or, already there, a quarter turn round.
+export function viewFor(name, v, corner = null) {
+  if (name === 'plan') return { tilt: TILT.plan, turn: 0, z: 0, para: 0 };
+  if (name === 'iso') {
+    const at = isoCorner(v);
+    const near = Object.keys(ISO_TURNS).reduce((a, b) => (Math.abs(wrapTurn(v.turn - ISO_TURNS[b])) < Math.abs(wrapTurn(v.turn - ISO_TURNS[a])) ? b : a));
+    const to = ISO_TURNS[corner] !== undefined ? corner : at ? ISO_NEXT[at] : viewName(v.tilt) === 'plan' ? 'sw' : near;
+    return to === at ? null : { tilt: ISO_TILT, turn: ISO_TURNS[to], para: 1 };
+  }
+  if (name !== '3d' && name !== 'persp') return null;
+  if (viewName(v.tilt) === '3d') return name === 'persp' && v.para ? { para: 0 } : null;
+  return { tilt: TILT.persp, turn: v.turn || -30, para: 0 };
 }
 
 // Zoom factor for one wheel event: rolling forward (deltaY < 0) zooms in. A mouse notch is
@@ -202,6 +248,7 @@ export function lerpView(a, b, k) {
   return {
     x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, span: a.span + (b.span - a.span) * k,
     tilt: a.tilt + (b.tilt - a.tilt) * k, turn: a.turn + dt * k, z: (a.z || 0) + ((b.z || 0) - (a.z || 0)) * k,
+    para: (a.para || 0) + ((b.para || 0) - (a.para || 0)) * k,
   };
 }
 

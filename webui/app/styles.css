@@ -818,6 +818,11 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .ui-tilt { padding-right: 8px; border-right: 1px solid var(--line); }
 .ui-tilt input[type="range"] { width: 88px; accent-color: var(--brand); border: 0; }
 .tilt-read, .ui-zoom .scale { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* The iso view's four corners, laid out as on a map (north up); shown only in the iso view. */
+.iso-corners[hidden] { display: none; }
+.iso-corners { display: grid; grid-template-columns: repeat(2, auto); gap: 1px; padding: 2px; border-radius: 8px; background: var(--surface-subtle); }
+.iso-corners button { border-radius: 5px; padding: 1px 5px; font-size: 10px; line-height: 1.4; color: var(--muted); }
+.iso-corners button[aria-pressed="true"] { background: var(--surface); color: var(--brand); font-weight: 700; }
 .compass { display: grid; justify-items: center; line-height: 1; padding: 4px; }
 .compass span { display: inline-block; font-size: 14px; transition: transform .15s; }
 .compass small { font-size: 10px; font-weight: 700; color: var(--muted); }

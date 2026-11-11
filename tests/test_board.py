@@ -813,10 +813,13 @@ def test_the_view_the_table_was_seen_from_is_kept_beside_the_board(tmp_path):
     assert board.load_view(tmp_path) is None
     assert board.view(tmp_path)["saved_view"] is None
     kept = board.save_view(tmp_path, {"x": 1.23456, "y": -2, "span": 120, "tilt": 35, "turn": -30, "z": 0, "junk": 1})
-    assert kept == {"x": 1.2346, "y": -2.0, "span": 120.0, "tilt": 35.0, "turn": -30.0, "z": 0.0}
+    assert kept == {"x": 1.2346, "y": -2.0, "span": 120.0, "tilt": 35.0, "turn": -30.0, "z": 0.0, "para": 0.0}
     assert board.view(tmp_path)["saved_view"] == kept
     assert board.load_board(tmp_path)["rev"] == 0  # not an edit of the table
-    for bad in ({"span": 0}, {"span": 10, "tilt": 400}, {"span": "x"}, "nope"):
+    # An iso view keeps that it is parallel (para 1), so a reload opens on it.
+    iso = board.save_view(tmp_path, {"span": 120, "tilt": 54.7356, "turn": 45, "para": 1})
+    assert iso["para"] == 1.0 and board.load_view(tmp_path)["para"] == 1.0
+    for bad in ({"span": 0}, {"span": 10, "tilt": 400}, {"span": "x"}, {"span": 10, "para": 2}, {"span": 10, "para": -0.5}, "nope"):
         with pytest.raises(ValueError):
             board.save_view(tmp_path, bad)
     (tmp_path / board.VIEW_FILE).write_text("{broken", encoding="utf-8")

@@ -1350,7 +1350,7 @@ def site_plan(parcels: list[dict]) -> dict | None:
 # Rhino keeps its views in the .3dm: beside board.json, not in it, so saving it does not count as an
 # edit of the table (no rev). {x, y, span, tilt, turn, z}: the screen's camera numbers.
 VIEW_FILE = "table_view.json"
-VIEW_KEYS = ("x", "y", "span", "tilt", "turn", "z")
+VIEW_KEYS = ("x", "y", "span", "tilt", "turn", "z", "para")  # para: 0 perspective to 1 parallel (iso)
 
 
 def load_view(project_path: Path) -> dict | None:
@@ -1371,6 +1371,8 @@ def clean_view(data: dict) -> dict:
         raise ValueError("view span must be positive")
     if not -1 <= out["tilt"] <= 180:
         raise ValueError("view tilt is out of range")
+    if not 0 <= out["para"] <= 1:
+        raise ValueError("view para must be between 0 and 1")
     return {key: round(value, 4) for key, value in out.items()}
 
 

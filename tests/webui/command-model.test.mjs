@@ -66,6 +66,7 @@ test('suggestions follow the word being typed and stop at a space', () => {
   assert.equal(findCommand('picture').command.name, 'photo'); // Rhino's word for it
   assert.equal(findCommand('perspective').command.name, 'persp'); // one 3D view (2026-11-01)
   assert.equal(findCommand('axo'), null);
+  assert.equal(findCommand('isometric').command.name, 'iso'); // the parallel iso view (2026-11-11)
   assert.deepEqual(suggest('ㅔㅣ').map((c) => c.name), ['plan']);
   assert.equal(suggest('zoom ').length, 0);
   assert.equal(suggest('').length, 0);

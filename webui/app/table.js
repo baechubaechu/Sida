@@ -12,7 +12,7 @@
 import { icon } from './icons.js';
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { boardLayers, paperLayer, blockLayer, layerFlags, expandGroups, groupChange, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewName, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS, changesPanel } from './board-model.js';
+import { boardLayers, paperLayer, blockLayer, layerFlags, expandGroups, groupChange, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewMode, isoCorner, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS, changesPanel } from './board-model.js';
 import { typing, TOOLS, MODEL_TOOLS } from './table-shared.js';
 import { blocksMethods } from './table-blocks.js';
 import { aroundMethods } from './table-around.js';
@@ -237,7 +237,8 @@ export class DraftingTable {
   command(name) {
     switch (name) {
       case 'plan': this.showView('plan'); return '';
-      case 'persp': this.showView('3d'); return '';
+      case 'persp': this.showView('persp'); return '';
+      case 'iso': this.showView('iso'); return '';
       case 'zoom': this.fit(); return '';
       case 'north': if (this.eye) this.moveEye({ yaw: 0 }); else this.animateTo({ turn: 0 }); return '';
       case 'select': case 'note': case 'pen': this.setTool(name); return '';
@@ -366,8 +367,8 @@ export class DraftingTable {
   aimCamera(camera, v) {
     const c = cameraFor(v);
     camera.fov = c.fov;
-    camera.near = c.dist * 0.05;
-    camera.far = c.dist * 20;
+    camera.near = c.near;
+    camera.far = c.far;
     camera.position.set(...c.position);
     camera.up.set(...c.up);
     camera.lookAt(...c.target);
@@ -598,9 +599,13 @@ export class DraftingTable {
     this.ui.scheme.innerHTML = masses.length ? `<div class="seg" role="group" aria-label="3D로 볼 매스안">
         ${masses.map((p) => `<button type="button" data-active="${escape(p.id)}" aria-pressed="${this.active === p.id}">${escape(paperName(p))}</button>`).join('')}</div>
       ${masses.length > 1 ? `<label class="check"><input type="checkbox" data-ui="ghost" ${this.ghost ? 'checked' : ''}> 다른 안 겹쳐 보기</label>` : ''}` : '';
-    this.ui.tilt.innerHTML = `<div class="seg" role="group" aria-label="평면 또는 3D">
-        ${[['plan', '평면', 'plan'], ['3d', '3D', 'persp']].map(([id, label, k]) => `<button type="button" data-tilt="${id}" title="${label} (명령: ${k})" aria-pressed="${!this.eye && viewName(v.tilt) === id}">${label}</button>`).join('')}
+    const mode = !this.eye && viewMode(v);
+    const corner = !this.eye && isoCorner(v);
+    this.ui.tilt.innerHTML = `<div class="seg" role="group" aria-label="보기">
+        ${[['plan', '평면', 'plan', ''], ['persp', '3D', 'persp', ''], ['iso', '아이소', 'iso', ' — 원근 없는 평행투영. 다시 누르면 90° 돌아감']].map(([id, label, k, more]) => `<button type="button" data-tilt="${id}" title="${label} (명령: ${k})${more}" aria-pressed="${mode === id}">${label}</button>`).join('')}
         <button type="button" data-ui="eye" title="눈높이 (명령: eye) — 땅 위 한 점을 눌러 그 자리 사람 눈높이에서 매스 보기" aria-pressed="${Boolean(this.eye || this.eyePicking)}">눈높이</button></div>
+      <div class="iso-corners" role="group" aria-label="아이소 방향" ${mode === 'iso' ? '' : 'hidden'}>
+        ${[['nw', '북서'], ['ne', '북동'], ['sw', '남서'], ['se', '남동']].map(([id, label]) => `<button type="button" data-tilt="iso" data-corner="${id}" title="${label}쪽에서 보기" aria-pressed="${corner === id}">${label}</button>`).join('')}</div>
       <input type="range" min="0" max="${MAX_TILT}" value="${Math.round(v.tilt)}" aria-label="기울기 각도" title="기울이면 배치도가 3D가 됩니다" data-ui="tilt-range">
       <span class="num tilt-read">${Math.round(v.tilt)}°</span>
       <button type="button" class="compass" data-ui="north" title="${this.eye ? '북쪽 보기' : '북쪽을 위로'}"><span style="transform: rotate(${-(this.eye ? this.eye.yaw : v.turn)}deg)" aria-hidden="true">▲</span><small>N</small></button>`;
@@ -619,7 +624,13 @@ export class DraftingTable {
     if (range && document.activeElement !== range) range.value = String(Math.round(v.tilt));
     const needle = this.ui.tilt.querySelector('.compass span');
     if (needle) needle.style.transform = `rotate(${-v.turn}deg)`;
-    for (const b of this.ui.tilt.querySelectorAll('[data-tilt]')) b.setAttribute('aria-pressed', String(!this.eye && viewName(v.tilt) === b.dataset.tilt));
+    const mode = !this.eye && viewMode(v);
+    const corner = !this.eye && isoCorner(v);
+    for (const b of this.ui.tilt.querySelectorAll('[data-tilt]')) {
+      b.setAttribute('aria-pressed', String(b.dataset.corner ? corner === b.dataset.corner : mode === b.dataset.tilt));
+    }
+    const corners = this.ui.tilt.querySelector('.iso-corners');
+    if (corners) corners.hidden = mode !== 'iso';
     const scale = this.ui.zoom.querySelector('.scale-readout');
     if (scale) scale.innerHTML = this.scaleReadout();
   }
@@ -633,8 +644,8 @@ export class DraftingTable {
     clearTimeout(this.viewTimer);
     if (this.fitted) {
       this.viewTimer = setTimeout(() => {
-        const { x, y, span, tilt, turn, z } = this.view;
-        this.hooks.saveView?.({ x, y, span, tilt, turn, z: z || 0 });
+        const { x, y, span, tilt, turn, z, para } = this.view;
+        this.hooks.saveView?.({ x, y, span, tilt, turn, z: z || 0, para: para || 0 });
       }, 1000);
     }
   }
@@ -647,10 +658,11 @@ export class DraftingTable {
     this.hintTimer = setTimeout(() => { hint.hidden = true; }, 4000);
   }
 
-  // The plan or the 3D view (board-model.js viewFor): the buttons, keys 1·2 and plan/persp.
-  showView(name) {
+  // The plan, 3D or iso view (board-model.js viewFor): the buttons and the plan, persp and iso
+  // commands; `corner` picks the corner an iso view looks from.
+  showView(name, corner = null) {
     if (this.eye) this.exitEye(); // from eye level: first the view it came from
-    const target = viewFor(name, this.view);
+    const target = viewFor(name, this.view, corner);
     if (target) this.animateTo(target);
   }
 
