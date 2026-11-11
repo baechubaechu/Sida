@@ -20,6 +20,7 @@ import { papersMethods } from './table-papers.js';
 import { detailMethods } from './table-detail.js';
 import { pointerMethods } from './table-pointer.js';
 import { eyeMethods } from './table-eye.js';
+import { measureMethods } from './table-measure.js';
 
 export class DraftingTable {
   // hooks: { add(paper), update(id, changes), remove(id), place(id, placement), discard(id),
@@ -236,6 +237,7 @@ export class DraftingTable {
       case 'pushpull': this.setTool('push'); return '';
       case 'eraser': this.setTool('erase'); return '';
       case 'dist': this.setTool('tape'); return '';
+      case 'radius': this.setTool('radius'); return '';
       case 'eye': this.toggleEye(); return '';
       case 'copy': this.setTool('move', { copy: true }); return '';
       case 'trace': this.layTracing(); return '';
@@ -412,6 +414,7 @@ export class DraftingTable {
     if (fold || shut.size) this.placePins(fold ? null : shut);
     this.placeGumball();
     this.placeBlockTags();
+    this.placeMeasure();
   }
 
   openViewScale() {
@@ -711,6 +714,7 @@ export class DraftingTable {
 
   setTool(tool, { copy = false } = {}) {
     this.snapEl.hidden = true;
+    if (tool !== this.tool) this.clearMeasure(); // what was measured goes with the tool
     this.tool = tool;
     this.copyMode = copy; // the copy command: the move tool copies without Ctrl
     if (tool === 'pen' && folded(this.view.tilt)) {
@@ -728,4 +732,4 @@ export class DraftingTable {
   }
 }
 
-Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods, eyeMethods);
+Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods, eyeMethods, measureMethods);

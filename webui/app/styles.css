@@ -715,6 +715,10 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .tape-snap { position: absolute; left: 0; top: 0; z-index: 3; pointer-events: none; width: 10px; height: 10px; margin: -5px; border: 2px solid #126b89; background: #fff; box-shadow: 0 0 0 2px rgb(255 255 255 / .8); }
 .tape-snap[hidden] { display: none; }
 .tape-snap span { position: absolute; top: 12px; left: 8px; white-space: nowrap; color: #fff; background: #126b89; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+/* The tape's and the radius tool's lengths, laid over the scene (table-measure.js); the same colour as the tape's snap. */
+.measure-labels { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
+.measure-label { position: absolute; left: 0; top: 0; margin: -26px 0 0 8px; white-space: nowrap; color: #fff; background: #126b89; padding: 2px 7px; border-radius: 4px; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px rgb(255 255 255 / .8); }
+.measure-label.is-live { margin: 10px 0 0 12px; }
 /* In 3D the papers fold into pins standing where they lie; a pin opens its paper as a card. */
 .table-pins { position: absolute; inset: 0; z-index: 1; pointer-events: none; display: none; }
 .table.is-3d .table-pins, .table.has-folded .table-pins { display: block; }
@@ -1123,6 +1127,16 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .site-map-slot > .muted { margin: 0; padding: 12px; }
 .site-map { width: 100%; height: 100%; font: 12px/1.4 var(--font); }
 .site-map .leaflet-control-attribution { font-size: 10px; }
+.site-map.is-measuring { cursor: crosshair; }
+.site-map.is-measuring .leaflet-interactive, .site-map.is-measuring .leaflet-grab { cursor: crosshair; }
+.map-ruler { display: flex; flex-direction: column; align-items: stretch; background: var(--surface); font: 12px/1.4 var(--font); }
+.map-ruler button { min-height: 30px; padding: 0 10px; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--text); font-weight: 600; }
+.map-ruler button:last-child { border-bottom: 0; }
+.map-ruler button[aria-pressed="true"] { background: var(--brand); color: #fff; }
+.map-ruler-quick { display: flex; flex-direction: column; }
+.map-ruler-quick button { font-weight: 400; font-variant-numeric: tabular-nums; }
+.map-ruler-tip { max-width: 140px; margin: 0; padding: 6px 8px; color: var(--muted); }
+.map-measure-label span { display: inline-block; transform: translate(8px, -50%); white-space: nowrap; color: #fff; background: #126b89; padding: 2px 7px; border-radius: 4px; font: 600 12px/1.4 var(--font); font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px rgb(255 255 255 / .8); }
 @media (max-width: 760px) { .site-map-slot { height: 260px; } }
 
 /* ------------------------------------------------------------------ command line and Conductor panel */

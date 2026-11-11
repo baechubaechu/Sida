@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  COMMANDS, englishKeys, findCommand, readLine, suggest, pickOption, addHistory, remember,
+  COMMANDS, englishKeys, findCommand, readLine, suggest, pickOption, addHistory, remember, readRadii,
 } from '../../webui/app/command-model.js';
 
 test('command names and short names are unique English words', () => {
@@ -102,4 +102,17 @@ test('vworld (vw) opens the masses on the VWorld 3D map; typed with the Korean k
   assert.equal(readLine('ㅍㅈ').command.name, 'vworld'); // vw with the Korean keyboard on
   assert.equal(findCommand('vworld').command.group, 'view');
   assert.deepEqual(readLine('vworld 켜 줘'), { kind: 'ask', text: 'vworld 켜 줘' });
+});
+
+test('radius is a command, and its answer reads radii in m or km', () => {
+  assert.equal(findCommand('radius').command.name, 'radius');
+  assert.equal(findCommand('ra').command.name, 'radius');
+  assert.deepEqual(readRadii('500'), [500]);
+  assert.deepEqual(readRadii(' 250 500  1000 '), [250, 500, 1000]);
+  assert.deepEqual(readRadii('250, 500m, 1.5km'), [250, 500, 1500]);
+  assert.equal(readRadii(''), null);
+  assert.equal(readRadii('오백'), null);
+  assert.equal(readRadii('500 abc'), null);
+  assert.equal(readRadii('0.5'), null); // under 1 m
+  assert.equal(readRadii('30km'), null); // over 20 km
 });

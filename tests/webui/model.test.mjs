@@ -7,7 +7,7 @@ import {
   stateChangeView, phaseLabel, sitePath, sitePageFor, needsSiteFirst, areaText, zoneScope, siteHeadline, missingText, restrictionGroups,
   ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
   buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
-  togglePicked, shapesToFetch, shapesBounds, siteCard, siteSlot, parcelOutline, readiness, MAX_SHAPES, EXPORT_FORMATS, boardExport,
+  togglePicked, shapesToFetch, shapesBounds, distanceLabel, siteCard, siteSlot, parcelOutline, readiness, MAX_SHAPES, EXPORT_FORMATS, boardExport,
 } from '../../webui/app/model.js';
 import { readFileSync, readdirSync } from 'node:fs';
 
@@ -721,4 +721,13 @@ test('a custom order keeps the dragged order and puts projects made since first'
   ];
   assert.deepEqual(findProjects(list, '', 'custom', ['c', 'a', 'b']).map((p) => p.name), ['new', 'c', 'a', 'b']);
   assert.deepEqual(findProjects(list, '', 'custom', []).map((p) => p.name), ['new', 'b', 'c', 'a']);
+});
+
+test('measured lengths read in m with fewer decimals as they grow, then km', () => {
+  assert.equal(distanceLabel(8.254), '8.25 m');
+  assert.equal(distanceLabel(42.06), '42.1 m');
+  assert.equal(distanceLabel(512.4), '512 m');
+  assert.equal(distanceLabel(1250), '1.25 km');
+  assert.equal(distanceLabel(1000), '1 km');
+  assert.equal(distanceLabel(-3), '0.00 m');
 });

@@ -15,6 +15,7 @@ import {
   photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_MAX_SIDE, MAX_PHOTOS_AT_ONCE, KIND_LABELS,
   isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, PDF_MAX_SIDE, PDF_MAX_AREA, resizable, resizedPaper, PAPER_LIMITS,
   EYE, groundAt, eyeStart, eyeCamera, eyeLook, eyeWalk, eyeZoom, eyeKey,
+  emptyMeasure, measureLength, measureClick, siteCircles, circlePoints, MAX_CIRCLES,
 } from '../../webui/app/board-model.js';
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -66,6 +67,43 @@ test('tape perspective snapping interpolates real height and is independent of w
   close(hit.point.x, 10); close(hit.point.z, 20);
   const zoomed = snapTape({ x: 200, y: 9 }, [[a, b]], p => ({ x: p.x * 10, y: 0, w: 1 }));
   close(zoomed.point.x, 20);
+});
+
+test('the radius tool takes two clicks: the centre, then the end; circles add up and the oldest go', () => {
+  const first = measureClick(emptyMeasure(), 'radius', { x: 10, y: 20, z: 0 });
+  assert.equal(first.made, null);
+  assert.deepEqual(first.state.start, { x: 10, y: 20, z: 0 });
+  // A second click on the same spot keeps the centre and makes nothing.
+  assert.equal(measureClick(first.state, 'radius', { x: 10, y: 20, z: 0 }).made, null);
+  const second = measureClick(first.state, 'radius', { x: 13, y: 24, z: 9 }); // height does not count
+  assert.equal(second.made.r, 5);
+  assert.deepEqual(second.made.b, { x: 13, y: 24, z: 9 });
+  assert.equal(second.state.start, null);
+  assert.equal(second.state.circles.length, 1);
+  let s = second.state;
+  for (let i = 1; i <= MAX_CIRCLES + 2; i++) s = measureClick(measureClick(s, 'radius', { x: 0, y: 0 }).state, 'radius', { x: i, y: 0 }).state;
+  assert.equal(s.circles.length, MAX_CIRCLES);
+  assert.equal(s.circles.at(-1).r, MAX_CIRCLES + 2);
+});
+
+test('the tape takes two clicks and keeps only its last line, measured straight in 3D', () => {
+  const a = measureClick(emptyMeasure(), 'tape', { x: 0, y: 0, z: 0 }).state;
+  const out = measureClick(a, 'tape', { x: 3, y: 0, z: 4 });
+  assert.equal(out.made.length, 5);
+  assert.equal(out.state.line.length, 5);
+  const next = measureClick(measureClick(out.state, 'tape', { x: 0, y: 0 }).state, 'tape', { x: 0, y: 2 }).state;
+  assert.equal(next.line.length, 2);
+  assert.equal(measureLength('radius', { x: 0, y: 0, z: 0 }, { x: 3, y: 0, z: 4 }), 3);
+});
+
+test('radius command circles sit on the middle of the site, their label to the north', () => {
+  const s = siteCircles(emptyMeasure(), { x: 2, y: -3 }, [250, 500]);
+  assert.deepEqual(s.circles.map((c) => c.r), [250, 500]);
+  assert.deepEqual(s.circles[1].c, { x: 2, y: -3, z: 0 });
+  assert.deepEqual(s.circles[1].b, { x: 2, y: 497, z: 0 });
+  const ring = circlePoints({ x: 1, y: 1, z: 2 }, 10, 4);
+  assert.equal(ring.length, 4);
+  for (const [x, y, z] of ring) { close(Math.hypot(x - 1, y - 1), 10); assert.equal(z, 2); }
 });
 
 test('push/pull and scale open numeric input only for a click on geometry, never after a drag or cancel', () => {

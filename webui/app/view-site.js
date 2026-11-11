@@ -135,7 +135,7 @@ function mapBlock() {
   if (ui.mapError) {
     return `<p class="site-note warn">지도를 띄우지 못했습니다. ${escape(ui.mapError)} 지번이나 주소로는 찾을 수 있습니다.${ui.mapErrorStatus === 503 ? ' <button type="button" class="secondary small" data-action="settings">설정 열기</button>' : ''}</p>`;
   }
-  const hint = f.mapBusy ? '누른 곳의 필지를 찾는 중입니다.' : '지도에서 필지를 누르면 고르고, 고른 필지를 다시 누르면 뺍니다. 지적선은 가까이 확대해야 보입니다.';
+  const hint = f.mapBusy ? '누른 곳의 필지를 찾는 중입니다.' : '지도에서 필지를 누르면 고르고, 고른 필지를 다시 누르면 뺍니다. 지적선은 가까이 확대해야 보입니다. 오른쪽 위 [반경]을 켜면 중심과 끝점을 찍어 거리를 원으로 잽니다.';
   return `<section class="site-map-wrap" aria-label="지도에서 필지 고르기">
     <div id="site-map-slot" class="site-map-slot">${ui.mapLayers ? '' : '<p class="muted">지도를 불러오는 중입니다.</p>'}</div>
     <p class="muted small-text" ${f.mapBusy ? 'role="status"' : ''}>${hint}</p></section>`;
