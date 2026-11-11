@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Sida plugin for Rhino 8 (Windows). It carries and captures only: pulls the drafting
+       table from Sida, pushes what Rhino measured back, and shows a panel. The rules and the
+       figures live in Sida (sida/experts/rhino/). See ../README.md to build and install. -->
+  <PropertyGroup>
+    <TargetFramework>net7.0-windows</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <TargetExt>.rhp</TargetExt>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>SidaRhino</AssemblyName>
+    <RootNamespace>SidaRhino</RootNamespace>
+    <Version>0.1.0</Version>
+    <Authors>Sida team</Authors>
+    <Description>Sida for Rhino: pull the drafting table, push the model's figures back.</Description>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <NoWarn>NU1701</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="RhinoCommon" Version="8.12.24254.15001" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+</Project>

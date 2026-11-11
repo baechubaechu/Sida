@@ -24,3 +24,8 @@ _logs/
 
 # per-machine settings (hub → c writes here)
 config.local.yaml
+
+# Rhino plugin build output (rhino-plugin/)
+rhino-plugin/**/bin/
+rhino-plugin/**/obj/
+rhino-plugin/dist/

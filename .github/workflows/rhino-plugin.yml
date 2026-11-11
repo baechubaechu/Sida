@@ -1,0 +1,26 @@
+name: Rhino plugin
+
+# Builds the Rhino plugin (rhino-plugin/) so a change that no longer compiles is seen on the PR.
+# Not a required check: the plugin is tried in Rhino on a PC before a release.
+
+on:
+  pull_request:
+    paths: ["rhino-plugin/**", ".github/workflows/rhino-plugin.yml"]
+  push:
+    branches: [main]
+    paths: ["rhino-plugin/**"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Build
+        run: dotnet build rhino-plugin/SidaRhino/SidaRhino.csproj -c Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SidaRhino.rhp
+          path: rhino-plugin/SidaRhino/bin/Release/net7.0-windows/SidaRhino.rhp
