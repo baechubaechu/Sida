@@ -18,6 +18,7 @@ export const COMMANDS = [
   { name: 'pen', aliases: ['sketch'], label: '펜으로 그리기 (평면에서)', group: 'draw' },
   { name: 'trace', aliases: [], label: '트레이싱지 덮기', group: 'draw' },
   { name: 'mass', aliases: [], label: '숫자로 매스안 만들기', group: 'draw' },
+  { name: 'people', aliases: ['person', 'figure'], label: '사람 배치: 바닥이나 매스 지붕을 눌러 사람 모형(1.7m) 세우기, 대지 주변에 뿌리기', group: 'draw' },
   { name: 'photo', aliases: ['picture', 'image', 'img'], label: '사진·PDF 올리기 (끌어다 놓거나 붙여넣어도 됨)', group: 'draw' },
   // SketchUp's basic tools on blocks (2026-11-02 지훈), with the AutoCAD short names.
   { name: 'rect', aliases: ['rec', 'rectangle'], label: '사각형: 끌어서 새 동 그리기', group: 'draw' },

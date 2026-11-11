@@ -102,6 +102,11 @@ def create_router(load_config, core) -> APIRouter:
     def set_hidden(name: str, body: dict) -> dict:
         return call(board.set_hidden, call(project, name), body.get("ids"))
 
+    # Scale figures standing about the site in 3D (the screen only), replaced as a whole.
+    @router.put("/people")
+    def set_people(name: str, body: dict) -> dict:
+        return call(board.set_people, call(project, name), body.get("people"))
+
     # The view the table was last seen from, so a reload opens on it.
     @router.put("/view")
     def set_view(name: str, body: dict) -> dict:

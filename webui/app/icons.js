@@ -29,6 +29,7 @@ const PATHS = {
   trash: '<path d="M3.5 5.5h13M8 5.5V3.5h4v2M5.5 5.5l1 11h7l1-11"/>',
   around: '<path d="M2.5 16.5h15M3.5 16.5l4-7 3 4.5 2-3 4 5.5"/><path d="M12.5 6.5h3v4"/>',
   tray: '<path d="M10 3v3M10 14v3M3 10h3M14 10h3M5 5l2 2M13 13l2 2M15 5l-2 2M7 13l-2 2"/>',
+  person: '<circle cx="10" cy="4.5" r="2"/><path d="M10 7.5v5M6.5 9.5h7M10 12.5l-2.5 5M10 12.5l2.5 5"/>',
   eye: '<path d="M2 10s3-5.5 8-5.5 8 5.5 8 5.5-3 5.5-8 5.5S2 10 2 10z"/><circle cx="10" cy="10" r="2.5"/>',
   eyeOff: '<path d="M2 10s3-5.5 8-5.5 8 5.5 8 5.5-3 5.5-8 5.5S2 10 2 10z"/><path d="M3.5 16.5l13-13"/>',
   // The 레이어 panel: lock, a new layer, a sublayer, move up and down, the current layer, a group.

@@ -21,6 +21,7 @@ import { detailMethods } from './table-detail.js';
 import { pointerMethods } from './table-pointer.js';
 import { eyeMethods } from './table-eye.js';
 import { measureMethods } from './table-measure.js';
+import { peopleMethods } from './table-people.js';
 
 export class DraftingTable {
   // hooks: { add(paper), update(id, changes), remove(id), place(id, placement), discard(id),
@@ -79,6 +80,9 @@ export class DraftingTable {
     this.eye = null; // 눈높이 보기: {x, y, yaw, pitch, fov, back} while standing in the street (table-eye.js)
     this.eyePicking = false; // the 눈높이 button waits for the point to stand on
     this.eyeBefore = false; // at eye level: the building on the site (true) or the masses (false)
+    this.people = []; // 사람 배치: scale figures stood about the site (table-people.js)
+    this.personPicked = ''; // the person picked (their id)
+    this.personKind = 'stand'; // what the 사람 tool stands next
     this.root = document.createElement('div');
     this.root.className = 'table';
     this.root.tabIndex = 0;
@@ -200,6 +204,7 @@ export class DraftingTable {
     this.boardSeen = true;
     this.syncPapers();
     this.drawMasses();
+    this.setPeopleList(view.people);
     this.drawTray();
     this.drawControls();
     // The first time: the view the project was last seen from, or the site fitted in.
@@ -239,11 +244,13 @@ export class DraftingTable {
       case 'dist': this.setTool('tape'); return '';
       case 'radius': this.setTool('radius'); return '';
       case 'eye': this.toggleEye(); return '';
+      case 'people': this.setTool('person'); return '';
       case 'copy': this.setTool('move', { copy: true }); return '';
       case 'trace': this.layTracing(); return '';
       case 'mass': this.openForm(); return '';
       case 'photo': this.pickPhotos(); return '';
       case 'delete':
+        if (this.removePickedPerson()) return '';
         if (this.picked.length) { this.removePicked(); return ''; }
         if (!this.selected.some((id) => this.papers.some((p) => p.id === id && p.kind !== 'site'))) return '먼저 지울 종이나 동을 고르세요.';
         this.removeSelected();
@@ -273,6 +280,7 @@ export class DraftingTable {
       mass: color('--mass', '#e8ebee'), ink: color('--text', '#20262d'), pen: color('--pen', '#2b5d8a'),
       ghost: color('--brand', '#36536b'), pick: color('--pick', '#e3a008'), // a picked block, yellow as in Rhino
       sky: color('--eye-sky', '#dfe7ee'), // behind the buildings at eye level
+      person: color('--person', '#7d8893'), // the scale figures (사람 배치)
     };
     let renderer;
     try {
@@ -325,8 +333,10 @@ export class DraftingTable {
     const traces = new THREE.Group();
     const draft = new THREE.Group(); // what a tool is drawing: a rectangle, the tape measure
     const around = new THREE.Group(); // the site's surroundings: ground, nearby buildings, contours
-    scene.add(lot, masses, traces, draft, around);
-    this.gl = { renderer, cssRenderer, scene, cssScene, camera, desk, grid, catcher, horizon, lot, masses, traces, draft, around, labels: [], objects: new Map(), raycaster: new THREE.Raycaster() };
+    const people = new THREE.Group(); // the scale figures standing up (3D), in plan metres
+    const peopleMarks = new THREE.Group(); // the same people as circles in plan
+    scene.add(lot, masses, traces, draft, around, people, peopleMarks);
+    this.gl = { renderer, cssRenderer, scene, cssScene, camera, desk, grid, catcher, horizon, lot, masses, traces, draft, around, people, peopleMarks, labels: [], objects: new Map(), raycaster: new THREE.Raycaster() };
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(this.root);
   }
@@ -364,7 +374,7 @@ export class DraftingTable {
 
   render() {
     if (!this.gl || !this.root.isConnected || !this.root.clientWidth) return;
-    const { renderer, cssRenderer, scene, cssScene, camera, desk, grid, catcher, horizon, lot, masses, traces, around, labels, objects } = this.gl;
+    const { renderer, cssRenderer, scene, cssScene, camera, desk, grid, catcher, horizon, lot, masses, traces, around, people, peopleMarks, labels, objects } = this.gl;
     const v = this.view;
     const eye = this.eye; // at eye level: the camera stands in the street and everything stands up
     if (eye) this.aimEye(camera, eye);
@@ -373,6 +383,11 @@ export class DraftingTable {
     const rise = eye ? 1 : riseFor(v.tilt);
     masses.scale.z = rise;
     masses.visible = !(eye && this.eyeBefore); // 지금 건물: the street as it is, without the masses
+    // People stand up with the masses; while the table lies near flat they are circles in plan.
+    people.scale.z = rise;
+    peopleMarks.scale.z = rise;
+    people.visible = Boolean(eye) || rise >= 0.25;
+    peopleMarks.visible = !people.visible;
     // The surroundings rise with the masses; the table top goes below the lowest ground under them.
     const shown = Boolean(this.aroundOn && this.around);
     around.visible = shown && !this.aroundHidden;
@@ -513,6 +528,12 @@ export class DraftingTable {
       await this.hooks.remove(edit.paper.id);
     } else if (edit.op === 'add') {
       await this.hooks.add(edit.paper);
+    } else if (edit.op === 'people') {
+      this.people = edit.after;
+      if (!this.people.some((p) => p.id === this.personPicked)) this.personPicked = '';
+      this.drawPeople();
+      this.drawPersonBar();
+      await this.hooks.savePeople?.(edit.after);
     }
   }
 
@@ -558,6 +579,7 @@ export class DraftingTable {
     this.ui.tools.innerHTML = `${TOOLS.filter((t) => !t.group).slice(0, 1).map(toolButton).join('')}
       <span class="sep"></span>${TOOLS.filter((t) => t.group === 'model').map(toolButton).join('')}
       <span class="sep"></span>${TOOLS.filter((t) => !t.group).slice(1).map(toolButton).join('')}
+      ${this.tool === 'person' ? this.personOptions() : ''}
       <span class="sep"></span>
       <button type="button" class="tool" data-ui="scheme-new" aria-label="매스안 만들기" title="숫자로 매스안 만들기">${icon('mass')}</button>
       <button type="button" class="tool" data-ui="trace" aria-label="트레이싱지 덮기" title="트레이싱지 덮기 (명령: trace) — 대지 위에 덮고, 옆으로 끌어내면 떼어집니다">${icon('trace')}</button>
@@ -726,10 +748,11 @@ export class DraftingTable {
     this.root.classList.toggle('tool-pen', tool === 'pen');
     this.root.classList.toggle('tool-note', tool === 'note');
     this.root.classList.toggle('tool-model', MODEL_TOOLS.has(tool));
+    this.root.classList.toggle('tool-person', tool === 'person');
     this.gl?.draft.clear();
     this.drawControls();
     this.invalidate();
   }
 }
 
-Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods, eyeMethods, measureMethods);
+Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods, eyeMethods, measureMethods, peopleMethods);

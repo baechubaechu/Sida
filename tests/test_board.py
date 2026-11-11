@@ -27,7 +27,7 @@ SITE = [("site", SimpleNamespace(board_site=lambda path: {"area_m2": 1000.0, "li
 
 def test_a_new_table_holds_only_the_site_and_papers_are_saved_one_by_one(tmp_path):
     assert board.load_board(tmp_path) == {"rev": 0, "papers": [board._site_paper()], "tray": [], "pins": [], "ideas": [], "hidden": [],
-                                          "layers": board.default_layers()}
+                                          "people": [], "layers": board.default_layers()}
     assert not board.board_path(tmp_path).exists()  # reading saves nothing
 
     mass = board.add_paper(tmp_path, {**MASS, "id": "mass-a", "x": 40, "y": 10, "w": 300, "h": 210})
@@ -454,7 +454,7 @@ def test_the_view_adds_the_site_and_each_schemes_figures(tmp_path):
     tray_id = got["tray"][0]["id"]
     assert got["figures"][tray_id]["floor_area_m2"] == 200.0
     assert got["site"]["lines"] == ["대지: 필지 1개"] and len(got["site"]["plan"]["parcels"]) == 1
-    assert board.load_board(tmp_path).keys() == {"rev", "papers", "tray", "pins", "ideas", "hidden", "layers"}  # nothing derived is saved
+    assert board.load_board(tmp_path).keys() == {"rev", "papers", "tray", "pins", "ideas", "hidden", "people", "layers"}  # nothing derived is saved
 
     bare = board.view(tmp_path, hooks=[("site", SimpleNamespace(board_site=lambda path: None))])
     assert bare["site"] is None and bare["figures"]["mass-a"]["coverage_pct"] is None
@@ -839,3 +839,56 @@ def test_the_conductor_gets_the_site_from_the_domains_with_every_message(make_se
     finally:
         experts.domain_hooks = original
     assert "SITE (test): lot 40 × 20 m" in _texts(c.calls[0]["messages"])
+
+
+# ---------------------------------------------------------------------------
+# Scale figures (people) standing about the site
+# ---------------------------------------------------------------------------
+
+
+def test_people_are_saved_as_a_whole_list_and_checked(tmp_path):
+    board.add_paper(tmp_path, {**MASS, "id": "mass-a"})
+    saved = board.set_people(tmp_path, [
+        {"id": "p1", "x": 3.14159, "y": -2, "turn": -90, "kind": "walk"},
+        {"x": 0, "y": 5, "kind": "child", "roof": True, "junk": 1},
+        {"id": "p3", "x": 1, "y": 1, "roof": False},
+    ])
+    first, second, third = saved["people"]
+    assert first == {"id": "p1", "x": 3.142, "y": -2.0, "turn": 270.0, "kind": "walk"}  # facing west
+    assert second["id"].startswith("person-") and second["roof"] is True and "junk" not in second
+    assert third == {"id": "p3", "x": 1.0, "y": 1.0, "turn": 0.0, "kind": "stand"}  # on the ground: no roof kept
+    loaded = board.load_board(tmp_path)
+    assert loaded["people"] == saved["people"] and [p["id"] for p in loaded["papers"]] == ["site", "mass-a"]
+    assert board.set_people(tmp_path, [])["people"] == []  # 모두 지우기
+
+
+@pytest.mark.parametrize("bad", [
+    "p1", [{"x": 0}], [{"x": 0, "y": "1"}], [{"x": 0, "y": 0, "kind": "dog"}], [{"x": 1e9, "y": 0}],
+    [{"x": 0, "y": 0, "roof": "yes"}], [{"id": "a b", "x": 0, "y": 0}], [{"id": "p", "x": 0, "y": 0}, {"id": "p", "x": 1, "y": 1}],
+], ids=["not-a-list", "no-y", "text-y", "kind", "far", "roof", "id", "same-id"])
+def test_people_that_do_not_read_are_refused_and_nothing_is_saved(tmp_path, bad):
+    with pytest.raises(ValueError):
+        board.set_people(tmp_path, bad)
+    assert not board.board_path(tmp_path).exists()
+
+
+def test_too_many_people_are_refused(tmp_path):
+    with pytest.raises(ValueError):
+        board.set_people(tmp_path, [{"x": i, "y": 0} for i in range(board.MAX_PEOPLE + 1)])
+
+
+def test_a_hand_edited_person_that_no_longer_reads_is_left_out_not_the_table(tmp_path):
+    board.add_paper(tmp_path, {**MASS, "id": "mass-a"})
+    data = json.loads(board.board_path(tmp_path).read_text(encoding="utf-8"))
+    data["people"] = [{"id": "ok", "x": 1, "y": 2}, {"id": "bad", "x": "far"}, "junk", {"id": "ok", "x": 9, "y": 9}]
+    board.board_path(tmp_path).write_text(json.dumps(data), encoding="utf-8")
+    assert board.load_board(tmp_path)["people"] == [{"id": "ok", "x": 1.0, "y": 2.0, "turn": 0.0, "kind": "stand"}]
+
+
+def test_people_never_reach_the_ai(tmp_path):
+    board.add_paper(tmp_path, {**MASS, "id": "mass-a"})
+    board.set_people(tmp_path, [{"id": "walker-77", "x": 1, "y": 2, "kind": "walk"}])
+    saved = board.load_board(tmp_path)
+    assert "walker-77" not in board.board_index(saved)
+    assert "walker-77" not in board.conductor_block(board.select(tmp_path, ["mass-a"]), saved, "full")
+
