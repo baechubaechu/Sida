@@ -1,8 +1,9 @@
 """JSON API the Rhino plugin talks to (docs/rhino-api.md). The logic is in snapshot.py.
 
-/api/rhino/hello says Sida is up and which snapshot schema it reads; the rest is under the
-project: snapshots (push, list, read, a view image, delete) and figures for a snapshot the
-plugin has not saved (the live panel asks every second while the designer models).
+/api/rhino/hello says Sida is up and which snapshot schema it reads. Under the project:
+snapshots (push, list, read, a view image, delete) and figures for a snapshot the plugin has
+not saved. /api/rhino/live and /api/rhino/commands are the running Rhino (live.py): the plugin
+reports its document and asks what to do, the panel page reads the report and asks for things.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
 from sida import board, workspace
-from sida.experts.rhino import snapshot
+from sida.experts.rhino import live, snapshot
 from sida.i18n import t
 
 
@@ -24,11 +25,11 @@ def create_router(load_config, core) -> APIRouter:
     def project(name: str):
         return core(workspace.find_project, load_config(), name).resolve()
 
-    def call(fn, *args, **kwargs):
+    def call(fn, *args, bad: str = "web_rhino_snapshot_bad", **kwargs):
         try:
             return core(fn, *args, **kwargs)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=t("web_rhino_snapshot_bad", reason=str(exc))) from exc
+            raise HTTPException(status_code=400, detail=t(bad, reason=str(exc))) from exc
         except snapshot.SnapshotNotFound as exc:
             raise HTTPException(status_code=404, detail=t("web_rhino_snapshot_none", id=exc.args[0])) from exc
 
@@ -97,5 +98,33 @@ def create_router(load_config, core) -> APIRouter:
         path = project(name)
         checked = call(snapshot.clean_snapshot, raw)
         return {"figures": with_figures(path, checked)}
+
+    @router.post("/api/rhino/live")
+    def live_report(raw: dict) -> dict:
+        """The plugin says how its document stands; Sida computes the figures for the panel."""
+        checked = call(live.clean_report, raw)
+        path = None
+        if checked["project"]:
+            try:
+                path = workspace.find_project(load_config(), checked["project"]).resolve()
+            except workspace.ProjectNotFound:
+                path = None  # the document names a project this Sida does not have: the panel says so
+        fig = with_figures(path, checked["snapshot"]) if path is not None and checked["snapshot"] is not None else None
+        return live.report(checked, fig, path is not None)
+
+    @router.get("/api/rhino/live")
+    def live_read(doc: str | None = None) -> dict:
+        """What the panel shows: the named document, or the one whose plugin asked last."""
+        return live.current(doc)
+
+    @router.post("/api/rhino/commands")
+    def live_ask(raw: dict) -> dict:
+        """The panel asks the plugin for something (pull, push, a layer's meaning, ...)."""
+        return call(live.ask, raw, bad="web_rhino_live_bad")
+
+    @router.get("/api/rhino/commands")
+    def live_pending(doc: str, after: int = 0) -> dict:
+        """The plugin asks what to do next (also its heartbeat)."""
+        return call(live.pending, doc, after, bad="web_rhino_live_bad")
 
     return router
