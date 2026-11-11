@@ -75,10 +75,6 @@ export const blocksMethods = {
     const base = { x: e.clientX, y: e.clientY, g0, moved: false };
     switch (this.tool) {
       case 'rect': return g0 ? { ...base, kind: this.tool } : null;
-      case 'tape': {
-        const point = this.tapePoint(e);
-        return point ? { ...base, g0: point, kind: 'tape' } : null;
-      }
       case 'erase': {
         const keys = new Set(hit ? [hit.key] : []);
         this.pickBlocks([...keys]); // what will go shows picked until the button is let go

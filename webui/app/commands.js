@@ -1,7 +1,7 @@
 // The command line's behaviour: Enter, Esc, Tab, up/down, and what each command does.
 
 import { visibleExperts, projectPath as projectUrl, sitePath, EXPORT_FORMATS } from './model.js';
-import { COMMANDS, suggest, pickOption, addHistory, remember } from './command-model.js';
+import { COMMANDS, suggest, pickOption, addHistory, remember, readRadii } from './command-model.js';
 import { talkPanel } from './talk-panel-model.js';
 import { reveal, setSideOpen, sideShown } from './dock-model.js';
 import { resetDock, saveDock } from './dock.js';
@@ -35,6 +35,19 @@ export async function runCommandLine() {
   const text = input ? input.value : draftFor('command');
   const c = ui.cmd;
   c.back = -1;
+  if (c.prompt?.read) {
+    // A question answered by typing a value (the radius command's radii); its buttons type their key.
+    if (!text.trim()) { cancelCommand(); return; }
+    const value = c.prompt.read(text);
+    if (value == null) { say(`'${text.trim()}'은(는) 읽을 수 없습니다. ${c.prompt.example}`, 'warn'); drafts.delete('command'); render(false); focusCommandLine(); return; }
+    const { prompt } = c;
+    c.prompt = null;
+    drafts.delete('command');
+    prompt.answer(value);
+    render(false);
+    focusCommandLine();
+    return;
+  }
   if (c.prompt) {
     const option = pickOption(text, c.prompt.options);
     if (!text.trim()) { cancelCommand(); return; }
@@ -83,7 +96,7 @@ function cancelCommand() {
 }
 
 const TABLE_COMMANDS = new Set(['plan', 'persp', 'zoom', 'north', 'select', 'note', 'pen', 'trace', 'mass', 'photo', 'delete', 'undo', 'redo', 'tray',
-  'rect', 'pushpull', 'move', 'copy', 'rotate', 'scale', 'eraser', 'dist', 'eye', 'group', 'ungroup']);
+  'rect', 'pushpull', 'move', 'copy', 'rotate', 'scale', 'eraser', 'dist', 'radius', 'eye', 'group', 'ungroup']);
 
 function runCommand(name, command) {
   if (!command) return;
@@ -98,6 +111,18 @@ function runCommand(name, command) {
     ui.pane = 'board';
     const problem = table.command(command.name);
     say(problem ? `${command.name}: ${problem}` : `${command.name} — ${command.label}`, problem ? 'warn' : 'info');
+    // As in CAD, radius then asks for the radii: circles about the middle of the site. Clicking
+    // two points on the table works as well, with the question still open.
+    if (!problem && command.name === 'radius') {
+      c.prompt = {
+        text: '대지 가운데에 그릴 반경(m)? 제도판에서 두 점을 찍어도 됩니다.',
+        example: '500이나 250 500 1000처럼 m로 적으세요.',
+        placeholder: '반경(m), 예: 500 또는 250 500 1000 (Esc 취소)',
+        options: [['250', '250 m'], ['500', '500 m'], ['1000', '1 km'], ['250 500 1000', '250·500·1000 m']].map(([key, label]) => ({ key, label })),
+        read: readRadii,
+        answer: (radii) => table.circlesAtSite(radii),
+      };
+    }
     return;
   }
   switch (command.name) {

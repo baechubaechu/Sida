@@ -3,7 +3,7 @@
 // Methods of DraftingTable (table.js adds them to its prototype).
 
 import { PX, PAPER_SIZE, zoomAround, dragMode, wheelZoom, orbitBy, panBy, EDGE_TILT, isOverlaid, blockCorners, paperName, toggleSelected, boxPick, boxMode, parseBlockKey, fmt, frameDelta, editBlocks, axisDrag, blockKey, toFrame, rectBlock, pushBlock, copyBlocks, turnBlocks, scaleBlocks, snapAngle, MAX_BLOCKS, numericToolClick, isPdfFile, buildingInfo, eyeKey } from './board-model.js';
-import { SNAP, typing, MODEL_TOOLS, cm, strokePath } from './table-shared.js';
+import { SNAP, typing, MODEL_TOOLS, MEASURE_TOOLS, cm, strokePath } from './table-shared.js';
 
 export const pointerMethods = {
   // ------------------------------------------------------------------ input
@@ -223,6 +223,7 @@ export const pointerMethods = {
     const g0 = this.ground(e.clientX, e.clientY);
     if (mode) { this.gesture = { kind: mode, g0: (v.tilt < EDGE_TILT && g0) || { x: v.x, y: v.y }, edge: v.tilt >= EDGE_TILT || !g0, v, x: e.clientX, y: e.clientY, moved: false, button: e.button }; return; }
     if (e.button !== 0) return;
+    if (MEASURE_TOOLS.has(this.tool)) { this.measureDown(e); return; } // a click, not a drag
     if (MODEL_TOOLS.has(this.tool)) { this.gesture = this.modelGesture(e, g0); return; }
     // Empty table (or the sky above it, in a view near edge-on): a selection box, as in Rhino.
     const box = { kind: 'box', x: e.clientX, y: e.clientY, add: e.shiftKey, remove: e.ctrlKey || e.metaKey, moved: false };
@@ -279,7 +280,7 @@ export const pointerMethods = {
   },
   onMove(e) {
     const g = this.gesture;
-    if (!g) { if (this.tool === 'tape' && !e.target.closest('.table-ui, dialog')) this.tapePoint(e); else this.snapEl.hidden = true; return; }
+    if (!g) { if (MEASURE_TOOLS.has(this.tool) && !e.target.closest('.table-ui, dialog')) this.measureMove(e); else this.snapEl.hidden = true; return; }
     if ((g.kind === 'push' || (g.kind === 'gumball' && g.grip === 'scale')) && Math.hypot(e.clientX - g.x, e.clientY - g.y) >= 3) g.dragged = true;
     // The designer moves the view by hand: the talk popups fold away to keep the view clear.
     if ((g.kind === 'orbit' || g.kind === 'pan' || g.kind === 'zoom') && !g.told && Math.hypot(e.clientX - g.x, e.clientY - g.y) > 6) {
@@ -349,16 +350,11 @@ export const pointerMethods = {
       const b = p.blocks[g.index];
       this.say(g.face === 'top' ? `${b.floors}층` : `${fmt(g.face[0] === 'w' ? b.w : b.d, 1)} m`);
       this.drawMasses();
-    } else if (g.kind === 'rect' || g.kind === 'tape') {
-      const p = g.kind === 'tape' ? this.tapePoint(e) : this.ground(e.clientX, e.clientY);
+    } else if (g.kind === 'rect') {
+      const p = this.ground(e.clientX, e.clientY);
       if (!p) return;
       g.moved = true;
       const frame = this.site?.plan?.frame;
-      if (g.kind === 'tape') {
-        this.drawDraft([[g.g0.x, g.g0.y, g.g0.z || 0], [p.x, p.y, p.z || 0]], false);
-        this.say(`거리 ${fmt(Math.hypot(p.x - g.g0.x, p.y - g.g0.y, (p.z || 0) - (g.g0.z || 0)), 2)} m${this.snapEl.hidden ? '' : ' · 스냅'}`);
-        return;
-      }
       g.block = rectBlock(frame, g.g0, p);
       const a = toFrame(frame, g.g0.x, g.g0.y);
       const b = toFrame(frame, p.x, p.y);
@@ -604,6 +600,7 @@ export const pointerMethods = {
     if (k === 'delete' || k === 'backspace') { e.preventDefault(); if (this.picked.length) this.removePicked(); else this.removeSelected(); }
     else if (k === 'escape') {
       if (this.detailId) { this.closeDetail(); return; }
+      if (this.cancelMeasure()) return; // first the line or circle being drawn, then what was measured
       if (this.peekId) { this.peekId = ''; this.drawPins(); this.drawPeek(); return; }
       this.select([]);
       if (this.picked.length) this.pickBlocks([]);

@@ -51,7 +51,7 @@ export function commandBar() {
       ${c.help ? helpCard() : ''}
       <div class="command-top"><ol class="command-history" aria-label="명령 기록">${c.lines.slice(-HISTORY_LINES).map((l) => `<li class="${escape(l.tone)}">${escape(l.text)}</li>`).join('')}
         ${ui.sessionError ? `<li class="error">${escape(ui.sessionError)} <a href="#/">← 프로젝트로 돌아가기</a></li>` : ''}
-        ${c.prompt ? `<li class="command-question">${escape(c.prompt.text)} ${c.prompt.options.map((o, i) => `<button type="button" data-action="cmd-option" data-index="${i}">${i + 1} ${escape(o.label)}</button>`).join('')}</li>` : ''}</ol>
+        ${c.prompt ? `<li class="command-question">${escape(c.prompt.text)} ${c.prompt.options.map((o, i) => `<button type="button" data-action="cmd-option" data-index="${i}">${c.prompt.read ? '' : `${i + 1} `}${escape(o.label)}</button>`).join('')}</li>` : ''}</ol>
       </div>
       <form class="command-form" id="command-form">
         <button type="button" class="command-talks ${shown ? 'open' : ''}" data-action="conductor-toggle" aria-controls="conductor-panel" aria-expanded="${shown}" aria-label="Conductor 대화 ${shown ? '접기' : '열기'}">대화</button>
@@ -59,7 +59,7 @@ export function commandBar() {
         ${picked.length ? `<span class="command-picked" title="${escape(picked.map((p) => p.name).join(', '))}">자료 ${picked.length}개</span>` : ''}
         <textarea id="command-input" data-focus="command" rows="1" maxlength="6000" spellcheck="false" autocomplete="off"
           role="combobox" aria-expanded="${Boolean(items)}" aria-controls="command-suggest" aria-autocomplete="list" ${items ? `aria-activedescendant="cmd-opt-${c.pick}"` : ''}
-          aria-label="명령 또는 질문" placeholder="${c.prompt ? '번호나 이름을 입력하세요 (Esc 취소)' : '명령(plan, zoom, help…) 또는 Conductor에게 질문'}">${escape(text)}</textarea>
+          aria-label="명령 또는 질문" placeholder="${c.prompt ? escape(c.prompt.placeholder || '번호나 이름을 입력하세요 (Esc 취소)') : '명령(plan, zoom, help…) 또는 Conductor에게 질문'}">${escape(text)}</textarea>
         <button type="submit" class="command-run" aria-label="실행">↵</button>
       </form>
       <ul class="command-suggest" id="command-suggest" role="listbox" aria-label="명령 제안" ${items ? '' : 'hidden'}>${items}</ul>

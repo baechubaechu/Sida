@@ -20,6 +20,7 @@ const PATHS = {
   scale: '<path d="M3.5 9V3.5H9M16.5 11v5.5H11M3.5 3.5l13 13"/>',
   erase: '<path d="m8 16.5 8.5-8.5-4-4-9 9 3.5 3.5z"/><path d="M8 16.5h8.5M6 10.5l4 4"/>',
   tape: '<rect x="2.5" y="6.5" width="15" height="7" rx="1"/><path d="M6 6.5v3M9 6.5v2M12 6.5v3M15 6.5v2"/>',
+  radius: '<circle cx="10" cy="10" r="7"/><path d="M10 10h7"/><circle cx="10" cy="10" r=".9"/>',
   note: '<path d="M4 3.5h12v9l-4 4H4z"/><path d="M12 16.5v-4h4M7 7.5h6M7 10.5h4"/>',
   pen: '<path d="m13.5 3.5 3 3L7 16H4v-3z"/><path d="m11.5 5.5 3 3"/>',
   mass: '<path d="m10 2.5 6.5 3.5v8L10 17.5 3.5 14V6z"/><path d="M10 9.5V17.5M10 9.5l6.5-3.5M10 9.5 3.5 6"/>',

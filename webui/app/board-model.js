@@ -412,6 +412,50 @@ export function snapTape(pointer, segments, project, radius = 10) {
   }
   return best;
 }
+
+// ------------------------------------------------------------------ the tape and the radius tool
+// Both take two clicks (2026-11-10 지훈, no drag): the first sets the start (the radius tool's
+// centre), the pointer then shows the line or circle, and the second click sets the end. A circle
+// lies flat and measures across the ground (x, y); the tape measures straight (x, y, z).
+// What is measured is shown, never saved: the tape keeps its last line, the radius tool up to
+// MAX_CIRCLES circles, until Esc or another tool.
+export const MAX_CIRCLES = 10;
+export const emptyMeasure = () => ({ start: null, circles: [], line: null });
+
+// The length from a to b: across the ground for 'radius', straight for 'tape'.
+export function measureLength(kind, a, b) {
+  const dz = kind === 'radius' ? 0 : (b.z || 0) - (a.z || 0);
+  return Math.hypot(b.x - a.x, b.y - a.y, dz);
+}
+
+// A click at p with the tape or the radius tool. Returns the next state and `made`: the line or
+// circle the click finished, or null (the first click, or a second one on the same spot).
+export function measureClick(state, kind, p) {
+  if (!state.start) return { state: { ...state, start: p }, made: null };
+  const length = measureLength(kind, state.start, p);
+  if (length < 0.05) return { state, made: null };
+  if (kind === 'radius') {
+    const made = { c: state.start, r: length, b: p };
+    return { state: { ...state, start: null, circles: [...state.circles, made].slice(-MAX_CIRCLES) }, made };
+  }
+  const made = { a: state.start, b: p, length };
+  return { state: { ...state, start: null, line: made }, made };
+}
+
+// Circles about the site's middle (the radius command, `radius 250 500`), added to those shown.
+export function siteCircles(state, centre, radii) {
+  const circles = radii.map((r) => ({ c: { x: centre.x, y: centre.y, z: 0 }, r, b: { x: centre.x, y: centre.y + r, z: 0 } }));
+  return { ...state, start: null, circles: [...state.circles, ...circles].slice(-MAX_CIRCLES) };
+}
+
+// n points round a circle of radius r about c, at c's height.
+export function circlePoints(c, r, n = 96) {
+  return Array.from({ length: n }, (_, i) => {
+    const t = (i / n) * Math.PI * 2;
+    return [c.x + r * Math.cos(t), c.y + r * Math.sin(t), c.z || 0];
+  });
+}
+
 const step10 = (n) => Math.round(n * 10) / 10;
 
 // A new block from a rectangle dragged on the table between p0 and p1 (table points), lying
