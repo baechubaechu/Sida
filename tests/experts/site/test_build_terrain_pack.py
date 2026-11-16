@@ -143,3 +143,11 @@ def test_hdmap_sections_are_read_from_the_zip_as_downloaded(tmp_path):
     assert layers["A2_LINK"]["cpg"] == "utf_8"
     # a zip made on Korean Windows stores cp949 bytes without the UTF-8 flag; zipfile reads them as cp437
     assert build_terrain_pack._korean("SEC001_시험로/HDMap_UTMK_정표고".encode("cp949").decode("cp437")) == "SEC001_시험로/HDMap_UTMK_정표고"
+
+
+def test_areas_read_sheets_and_the_numbered_files_of_a_continuous_download(tmp_path):
+    for name in ("sheet1/N3A_E0032111.shp", "N3A_E0032111_11.shp", "N3A_E0032111_12.shp", "N3A_E00321110.shp", "N3A_E0010001.shp"):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).touch()
+    found = [p.relative_to(tmp_path).as_posix() for p in build_terrain_pack.layer_files(tmp_path, "N3A_E0032111")]
+    assert sorted(found) == ["N3A_E0032111_11.shp", "N3A_E0032111_12.shp", "sheet1/N3A_E0032111.shp"]
