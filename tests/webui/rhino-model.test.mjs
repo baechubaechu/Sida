@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { rhinoPaperParts, rhinoViewUrl, limitLines, panelStatus, panelFigures, layerRows, readFloorHeight, meaningChoices } from '../../webui/app/rhino-model.js';
+import { rhinoPaperParts, rhinoViewUrl, rhinoDiagramUrl, diagramFileName, diagramPngSize, limitLines, panelStatus, panelFigures, panelBusy, diagramChoices, layerRows, readFloorHeight, meaningChoices } from '../../webui/app/rhino-model.js';
 
 const MEANINGS = [
   { code: 'housing', word: '주거', built: true }, { code: 'commercial', word: '상업', built: true },
@@ -101,4 +101,41 @@ test('a floor height is read as metres, empty is none, and nonsense is refused w
     built: [{ code: 'housing', word: '주거' }, { code: 'commercial', word: '상업' }],
     other: [{ code: 'surroundings', word: '주변 건물' }, { code: 'ignore', word: '제외' }],
   });
+});
+
+test('the Rhino paper lists the diagrams Sida can draw, with the address and file name of each', () => {
+  const parts = rhinoPaperParts({ kind: 'rhino', snapshot: 's1', diagrams: [{ kind: 'program', title: '프로그램 매스' }, { kind: 'stack' }, null, { title: '이름만' }] });
+  assert.deepEqual(parts.diagrams, [{ kind: 'program', title: '프로그램 매스' }, { kind: 'stack', title: 'stack' }]);
+  assert.deepEqual(rhinoPaperParts({ kind: 'rhino' }).diagrams, []);
+  assert.equal(rhinoDiagramUrl('무교동 45', 's1', 'program'), '/api/projects/%EB%AC%B4%EA%B5%90%EB%8F%99%2045/rhino/snapshots/s1/diagrams/program?format=svg');
+  assert.equal(rhinoDiagramUrl('a', 's1', 'site', 'json'), '/api/projects/a/rhino/snapshots/s1/diagrams/site?format=json');
+  assert.equal(diagramFileName('studio: 1/2안', '프로그램 매스', 'png'), 'studio 1 2안 프로그램 매스.png');
+  assert.equal(diagramFileName('', '', 'svg'), 'diagram.svg');
+});
+
+test('a diagram PNG is twice the picture, but never larger than a canvas holds', () => {
+  assert.deepEqual(diagramPngSize(960, 700), { width: 1920, height: 1400 });
+  assert.deepEqual(diagramPngSize(960, 4000), { width: 983, height: 4096 });
+  assert.deepEqual(diagramPngSize(0, undefined), { width: 1920, height: 1440 });
+});
+
+test('the panel is busy while the plugin says so, and from a pressed button until the plugin answers', () => {
+  const live = (busy, n) => ({ connected: true, state: { busy, notice: n ? { n } : null } });
+  const asked = { what: 'push', notice: 2, until: 5000 };
+  assert.equal(panelBusy(live('pull', 2), null, 0), 'pull');      // the plugin's word comes first
+  assert.equal(panelBusy(live('draw', 2), asked, 1000), 'draw');
+  assert.equal(panelBusy(live('', 2), asked, 1000), 'push');      // pressed, the plugin has not reported yet
+  assert.equal(panelBusy(live('', 3), asked, 1000), '');          // answered with a new notice
+  assert.equal(panelBusy(live('', 2), asked, 6000), '');          // too long ago
+  assert.equal(panelBusy(live('', 0), null, 0), '');
+  assert.equal(panelBusy({ connected: false, state: null }, asked, 1000), '');
+});
+
+test('every diagram is picked to be drawn until the designer leaves one out', () => {
+  const kinds = [{ kind: 'program', title: '프로그램 매스' }, { kind: 'floors', title: '층별 분해' }, { kind: 'site', title: '대지 배치도' }];
+  assert.deepEqual(diagramChoices(kinds, []).picked, ['program', 'floors', 'site']);
+  const some = diagramChoices(kinds, ['floors', 'gone']);
+  assert.deepEqual(some.picked, ['program', 'site']);
+  assert.deepEqual(some.rows.map((r) => [r.title, r.on]), [['프로그램 매스', true], ['층별 분해', false], ['대지 배치도', true]]);
+  assert.deepEqual(diagramChoices(undefined, undefined), { rows: [], picked: [] });
 });

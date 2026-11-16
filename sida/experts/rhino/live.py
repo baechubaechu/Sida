@@ -22,7 +22,7 @@ import threading
 import time
 from datetime import datetime
 
-from sida.experts.rhino import snapshot
+from sida.experts.rhino import diagrams, snapshot
 
 CONNECTED_FOR = 5.0   # seconds a document stays connected after its plugin last asked
 MAX_DOCS = 8          # running Rhino documents remembered (the oldest is forgotten)
@@ -37,7 +37,9 @@ COMMANDS: dict[str, tuple[str, ...]] = {
     "set_layer": ("path", "meaning", "floor_height"),  # a layer's meaning and floor height (m, or null)
     "set_autosync": ("on",),                          # push on every save
     "report": (),                                     # say the document again (the panel just opened)
+    "draw": ("kinds",),                               # push, then draw these diagrams in the document (diagrams.py)
 }
+BUSY = ("", "pull", "push", "draw")  # what the plugin may say it is in the middle of
 
 _lock = threading.Lock()
 _docs: dict[str, dict] = {}
@@ -75,6 +77,7 @@ def clean_report(raw) -> dict:
         "units": _text(raw.get("units"), "units", 20),
         "project": _text(raw.get("project"), "project"),
         "autosync": raw.get("autosync") is True,
+        "busy": raw.get("busy") if raw.get("busy") in BUSY else "",
         "snapshot": None,
         "notice": None,
     }
@@ -120,6 +123,7 @@ def report(checked: dict, figures: dict | None, project_known: bool) -> dict:
         "project": checked["project"],
         "project_known": project_known,
         "autosync": checked["autosync"],
+        "busy": checked["busy"],
         "rhino": snap["rhino"]["version"] if snap else "",
         "layers": _layers(snap) if snap else [],
         "objects": len(snap["objects"]) if snap else 0,
@@ -181,6 +185,11 @@ def ask(raw) -> dict:
         command["floor_height"] = height
     elif kind == "set_autosync":
         command["on"] = raw.get("on") is True
+    elif kind == "draw":
+        kinds = raw.get("kinds")
+        if not isinstance(kinds, list) or not kinds or any(k not in diagrams.KINDS for k in kinds):
+            raise ValueError("kinds must be a list of " + ", ".join(diagrams.KINDS))
+        command["kinds"] = [k for k in diagrams.KINDS if k in kinds]  # each once, in the order they are laid out
     with _lock:
         entry = _docs.get(doc)
         if entry is None:

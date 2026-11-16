@@ -39,6 +39,7 @@ namespace SidaRhino
             }
             _browser.Click += (s, e) => LiveLink.OpenInBrowser();
             _aside = new StackLayout { Padding = new Padding(16), Spacing = 12, Items = { _words, _browser } };
+            MinimumSize = new Size(300, 360);  // the page needs about this much to show a gauge and a layer row
             Content = _aside;
             LiveLink.Ensure();
             _timer.Elapsed += (s, e) => Follow();
@@ -52,12 +53,15 @@ namespace SidaRhino
             var up = LiveLink.Up;
             if (up && _web != null)
             {
-                if (!_wasUp)
-                    _web.Url = new Uri(LiveLink.PanelUrl);  // also after Sida came back: it may be a newer Sida
                 if (!_webShown)
                 {
+                    _web.Url = new Uri(LiveLink.PanelUrl);
                     Content = _web;
                     _webShown = true;
+                }
+                else if (!_wasUp)
+                {
+                    _web.Reload();  // Sida came back: it may be a newer Sida, with a newer page
                 }
             }
             else if (!_webShown)

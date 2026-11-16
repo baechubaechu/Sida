@@ -14,7 +14,7 @@
 | `tracing` | `title`, `strokes`(펜 획: `[[x, y], ...]` 목록), `overlaid`(대지 위에 덮였는지) | 설계자 |
 | `photo` | `title`, `file`(서버가 정한 파일 이름 `photo-xxxxxxxx.jpg`·`.pdf` 등, 바꿀 수 없음), PDF면 `page`(보여 줄 페이지, 1부터, 기본 1) | 설계자. `POST /photos`로 파일을 올려서만 생김(아래 "사진") |
 | `section` | `title`(단면 이름, `A`이면 `단면 A–A′`), `line`(단면선 `[[x, y], [x, y]]`, 제도판 좌표 m, 두 점이 1m 넘게 떨어짐), `flip`(보는 방향 뒤집기, 기본 `false`: A에서 A′로 걸을 때 오른쪽을 봄), `depth`(뒤쪽에 보이는 건물까지의 깊이 m, 0~1000, 기본 60), `scale`(내보낼 단면도 축척 분모, `100`·`200`·`300`·`500`·`600`·`1000`·`1200`·`2000`·`2500`·`5000`, 기본 500) | 설계자. 아래 "단면" |
-| `rhino` | `title`(파일 이름), `snapshot`(스냅샷 id), `file`, `taken_at`, `objects`(개체 수), `layers`(`[{path, meaning}]`), `views`(`[{kind, file}]`, 그 스냅샷의 뷰 캡처), `figures`(수치와 `lines`). id는 늘 `rhino` | 서버. 라이노 플러그인이 스냅샷을 보낼 때 놓이고 옮기기만 됩니다(`docs/rhino-api.md`) |
+| `rhino` | `title`(파일 이름), `snapshot`(스냅샷 id), `file`, `taken_at`, `objects`(개체 수), `layers`(`[{path, meaning}]`), `views`(`[{kind, file}]`, 그 스냅샷의 뷰 캡처), `diagrams`(`[{kind, title}]`, 그 스냅샷으로 그릴 수 있는 다이어그램), `figures`(수치와 `lines`). id는 늘 `rhino` | 서버. 라이노 플러그인이 스냅샷을 보낼 때 놓이고 옮기기만 됩니다(`docs/rhino-api.md`) |
 | `expert` | `agent`, `title`(전문가 이름), `text`(결과 문서 앞 12줄), `about`(실행할 때 고른 종이 id) | 서버. 전문가 실행이 끝나면 AI 섹션에. 옮기기만 됨 |
 
 `pins`는 다음 단계(종이에 핀 꽂기)에서 씁니다. 지금은 빈 목록입니다.

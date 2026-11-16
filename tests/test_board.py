@@ -338,8 +338,10 @@ def test_the_rhino_paper_is_one_paper_on_the_table_that_keeps_its_place_and_only
     first = board.rhino_paper(tmp_path, {"title": "studio", "snapshot": "20261111-235000-ab12", "file": "studio.3dm",
                                          "taken_at": "2026-11-11T23:50:00", "objects": 5,
                                          "layers": [{"path": "Program::Housing", "meaning": "housing"}, {"path": "Sketch", "meaning": ""}],
+                                         "diagrams": [{"kind": "program", "title": "프로그램 매스", "ready": True, "reason": ""}],
                                          "figures": figures})["paper"]
     assert first["id"] == board.RHINO_ID and first["kind"] == "rhino" and (first["w"], first["h"]) == (340.0, 240.0)
+    assert first["diagrams"] == [{"kind": "program", "title": "프로그램 매스"}]  # which diagrams can be drawn of it
     assert board.paper_name(first) == "라이노 작업: studio"
     assert board.update_paper(tmp_path, "rhino", {"x": 40, "y": -10, "folded": True})["paper"]["x"] == 40.0
     with pytest.raises(ValueError, match="only moves"):

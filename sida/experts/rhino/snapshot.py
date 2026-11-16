@@ -67,13 +67,15 @@ COLOR = re.compile(r"#[0-9a-fA-F]{6}")
 
 # What a layer may mean (the designer picks it in the plugin's panel; nothing is inferred).
 # `built` meanings count towards floor area, footprint and the ratios; the others are context.
+# `color` is the meaning's colour in the diagrams (the usual land-use colours: housing yellow,
+# commercial red, office blue).
 MEANINGS: dict[str, dict] = {
-    "housing": {"word": "주거", "built": True},
-    "commercial": {"word": "상업", "built": True},
-    "office": {"word": "업무", "built": True},
-    "culture": {"word": "문화·교육", "built": True},
-    "core": {"word": "코어·설비", "built": True},
-    "other": {"word": "기타 용도", "built": True},
+    "housing": {"word": "주거", "built": True, "color": "#e0b040"},
+    "commercial": {"word": "상업", "built": True, "color": "#cf5b5b"},
+    "office": {"word": "업무", "built": True, "color": "#4f7fb5"},
+    "culture": {"word": "문화·교육", "built": True, "color": "#8b6fb8"},
+    "core": {"word": "코어·설비", "built": True, "color": "#7d858e"},
+    "other": {"word": "기타 용도", "built": True, "color": "#8fae8b"},
     "outdoor": {"word": "외부 공간", "built": False},
     "surroundings": {"word": "주변 건물", "built": False},
     "site": {"word": "대지 경계", "built": False},
@@ -200,10 +202,13 @@ def _object(raw, index: int) -> dict:
     for i, floor in enumerate(floors):
         if not isinstance(floor, dict):
             raise ValueError(f"{what}.floors[{i}] must be an object")
-        item["floors"].append({
+        level = {
             "z": round(_number(floor.get("z"), f"{what}.floors[{i}].z"), 3),
             "area": round(_number(floor.get("area"), f"{what}.floors[{i}].area", low=0), 3),
-        })
+        }
+        if floor.get("outline") is not None:  # the floor's own shape, for the diagrams (a setback, a tower on a podium)
+            level["outline"] = _rings(floor["outline"], f"{what}.floors[{i}].outline")
+        item["floors"].append(level)
     if raw.get("mesh") is not None:
         mesh = _mesh(raw["mesh"], f"{what}.mesh")
         if mesh is None:

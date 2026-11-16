@@ -714,6 +714,15 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .rhino-view figcaption { padding: 3px 8px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); background: var(--surface); }
 .rhino-figures { display: grid; gap: 4px; align-content: start; min-width: 0; }
 .rhino-figures .figure { margin: 0; font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+/* The diagrams Sida draws of the snapshot: each on its own white sheet, its name and files under it. */
+.rhino-sub { margin: 6px 0 0; font-size: 13px; font-weight: 700; }
+.rhino-diagrams { display: grid; gap: 8px; }
+.rhino-diagram { margin: 0; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: #fff; }
+.rhino-diagram a { display: block; }
+.rhino-diagram img { display: block; width: 100%; max-height: 300px; object-fit: contain; }
+.rhino-diagram figcaption { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 4px 8px; font-size: 12px; border-top: 1px solid var(--line); background: var(--surface); }
+.rhino-diagram .detail-files button { border-radius: 6px; padding: 4px 8px; font-size: 11px; font-weight: 600; background: var(--surface-subtle); }
+.rhino-diagram .detail-files button:hover { background: var(--selected); color: var(--brand); }
 /* Section papers (단면, section-model.js sectionSvg): the drawing in the screen's own neutral colours. */
 .kind-section .paper-head { border-top: 4px solid var(--line); }
 .section-sheet { flex: 1; min-height: 0; display: flex; background: var(--surface); }

@@ -1290,6 +1290,7 @@ def test_rhino_api_takes_a_snapshot_with_its_views_lays_the_paper_and_answers_li
 
     hello = client.get("/api/rhino/hello").json()
     assert hello["ok"] is True and hello["schema"] == 1 and {"code": "housing", "word": "주거", "built": True} in hello["meanings"]
+    assert {"kind": "program", "title": "프로그램 매스", "view": "axo"} in hello["diagrams"] and len(hello["diagrams"]) == 5
 
     raw = _json.loads((ROOT / "tests" / "fixtures" / "rhino" / "snapshot_studio.json").read_text(encoding="utf-8"))
     base = f"/api/projects/{project.name}/rhino"
@@ -1306,6 +1307,7 @@ def test_rhino_api_takes_a_snapshot_with_its_views_lays_the_paper_and_answers_li
     assert body["figures"]["lines"][0] == "연면적 900.0㎡ (주거 720.0, 상업 180.0)" and body["figures"]["limits"] == []
     assert body["paper"]["id"] == "rhino" and body["paper"]["title"] == "studio" and body["paper"]["figures"]["lines"]
     assert body["paper"]["views"] == [{"kind": "plan", "file": "plan.png"}, {"kind": "axo", "file": "axo.png"}]
+    assert [d["kind"] for d in body["paper"]["diagrams"]] == ["program", "floors", "stack", "site", "limits"]  # what can be drawn of it
     snapshot_id = body["snapshot"]["id"]
 
     got = client.get(f"/api/projects/{project.name}/board").json()
@@ -1349,6 +1351,36 @@ def test_rhino_push_takes_a_snapshot_of_megabytes(client, project):
     assert r.status_code == 201, r.text
     assert r.json()["snapshot"]["objects"] == len(raw["objects"]) + 4
     assert rhino_snapshot.MAX_OBJECTS >= 20000  # the surroundings of a dense site are hundreds of bodies already
+
+
+def test_rhino_diagrams_of_a_snapshot_come_as_drawing_instructions_and_as_svg(client, project):
+    import json as _json
+
+    raw = _json.loads((ROOT / "tests" / "fixtures" / "rhino" / "snapshot_studio.json").read_text(encoding="utf-8"))
+    base = f"/api/projects/{project.name}/rhino"
+    body = _json.dumps({**raw, "views": []}).encode("utf-8")
+    pushed = client.post(f"{base}/snapshots", files=[("snapshot", ("snapshot.json", body, "application/json"))])
+    at = f"{base}/snapshots/{pushed.json()['snapshot']['id']}/diagrams"
+
+    listed = client.get(at).json()["diagrams"]
+    assert [d["kind"] for d in listed] == ["program", "floors", "stack", "site", "limits"]
+    assert all(d["ready"] for d in listed) and listed[0]["title"] == "프로그램 매스"
+
+    drawing = client.get(f"{at}/program").json()["drawing"]
+    assert drawing["kind"] == "program" and drawing["view"] == "axo"
+    slabs = [i for i in drawing["items"] if i["type"] == "slab"]
+    assert [(s["tag"], s["z"]) for s in slabs] == [("housing", 0.0), ("housing", 3.0), ("housing", 6.0), ("housing", 9.0), ("commercial", 0.0)]
+    assert any("잴 수 없는 개체 1개" in note for note in drawing["notes"])  # the open body is said, not drawn
+
+    svg = client.get(f"{at}/stack", params={"format": "svg"})
+    assert svg.status_code == 200 and svg.headers["content-type"].startswith("image/svg+xml")
+    assert svg.content.startswith(b"<svg ") and "층별 면적".encode() in svg.content
+    assert "filename*=UTF-8''" in svg.headers["content-disposition"]
+
+    assert client.get(f"{at}/render").status_code == 400
+    assert client.get(f"{at}/program", params={"format": "pdf"}).status_code == 400
+    assert client.get(f"{base}/snapshots/20000101-000000-0001/diagrams").status_code == 404
+    assert client.get(f"{base}/snapshots/20000101-000000-0001/diagrams/program").status_code == 404
 
 
 def test_rhino_live_api_carries_the_document_to_the_panel_and_the_panels_asks_to_the_plugin(client, project):

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -42,6 +43,11 @@ namespace SidaRhino
         private static Notice? _notice;           // what the last pull or push said, until Sida has heard it
         private static DateTime _lastReport = DateTime.MinValue;
         private static string? _refused;          // why Sida refused the last report (said once)
+        private static volatile string _busy = "";  // what is in the middle of being done for the panel ("pull"), "" for nothing
+        private static volatile Pulled? _pulled;   // a drafting table downloaded in the background, waiting to be put in the document
+
+        /// <summary>The drafting table of `Project` as a 3dm file, or why it could not be had.</summary>
+        private sealed record Pulled(string Project, byte[]? File, string? Error);
 
         private sealed record Notice(string Text, bool Ok);
 
@@ -154,7 +160,7 @@ namespace SidaRhino
                             _queued = id;
                             Waiting.Enqueue(command.Clone());
                         }
-                        if ((!Waiting.IsEmpty || _dirty || _pushOnIdle) && !_pumping)
+                        if ((!Waiting.IsEmpty || _dirty || _pushOnIdle || _pulled != null) && !_pumping)
                         {
                             _pumping = true;
                             RhinoApp.InvokeOnUiThread(new Action(Pump));
@@ -203,6 +209,13 @@ namespace SidaRhino
                         Say("패널이 부탁한 일을 하지 못했습니다: " + exc.Message, ok: false);
                     }
                     Interlocked.Exchange(ref _done, command.GetProperty("id").GetInt64());
+                }
+                var pulled = _pulled;
+                if (pulled != null)
+                {
+                    _pulled = null;
+                    _busy = "";
+                    PutIn(doc, pulled);
                 }
                 if (_pushOnIdle)
                 {
@@ -270,11 +283,70 @@ namespace SidaRhino
                 ["units"] = doc.ModelUnitSystem.ToString(),
                 ["project"] = Meanings.Project(doc) ?? "",
                 ["autosync"] = Meanings.Autosync(doc),
+                ["busy"] = _busy,
                 ["snapshot"] = snapshot,
             };
             if (notice != null)
                 report["notice"] = new Dictionary<string, object?> { ["text"] = notice.Text, ["ok"] = notice.Ok };
             return report;
+        }
+
+        /// <summary>
+        /// The panel's "Sida에서 가져오기": the download runs in the background (the first export of
+        /// a project builds its surroundings on the server, half a minute and more), so Rhino stays
+        /// usable; the file is put in the document on the UI thread when it has arrived (PutIn).
+        /// The SidaPull command typed in Rhino does the same in one go.
+        /// </summary>
+        private static void BeginPull(RhinoDoc doc)
+        {
+            var project = Meanings.Project(doc);
+            if (project == null)
+            {
+                Say("먼저 이 문서의 Sida 프로젝트를 고르세요.", ok: false);
+                return;
+            }
+            if (_busy.Length > 0)
+                return;  // one at a time
+            _busy = "pull";
+            RhinoApp.WriteLine("Sida: 제도판을 가져오는 중입니다. 이 프로젝트를 처음 가져올 때는 30초쯤 걸릴 수 있고, 그동안 라이노는 그대로 쓸 수 있습니다.");
+            Task.Run(() =>
+            {
+                try
+                {
+                    _pulled = new Pulled(project, Client.Export3dm(project), null);
+                }
+                catch (Exception exc)
+                {
+                    _pulled = new Pulled(project, null, exc is SidaException ? exc.Message : "제도판을 받지 못했습니다: " + exc.Message);
+                }
+            });
+        }
+
+        private static void PutIn(RhinoDoc doc, Pulled pulled)
+        {
+            if (pulled.File == null)
+            {
+                Say(pulled.Error ?? "제도판을 받지 못했습니다.", ok: false);
+                return;
+            }
+            if (Meanings.Project(doc) != pulled.Project)
+            {
+                Say("기다리는 동안 문서나 프로젝트가 바뀌어, 받은 제도판을 넣지 않았습니다.", ok: false);
+                return;
+            }
+            var record = doc.BeginUndoRecord("SidaPull");  // outside a command: one undo step of its own
+            try
+            {
+                Say(Importer.Said(Importer.Import(doc, pulled.File)));
+            }
+            catch (SidaException exc)
+            {
+                Say(exc.Message, ok: false);
+            }
+            finally
+            {
+                doc.EndUndoRecord(record);
+            }
         }
 
         private static void Do(RhinoDoc doc, JsonElement command)
@@ -283,7 +355,12 @@ namespace SidaRhino
             switch (text("type"))
             {
                 case "pull":
-                    RhinoApp.RunScript("_SidaPull", false);
+                    BeginPull(doc);
+                    break;
+                case "draw":
+                    Commands.SidaDrawCommand.Asked = command.TryGetProperty("kinds", out var kinds) && kinds.ValueKind == JsonValueKind.Array
+                        ? kinds.EnumerateArray().Select(k => k.GetString() ?? "").ToList() : null;
+                    RhinoApp.RunScript("_SidaDraw", false);
                     break;
                 case "push":
                     RhinoApp.RunScript("_SidaPush", false);

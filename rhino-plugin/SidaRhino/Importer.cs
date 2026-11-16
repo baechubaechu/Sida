@@ -33,6 +33,13 @@ namespace SidaRhino
         /// <summary>How many objects of the last import were kept because the designer had changed them.</summary>
         public static int KeptLast { get; private set; }
 
+        /// <summary>The words for the designer after an import of `count` objects.</summary>
+        public static string Said(int count)
+        {
+            var kept = KeptLast > 0 ? $" 전에 가져온 뒤 고친 개체 {KeptLast}개는 그대로 두었습니다." : "";
+            return $"제도판을 가져왔습니다 (개체 {count}개, 레이어 {ParentLayer}).{kept}";
+        }
+
         public static int Import(RhinoDoc doc, byte[] bytes)
         {
             var path = Path.Combine(Path.GetTempPath(), $"sida-{Guid.NewGuid():N}.3dm");
@@ -158,7 +165,7 @@ namespace SidaRhino
         /// An object's extent to the millimetre in its own units: equal as long as it stands as
         /// Sida sent it, different once the designer moves or reshapes it.
         /// </summary>
-        private static string Stamp(GeometryBase geometry)
+        internal static string Stamp(GeometryBase geometry)
         {
             var box = geometry.GetBoundingBox(true);
             if (!box.IsValid)

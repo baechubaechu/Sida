@@ -512,8 +512,8 @@ def rhino_paper(project_path: Path, data: dict) -> dict:
     """
     The designer's Rhino model on the table as the one "라이노 작업" paper (id RHINO_ID), from the
     newest snapshot (sida.experts.rhino.snapshot): its title, snapshot id, file, time, object
-    count, layer meanings and figures (with their `lines` as the paper and the models read
-    them). A paper already there keeps its place; this is the designer's own work, so it goes
+    count, layer meanings, view captures, the diagrams that can be drawn of it ({kind, title})
+    and figures (with their `lines` as the paper and the models read them). A paper already there keeps its place; this is the designer's own work, so it goes
     on the table and not in the AI section. Returns {paper, rev}.
     """
     with _lock:
@@ -528,6 +528,8 @@ def rhino_paper(project_path: Path, data: dict) -> dict:
             "layers": [{"path": str(x.get("path") or "")[:MAX_TITLE], "meaning": str(x.get("meaning") or "")}
                        for x in (data.get("layers") or [])[:50]],
             "views": [{"kind": str(x.get("kind") or ""), "file": str(x.get("file") or "")} for x in (data.get("views") or [])[:8]],
+            "diagrams": [{"kind": str(x.get("kind") or ""), "title": str(x.get("title") or "")[:MAX_TITLE]}
+                         for x in (data.get("diagrams") or [])[:12]],
             "figures": dict(data.get("figures") or {}),
         })
         if current:
@@ -980,8 +982,8 @@ def clean_paper(data: dict) -> dict:
         paper["strokes"] = [_stroke(s, i) for i, s in enumerate(strokes)]
         paper["overlaid"] = bool(data.get("overlaid", False))
     elif kind == "rhino":  # laid by the server from a Rhino snapshot (rhino_paper); only moves afterwards
-        for key in ("title", "snapshot", "file", "taken_at", "objects", "layers", "views", "figures"):
-            paper[key] = data.get(key, 0 if key == "objects" else [] if key in {"layers", "views"} else {} if key == "figures" else "")
+        for key in ("title", "snapshot", "file", "taken_at", "objects", "layers", "views", "diagrams", "figures"):
+            paper[key] = data.get(key, 0 if key == "objects" else [] if key in {"layers", "views", "diagrams"} else {} if key == "figures" else "")
     elif kind == "section":
         paper["title"] = title
         paper["line"] = _section_line(data.get("line"))

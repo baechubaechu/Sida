@@ -5,21 +5,22 @@
 // plugin asked last.
 
 import { api } from './api.js';
-import { panelStatus, panelFigures, layerRows, readFloorHeight, meaningChoices } from './rhino-model.js';
+import { panelStatus, panelFigures, panelBusy, diagramChoices, layerRows, readFloorHeight, meaningChoices } from './rhino-model.js';
 
 const POLL_MS = 1000;
-const BUSY_MS = 20000;  // a pull or push that has not answered by then is no longer "in progress"
-const BUSY_WORDS = { pull: '가져오는 중…', push: '보내는 중…' };
+const BUSY_MS = 20000;  // a button pressed counts as "in progress" this long, unless the plugin says more (rhino-model.js panelBusy)
+const BUSY_WORDS = { pull: '가져오는 중…', push: '보내는 중…', draw: '그리는 중…' };
 const named = new URLSearchParams(location.search).get('doc') || '';
 const el = (id) => document.getElementById(id);
 const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const ui = {
   live: { connected: false, rev: 0, state: null },
-  meanings: [], projects: [],
+  meanings: [], diagrams: [], projects: [],
   serverDown: false,
   allLayers: false,
-  busy: '', busyUntil: 0, busyNotice: 0,  // the command in progress, and the notice count when it was asked
+  asked: null,  // the button just pressed: {what, notice (the notice count then), until}
+  skipped: [],  // the diagrams the designer left out of "라이노에 그리기"
   error: '',
   drawn: {},
 };
@@ -104,15 +105,28 @@ function drawLayers(state) {
     ${quiet || ui.allLayers ? `<button type="button" class="rp-more" id="rp-more">${ui.allLayers ? '입체가 있는 레이어만 보기' : `빈 레이어 ${quiet}개도 보기`}</button>` : ''}`);
 }
 
-function drawFoot(state, status) {
+// The diagrams Sida draws of the model, to be put into the document as real geometry: all of
+// them unless the designer leaves some out.
+function drawDiagrams(state, status, busy) {
+  if (!state || status.code !== 'ready' || !ui.diagrams.length) { draw('rp-diagrams', ''); return; }
+  const { rows, picked } = diagramChoices(ui.diagrams, ui.skipped);
+  const can = ui.live.connected && !busy;
+  draw('rp-diagrams', `
+    <h2>다이어그램</h2>
+    <p class="rp-hint">지금 모델을 Sida로 보낸 뒤, 고른 그림을 "Sida 다이어그램" 레이어에 선과 면으로 그립니다.</p>
+    <div class="rp-kinds" role="group" aria-label="그릴 다이어그램">${rows.map((r) => `<button type="button" data-kind="${escape(r.kind)}" aria-pressed="${r.on}">${escape(r.title)}</button>`).join('')}</div>
+    <button type="button" class="secondary rp-draw" data-ask="draw" ${can && picked.length ? '' : 'disabled'}>${busy === 'draw' ? BUSY_WORDS.draw : picked.length ? `라이노에 그리기 (${picked.length}개)` : '그릴 그림을 고르세요'}</button>`);
+}
+
+function drawFoot(state, status, busy) {
   if (!state) { draw('rp-foot', ''); return; }
   const ready = ui.live.connected && status.code === 'ready';
   const notice = ui.error ? { text: ui.error, ok: false } : state.notice;
   draw('rp-foot', `
     ${notice ? `<p class="rp-notice ${notice.ok ? '' : 'is-bad'}" role="status">${escape(notice.text)}</p>` : ''}
     <div class="rp-actions">
-      <button type="button" class="secondary" data-ask="pull" ${ready && !ui.busy ? '' : 'disabled'}>${ui.busy === 'pull' ? BUSY_WORDS.pull : 'Sida에서 가져오기'}</button>
-      <button type="button" class="primary" data-ask="push" ${ready && !ui.busy ? '' : 'disabled'}>${ui.busy === 'push' ? BUSY_WORDS.push : 'Sida로 보내기'}</button>
+      <button type="button" class="secondary" data-ask="pull" ${ready && !busy ? '' : 'disabled'}>${busy === 'pull' ? BUSY_WORDS.pull : 'Sida에서 가져오기'}</button>
+      <button type="button" class="primary" data-ask="push" ${ready && !busy ? '' : 'disabled'}>${busy === 'push' ? BUSY_WORDS.push : 'Sida로 보내기'}</button>
     </div>
     <label class="rp-auto"><input type="checkbox" id="rp-auto" ${state.autosync ? 'checked' : ''} ${ready ? '' : 'disabled'}> 라이노에서 저장할 때마다 보내기</label>`);
 }
@@ -127,7 +141,9 @@ function drawAll() {
   el('rp-status').hidden = !status.text;
   drawFigures(state, status);
   drawLayers(state);
-  drawFoot(state, status);
+  const busy = panelBusy(ui.live, ui.asked, Date.now());
+  drawDiagrams(state, status, busy);
+  drawFoot(state, status, busy);
 }
 
 // ------------------------------------------------------------------ asking the plugin
@@ -140,18 +156,22 @@ async function ask(command) {
     await api('/api/rhino/commands', { method: 'POST', body: { doc: state.doc, ...command } });
   } catch (error) {
     ui.error = error.message;
-    ui.busy = '';
+    ui.asked = null;
   }
   drawAll();
 }
 
 document.addEventListener('click', (event) => {
   const asked = event.target.closest('[data-ask]');
+  const kind = event.target.closest('[data-kind]');
   if (asked && !asked.disabled) {
-    ui.busy = asked.dataset.ask;
-    ui.busyUntil = Date.now() + BUSY_MS;
-    ui.busyNotice = ui.live.state?.notice?.n || 0;
-    ask({ type: asked.dataset.ask });
+    const what = asked.dataset.ask;
+    ui.asked = { what, notice: ui.live.state?.notice?.n || 0, until: Date.now() + BUSY_MS };
+    ask(what === 'draw' ? { type: 'draw', kinds: diagramChoices(ui.diagrams, ui.skipped).picked } : { type: what });
+  } else if (kind) {
+    const at = ui.skipped.indexOf(kind.dataset.kind);
+    if (at < 0) ui.skipped.push(kind.dataset.kind); else ui.skipped.splice(at, 1);
+    drawAll();
   } else if (event.target.id === 'rp-more') {
     ui.allLayers = !ui.allLayers;
     drawAll();
@@ -188,7 +208,11 @@ document.addEventListener('keydown', (event) => {
 
 async function readOnce() {
   try {
-    if (!ui.meanings.length) ui.meanings = (await api('/api/rhino/hello')).meanings || [];
+    if (!ui.meanings.length) {
+      const hello = await api('/api/rhino/hello');
+      ui.meanings = hello.meanings || [];
+      ui.diagrams = hello.diagrams || [];
+    }
     const live = await api(`/api/rhino/live${named ? `?doc=${encodeURIComponent(named)}` : ''}`);
     const fresh = live.rev !== ui.live.rev || live.connected !== ui.live.connected || ui.serverDown;
     ui.serverDown = false;
@@ -197,8 +221,6 @@ async function readOnce() {
   } catch {
     ui.serverDown = true;
   }
-  // A pull or push is over when the plugin says so (a new notice), or after a while.
-  if (ui.busy && ((ui.live.state?.notice?.n || 0) !== ui.busyNotice || Date.now() > ui.busyUntil)) ui.busy = '';
   drawAll();
 }
 

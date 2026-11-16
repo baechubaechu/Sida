@@ -11,9 +11,11 @@ const VIEW_ORDER = ['persp', 'axo', 'eye', 'plan', 'elevation', 'section'];
 const VIEW_WORDS = { persp: '투시', axo: '축측', eye: '눈높이', plan: '평면', elevation: '입면', section: '단면' };
 
 export const rhinoViewUrl = (project, snapshot, file) => `/api/projects/${encodeURIComponent(project)}/rhino/snapshots/${encodeURIComponent(snapshot)}/views/${encodeURIComponent(file)}`;
+// A snapshot's diagram as a picture (svg) or as its drawing instruction (json).
+export const rhinoDiagramUrl = (project, snapshot, kind, format = 'svg') => `/api/projects/${encodeURIComponent(project)}/rhino/snapshots/${encodeURIComponent(snapshot)}/diagrams/${encodeURIComponent(kind)}?format=${format}`;
 
 // The paper's parts: the figure lines as Sida wrote them, its captures (the perspective first:
-// it says most at a glance), and where the snapshot came from.
+// it says most at a glance), the diagrams Sida can draw of it, and where the snapshot came from.
 export function rhinoPaperParts(paper) {
   const lines = (paper?.figures?.lines || []).map(String);
   const rank = (view) => { const at = VIEW_ORDER.indexOf(view.kind); return at < 0 ? VIEW_ORDER.length : at; };
@@ -22,7 +24,24 @@ export function rhinoPaperParts(paper) {
     .sort((a, b) => rank(a) - rank(b));
   const when = String(paper?.taken_at || '').replace('T', ' ').slice(0, 16);
   const source = [paper?.file || '저장하지 않은 라이노 문서', when, `개체 ${paper?.objects || 0}개`].filter(Boolean).join(', ');
-  return { lines, views, source, snapshot: String(paper?.snapshot || ''), limits: limitLines(paper?.figures?.limits) };
+  const diagrams = (paper?.diagrams || []).filter((d) => d && d.kind).map((d) => ({ kind: String(d.kind), title: String(d.title || d.kind) }));
+  return { lines, views, diagrams, source, snapshot: String(paper?.snapshot || ''), limits: limitLines(paper?.figures?.limits) };
+}
+
+// A diagram's file as the designer gets it: "<the paper's name> <the diagram's name>.<format>",
+// without the characters a file name cannot hold.
+export function diagramFileName(paperTitle, diagramTitle, format) {
+  const clean = (text) => String(text || '').replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim();
+  return `${[clean(paperTitle), clean(diagramTitle)].filter(Boolean).join(' ') || 'diagram'}.${format}`;
+}
+
+// The pixels of a diagram's PNG: the SVG's own size times `scale` (2: sharp on a slide), kept
+// under `limit` on its longer side so a browser canvas can hold it.
+export function diagramPngSize(width, height, scale = 2, limit = 4096) {
+  const w = Number(width) > 0 ? Number(width) : 960;
+  const h = Number(height) > 0 ? Number(height) : 720;
+  const k = Math.min(scale, limit / Math.max(w, h));
+  return { width: Math.round(w * k), height: Math.round(h * k) };
 }
 
 // The site's limits as lines, as the site facts have them: the legal ceiling of each zone and,
@@ -50,6 +69,26 @@ export function panelStatus(live) {
   if (!state.project) return { code: 'no-project', text: '이 문서를 어느 Sida 프로젝트에 붙일지 고르세요.' };
   if (!state.project_known) return { code: 'bad-project', text: `이 문서가 붙어 있던 프로젝트 "${state.project}"가 이 Sida에 없습니다. 프로젝트를 다시 고르세요.` };
   return { code: 'ready', text: '' };
+}
+
+// What the plugin is in the middle of ('' | pull | push | draw). The plugin says so itself
+// (`state.busy`); until its next report the button the designer just pressed counts (`asked`:
+// {what, notice, until}), and stops counting when the plugin answers with a new notice or the
+// time runs out.
+export function panelBusy(live, asked, now) {
+  const state = live?.state;
+  if (state?.busy) return state.busy;
+  if (!asked?.what || !state) return '';
+  if ((state.notice?.n || 0) !== asked.notice || now > asked.until) return '';
+  return asked.what;
+}
+
+// The diagrams the panel offers to draw in Rhino, each with whether it is picked (all of them
+// until the designer leaves one out), and the kinds a press of the button asks for.
+export function diagramChoices(kinds, skipped) {
+  const out = new Set(skipped || []);
+  const rows = (kinds || []).map((d) => ({ kind: d.kind, title: d.title, on: !out.has(d.kind) }));
+  return { rows, picked: rows.filter((r) => r.on).map((r) => r.kind) };
 }
 
 // One gauge: a ratio against its limit. The limit is the ordinance's value when it was read,

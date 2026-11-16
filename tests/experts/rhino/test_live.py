@@ -70,6 +70,16 @@ def test_what_the_panel_asks_waits_for_the_plugin_until_it_says_it_is_done():
     assert live.ask({"doc": "4242-1", "type": "set_autosync", "on": True})["id"] == second + 1
     assert live.ask({"doc": "4242-1", "type": "set_project", "project": " 무교동 "})["id"] == second + 2
     assert [c.get("project", c.get("on")) for c in live.pending("4242-1", after=second)["commands"]] == [True, "무교동"]
+    drawn = live.ask({"doc": "4242-1", "type": "draw", "kinds": ["site", "program", "site"]})["id"]
+    assert live.pending("4242-1", after=drawn - 1)["commands"] == [{"type": "draw", "kinds": ["program", "site"], "id": drawn}]
+
+
+def test_the_plugin_says_what_it_is_in_the_middle_of_so_the_panel_can_wait_for_it():
+    live.report(live.clean_report(said()), None, True)
+    assert live.current()["state"]["busy"] == ""
+    assert live.report(live.clean_report(said(busy="pull")), None, True) == {"rev": 2}  # a long first pull: the panel shows it
+    assert live.current()["state"]["busy"] == "pull"
+    assert live.clean_report(said(busy="reticulating"))["busy"] == ""  # only what the panel has words for
 
 
 @pytest.mark.parametrize("command, reason", [
@@ -79,7 +89,9 @@ def test_what_the_panel_asks_waits_for_the_plugin_until_it_says_it_is_done():
     ({"doc": "4242-1", "type": "set_layer", "path": "A", "meaning": "garage"}, "meaning must be one of"),
     ({"doc": "4242-1", "type": "set_layer", "path": "A", "meaning": "", "floor_height": 0}, "floor_height must be"),
     ({"doc": "4242-1", "type": "set_layer", "path": "A", "meaning": "", "floor_height": True}, "floor_height must be"),
-], ids=["no-doc", "type", "no-path", "meaning", "height-zero", "height-bool"])
+    ({"doc": "4242-1", "type": "draw"}, "kinds must be a list of"),
+    ({"doc": "4242-1", "type": "draw", "kinds": ["program", "render"]}, "kinds must be a list of"),
+], ids=["no-doc", "type", "no-path", "meaning", "height-zero", "height-bool", "no-kinds", "kind"])
 def test_a_command_the_plugin_could_not_do_is_refused_with_a_plain_reason(command, reason):
     live.report(live.clean_report(said()), None, True)
     with pytest.raises(ValueError, match=reason):

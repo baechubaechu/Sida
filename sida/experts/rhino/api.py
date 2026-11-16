@@ -1,8 +1,8 @@
 """JSON API the Rhino plugin talks to (docs/rhino-api.md). The logic is in snapshot.py.
 
 /api/rhino/hello says Sida is up and which snapshot schema it reads. Under the project:
-snapshots (push, list, read, a view image, delete) and figures for a snapshot the plugin has
-not saved. /api/rhino/live and /api/rhino/commands are the running Rhino (live.py): the plugin
+snapshots (push, list, read, a view image, delete), a snapshot's diagrams (diagrams.py), and
+figures for a snapshot the plugin has not saved. /api/rhino/live and /api/rhino/commands are the running Rhino (live.py): the plugin
 reports its document and asks what to do, the panel page reads the report and asks for things.
 """
 
@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import json
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from sida import board, workspace
-from sida.experts.rhino import live, snapshot
+from sida.experts.rhino import diagram_svg, diagrams, live, snapshot
 from sida.i18n import t
 
 
@@ -44,6 +45,7 @@ def create_router(load_config, core) -> APIRouter:
             "ok": True, "app": "sida", "schema": snapshot.SCHEMA,
             "meanings": [{"code": code, "word": m["word"], "built": m["built"]} for code, m in snapshot.MEANINGS.items()],
             "views": list(snapshot.VIEW_KINDS),
+            "diagrams": [{"kind": kind, "title": d["title"], "view": d["view"]} for kind, d in diagrams.KINDS.items()],
         }
 
     @router.post("/api/projects/{name}/rhino/snapshots")
@@ -70,6 +72,7 @@ def create_router(load_config, core) -> APIRouter:
             "title": saved["rhino"]["file"].rsplit(".", 1)[0] if saved["rhino"]["file"] else "",
             "snapshot": saved["id"], "file": saved["rhino"]["file"], "taken_at": saved["taken_at"],
             "objects": len(saved["objects"]), "layers": saved["layers"], "views": saved["views"], "figures": fig,
+            "diagrams": [d for d in diagrams.available(saved, diagrams.context(path, around=False)) if d["ready"]],
         })
         return JSONResponse({"snapshot": snapshot.summary(saved), "figures": fig, "paper": placed["paper"], "rev": placed["rev"]},
                             status_code=201)
@@ -94,6 +97,25 @@ def create_router(load_config, core) -> APIRouter:
     def delete(name: str, snapshot_id: str) -> dict:
         call(snapshot.delete_snapshot, project(name), snapshot_id)
         return {"ok": True}
+
+    @router.get("/api/projects/{name}/rhino/snapshots/{snapshot_id}/diagrams")
+    def diagram_list(name: str, snapshot_id: str) -> dict:
+        """The kinds of diagram and whether this snapshot can be drawn as each."""
+        return {"diagrams": call(diagrams.of_snapshot, project(name), snapshot_id)}
+
+    @router.get("/api/projects/{name}/rhino/snapshots/{snapshot_id}/diagrams/{kind}")
+    def diagram(name: str, snapshot_id: str, kind: str, format: str = "json"):
+        """One diagram of the snapshot: its drawing instruction (the plugin draws it in Rhino), or
+        with format=svg the same drawing as a picture."""
+        if format not in ("json", "svg"):
+            raise HTTPException(status_code=400, detail=t("web_rhino_diagram_bad", reason="format must be json or svg"))
+        made = call(diagrams.of_snapshot, project(name), snapshot_id, kind, bad="web_rhino_diagram_bad")
+        if format == "json":
+            return {"drawing": made}
+        # Drawn again on each request (the site facts may have changed); a minute's keeping spares a screen that redraws.
+        return Response(diagram_svg.to_svg(made), media_type="image/svg+xml",
+                        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(made['title'])}.svg",
+                                 "Cache-Control": "private, max-age=60"})
 
     @router.post("/api/projects/{name}/rhino/figures")
     def live_figures(name: str, raw: dict) -> dict:

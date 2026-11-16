@@ -100,6 +100,23 @@ namespace SidaRhino
             return new FigureLines(Lines(doc.RootElement.GetProperty("figures")), doc.RootElement.GetProperty("snapshot").GetProperty("id").GetString());
         }
 
+        /// <summary>The kinds of diagram and whether the snapshot can be drawn as each (kind, Korean title, ready, why not).</summary>
+        public IReadOnlyList<(string Kind, string Title, bool Ready, string Reason)> Diagrams(string project, string snapshotId)
+        {
+            using var doc = GetJson($"/api/projects/{Uri.EscapeDataString(project)}/rhino/snapshots/{Uri.EscapeDataString(snapshotId)}/diagrams");
+            var list = new List<(string, string, bool, string)>();
+            foreach (var item in doc.RootElement.GetProperty("diagrams").EnumerateArray())
+                list.Add((item.GetProperty("kind").GetString() ?? "", item.GetProperty("title").GetString() ?? "",
+                    item.GetProperty("ready").GetBoolean(), item.GetProperty("reason").GetString() ?? ""));
+            return list;
+        }
+
+        /// <summary>One diagram's drawing instruction ({drawing}), in metres in the snapshot's frame.</summary>
+        public JsonDocument Drawing(string project, string snapshotId, string kind)
+        {
+            return GetJson($"/api/projects/{Uri.EscapeDataString(project)}/rhino/snapshots/{Uri.EscapeDataString(snapshotId)}/diagrams/{Uri.EscapeDataString(kind)}");
+        }
+
         /// <summary>What the panel wants done next ({known, commands}); asking is also this Rhino's heartbeat.</summary>
         public JsonDocument Pending(string doc, long after)
         {
@@ -121,6 +138,13 @@ namespace SidaRhino
             foreach (var line in figures.GetProperty("lines").EnumerateArray())
                 lines.Add(line.GetString() ?? "");
             return lines;
+        }
+
+        private JsonDocument GetJson(string path)
+        {
+            var response = Sent(() => Http.GetAsync(BaseUrl + path).GetAwaiter().GetResult());
+            EnsureOk(response);
+            return JsonDocument.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
         }
 
         private static HttpResponseMessage Sent(Func<HttpResponseMessage> send)

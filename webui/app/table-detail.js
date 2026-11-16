@@ -43,7 +43,7 @@ export const detailMethods = {
       case 'place': this.placeFromTray(id); break;
       case 'open-expert': this.hooks.openExpert(p.agent || ''); break;
       case 'ask': if (!this.selected.includes(id)) this.select(toggleSelected(this.selected, id, true)); this.hooks.ask?.(id); break;
-      default: this.sectionAction(action, p); break;
+      default: if (!this.sectionAction(action, p)) this.rhinoAction(action, p); break;
     }
   },
   inspectInWindow(id) {
@@ -130,7 +130,7 @@ export const detailMethods = {
         <div class="detail-sizes" role="group" aria-label="제도판 위 크기"><span>제도판 위 크기</span>${sizes}</div>
         <p class="detail-caption">AI에게는 ${pdf ? 'PDF' : '사진'} 이름만 갑니다. 무엇이 있는지는 질문에 적어 주세요.</p>`;
     } else if (p.kind === 'rhino') {
-      body = `${this.rhinoBody(p, true)}
+      body = `${this.rhinoBody(p, true, on)}
         <p class="detail-caption">라이노에서 보낸 가장 새 작업입니다. 수치는 라이노가 잰 값으로 Sida가 계산했고, 잴 수 없는 개체는 추정하지 않습니다. 라이노에서 다시 보내면 이 종이가 바뀝니다.</p>`;
     } else if (p.kind === 'section') {
       body = this.sectionBody(p, true);
@@ -170,7 +170,7 @@ export const detailMethods = {
       case 'page-prev': case 'page-next': this.turnPage(id, action === 'page-next' ? 1 : -1); break;
       case 'place': this.closeDetail(); this.placeFromTray(id); break;
       case 'ask': this.closeDetail(); if (!this.selected.includes(id)) this.select(toggleSelected(this.selected, id, true)); this.hooks.ask?.(id); break;
-      default: this.sectionAction(action, p); break;
+      default: if (!this.sectionAction(action, p)) this.rhinoAction(action, p); break;
     }
   },
   // A note written in the detail panel is saved when it loses focus or the panel closes.

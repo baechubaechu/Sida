@@ -89,7 +89,8 @@ namespace SidaRhino
                     measured = Measure(
                         obj.Geometry, toMetres, cut,
                         floorHeight: meant.FloorHeight,  // document units
-                        withMesh: withMeshes && meaning.Length > 0);
+                        withMesh: withMeshes && meaning.Length > 0,
+                        floorOutlines: withMeshes);  // a push carries each floor's shape for the diagrams; the live report only areas
                     if (cache != null)
                         cache[obj.Id] = new Measured(obj.RuntimeSerialNumber, cut, meant.FloorHeight, toMetres, measured);
                 }
@@ -140,7 +141,7 @@ namespace SidaRhino
         /// With <paramref name="cut"/> it is measured whole: volume, footprint, a section at
         /// every floor height. Without, only its base and height are read.
         /// </summary>
-        private static Dictionary<string, object?>? Measure(GeometryBase geometry, double toMetres, bool cut, double? floorHeight, bool withMesh)
+        private static Dictionary<string, object?>? Measure(GeometryBase geometry, double toMetres, bool cut, double? floorHeight, bool withMesh, bool floorOutlines)
         {
             if (!(geometry is Brep || geometry is Extrusion || geometry is Surface || geometry is SubD || geometry is Mesh))
                 return null;
@@ -191,7 +192,10 @@ namespace SidaRhino
                         var section = floors.Count == 0 ? ground : Section(brep, mesh, level + lift, toMetres);
                         if (section == null || section.AreaM2 <= 0)
                             break;
-                        floors.Add(new Dictionary<string, object?> { ["z"] = Math.Round(level * toMetres, 3), ["area"] = Math.Round(section.AreaM2, 3) });
+                        var floor = new Dictionary<string, object?> { ["z"] = Math.Round(level * toMetres, 3), ["area"] = Math.Round(section.AreaM2, 3) };
+                        if (floorOutlines && section.Rings != null)
+                            floor["outline"] = section.Rings;
+                        floors.Add(floor);
                     }
                 }
             }
