@@ -1318,6 +1318,42 @@ def test_rhino_api_takes_a_snapshot_with_its_views_lays_the_paper_and_answers_li
     assert client.get("/api/projects/nope/rhino/snapshots").status_code == 404
 
 
+def test_rhino_live_api_carries_the_document_to_the_panel_and_the_panels_asks_to_the_plugin(client, project):
+    import json as _json
+
+    from sida.experts.rhino import live as rhino_live
+
+    rhino_live.reset()
+    assert client.get("/api/rhino/live").json() == {"connected": False, "rev": 0, "state": None}
+    assert client.get("/api/rhino/commands", params={"doc": "77-1"}).json() == {"known": False, "commands": []}
+
+    raw = _json.loads((ROOT / "tests" / "fixtures" / "rhino" / "snapshot_studio.json").read_text(encoding="utf-8"))
+    said = {"doc": "77-1", "file": "studio.3dm", "units": "m", "project": project.name, "autosync": False, "snapshot": {**raw, "views": []}}
+    assert client.post("/api/rhino/live", json=said).json() == {"rev": 1}
+    got = client.get("/api/rhino/live", params={"doc": "77-1"}).json()
+    assert got["connected"] is True and got["state"]["project_known"] is True
+    assert got["state"]["figures"]["floor_area_m2"] == 900.0 and got["state"]["figures"]["lines"] and got["state"]["figures"]["limits"] == []
+    assert got["state"]["layers"][3] == {"path": "Sketch", "meaning": "", "color": "", "floor_height": None, "objects": 1}
+
+    # a document that names a project this Sida does not have is still shown, without figures
+    assert client.post("/api/rhino/live", json={**said, "project": "nowhere"}).json() == {"rev": 2}
+    state = client.get("/api/rhino/live").json()["state"]
+    assert state["project_known"] is False and state["figures"] is None and len(state["layers"]) == 4
+
+    asked = client.post("/api/rhino/commands", json={"doc": "77-1", "type": "set_layer", "path": "Sketch", "meaning": "office", "floor_height": 3.3})
+    assert asked.status_code == 200
+    waiting = client.get("/api/rhino/commands", params={"doc": "77-1"}).json()
+    assert waiting["known"] is True and waiting["commands"] == [
+        {"type": "set_layer", "path": "Sketch", "meaning": "office", "floor_height": 3.3, "id": asked.json()["id"]}]
+    assert client.get("/api/rhino/commands", params={"doc": "77-1", "after": asked.json()["id"]}).json()["commands"] == []
+
+    bad = client.post("/api/rhino/commands", json={"doc": "77-1", "type": "explode"})
+    assert bad.status_code == 400 and "type must be one of" in bad.json()["detail"]
+    assert client.post("/api/rhino/commands", json={"doc": "nobody", "type": "pull"}).status_code == 400
+    assert client.post("/api/rhino/live", json={**said, "snapshot": {"schema": 2}}).status_code == 400
+    rhino_live.reset()
+
+
 def test_board_api_places_and_discards_ai_papers(client, project):
     from sida import board
 
