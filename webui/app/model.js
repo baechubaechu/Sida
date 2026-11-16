@@ -843,6 +843,15 @@ export function shapesToFetch(parcels, known) {
 }
 
 // [[south, west], [north, east]] around GeoJSON Polygons / MultiPolygons ([lon, lat]), or null.
+// A measured length as the tape and the radius tool show it: "8.25 m" under 10 m, "142.5 m"
+// under 100 m, "512 m" under 1 km, then "1.25 km" (or "1 km").
+export function distanceLabel(metres) {
+  const m = Math.max(0, Number(metres) || 0);
+  const num = (n, digits) => n.toLocaleString('ko-KR', { maximumFractionDigits: digits, minimumFractionDigits: digits });
+  if (m >= 1000) return `${(m / 1000).toLocaleString('ko-KR', { maximumFractionDigits: 2 })} km`;
+  return `${num(m, m < 10 ? 2 : m < 100 ? 1 : 0)} m`;
+}
+
 export function shapesBounds(shapes) {
   let box = null;
   const visit = (c) => {

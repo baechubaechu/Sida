@@ -12,7 +12,7 @@
 import { icon } from './icons.js';
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { boardLayers, paperLayer, blockLayer, layerFlags, expandGroups, groupChange, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewName, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS } from './board-model.js';
+import { boardLayers, paperLayer, blockLayer, layerFlags, expandGroups, groupChange, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewMode, isoCorner, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS, changesPanel } from './board-model.js';
 import { typing, TOOLS, MODEL_TOOLS } from './table-shared.js';
 import { blocksMethods } from './table-blocks.js';
 import { aroundMethods } from './table-around.js';
@@ -20,6 +20,9 @@ import { papersMethods } from './table-papers.js';
 import { detailMethods } from './table-detail.js';
 import { pointerMethods } from './table-pointer.js';
 import { eyeMethods } from './table-eye.js';
+import { measureMethods } from './table-measure.js';
+import { peopleMethods } from './table-people.js';
+import { sectionMethods } from './table-section.js';
 
 export class DraftingTable {
   // hooks: { add(paper), update(id, changes), remove(id), place(id, placement), discard(id),
@@ -78,6 +81,9 @@ export class DraftingTable {
     this.eye = null; // 눈높이 보기: {x, y, yaw, pitch, fov, back} while standing in the street (table-eye.js)
     this.eyePicking = false; // the 눈높이 button waits for the point to stand on
     this.eyeBefore = false; // at eye level: the building on the site (true) or the masses (false)
+    this.people = []; // 사람 배치: scale figures stood about the site (table-people.js)
+    this.personPicked = ''; // the person picked (their id)
+    this.personKind = 'stand'; // what the 사람 tool stands next
     this.root = document.createElement('div');
     this.root.className = 'table';
     this.root.tabIndex = 0;
@@ -88,9 +94,12 @@ export class DraftingTable {
       <div class="table-box" hidden></div>
       <div class="tape-snap" hidden aria-hidden="true"><span></span></div>
       <div class="table-gumball" hidden aria-hidden="true"><svg>
-        ${['u', 'v', 'z'].map((a) => `<g data-gumball="${a}" class="gb-${a}"><line class="gb-hit"/><line class="gb-shaft"/><polygon class="gb-head"/></g>`).join('')}
-        ${['w', 'd'].map((a) => `<rect data-gumball="${a}" class="gb-size gb-${a === 'w' ? 'u' : 'v'}" width="10" height="10"><title>${a === 'w' ? '가로' : '세로'} 크기</title></rect>`).join('')}
-        <rect data-gumball="free" class="gb-free" width="14" height="14"/>
+        <path class="gb-fan" display="none"/><text class="gb-angle" display="none"></text>
+        <g data-gumball="rotate" class="gb-z"><path class="gb-hit"/><path class="gb-ring"/><title>회전 (끌기: 5°, Shift 1° · 누르면 각도 입력)</title></g>
+        ${[['u', '빨간 화살표 방향으로 이동 (누르면 거리 입력 · Alt 끌기 복사)'], ['v', '초록 화살표 방향으로 이동 (누르면 거리 입력 · Alt 끌기 복사)'], ['z', '층수 (누르면 층수 입력)']].map(([a, tip]) => `<g data-gumball="${a}" class="gb-${a}"><line class="gb-hit"/><line class="gb-shaft"/><polygon class="gb-head"/><title>${tip}</title></g>`).join('')}
+        ${['w', 'd'].map((a) => `<rect data-gumball="${a}" class="gb-size gb-${a === 'w' ? 'u' : 'v'}" width="10" height="10"><title>${a === 'w' ? '가로' : '세로'} 크기 (Shift 비율 유지 · 누르면 길이 입력)</title></rect>`).join('')}
+        <circle class="gb-pivot" r="11" display="none"/>
+        <rect data-gumball="free" class="gb-free" width="14" height="14"><title>이동 (누르면 거리 입력 · Alt 끌기 복사 · Ctrl 끌기 기준점 옮기기, Ctrl 누르기 기준점 되돌리기)</title></rect>
       </svg></div>
       <div class="table-ui ui-left"><div class="ui-history" role="group" aria-label="편집 기록"></div>
         <div class="ui-tools" role="toolbar" aria-label="제도판 도구"></div></div>
@@ -98,6 +107,8 @@ export class DraftingTable {
       <div class="table-ui ui-view"><div class="ui-tilt" role="group" aria-label="보는 각도"></div><div class="ui-zoom"></div></div>
       <div class="table-ui eye-bar" role="toolbar" aria-label="눈높이 보기" hidden></div>
       <p class="table-ui ui-hint" role="status" hidden></p>
+      <p class="table-ui figure-band" role="status" aria-label="매스안 건폐율·용적률" hidden></p>
+      <div class="block-tags" aria-hidden="true"></div>
       <p class="table-ui around-legend" aria-label="주변 3D 범례" hidden></p>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
       <section class="table-ui peek" aria-label="종이 내용" hidden></section>
@@ -119,6 +130,8 @@ export class DraftingTable {
       tilt: this.root.querySelector('.ui-tilt'),
       zoom: this.root.querySelector('.ui-zoom'),
       hint: this.root.querySelector('.ui-hint'),
+      band: this.root.querySelector('.figure-band'),
+      tags: this.root.querySelector('.block-tags'),
       eye: this.root.querySelector('.eye-bar'),
       aroundLegend: this.root.querySelector('.around-legend'),
       tray: this.root.querySelector('.tray'),
@@ -195,6 +208,7 @@ export class DraftingTable {
     this.boardSeen = true;
     this.syncPapers();
     this.drawMasses();
+    this.setPeopleList(view.people);
     this.drawTray();
     this.drawControls();
     // The first time: the view the project was last seen from, or the site fitted in.
@@ -224,7 +238,8 @@ export class DraftingTable {
   command(name) {
     switch (name) {
       case 'plan': this.showView('plan'); return '';
-      case 'persp': this.showView('3d'); return '';
+      case 'persp': this.showView('persp'); return '';
+      case 'iso': this.showView('iso'); return '';
       case 'zoom': this.fit(); return '';
       case 'north': if (this.eye) this.moveEye({ yaw: 0 }); else this.animateTo({ turn: 0 }); return '';
       case 'select': case 'note': case 'pen': this.setTool(name); return '';
@@ -232,12 +247,16 @@ export class DraftingTable {
       case 'pushpull': this.setTool('push'); return '';
       case 'eraser': this.setTool('erase'); return '';
       case 'dist': this.setTool('tape'); return '';
+      case 'radius': this.setTool('radius'); return '';
       case 'eye': this.toggleEye(); return '';
+      case 'people': this.setTool('person'); return '';
+      case 'section': this.setTool('section'); return '';
       case 'copy': this.setTool('move', { copy: true }); return '';
       case 'trace': this.layTracing(); return '';
       case 'mass': this.openForm(); return '';
       case 'photo': this.pickPhotos(); return '';
       case 'delete':
+        if (this.removePickedPerson()) return '';
         if (this.picked.length) { this.removePicked(); return ''; }
         if (!this.selected.some((id) => this.papers.some((p) => p.id === id && p.kind !== 'site'))) return '먼저 지울 종이나 동을 고르세요.';
         this.removeSelected();
@@ -267,6 +286,7 @@ export class DraftingTable {
       mass: color('--mass', '#e8ebee'), ink: color('--text', '#20262d'), pen: color('--pen', '#2b5d8a'),
       ghost: color('--brand', '#36536b'), pick: color('--pick', '#e3a008'), // a picked block, yellow as in Rhino
       sky: color('--eye-sky', '#dfe7ee'), // behind the buildings at eye level
+      person: color('--person', '#7d8893'), // the scale figures (사람 배치)
     };
     let renderer;
     try {
@@ -319,8 +339,10 @@ export class DraftingTable {
     const traces = new THREE.Group();
     const draft = new THREE.Group(); // what a tool is drawing: a rectangle, the tape measure
     const around = new THREE.Group(); // the site's surroundings: ground, nearby buildings, contours
-    scene.add(lot, masses, traces, draft, around);
-    this.gl = { renderer, cssRenderer, scene, cssScene, camera, desk, grid, catcher, horizon, lot, masses, traces, draft, around, labels: [], objects: new Map(), raycaster: new THREE.Raycaster() };
+    const people = new THREE.Group(); // the scale figures standing up (3D), in plan metres
+    const peopleMarks = new THREE.Group(); // the same people as circles in plan
+    scene.add(lot, masses, traces, draft, around, people, peopleMarks);
+    this.gl = { renderer, cssRenderer, scene, cssScene, camera, sun, desk, grid, catcher, horizon, lot, masses, traces, draft, around, people, peopleMarks, labels: [], objects: new Map(), raycaster: new THREE.Raycaster() };
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(this.root);
   }
@@ -347,8 +369,8 @@ export class DraftingTable {
   aimCamera(camera, v) {
     const c = cameraFor(v);
     camera.fov = c.fov;
-    camera.near = c.dist * 0.05;
-    camera.far = c.dist * 20;
+    camera.near = c.near;
+    camera.far = c.far;
     camera.position.set(...c.position);
     camera.up.set(...c.up);
     camera.lookAt(...c.target);
@@ -358,7 +380,7 @@ export class DraftingTable {
 
   render() {
     if (!this.gl || !this.root.isConnected || !this.root.clientWidth) return;
-    const { renderer, cssRenderer, scene, cssScene, camera, desk, grid, catcher, horizon, lot, masses, traces, around, labels, objects } = this.gl;
+    const { renderer, cssRenderer, scene, cssScene, camera, desk, grid, catcher, horizon, lot, masses, traces, around, people, peopleMarks, labels, objects } = this.gl;
     const v = this.view;
     const eye = this.eye; // at eye level: the camera stands in the street and everything stands up
     if (eye) this.aimEye(camera, eye);
@@ -367,6 +389,11 @@ export class DraftingTable {
     const rise = eye ? 1 : riseFor(v.tilt);
     masses.scale.z = rise;
     masses.visible = !(eye && this.eyeBefore); // 지금 건물: the street as it is, without the masses
+    // People stand up with the masses; while the table lies near flat they are circles in plan.
+    people.scale.z = rise;
+    peopleMarks.scale.z = rise;
+    people.visible = Boolean(eye) || rise >= 0.25;
+    peopleMarks.visible = !people.visible;
     // The surroundings rise with the masses; the table top goes below the lowest ground under them.
     const shown = Boolean(this.aroundOn && this.around);
     around.visible = shown && !this.aroundHidden;
@@ -393,6 +420,7 @@ export class DraftingTable {
     const off = new Set(this.papers.filter((p) => this.layerHidden(p)).map((p) => p.id)); // layers turned off
     for (const [id, obj] of objects) obj.visible = !fold && !shut.has(id) && !off.has(id);
     if (fold !== this.root.classList.contains('is-3d')) this.foldChanged(fold);
+    this.applyCut(fold, rise);
     this.root.classList.toggle('has-folded', shut.size > 0);
     // How large a paper px is on the screen, for the corner grips (a steady size on the screen)
     // and the PDF pages (drawn again, a moment after a zoom, as sharp as they are now seen).
@@ -407,6 +435,8 @@ export class DraftingTable {
     cssRenderer.render(cssScene, camera);
     if (fold || shut.size) this.placePins(fold ? null : shut);
     this.placeGumball();
+    this.placeBlockTags();
+    this.placeMeasure();
   }
 
   openViewScale() {
@@ -505,6 +535,12 @@ export class DraftingTable {
       await this.hooks.remove(edit.paper.id);
     } else if (edit.op === 'add') {
       await this.hooks.add(edit.paper);
+    } else if (edit.op === 'people') {
+      this.people = edit.after;
+      if (!this.people.some((p) => p.id === this.personPicked)) this.personPicked = '';
+      this.drawPeople();
+      this.drawPersonBar();
+      await this.hooks.savePeople?.(edit.after);
     }
   }
 
@@ -550,6 +586,7 @@ export class DraftingTable {
     this.ui.tools.innerHTML = `${TOOLS.filter((t) => !t.group).slice(0, 1).map(toolButton).join('')}
       <span class="sep"></span>${TOOLS.filter((t) => t.group === 'model').map(toolButton).join('')}
       <span class="sep"></span>${TOOLS.filter((t) => !t.group).slice(1).map(toolButton).join('')}
+      ${this.tool === 'person' ? this.personOptions() : ''}
       <span class="sep"></span>
       <button type="button" class="tool" data-ui="scheme-new" aria-label="매스안 만들기" title="숫자로 매스안 만들기">${icon('mass')}</button>
       <button type="button" class="tool" data-ui="trace" aria-label="트레이싱지 덮기" title="트레이싱지 덮기 (명령: trace) — 대지 위에 덮고, 옆으로 끌어내면 떼어집니다">${icon('trace')}</button>
@@ -565,9 +602,13 @@ export class DraftingTable {
     this.ui.scheme.innerHTML = masses.length ? `<div class="seg" role="group" aria-label="3D로 볼 매스안">
         ${masses.map((p) => `<button type="button" data-active="${escape(p.id)}" aria-pressed="${this.active === p.id}">${escape(paperName(p))}</button>`).join('')}</div>
       ${masses.length > 1 ? `<label class="check"><input type="checkbox" data-ui="ghost" ${this.ghost ? 'checked' : ''}> 다른 안 겹쳐 보기</label>` : ''}` : '';
-    this.ui.tilt.innerHTML = `<div class="seg" role="group" aria-label="평면 또는 3D">
-        ${[['plan', '평면', 'plan'], ['3d', '3D', 'persp']].map(([id, label, k]) => `<button type="button" data-tilt="${id}" title="${label} (명령: ${k})" aria-pressed="${!this.eye && viewName(v.tilt) === id}">${label}</button>`).join('')}
+    const mode = !this.eye && viewMode(v);
+    const corner = !this.eye && isoCorner(v);
+    this.ui.tilt.innerHTML = `<div class="seg" role="group" aria-label="보기">
+        ${[['plan', '평면', 'plan', ''], ['persp', '3D', 'persp', ''], ['iso', '아이소', 'iso', ' — 원근 없는 평행투영. 다시 누르면 90° 돌아감']].map(([id, label, k, more]) => `<button type="button" data-tilt="${id}" title="${label} (명령: ${k})${more}" aria-pressed="${mode === id}">${label}</button>`).join('')}
         <button type="button" data-ui="eye" title="눈높이 (명령: eye) — 땅 위 한 점을 눌러 그 자리 사람 눈높이에서 매스 보기" aria-pressed="${Boolean(this.eye || this.eyePicking)}">눈높이</button></div>
+      <div class="iso-corners" role="group" aria-label="아이소 방향" ${mode === 'iso' ? '' : 'hidden'}>
+        ${[['nw', '북서'], ['ne', '북동'], ['sw', '남서'], ['se', '남동']].map(([id, label]) => `<button type="button" data-tilt="iso" data-corner="${id}" title="${label}쪽에서 보기" aria-pressed="${corner === id}">${label}</button>`).join('')}</div>
       <input type="range" min="0" max="${MAX_TILT}" value="${Math.round(v.tilt)}" aria-label="기울기 각도" title="기울이면 배치도가 3D가 됩니다" data-ui="tilt-range">
       <span class="num tilt-read">${Math.round(v.tilt)}°</span>
       <button type="button" class="compass" data-ui="north" title="${this.eye ? '북쪽 보기' : '북쪽을 위로'}"><span style="transform: rotate(${-(this.eye ? this.eye.yaw : v.turn)}deg)" aria-hidden="true">▲</span><small>N</small></button>`;
@@ -586,7 +627,13 @@ export class DraftingTable {
     if (range && document.activeElement !== range) range.value = String(Math.round(v.tilt));
     const needle = this.ui.tilt.querySelector('.compass span');
     if (needle) needle.style.transform = `rotate(${-v.turn}deg)`;
-    for (const b of this.ui.tilt.querySelectorAll('[data-tilt]')) b.setAttribute('aria-pressed', String(!this.eye && viewName(v.tilt) === b.dataset.tilt));
+    const mode = !this.eye && viewMode(v);
+    const corner = !this.eye && isoCorner(v);
+    for (const b of this.ui.tilt.querySelectorAll('[data-tilt]')) {
+      b.setAttribute('aria-pressed', String(b.dataset.corner ? corner === b.dataset.corner : mode === b.dataset.tilt));
+    }
+    const corners = this.ui.tilt.querySelector('.iso-corners');
+    if (corners) corners.hidden = mode !== 'iso';
     const scale = this.ui.zoom.querySelector('.scale-readout');
     if (scale) scale.innerHTML = this.scaleReadout();
   }
@@ -600,8 +647,8 @@ export class DraftingTable {
     clearTimeout(this.viewTimer);
     if (this.fitted) {
       this.viewTimer = setTimeout(() => {
-        const { x, y, span, tilt, turn, z } = this.view;
-        this.hooks.saveView?.({ x, y, span, tilt, turn, z: z || 0 });
+        const { x, y, span, tilt, turn, z, para } = this.view;
+        this.hooks.saveView?.({ x, y, span, tilt, turn, z: z || 0, para: para || 0 });
       }, 1000);
     }
   }
@@ -614,10 +661,11 @@ export class DraftingTable {
     this.hintTimer = setTimeout(() => { hint.hidden = true; }, 4000);
   }
 
-  // The plan or the 3D view (board-model.js viewFor): the buttons, keys 1·2 and plan/persp.
-  showView(name) {
+  // The plan, 3D or iso view (board-model.js viewFor): the buttons and the plan, persp and iso
+  // commands; `corner` picks the corner an iso view looks from.
+  showView(name, corner = null) {
     if (this.eye) this.exitEye(); // from eye level: first the view it came from
-    const target = viewFor(name, this.view);
+    const target = viewFor(name, this.view, corner);
     if (target) this.animateTo(target);
   }
 
@@ -656,7 +704,9 @@ export class DraftingTable {
   // ------------------------------------------------------------------ edits
 
   save(id, changes) {
-    return this.hooks.update(id, changes);
+    const saved = this.hooks.update(id, changes);
+    if (changesPanel(changes)) this.hooks.edited?.(); // the 속성 panel shows the new values now
+    return saved;
   }
 
   // Group what is selected and picked (any papers and buildings), or take apart every group it
@@ -706,6 +756,7 @@ export class DraftingTable {
 
   setTool(tool, { copy = false } = {}) {
     this.snapEl.hidden = true;
+    if (tool !== this.tool) this.clearMeasure(); // what was measured goes with the tool
     this.tool = tool;
     this.copyMode = copy; // the copy command: the move tool copies without Ctrl
     if (tool === 'pen' && folded(this.view.tilt)) {
@@ -717,10 +768,11 @@ export class DraftingTable {
     this.root.classList.toggle('tool-pen', tool === 'pen');
     this.root.classList.toggle('tool-note', tool === 'note');
     this.root.classList.toggle('tool-model', MODEL_TOOLS.has(tool));
+    this.root.classList.toggle('tool-person', tool === 'person');
     this.gl?.draft.clear();
     this.drawControls();
     this.invalidate();
   }
 }
 
-Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods, eyeMethods);
+Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods, eyeMethods, measureMethods, peopleMethods, sectionMethods);

@@ -27,7 +27,7 @@ SITE = [("site", SimpleNamespace(board_site=lambda path: {"area_m2": 1000.0, "li
 
 def test_a_new_table_holds_only_the_site_and_papers_are_saved_one_by_one(tmp_path):
     assert board.load_board(tmp_path) == {"rev": 0, "papers": [board._site_paper()], "tray": [], "pins": [], "ideas": [], "hidden": [],
-                                          "layers": board.default_layers()}
+                                          "people": [], "layers": board.default_layers()}
     assert not board.board_path(tmp_path).exists()  # reading saves nothing
 
     mass = board.add_paper(tmp_path, {**MASS, "id": "mass-a", "x": 40, "y": 10, "w": 300, "h": 210})
@@ -477,7 +477,7 @@ def test_the_view_adds_the_site_and_each_schemes_figures(tmp_path):
     tray_id = got["tray"][0]["id"]
     assert got["figures"][tray_id]["floor_area_m2"] == 200.0
     assert got["site"]["lines"] == ["대지: 필지 1개"] and len(got["site"]["plan"]["parcels"]) == 1
-    assert board.load_board(tmp_path).keys() == {"rev", "papers", "tray", "pins", "ideas", "hidden", "layers"}  # nothing derived is saved
+    assert board.load_board(tmp_path).keys() == {"rev", "papers", "tray", "pins", "ideas", "hidden", "people", "layers"}  # nothing derived is saved
 
     bare = board.view(tmp_path, hooks=[("site", SimpleNamespace(board_site=lambda path: None))])
     assert bare["site"] is None and bare["figures"]["mass-a"]["coverage_pct"] is None
@@ -785,7 +785,7 @@ def test_a_damaged_board_does_not_stop_the_conductor_or_an_expert_run(make_sessi
 
 
 def test_layers_start_one_per_kind_and_are_replaced_whole(tmp_path):
-    assert [x["id"] for x in board.load_board(tmp_path)["layers"]] == ["site", "mass", "tracing", "note", "photo", "expert"]
+    assert [x["id"] for x in board.load_board(tmp_path)["layers"]] == ["site", "mass", "tracing", "note", "photo", "expert", "section"]
     layers = [*board.default_layers(), {"id": "layer-tower", "name": "타워", "parent": "mass", "visible": False, "color": "#AABBCC"}]
     saved = board.set_layers(tmp_path, layers)["layers"]
     assert saved[-1] == {"id": "layer-tower", "name": "타워", "parent": "mass", "visible": False, "locked": False, "color": "#aabbcc"}
@@ -836,10 +836,13 @@ def test_the_view_the_table_was_seen_from_is_kept_beside_the_board(tmp_path):
     assert board.load_view(tmp_path) is None
     assert board.view(tmp_path)["saved_view"] is None
     kept = board.save_view(tmp_path, {"x": 1.23456, "y": -2, "span": 120, "tilt": 35, "turn": -30, "z": 0, "junk": 1})
-    assert kept == {"x": 1.2346, "y": -2.0, "span": 120.0, "tilt": 35.0, "turn": -30.0, "z": 0.0}
+    assert kept == {"x": 1.2346, "y": -2.0, "span": 120.0, "tilt": 35.0, "turn": -30.0, "z": 0.0, "para": 0.0}
     assert board.view(tmp_path)["saved_view"] == kept
     assert board.load_board(tmp_path)["rev"] == 0  # not an edit of the table
-    for bad in ({"span": 0}, {"span": 10, "tilt": 400}, {"span": "x"}, "nope"):
+    # An iso view keeps that it is parallel (para 1), so a reload opens on it.
+    iso = board.save_view(tmp_path, {"span": 120, "tilt": 54.7356, "turn": 45, "para": 1})
+    assert iso["para"] == 1.0 and board.load_view(tmp_path)["para"] == 1.0
+    for bad in ({"span": 0}, {"span": 10, "tilt": 400}, {"span": "x"}, {"span": 10, "para": 2}, {"span": 10, "para": -0.5}, "nope"):
         with pytest.raises(ValueError):
             board.save_view(tmp_path, bad)
     (tmp_path / board.VIEW_FILE).write_text("{broken", encoding="utf-8")
@@ -862,3 +865,76 @@ def test_the_conductor_gets_the_site_from_the_domains_with_every_message(make_se
     finally:
         experts.domain_hooks = original
     assert "SITE (test): lot 40 × 20 m" in _texts(c.calls[0]["messages"])
+
+
+# ---------------------------------------------------------------------------
+# Scale figures (people) standing about the site
+# ---------------------------------------------------------------------------
+
+
+def test_people_are_saved_as_a_whole_list_and_checked(tmp_path):
+    board.add_paper(tmp_path, {**MASS, "id": "mass-a"})
+    saved = board.set_people(tmp_path, [
+        {"id": "p1", "x": 3.14159, "y": -2, "turn": -90, "kind": "walk"},
+        {"x": 0, "y": 5, "kind": "child", "roof": True, "junk": 1},
+        {"id": "p3", "x": 1, "y": 1, "roof": False},
+    ])
+    first, second, third = saved["people"]
+    assert first == {"id": "p1", "x": 3.142, "y": -2.0, "turn": 270.0, "kind": "walk"}  # facing west
+    assert second["id"].startswith("person-") and second["roof"] is True and "junk" not in second
+    assert third == {"id": "p3", "x": 1.0, "y": 1.0, "turn": 0.0, "kind": "stand"}  # on the ground: no roof kept
+    loaded = board.load_board(tmp_path)
+    assert loaded["people"] == saved["people"] and [p["id"] for p in loaded["papers"]] == ["site", "mass-a"]
+    assert board.set_people(tmp_path, [])["people"] == []  # 모두 지우기
+
+
+@pytest.mark.parametrize("bad", [
+    "p1", [{"x": 0}], [{"x": 0, "y": "1"}], [{"x": 0, "y": 0, "kind": "dog"}], [{"x": 1e9, "y": 0}],
+    [{"x": 0, "y": 0, "roof": "yes"}], [{"id": "a b", "x": 0, "y": 0}], [{"id": "p", "x": 0, "y": 0}, {"id": "p", "x": 1, "y": 1}],
+], ids=["not-a-list", "no-y", "text-y", "kind", "far", "roof", "id", "same-id"])
+def test_people_that_do_not_read_are_refused_and_nothing_is_saved(tmp_path, bad):
+    with pytest.raises(ValueError):
+        board.set_people(tmp_path, bad)
+    assert not board.board_path(tmp_path).exists()
+
+
+def test_too_many_people_are_refused(tmp_path):
+    with pytest.raises(ValueError):
+        board.set_people(tmp_path, [{"x": i, "y": 0} for i in range(board.MAX_PEOPLE + 1)])
+
+
+def test_a_hand_edited_person_that_no_longer_reads_is_left_out_not_the_table(tmp_path):
+    board.add_paper(tmp_path, {**MASS, "id": "mass-a"})
+    data = json.loads(board.board_path(tmp_path).read_text(encoding="utf-8"))
+    data["people"] = [{"id": "ok", "x": 1, "y": 2}, {"id": "bad", "x": "far"}, "junk", {"id": "ok", "x": 9, "y": 9}]
+    board.board_path(tmp_path).write_text(json.dumps(data), encoding="utf-8")
+    assert board.load_board(tmp_path)["people"] == [{"id": "ok", "x": 1.0, "y": 2.0, "turn": 0.0, "kind": "stand"}]
+
+
+def test_people_never_reach_the_ai(tmp_path):
+    board.add_paper(tmp_path, {**MASS, "id": "mass-a"})
+    board.set_people(tmp_path, [{"id": "walker-77", "x": 1, "y": 2, "kind": "walk"}])
+    saved = board.load_board(tmp_path)
+    assert "walker-77" not in board.board_index(saved)
+    assert "walker-77" not in board.conductor_block(board.select(tmp_path, ["mass-a"]), saved, "full")
+
+
+def test_a_section_keeps_its_line_side_depth_and_scale(tmp_path):
+    sec = board.add_paper(tmp_path, {"kind": "section", "title": "A", "line": [[-30, 0], [30.004, 0]], "junk": 1})["paper"]
+    assert (sec["line"], sec["flip"], sec["depth"], sec["scale"]) == ([[-30.0, 0.0], [30.0, 0.0]], False, 60.0, 500)
+    assert board.paper_name(sec) == "단면 A–A′" and "junk" not in sec
+    moved = board.update_paper(tmp_path, sec["id"], {"flip": True, "depth": 0, "scale": 200, "line": [[0, 0], [0, 50]]})["paper"]
+    assert (moved["flip"], moved["depth"], moved["scale"], moved["line"]) == (True, 0, 200, [[0, 0], [0, 50]])
+    text = board.paper_text(moved, None)
+    assert "50.0 m long" in text and "bearing 270°" in text and "1:200" in text  # going north, flipped: looks west
+    for bad in ({"line": [[0, 0], [0.5, 0]]}, {"line": [[0, 0]]}, {"line": [[0, 0], [9000, 0]]}, {"scale": 333},
+                {"scale": True}, {"flip": "yes"}, {"depth": 5000}):
+        with pytest.raises(ValueError):
+            board.update_paper(tmp_path, sec["id"], bad)
+
+
+def test_a_table_saved_before_sections_gets_their_layer_with_the_first_one(tmp_path):
+    board.set_layers(tmp_path, board.default_layers()[:2])
+    board.add_paper(tmp_path, {"kind": "section", "line": [[0, 0], [10, 0]]})
+    board.add_paper(tmp_path, {"kind": "section", "line": [[0, 0], [0, 10]]})
+    assert [layer["id"] for layer in board.load_board(tmp_path)["layers"]] == ["site", "mass", "section"]

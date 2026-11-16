@@ -43,7 +43,7 @@ export const detailMethods = {
       case 'place': this.placeFromTray(id); break;
       case 'open-expert': this.hooks.openExpert(p.agent || ''); break;
       case 'ask': if (!this.selected.includes(id)) this.select(toggleSelected(this.selected, id, true)); this.hooks.ask?.(id); break;
-      default: break;
+      default: this.sectionAction(action, p); break;
     }
   },
   inspectInWindow(id) {
@@ -129,10 +129,13 @@ export const detailMethods = {
         ${panel ? '' : `<label class="detail-title">${pdf ? 'PDF 이름' : '사진 이름'}<input type="text" data-detail-title="${id}" maxlength="120" value="${escape(p.title || '')}" placeholder="예: 북측 도로에서 본 대지"></label>`}
         <div class="detail-sizes" role="group" aria-label="제도판 위 크기"><span>제도판 위 크기</span>${sizes}</div>
         <p class="detail-caption">AI에게는 ${pdf ? 'PDF' : '사진'} 이름만 갑니다. 무엇이 있는지는 질문에 적어 주세요.</p>`;
+    } else if (p.kind === 'section') {
+      body = this.sectionBody(p, true);
     }
     const why = [p.based_on ? `${paperName(this.find(p.based_on)) || p.based_on}의 수정안` : '', p.reason || ''].filter(Boolean)
       .map((t) => `<p class="detail-caption">${escape(t)}</p>`).join('');
     const actions = [
+      this.sectionActions(p, on),
       p.kind === 'mass' && onTable && this.active !== p.id ? `<button type="button" ${on('show')}>3D로 세우기</button>` : '',
       p.kind === 'mass' && onTable ? `<button type="button" ${on('edit')}>고치기</button>` : '',
       p.kind === 'note' && onTable && panel ? `<button type="button" ${on('write')}>제도판에서 고치기</button>` : '',
@@ -164,7 +167,7 @@ export const detailMethods = {
       case 'page-prev': case 'page-next': this.turnPage(id, action === 'page-next' ? 1 : -1); break;
       case 'place': this.closeDetail(); this.placeFromTray(id); break;
       case 'ask': this.closeDetail(); if (!this.selected.includes(id)) this.select(toggleSelected(this.selected, id, true)); this.hooks.ask?.(id); break;
-      default: break;
+      default: this.sectionAction(action, p); break;
     }
   },
   // A note written in the detail panel is saved when it loses focus or the panel closes.

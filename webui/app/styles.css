@@ -659,8 +659,14 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 [data-gumball]:hover .gb-shaft { stroke-width: 4; }
 .gb-free { fill: color-mix(in srgb, var(--brand) 25%, white); stroke: var(--brand); stroke-width: 1.5; }
 .gb-free:hover { fill: var(--brand); }
+.gb-ring { fill: none; stroke: var(--gb); stroke-width: 3; stroke-linecap: round; }
+[data-gumball="rotate"] .gb-hit { fill: none; }
+[data-gumball="rotate"]:hover .gb-ring { stroke-width: 5; }
+.gb-fan { fill: color-mix(in srgb, #3b6fd6 16%, transparent); stroke: #3b6fd6; stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
+.gb-angle { font: 600 12px var(--font); fill: var(--text); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; text-anchor: middle; pointer-events: none; }
+.gb-pivot { fill: none; stroke: var(--brand); stroke-width: 1.5; pointer-events: none; }
 .table:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
-.table.tool-pen, .table.tool-note, .table.tool-model { cursor: crosshair; }
+.table.tool-pen, .table.tool-note, .table.tool-model, .table.tool-person { cursor: crosshair; }
 .table-stage, .table-gl, .table-css { position: absolute; inset: 0; }
 .table-css { pointer-events: none; }
 .table-error { position: absolute; inset: 40% 20px auto; text-align: center; color: var(--muted); }
@@ -696,6 +702,22 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .paper.kind-photo .pdf-page { width: 100%; height: 100%; background: #fff; pointer-events: none; }
 .pdf-page .pdf-canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
 .pdf-page.is-broken { background: repeating-linear-gradient(45deg, var(--surface-subtle) 0 8px, var(--surface) 8px 16px); }
+/* Section papers (단면, section-model.js sectionSvg): the drawing in the screen's own neutral colours. */
+.kind-section .paper-head { border-top: 4px solid var(--line); }
+.section-sheet { flex: 1; min-height: 0; display: flex; background: var(--surface); }
+.section-sheet.is-large { border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+.section-drawing { width: 100%; height: 100%; display: block; }
+.section-drawing .sec-datum { stroke: var(--line); stroke-width: .6; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.section-drawing .sec-beyond { fill: var(--surface); stroke: color-mix(in srgb, var(--muted) 55%, transparent); stroke-width: .8; vector-effect: non-scaling-stroke; }
+.section-drawing .sec-ground { fill: color-mix(in srgb, var(--muted) 22%, transparent); stroke: none; }
+.section-drawing .sec-ground-line { fill: none; stroke: var(--text); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.section-drawing .sec-mass { fill: var(--text); stroke: var(--text); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.section-drawing .sec-floor { stroke: var(--surface); stroke-width: .7; vector-effect: non-scaling-stroke; }
+.section-drawing .sec-building { fill: color-mix(in srgb, var(--muted) 45%, transparent); stroke: var(--muted); stroke-width: .8; vector-effect: non-scaling-stroke; }
+.section-drawing .is-estimate { stroke-dasharray: 3 2; }
+.section-drawing .sec-text { fill: var(--muted); font-family: var(--font); }
+.section-drawing .sec-end { fill: var(--text); font-family: var(--font); font-weight: 700; }
+.detail-files { display: inline-flex; gap: 4px; }
 /* Corner grips (table.js resizeGesture): a steady size on the screen whatever the zoom. */
 .paper-grip { position: absolute; z-index: 2; width: clamp(6px, calc(20px / var(--paper-zoom, 1)), 36px); aspect-ratio: 1; transform: translate(-50%, -50%); }
 .paper-grip[data-grip="nw"] { left: 0; top: 0; cursor: nwse-resize; }
@@ -711,10 +733,16 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .paper.kind-photo .paper-tag { top: auto; bottom: 8px; max-width: calc(100% - 20px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background: rgb(20 26 32 / .72); color: #fff; }
 .paper-tag { position: absolute; left: 10px; top: 8px; padding: 3px 10px; border-radius: 999px; background: var(--pen); color: var(--paper); font-size: 13px; font-weight: 600; cursor: move; }
 .floor-tag { font: 700 28px var(--font); color: var(--text); pointer-events: none; transition: opacity .2s; }
+.section-tag { font: 700 26px var(--font); color: var(--muted); pointer-events: none; }
+.section-tag.is-on { color: var(--text); }
 .table-ui { position: absolute; z-index: 2; }
 .tape-snap { position: absolute; left: 0; top: 0; z-index: 3; pointer-events: none; width: 10px; height: 10px; margin: -5px; border: 2px solid #126b89; background: #fff; box-shadow: 0 0 0 2px rgb(255 255 255 / .8); }
 .tape-snap[hidden] { display: none; }
 .tape-snap span { position: absolute; top: 12px; left: 8px; white-space: nowrap; color: #fff; background: #126b89; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+/* The tape's and the radius tool's lengths, laid over the scene (table-measure.js); the same colour as the tape's snap. */
+.measure-labels { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
+.measure-label { position: absolute; left: 0; top: 0; margin: -26px 0 0 8px; white-space: nowrap; color: #fff; background: #126b89; padding: 2px 7px; border-radius: 4px; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px rgb(255 255 255 / .8); }
+.measure-label.is-live { margin: 10px 0 0 12px; }
 /* In 3D the papers fold into pins standing where they lie; a pin opens its paper as a card. */
 .table-pins { position: absolute; inset: 0; z-index: 1; pointer-events: none; display: none; }
 .table.is-3d .table-pins, .table.has-folded .table-pins { display: block; }
@@ -808,6 +836,11 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .ui-tilt { padding-right: 8px; border-right: 1px solid var(--line); }
 .ui-tilt input[type="range"] { width: 88px; accent-color: var(--brand); border: 0; }
 .tilt-read, .ui-zoom .scale { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* The iso view's four corners, laid out as on a map (north up); shown only in the iso view. */
+.iso-corners[hidden] { display: none; }
+.iso-corners { display: grid; grid-template-columns: repeat(2, auto); gap: 1px; padding: 2px; border-radius: 8px; background: var(--surface-subtle); }
+.iso-corners button { border-radius: 5px; padding: 1px 5px; font-size: 10px; line-height: 1.4; color: var(--muted); }
+.iso-corners button[aria-pressed="true"] { background: var(--surface); color: var(--brand); font-weight: 700; }
 .compass { display: grid; justify-items: center; line-height: 1; padding: 4px; }
 .compass span { display: inline-block; font-size: 14px; transition: transform .15s; }
 .compass small { font-size: 10px; font-weight: 700; color: var(--muted); }
@@ -818,6 +851,24 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .view-scale-bar i { display: block; height: 5px; border: solid currentColor; border-width: 0 1px 1px; }
 .ui-hint { pointer-events: none; left: 50%; bottom: 76px; transform: translateX(-50%); padding: 10px 14px; border-radius: 8px; background: var(--brand); color: white; font-size: 12px; max-width: min(520px, 90%); }
 .ui-hint[hidden] { display: none; }
+/* While blocks are picked: the scheme's coverage and FAR against the caps along the foot of the
+   table, and each picked block's area and share of the site over it. Past a cap is said in words
+   (초과, underlined), not in a colour of its own. */
+.figure-band { left: 16px; bottom: 64px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin: 0; padding: 8px 12px; max-width: calc(100% - 32px);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 3px 12px rgb(36 52 67 / .05); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
+.figure-band[hidden] { display: none; }
+.figure-band .band-title { color: var(--text); font-weight: 700; overflow-wrap: anywhere; }
+.figure-band strong { color: var(--text); font-size: 13px; }
+.figure-band .is-over strong, .figure-band em { text-decoration: underline; text-underline-offset: 3px; }
+.figure-band em { font-style: normal; font-weight: 700; color: var(--text); }
+.block-tags { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
+.block-tag { position: absolute; left: 0; top: 0; padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 12px; line-height: 16px; white-space: nowrap; font-variant-numeric: tabular-nums; box-shadow: 0 2px 8px rgb(36 52 67 / .08); }
+.block-tag[hidden] { display: none; }
+.table.is-eye .figure-band, .table.is-eye .block-tags { display: none; }
+.table.tray-open .figure-band { left: calc(var(--tray-width) + 16px); max-width: calc(100% - var(--tray-width) - 32px); }
+/* The band sits over the view controls; the legend and the hints step up above it. */
+.table.has-band .around-legend { bottom: 112px; }
+.table.has-band .ui-hint { bottom: 124px; }
 /* 눈높이 보기: standing in the street. The bar along the top; the pins, the gumball and the
    modelling tools go away, as nothing on the table is edited from the street. */
 .eye-bar { left: 50%; top: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 3px 12px rgb(36 52 67 / .05); white-space: nowrap; }
@@ -831,6 +882,11 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .table.is-eye .table-stage { cursor: grab; }
 .table.is-eye .table-stage:active { cursor: grabbing; }
 .table.eye-picking .table-stage { cursor: crosshair; }
+/* 사람 배치: the 사람 tool's options, in the tool bar beside it (as the 주변 3D range is). */
+.person-options { display: contents; }
+.person-options > button { border-radius: 6px; padding: 7px 9px; font-size: 12px; color: var(--text); white-space: nowrap; }
+.person-options > button:hover:not(:disabled) { background: var(--surface-subtle); }
+.person-options > button:disabled { color: var(--muted); opacity: .55; cursor: default; }
 /* Where the surroundings in 3D come from, and that they are not a survey (주변 3D). */
 .tray { left: 0; top: 0; bottom: 0; width: var(--tray-width); display: none; flex-direction: column; gap: 10px; padding: 14px; overflow-y: auto; background: var(--surface); border-right: 1px solid var(--line); box-shadow: 6px 0 18px rgb(0 0 0 / .08); z-index: 3; cursor: auto; user-select: text; }
 .tray.open { display: flex; }
@@ -1105,6 +1161,16 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .site-map-slot > .muted { margin: 0; padding: 12px; }
 .site-map { width: 100%; height: 100%; font: 12px/1.4 var(--font); }
 .site-map .leaflet-control-attribution { font-size: 10px; }
+.site-map.is-measuring { cursor: crosshair; }
+.site-map.is-measuring .leaflet-interactive, .site-map.is-measuring .leaflet-grab { cursor: crosshair; }
+.map-ruler { display: flex; flex-direction: column; align-items: stretch; background: var(--surface); font: 12px/1.4 var(--font); }
+.map-ruler button { min-height: 30px; padding: 0 10px; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--text); font-weight: 600; }
+.map-ruler button:last-child { border-bottom: 0; }
+.map-ruler button[aria-pressed="true"] { background: var(--brand); color: #fff; }
+.map-ruler-quick { display: flex; flex-direction: column; }
+.map-ruler-quick button { font-weight: 400; font-variant-numeric: tabular-nums; }
+.map-ruler-tip { max-width: 140px; margin: 0; padding: 6px 8px; color: var(--muted); }
+.map-measure-label span { display: inline-block; transform: translate(8px, -50%); white-space: nowrap; color: #fff; background: #126b89; padding: 2px 7px; border-radius: 4px; font: 600 12px/1.4 var(--font); font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px rgb(255 255 255 / .8); }
 @media (max-width: 760px) { .site-map-slot { height: 260px; } }
 
 /* ------------------------------------------------------------------ command line and Conductor panel */

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  COMMANDS, englishKeys, findCommand, readLine, suggest, pickOption, addHistory, remember,
+  COMMANDS, englishKeys, findCommand, readLine, suggest, pickOption, addHistory, remember, readRadii,
 } from '../../webui/app/command-model.js';
 
 test('command names and short names are unique English words', () => {
@@ -36,6 +36,8 @@ test("SketchUp's basic tools are commands too, with the AutoCAD short names", ()
   assert.equal(named('di'), 'dist');
   assert.equal(named('eye'), 'eye'); // 눈높이 보기
   assert.equal(named('walk'), 'eye');
+  assert.equal(named('people'), 'people'); // 사람 배치
+  assert.equal(named('person'), 'people');
   assert.equal(named('갯ㅁㅅㄷ'), 'rotate'); // typed with the Korean keyboard on
   assert.equal(named('ㄴㅊ믿'), 'scale');
 });
@@ -59,11 +61,12 @@ test('a single Korean letter or a Korean word is never a command', () => {
 });
 
 test('suggestions follow the word being typed and stop at a space', () => {
-  assert.deepEqual(suggest('p').map((c) => c.name), ['plan', 'persp', 'pen', 'photo', 'pushpull']);
+  assert.deepEqual(suggest('p').map((c) => c.name), ['plan', 'persp', 'pen', 'people', 'photo', 'pushpull']);
   assert.deepEqual(suggest('z').map((c) => c.name), ['zoom']);
   assert.equal(findCommand('picture').command.name, 'photo'); // Rhino's word for it
   assert.equal(findCommand('perspective').command.name, 'persp'); // one 3D view (2026-11-01)
   assert.equal(findCommand('axo'), null);
+  assert.equal(findCommand('isometric').command.name, 'iso'); // the parallel iso view (2026-11-11)
   assert.deepEqual(suggest('ㅔㅣ').map((c) => c.name), ['plan']);
   assert.equal(suggest('zoom ').length, 0);
   assert.equal(suggest('').length, 0);
@@ -102,4 +105,17 @@ test('vworld (vw) opens the masses on the VWorld 3D map; typed with the Korean k
   assert.equal(readLine('ㅍㅈ').command.name, 'vworld'); // vw with the Korean keyboard on
   assert.equal(findCommand('vworld').command.group, 'view');
   assert.deepEqual(readLine('vworld 켜 줘'), { kind: 'ask', text: 'vworld 켜 줘' });
+});
+
+test('radius is a command, and its answer reads radii in m or km', () => {
+  assert.equal(findCommand('radius').command.name, 'radius');
+  assert.equal(findCommand('ra').command.name, 'radius');
+  assert.deepEqual(readRadii('500'), [500]);
+  assert.deepEqual(readRadii(' 250 500  1000 '), [250, 500, 1000]);
+  assert.deepEqual(readRadii('250, 500m, 1.5km'), [250, 500, 1500]);
+  assert.equal(readRadii(''), null);
+  assert.equal(readRadii('오백'), null);
+  assert.equal(readRadii('500 abc'), null);
+  assert.equal(readRadii('0.5'), null); // under 1 m
+  assert.equal(readRadii('30km'), null); // over 20 km
 });

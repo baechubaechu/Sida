@@ -11,10 +11,14 @@ import {
   snapTape,
   folded, foldedInPlan, pinnedPapers, peekSpot, resultPreview,
   massIds, canCompare, COMPARE_QUESTION, addQuestion, createHistory, changedFields, recordStep, undoStep, redoStep,
-  invertStep, HISTORY_LIMIT, planDrawing, dragMode, wheelZoom, orbitBy, viewName, viewFor, panBy,
+  invertStep, HISTORY_LIMIT, planDrawing, dragMode, wheelZoom, orbitBy, viewName, viewFor, viewMode, isoCorner, ISO_TILT, ISO_TURNS, PARALLEL_FOV, panBy,
   photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_MAX_SIDE, MAX_PHOTOS_AT_ONCE, KIND_LABELS,
   isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, PDF_MAX_SIDE, PDF_MAX_AREA, resizable, resizedPaper, PAPER_LIMITS,
   EYE, groundAt, eyeStart, eyeCamera, eyeLook, eyeWalk, eyeZoom, eyeKey,
+  emptyMeasure, measureLength, measureClick, siteCircles, circlePoints, MAX_CIRCLES,
+  PERSON_KINDS, personId, insideRing, ringGap, blockUnder, nearestBlock, personNote, groundClass, scatterSpots, PERSON_GAP,
+  gumballTurn, turnedDelta, fromFrame, ratioBlocks, stretchBlocks, reachAlong, gumballClick, gumballNumberField, numericGumball, snapPivot, normalTurn,
+  panelPapers, changesPanel,
 } from '../../webui/app/board-model.js';
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
@@ -66,6 +70,43 @@ test('tape perspective snapping interpolates real height and is independent of w
   close(hit.point.x, 10); close(hit.point.z, 20);
   const zoomed = snapTape({ x: 200, y: 9 }, [[a, b]], p => ({ x: p.x * 10, y: 0, w: 1 }));
   close(zoomed.point.x, 20);
+});
+
+test('the radius tool takes two clicks: the centre, then the end; circles add up and the oldest go', () => {
+  const first = measureClick(emptyMeasure(), 'radius', { x: 10, y: 20, z: 0 });
+  assert.equal(first.made, null);
+  assert.deepEqual(first.state.start, { x: 10, y: 20, z: 0 });
+  // A second click on the same spot keeps the centre and makes nothing.
+  assert.equal(measureClick(first.state, 'radius', { x: 10, y: 20, z: 0 }).made, null);
+  const second = measureClick(first.state, 'radius', { x: 13, y: 24, z: 9 }); // height does not count
+  assert.equal(second.made.r, 5);
+  assert.deepEqual(second.made.b, { x: 13, y: 24, z: 9 });
+  assert.equal(second.state.start, null);
+  assert.equal(second.state.circles.length, 1);
+  let s = second.state;
+  for (let i = 1; i <= MAX_CIRCLES + 2; i++) s = measureClick(measureClick(s, 'radius', { x: 0, y: 0 }).state, 'radius', { x: i, y: 0 }).state;
+  assert.equal(s.circles.length, MAX_CIRCLES);
+  assert.equal(s.circles.at(-1).r, MAX_CIRCLES + 2);
+});
+
+test('the tape takes two clicks and keeps only its last line, measured straight in 3D', () => {
+  const a = measureClick(emptyMeasure(), 'tape', { x: 0, y: 0, z: 0 }).state;
+  const out = measureClick(a, 'tape', { x: 3, y: 0, z: 4 });
+  assert.equal(out.made.length, 5);
+  assert.equal(out.state.line.length, 5);
+  const next = measureClick(measureClick(out.state, 'tape', { x: 0, y: 0 }).state, 'tape', { x: 0, y: 2 }).state;
+  assert.equal(next.line.length, 2);
+  assert.equal(measureLength('radius', { x: 0, y: 0, z: 0 }, { x: 3, y: 0, z: 4 }), 3);
+});
+
+test('radius command circles sit on the middle of the site, their label to the north', () => {
+  const s = siteCircles(emptyMeasure(), { x: 2, y: -3 }, [250, 500]);
+  assert.deepEqual(s.circles.map((c) => c.r), [250, 500]);
+  assert.deepEqual(s.circles[1].c, { x: 2, y: -3, z: 0 });
+  assert.deepEqual(s.circles[1].b, { x: 2, y: 497, z: 0 });
+  const ring = circlePoints({ x: 1, y: 1, z: 2 }, 10, 4);
+  assert.equal(ring.length, 4);
+  for (const [x, y, z] of ring) { close(Math.hypot(x - 1, y - 1), 10); assert.equal(z, 2); }
 });
 
 test('push/pull and scale open numeric input only for a click on geometry, never after a drag or cancel', () => {
@@ -496,11 +537,55 @@ test('two views as in Rhino: the plan and one 3D view whose angle the mouse sets
   assert.equal(viewName(20), '3d');
   assert.equal(viewName(70), '3d');
   // From a plan the 3D button stands the table up, turned a little; in 3D it leaves the angle alone.
-  assert.deepEqual(viewFor('3d', { tilt: 0, turn: 0 }), { tilt: TILT.persp, turn: -30 });
-  assert.deepEqual(viewFor('3d', { tilt: 0, turn: 40 }), { tilt: TILT.persp, turn: 40 });
+  assert.deepEqual(viewFor('3d', { tilt: 0, turn: 0 }), { tilt: TILT.persp, turn: -30, para: 0 });
+  assert.deepEqual(viewFor('3d', { tilt: 0, turn: 40 }), { tilt: TILT.persp, turn: 40, para: 0 });
   assert.equal(viewFor('3d', { tilt: 60, turn: 15 }), null);
-  assert.deepEqual(viewFor('plan', { tilt: 60, turn: 15, z: 8 }), { tilt: 0, turn: 0, z: 0 });
+  assert.deepEqual(viewFor('plan', { tilt: 60, turn: 15, z: 8 }), { tilt: 0, turn: 0, z: 0, para: 0 });
   assert.deepEqual(Object.keys(TILT), ['plan', 'persp']);
+});
+
+test('the iso view: a parallel view from a corner, at the angle where the three axes look equal', () => {
+  close(Math.cos((ISO_TILT * Math.PI) / 180), 1 / Math.sqrt(3), 1e-5);
+  // From a plan the iso button looks from the south-west, facing north-east.
+  const iso = viewFor('iso', { tilt: 0, turn: 0 });
+  assert.deepEqual(iso, { tilt: ISO_TILT, turn: 45, para: 1 });
+  const v = { x: 0, y: 0, span: 100, tilt: 0, turn: 0, ...iso };
+  assert.equal(isoCorner(v), 'sw');
+  assert.equal(viewMode(v), 'iso');
+  const c = cameraFor(v);
+  assert.ok(c.position[0] < 0 && c.position[1] < 0, 'the viewer stands south-west of the target');
+  // Parallel: a very narrow lens from far away, the span still in frame, the depth range tight.
+  close(c.fov, PARALLEL_FOV);
+  close(2 * c.dist * Math.tan((c.fov * Math.PI) / 360), 100, 1e-6);
+  assert.ok(c.dist > 10000 && c.near > c.dist - 5000 && c.far < c.dist + 5000);
+  // Halfway the lens narrows between the 3D lens and the parallel one, the span kept.
+  const half = cameraFor({ ...v, para: 0.5 });
+  const lens = cameraFor({ ...v, para: 0 }).fov;
+  assert.ok(half.fov < lens && half.fov > PARALLEL_FOV);
+  close(2 * half.dist * Math.tan((half.fov * Math.PI) / 360), 100, 1e-6);
+  close(lerpView({ ...v, para: 0 }, v, 0.25).para, 0.25);
+  // The iso button again turns a quarter round; a corner button goes to that corner.
+  assert.equal(viewFor('iso', v).turn, ISO_TURNS.se);
+  assert.equal(isoCorner({ ...v, turn: -45 }), 'se');
+  assert.equal(isoCorner({ ...v, turn: 45 + 360 }), 'sw');
+  assert.deepEqual(viewFor('iso', v, 'ne'), { tilt: ISO_TILT, turn: -135, para: 1 });
+  assert.equal(viewFor('iso', v, 'sw'), null);
+  // From a 3D view it takes the corner nearest the way the view faces.
+  assert.equal(viewFor('iso', { tilt: 40, turn: 170 }).turn, ISO_TURNS.nw);
+  // Turned off the corner it stays parallel (as in Rhino): still the iso button, no corner lit.
+  const turned = { ...v, turn: 60 };
+  assert.equal(isoCorner(turned), null);
+  assert.equal(viewMode(turned), 'iso');
+  assert.equal(viewFor('iso', turned).turn, ISO_TURNS.sw);
+  // The 3D button opens the lens again without moving; a scheme shown in 3D keeps it parallel.
+  assert.deepEqual(viewFor('persp', v), { para: 0 });
+  assert.equal(viewFor('persp', { ...v, para: 0 }), null);
+  assert.equal(viewFor('3d', v), null);
+  assert.equal(viewMode({ ...v, para: 0 }), 'persp');
+  assert.equal(viewMode({ ...v, tilt: 0 }), 'plan');
+  assert.equal(viewFor('plan', v).para, 0);
+  // A view without para (saved before the iso view) is a perspective view, as before.
+  assert.deepEqual(cameraFor({ x: 0, y: 0, span: 100, tilt: 35, turn: 0 }), cameraFor({ x: 0, y: 0, span: 100, tilt: 35, turn: 0, para: 0 }));
 });
 
 test('the table lies down to 90° for elevations, and an elevation pans with the mouse', () => {
@@ -1041,6 +1126,76 @@ test('the properties tab sums a mass scheme against the site and its statutory c
   assert.equal(propertiesOf([]), null);
 });
 
+test('a picked building shows its share of the site and the scheme against the caps', async () => {
+  const { propertiesOf, pickedBlocks } = await import('../../webui/app/board-model.js');
+  const mass = { id: 'm', kind: 'mass', title: 'A안', floor_height: 4, blocks: [{ u: -20, v: 0, w: 12, d: 10, floors: 5 }, { u: 10, v: 0, w: 8, d: 9, floors: 3 }] };
+  const site = { areaM2: 400, bcr: 60, far: 250 };
+  const row = (props, label) => props.rows.find((r) => r[0] === label)?.[1];
+  const one = propertiesOf([], site, pickedBlocks([mass], ['m#1']));
+  assert.equal(row(one, '바닥면적'), '72㎡');
+  assert.equal(row(one, '건폐율 몫'), '18%');
+  assert.equal(row(one, '용적률 몫'), '54%');
+  assert.equal(row(one, '매스안 건폐율'), '48% (법정 60% 이하)');
+  assert.equal(row(one, '매스안 용적률'), '204% (법정 250% 이하)');
+  assert.equal(row(one, '건폐율 여유'), '48㎡ 남음');
+  assert.equal(row(one, '용적률 여유'), '184㎡ 남음');
+  assert.ok(one.note.includes('400㎡'));
+  assert.equal(one.note.includes('겹친'), false);
+  // Both: their shares added up.
+  const both = propertiesOf([], site, pickedBlocks([mass], ['m#0', 'm#1']));
+  assert.equal(row(both, '건폐율 몫 합'), '48%');
+  assert.equal(row(both, '용적률 몫 합'), '204%');
+  // Past a cap: said in words, and the floor over it.
+  const big = { ...mass, blocks: [mass.blocks[0], { ...mass.blocks[1], w: 14 }] };
+  const over = propertiesOf([], site, pickedBlocks([big], ['m#1']));
+  assert.equal(row(over, '매스안 건폐율'), '61.5% (법정 60% 초과)');
+  assert.equal(row(over, '건폐율 여유'), '6㎡ 넘음');
+  // No site area: the shares are 미확인, and no scheme ratios.
+  const unknown = propertiesOf([], null, pickedBlocks([mass], ['m#1']));
+  assert.equal(row(unknown, '건폐율·용적률'), '미확인 (대지면적 모름)');
+  assert.equal(row(unknown, '매스안 건폐율'), undefined);
+  // The scheme itself also shows the floor left under the caps.
+  const scheme = propertiesOf([mass], site);
+  assert.equal(row(scheme, '건폐율'), '48% (법정 60% 이하)');
+  assert.equal(row(scheme, '건폐율 여유'), '48㎡ 남음');
+});
+
+test('blocks that overlap are told, as their shared part is counted twice', async () => {
+  const { blocksOverlap, propertiesOf, pickedBlocks } = await import('../../webui/app/board-model.js');
+  const a = { u: 0, v: 0, w: 10, d: 10, floors: 1 };
+  assert.equal(blocksOverlap([a, { ...a, u: 10 }]), false); // side by side, touching
+  assert.equal(blocksOverlap([a, { ...a, u: 9 }]), true);
+  assert.equal(blocksOverlap([a, { ...a, u: 12, a: 45 }]), true); // a turned corner reaches in
+  assert.equal(blocksOverlap([a, { ...a, u: 13, a: 45 }]), false);
+  assert.equal(blocksOverlap([a]), false);
+  const mass = { id: 'm', kind: 'mass', title: 'A안', blocks: [a, { ...a, u: 5 }] };
+  const site = { areaM2: 400, bcr: 60, far: 250 };
+  assert.ok(propertiesOf([mass], site).note.includes('두 번'));
+  assert.ok(propertiesOf([], site, pickedBlocks([mass], ['m#0'])).note.includes('두 번'));
+});
+
+test('the band and tags while blocks are edited follow the same rule', async () => {
+  const { figuresBand, blockTag, massFigures } = await import('../../webui/app/board-model.js');
+  const mass = { id: 'm', kind: 'mass', title: '안 A', blocks: [{ u: -20, v: 0, w: 12, d: 10, floors: 5 }, { u: 10, v: 0, w: 14, d: 9, floors: 3 }] };
+  const site = { areaM2: 400, bcr: 60, far: 250 };
+  const band = figuresBand(mass, site);
+  assert.equal(band.title, '안 A');
+  assert.deepEqual(band.items, [
+    { label: '건폐율', value: '61.5%', cap: '법정 60%', over: true },
+    { label: '용적률', value: '244.5%', cap: '법정 250%', over: false },
+  ]);
+  assert.equal(band.overlap, false);
+  // Without caps: the ratios alone. Without the area: the areas and why.
+  assert.deepEqual(figuresBand(mass, { areaM2: 400, bcr: null, far: null }).items.map((i) => [i.cap, i.over]), [['', false], ['', false]]);
+  assert.deepEqual(figuresBand(mass, null).items.map((i) => i.value), ['246㎡', '978㎡', '미확인 (대지면적 모름)']);
+  assert.equal(figuresBand({ blocks: [] }, site), null);
+  assert.equal(blockTag(mass, 1, site), '2동 · 126㎡ · 건폐율 31.5%');
+  assert.equal(blockTag(mass, 0, null), '1동 · 120㎡');
+  // Exactly at the cap is within it.
+  assert.equal(figuresBand({ title: 'x', blocks: [{ u: 0, v: 0, w: 20, d: 12, floors: 1 }] }, site).items[0].over, false);
+  assert.equal(massFigures([], { areaM2: 0, bcr: 60 }).coverage, null);
+});
+
 test('a picked building shows its floors and size to change; several share their floors', async () => {
   const { propertiesOf, pickedBlocks } = await import('../../webui/app/board-model.js');
   const mass = { id: 'm', kind: 'mass', title: 'A안', floor_height: 4, blocks: [{ u: 0, v: 0, w: 10, d: 20, floors: 3 }, { u: 0, v: 0, w: 5, d: 10, floors: 1, a: 30 }] };
@@ -1306,4 +1461,173 @@ test('every three.js name the screen uses is in the bundled three.js', async () 
   }
   assert.ok(used.size > 20);
   assert.deepEqual([...used].filter((name) => bundled[name] === undefined), []);
+});
+
+// ------------------------------------------------------------------ people (사람 배치)
+
+// A repeatable random source for the scatter.
+function seeded(seed) {
+  return () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+}
+const SQUARE = [[-10, -10], [10, -10], [10, 10], [-10, 10]];
+const FRAME = { x: 0, y: 0, angle: 0 };
+
+test('a person is inside a ring or a known distance from its edges', () => {
+  assert.ok(insideRing(SQUARE, 0, 0));
+  assert.ok(!insideRing(SQUARE, 11, 0));
+  close(ringGap(SQUARE, 13, 0), 3);
+  close(ringGap(SQUARE, 0, 0), 10);
+});
+
+test('a person on a roof stands on the tallest block under them; the note says the scale in person heights', () => {
+  const blocks = [{ u: 0, v: 0, w: 20, d: 20, floors: 4 }, { u: 5, v: 5, w: 6, d: 6, floors: 12 }];
+  assert.equal(blockUnder(FRAME, blocks, -5, -5), 0);
+  assert.equal(blockUnder(FRAME, blocks, 5, 5), 1); // the tower over the podium
+  assert.equal(blockUnder(FRAME, blocks, 30, 0), -1);
+  assert.deepEqual(nearestBlock(FRAME, blocks, 15, 0), { index: 0, gap: 5 });
+  assert.equal(nearestBlock(FRAME, [], 0, 0), null);
+  assert.equal(personNote({ kind: 'stand' }, blocks[1]), '서 있는 사람 1.7 m · 가까운 동 12층 50.4 m, 사람 키로 약 30명 높이');
+  assert.equal(personNote({ kind: 'child', roof: true }, null), '아이 1.1 m · 옥상');
+  assert.equal(PERSON_KINDS.child.height, 1.1);
+});
+
+test('a new person gets an id the server takes', () => {
+  assert.match(personId(() => 0.5), /^person-[0-9a-f]{8}$/);
+  assert.match(personId(() => 0), /^person-0{8}$/);
+});
+
+test('the ground under a point of the surroundings: road, sidewalk, outside the range', () => {
+  const terrain = { min: 0, step: 10, n: 2, z: [0, 0, 0, 0], classes: ['r', 's', 'g', 'x'] };
+  assert.equal(groundClass(terrain, 1, 1), 'r');
+  assert.equal(groundClass(terrain, 9, 1), 's');
+  assert.equal(groundClass(terrain, 10, 10), 'x');
+  assert.equal(groundClass(terrain, -20, 0), 'x');
+  assert.equal(groundClass(null, 0, 0), '');
+});
+
+test('scattered people stand near the site, off buildings and roads, apart from each other', () => {
+  const block = [[-5, -5], [5, -5], [5, 5], [-5, 5]];
+  const people = [{ id: 'a', x: 8, y: 8, turn: 0, kind: 'stand' }];
+  const spots = scatterSpots({ rings: [SQUARE], obstacles: [block], people, count: 12, reach: 6, rand: seeded(7) });
+  assert.equal(spots.length, 12);
+  for (const s of spots) {
+    assert.ok(!insideRing(block, s.x, s.y) && ringGap(block, s.x, s.y) >= 0.6, `off the building: ${s.x}, ${s.y}`);
+    assert.ok(insideRing(SQUARE, s.x, s.y) || ringGap(SQUARE, s.x, s.y) <= 6, 'within reach of the site');
+    assert.ok(['stand', 'walk', 'child'].includes(s.kind) && s.turn >= 0 && s.turn < 360);
+  }
+  const all = [...people, ...spots];
+  for (let i = 0; i < all.length; i += 1) {
+    for (let j = i + 1; j < all.length; j += 1) assert.ok(Math.hypot(all[i].x - all[j].x, all[i].y - all[j].y) >= PERSON_GAP);
+  }
+  assert.deepEqual(scatterSpots({ rings: [SQUARE], obstacles: [block], people, count: 12, reach: 6, rand: seeded(7) }), spots); // repeatable
+  // With the surroundings: the road (here everything west of x = 0) is left alone.
+  const terrain = { min: -40, step: 1, n: 81, z: new Array(81 * 81).fill(0), classes: Array.from({ length: 81 * 81 }, (_, k) => (k % 81 < 40 ? 'r' : 's')) };
+  for (const s of scatterSpots({ rings: [SQUARE], terrain, count: 10, rand: seeded(3) })) assert.ok(s.x >= -0.5, `off the road: ${s.x}`);
+  assert.deepEqual(scatterSpots({ rings: [], count: 5 }), []); // no site, nobody
+});
+
+test('a change of people is kept for undo, which sends back the list before it', () => {
+  const step = [{ op: 'people', before: [], after: [{ id: 'p' }] }];
+  const history = recordStep(createHistory(), step);
+  assert.equal(history.past.length, 1);
+  assert.deepEqual(undoStep(history).step, [{ op: 'people', before: [{ id: 'p' }], after: [] }]);
+  assert.equal(recordStep(createHistory(), [{ op: 'people', before: [{ id: 'p' }], after: [{ id: 'p' }] }]).past.length, 0); // nothing changed
+});
+
+test('the gumball follows turned blocks: its arrows take their shared turn, else the site', () => {
+  // 2026-11-11 지훈 "검볼 기능 완전하게 (회전 포함)": before, the arrows stayed on the site's u
+  // and v while a size square widened a turned block along its own side.
+  assert.equal(gumballTurn([{ a: 30 }, { a: 30 }]), 30);
+  assert.equal(gumballTurn([{ a: 30 }, {}]), 0);
+  assert.equal(gumballTurn([{}]), 0);
+  assert.equal(gumballTurn([]), 0);
+  // A move along the turned arrows becomes a move in the site's u and v.
+  const red = turnedDelta(90, 5, 0);
+  close(red.du, 0);
+  close(red.dv, 5);
+  const green = turnedDelta(30, 0, 2);
+  close(green.du, -1);
+  close(green.dv, Math.sqrt(3));
+  // fromFrame undoes toFrame.
+  const frame = { x: 100, y: 50, angle: 0.4 };
+  const back = toFrame(frame, fromFrame(frame, 7, -3).x, fromFrame(frame, 7, -3).y);
+  close(back.u, 7);
+  close(back.v, -3);
+  // A drag past the back of the ring turns the short way.
+  assert.equal(normalTurn(-350), 10);
+  assert.equal(normalTurn(190), -170);
+});
+
+test('the gumball sizes: Shift keeps proportions, a moved pivot stretches from the pivot', () => {
+  const blocks = [{ u: 0, v: 0, w: 10, d: 6, floors: 2 }, { u: 30, v: 0, w: 8, d: 8, floors: 3 }];
+  const r = ratioBlocks(blocks, [0], 1.5);
+  assert.deepEqual([r[0].u, r[0].w, r[0].d, r[0].floors], [0, 15, 9, 2]);
+  assert.equal(r[1], blocks[1]);
+  assert.equal(ratioBlocks(blocks, [0], 0.01)[0].w, 1);
+  // Pivot at the block's −u side (u −5): the far side moves out, the near side stays put.
+  const pivot = { u: -5, v: 0 };
+  assert.equal(reachAlong(null, [blocks[0]], pivot, 0, 'w'), 10);
+  const s = stretchBlocks(blocks, [0], pivot, 0, 'w', 1.4);
+  assert.deepEqual([s[0].u, s[0].w, s[0].d], [2, 14, 6]); // −5 … 9
+  // Turned 90° the red arrow looks along v, so the stretch moves the middle along v.
+  const t = stretchBlocks([{ u: 0, v: 3, w: 6, d: 4, floors: 1, a: 90 }], [0], { u: 0, v: 0 }, 90, 'w', 2);
+  close(t[0].u, 0);
+  close(t[0].v, 6);
+  assert.equal(t[0].w, 12);
+});
+
+test('a click on a gumball grip opens a number input; the number edits the picked blocks', () => {
+  assert.equal(gumballClick({ kind: 'gumball', grip: 'u', handle: true, moved: false }), true);
+  assert.equal(gumballClick({ kind: 'gumball', grip: 'u', handle: true, moved: true }), false);
+  assert.equal(gumballClick({ kind: 'gumball', grip: 'free', handle: false, moved: false }), false); // a building pressed
+  assert.equal(gumballClick({ kind: 'gumball', grip: 'free', handle: true, moved: false, pivotMove: true }), false);
+  assert.equal(gumballClick({ kind: 'gumball', grip: 'scale', handle: false, numeric: true, moved: false }), false);
+  assert.equal(gumballClick({ kind: 'gumball', grip: 'u', handle: true, moved: false }, true), false);
+  for (const grip of ['u', 'v', 'free', 'w', 'd', 'z', 'rotate']) assert.ok(gumballNumberField(grip, { w: 10, d: 6, floors: 3 }).label);
+  assert.equal(gumballNumberField('w', { w: 10, d: 6, floors: 3 }).value, 10);
+  assert.equal(gumballNumberField('nope'), null);
+  const blocks = [{ u: 0, v: 0, w: 10, d: 6, floors: 2, a: 90 }, { u: 30, v: 0, w: 8, d: 8, floors: 3 }];
+  // Moves go along the gumball's turned arrows.
+  const moved = numericGumball(blocks, [0], { grip: 'u', value: '2.35', turn: 90 }).blocks;
+  close(moved[0].u, 0);
+  close(moved[0].v, 2.35);
+  assert.equal(moved[1], blocks[1]);
+  const both = numericGumball(blocks, [0, 1], { grip: 'free', value: '5, -2', turn: 0 }).blocks;
+  assert.deepEqual(both.map((b) => [b.u, b.v]), [[5, -2], [35, -2]]);
+  assert.ok(numericGumball(blocks, [0], { grip: 'free', value: '5' }).error);
+  assert.deepEqual(numericGumball(blocks, [0, 1], { grip: 'w', value: '12.5' }).blocks.map((b) => b.w), [12.5, 12.5]);
+  assert.ok(numericGumball(blocks, [0], { grip: 'd', value: '0.5' }).error);
+  assert.equal(numericGumball(blocks, [1], { grip: 'z', value: '7' }).blocks[1].floors, 7);
+  assert.ok(numericGumball(blocks, [1], { grip: 'z', value: '2.5' }).error);
+  // A typed turn goes round the pivot.
+  const turned = numericGumball(blocks, [1], { grip: 'rotate', value: '90', center: { u: 0, v: 0 } }).blocks[1];
+  close(turned.u, 0);
+  close(turned.v, 30);
+  assert.equal(turned.a, 90);
+  assert.ok(numericGumball(blocks, [1], { grip: 'rotate', value: '400', center: { u: 0, v: 0 } }).error);
+  assert.ok(numericGumball(blocks, [5], { grip: 'z', value: '3' }).error);
+  assert.ok(numericGumball(blocks, [0], { grip: 'u', value: '' }).error);
+});
+
+test('the pivot catches on a nearby corner or middle, else follows the pointer', () => {
+  const spots = [{ point: { x: 1, y: 1 }, screen: { x: 100, y: 100 } }, { point: { x: 2, y: 2 }, screen: { x: 106, y: 100 } }];
+  assert.deepEqual(snapPivot({ x: 105, y: 101 }, { x: 9, y: 9 }, spots), { x: 2, y: 2 });
+  assert.deepEqual(snapPivot({ x: 300, y: 300 }, { x: 9, y: 9 }, spots), { x: 9, y: 9 });
+});
+
+test("the 속성 panel reads the table's papers, so a copy or a turn shows at once", () => {
+  // 2026-11-11: right after an Alt-copy the panel was empty (the server's copy had no new block
+  // yet), and a turned or resized block showed its old angle and size until the page reopened.
+  const server = [{ id: 'm', kind: 'mass', blocks: [{ u: 0, v: 0, w: 10, d: 6, floors: 2 }] }];
+  const live = [{ id: 'm', kind: 'mass', blocks: [{ u: 0, v: 0, w: 10, d: 6, floors: 2 }, { u: 5, v: 0, w: 10, d: 6, floors: 2, a: 40 }] }];
+  assert.equal(pickedBlocks(panelPapers(null, server), ['m#1']).length, 0); // what the panel saw before
+  const picked = pickedBlocks(panelPapers(live, server), ['m#1']);
+  assert.equal(picked[0].paper.blocks[1].a, 40);
+  assert.equal(panelPapers(undefined, server), server); // no table yet: the server's copy
+  assert.deepEqual(panelPapers(undefined, undefined), []);
+  // Blocks, floor height, names, layers and groups redraw the panel; moving a paper does not.
+  assert.equal(changesPanel({ blocks: [] }), true);
+  assert.equal(changesPanel({ title: 'A' }), true);
+  assert.equal(changesPanel({ x: 1, y: 2 }), false);
+  assert.equal(changesPanel(undefined), false);
 });

@@ -240,7 +240,8 @@ app.addEventListener('click', (event) => {
   if (action === 'talk-add-picked') { const p = talkViewById(talkId); if (p) p.context = [...new Set([...p.context, ...ui.selected])]; render(false); }
   if (action === 'cmd-help') { ui.cmd.help = false; render(false); focusCommandLine(); }
   if (action === 'cmd-option' && ui.cmd.prompt) {
-    drafts.set('command', String(Number(button.dataset.index) + 1));
+    const index = Number(button.dataset.index);
+    drafts.set('command', ui.cmd.prompt.read ? ui.cmd.prompt.options[index].key : String(index + 1));
     render(false);
     runCommandLine();
   }

@@ -2,8 +2,8 @@
 // tools' gestures, dragging papers and blocks, carrying papers to the idea board.
 // Methods of DraftingTable (table.js adds them to its prototype).
 
-import { PX, PAPER_SIZE, zoomAround, dragMode, wheelZoom, orbitBy, panBy, EDGE_TILT, isOverlaid, blockCorners, paperName, toggleSelected, boxPick, boxMode, parseBlockKey, fmt, frameDelta, editBlocks, axisDrag, blockKey, toFrame, rectBlock, pushBlock, copyBlocks, turnBlocks, scaleBlocks, snapAngle, MAX_BLOCKS, numericToolClick, isPdfFile, buildingInfo, eyeKey } from './board-model.js';
-import { SNAP, typing, MODEL_TOOLS, cm, strokePath } from './table-shared.js';
+import { PX, PAPER_SIZE, zoomAround, dragMode, wheelZoom, orbitBy, panBy, EDGE_TILT, isOverlaid, blockCorners, paperName, toggleSelected, boxPick, boxMode, parseBlockKey, fmt, frameDelta, editBlocks, axisDrag, blockKey, toFrame, rectBlock, pushBlock, copyBlocks, turnBlocks, scaleBlocks, snapAngle, MAX_BLOCKS, numericToolClick, turnedDelta, reachAlong, stretchBlocks, ratioBlocks, normalTurn, gumballClick, isPdfFile, buildingInfo, eyeKey } from './board-model.js';
+import { SNAP, typing, MODEL_TOOLS, MEASURE_TOOLS, cm, strokePath } from './table-shared.js';
 
 export const pointerMethods = {
   // ------------------------------------------------------------------ input
@@ -107,6 +107,8 @@ export const pointerMethods = {
     const t = e.target.closest('button, [data-open-expert]');
     if (!t) return;
     if (t.dataset.eye) { this.eyeAction(t.dataset.eye); return; }
+    if (t.dataset.personKind) { this.personKind = t.dataset.personKind; this.drawPersonBar(); return; }
+    if (t.dataset.person) { this.personAction(t.dataset.person); return; }
     if (t.dataset.ui === 'view-scale') { this.openViewScale(); return; }
     if (t.dataset.ui === 'number-cancel') { this.ui.number.close(); return; }
     if (t.dataset.openExpert) { this.closeDetail(); this.hooks.openExpert(t.dataset.openExpert); return; }
@@ -128,7 +130,7 @@ export const pointerMethods = {
       if (!this.root.contains(document.activeElement)) this.root.focus({ preventScroll: true });
       return;
     }
-    if (t.dataset.tilt) { this.showView(t.dataset.tilt); return; }
+    if (t.dataset.tilt) { this.showView(t.dataset.tilt, t.dataset.corner); return; }
     const id = t.dataset.id;
     switch (t.dataset.trayAction) {
       case 'place': this.placeFromTray(id); return;
@@ -215,7 +217,7 @@ export const pointerMethods = {
     // Asked where to stand (눈높이): a left click on the ground stands there; other buttons still move the view.
     if (this.eyePicking && e.button === 0) { this.gesture = { kind: 'eye-pick', x: e.clientX, y: e.clientY, moved: false }; return; }
     const grip = e.button === 0 && this.gumAxes && e.target.closest('[data-gumball]')?.dataset.gumball;
-    if (grip) { this.gesture = this.gumballGesture(grip, e); return; }
+    if (grip) { this.gesture = this.gumballGesture(grip, e, { handle: true }); return; }
     const corner = e.button === 0 && !e.shiftKey && e.target.closest('[data-grip]'); // Alt and Ctrl change how it resizes
     if (corner) { this.gesture = this.resizeGesture(corner, e); if (this.gesture) return; }
     const mode = dragMode({ button: e.button, shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, alt: e.altKey });
@@ -223,7 +225,22 @@ export const pointerMethods = {
     const g0 = this.ground(e.clientX, e.clientY);
     if (mode) { this.gesture = { kind: mode, g0: (v.tilt < EDGE_TILT && g0) || { x: v.x, y: v.y }, edge: v.tilt >= EDGE_TILT || !g0, v, x: e.clientX, y: e.clientY, moved: false, button: e.button }; return; }
     if (e.button !== 0) return;
+    if (MEASURE_TOOLS.has(this.tool)) { this.measureDown(e); return; } // a click, not a drag
+    // A person (사람 배치) is picked and dragged with the select or 사람 tool; the 사람 tool stands a new one.
+    const person = (this.tool === 'select' || this.tool === 'person') && this.personAt(e.clientX, e.clientY);
+    if (person) {
+      this.pickPerson(person);
+      const p = this.people.find((q) => q.id === person);
+      this.gesture = { kind: 'person', id: person, from: { x: p.x, y: p.y }, before: this.people, g0: (v.tilt < EDGE_TILT && g0) || null, x: e.clientX, y: e.clientY, moved: false };
+      return;
+    }
+    if (this.personPicked) this.pickPerson('');
+    if (this.tool === 'person') { this.gesture = { kind: 'person-add', x: e.clientX, y: e.clientY, moved: false }; return; }
     if (MODEL_TOOLS.has(this.tool)) { this.gesture = this.modelGesture(e, g0); return; }
+    if (this.tool === 'section') { this.gesture = this.sectionGesture(e, g0); return; }
+    // A press on an end of a selected section's line drags that end.
+    const end = this.tool === 'select' && !e.shiftKey && this.sectionEndAt(e.clientX, e.clientY);
+    if (end) { this.gesture = end; return; }
     // Empty table (or the sky above it, in a view near edge-on): a selection box, as in Rhino.
     const box = { kind: 'box', x: e.clientX, y: e.clientY, add: e.shiftKey, remove: e.ctrlKey || e.metaKey, moved: false };
     if (!g0) {
@@ -279,12 +296,23 @@ export const pointerMethods = {
   },
   onMove(e) {
     const g = this.gesture;
-    if (!g) { if (this.tool === 'tape' && !e.target.closest('.table-ui, dialog')) this.tapePoint(e); else this.snapEl.hidden = true; return; }
+    if (!g) { if (MEASURE_TOOLS.has(this.tool) && !e.target.closest('.table-ui, dialog')) this.measureMove(e); else this.snapEl.hidden = true; return; }
     if ((g.kind === 'push' || (g.kind === 'gumball' && g.grip === 'scale')) && Math.hypot(e.clientX - g.x, e.clientY - g.y) >= 3) g.dragged = true;
     // The designer moves the view by hand: the talk popups fold away to keep the view clear.
     if ((g.kind === 'orbit' || g.kind === 'pan' || g.kind === 'zoom') && !g.told && Math.hypot(e.clientX - g.x, e.clientY - g.y) > 6) {
       g.told = true;
       this.hooks.viewMoved?.();
+    }
+    if (g.kind === 'section' || g.kind === 'section-end') { this.sectionMove(g, e); return; }
+    if (g.kind === 'person' || g.kind === 'person-add') {
+      if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 4) return;
+      g.moved = true;
+      const p = g.kind === 'person' && g.g0 && this.ground(e.clientX, e.clientY);
+      if (!p) return;
+      const at = { x: Math.round((g.from.x + p.x - g.g0.x) * 100) / 100, y: Math.round((g.from.y + p.y - g.g0.y) * 100) / 100 };
+      this.people = g.before.map((q) => (q.id === g.id ? { ...q, ...at } : q));
+      this.drawPeople();
+      return;
     }
     if (g.kind === 'eye' || g.kind === 'eye-pick') {
       if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 4) return;
@@ -303,27 +331,48 @@ export const pointerMethods = {
       if (Math.hypot(e.clientX - g.x, e.clientY - g.y) > 3) g.moved = true;
     } else if (g.kind === 'gumball') {
       if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 3) return;
+      if (g.pivotMove) { g.moved = true; this.movePivot(e); return; }
       let delta = {};
       let up = 0; // metres up, for the z arrow
+      const frame = this.site?.plan?.frame;
       const ground = ['free', 'rotate', 'scale'].includes(g.grip);
       const p = ground && g.g0 && this.ground(e.clientX, e.clientY);
       if (ground && !p) return;
+      let m = 0; // metres along the grip's arrow
       if (g.grip === 'free') {
-        delta = frameDelta(this.site?.plan?.frame, p.x - g.g0.x, p.y - g.g0.y);
+        delta = frameDelta(frame, p.x - g.g0.x, p.y - g.g0.y);
       } else if (!ground) {
-        const m = axisDrag(g.axes[{ w: 'u', d: 'v' }[g.grip] || g.grip], e.clientX - g.x, e.clientY - g.y);
+        m = axisDrag(g.axes[{ w: 'u', d: 'v' }[g.grip] || g.grip], e.clientX - g.x, e.clientY - g.y);
+        // The red and green arrows point along the gumball, turned with the picked blocks.
+        if (g.grip === 'u') delta = turnedDelta(g.turn, m, 0);
+        if (g.grip === 'v') delta = turnedDelta(g.turn, 0, m);
         // A size square widens on both sides, about each block's middle.
-        delta = { u: { du: m }, v: { dv: m }, w: { dw: 2 * m }, d: { dd: 2 * m } }[g.grip] || {};
+        if (g.grip === 'w') delta = { dw: 2 * m };
+        if (g.grip === 'd') delta = { dd: 2 * m };
         if (g.grip === 'z') up = m;
       }
       const c = g.center;
-      // Rotate: the angle swept about the middle, in 5° steps (Shift: 1°). Scale: how much further
+      // Rotate: the angle swept about the pivot, in 5° steps (Shift: 1°). Scale: how much further
       // from the middle the pointer is than where it started.
-      const sweep = g.grip === 'rotate' && snapAngle((Math.atan2(p.y - c.y, p.x - c.x) - Math.atan2(g.g0.y - c.y, g.g0.x - c.x)) * 180 / Math.PI, e.shiftKey ? 1 : 5);
+      if (g.grip === 'rotate') {
+        g.t0 = Math.atan2(g.g0.y - c.y, g.g0.x - c.x);
+        g.sweep = snapAngle(normalTurn((Math.atan2(p.y - c.y, p.x - c.x) - g.t0) * 180 / Math.PI), e.shiftKey ? 1 : 5);
+      }
+      const sweep = g.sweep || 0;
       const r0 = g.grip === 'scale' && Math.hypot(g.g0.x - c.x, g.g0.y - c.y);
       if (g.grip === 'scale' && r0 < 0.5) return;
       const k = g.grip === 'scale' && Math.max(0.05, Math.round((Math.hypot(p.x - c.x, p.y - c.y) / r0) * 100) / 100);
+      // A size square with Shift keeps each block's proportions; with the pivot moved off the
+      // middle it stretches the blocks from the pivot, as in Rhino.
+      const sized = g.grip === 'w' || g.grip === 'd';
+      const firstFrom = [...g.from.values()][0];
+      const first = firstFrom?.blocks[firstFrom.indices[0]];
+      const picked = [...g.from.values()].flatMap((f) => f.indices.map((i) => f.blocks[i]));
+      const reach = sized && g.pivoted && !e.shiftKey && reachAlong(frame, picked, g.centerUV, g.turn, g.grip);
+      const stretch = reach >= 0.5 && Math.max(0.05, (reach + m) / reach);
+      const ratio = sized && e.shiftKey && first && Math.max(0.05, (first[g.grip] + 2 * m) / first[g.grip]);
       g.moved = true;
+      g.delta = delta;
       g.copies = new Map();
       for (const q of this.papers) {
         const from = g.from.get(q.id);
@@ -335,10 +384,16 @@ export const pointerMethods = {
           g.copies.set(q.id, done.indices);
         } else if (g.grip === 'rotate') q.blocks = turnBlocks(from.blocks, from.indices, g.centerUV, sweep);
         else if (g.grip === 'scale') q.blocks = scaleBlocks(from.blocks, from.indices, g.centerUV, k);
+        else if (ratio) q.blocks = g.pivoted ? scaleBlocks(from.blocks, from.indices, g.centerUV, ratio) : ratioBlocks(from.blocks, from.indices, ratio);
+        else if (stretch) q.blocks = stretchBlocks(from.blocks, from.indices, g.centerUV, g.turn, g.grip, stretch);
         else q.blocks = editBlocks(from.blocks, from.indices, { ...delta, df: up / (q.floor_height || 4.2) });
       }
-      if (g.grip === 'rotate') this.say(`회전 ${sweep}°`);
+      if (g.grip === 'rotate') this.say(`회전 ${sweep}°${e.shiftKey ? ' (1° 단위)' : ''}`);
       if (g.grip === 'scale') this.say(`크기 ${k}배`);
+      if (sized && first) {
+        const b = this.papers.find((q) => q.id === [...g.from.keys()][0])?.blocks[firstFrom.indices[0]];
+        if (b) this.say(`${ratio ? '비율 유지 · ' : ''}가로 ${fmt(b.w, 1)} m · 세로 ${fmt(b.d, 1)} m`);
+      }
       this.drawMasses();
     } else if (g.kind === 'push') {
       if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 3) return;
@@ -349,16 +404,11 @@ export const pointerMethods = {
       const b = p.blocks[g.index];
       this.say(g.face === 'top' ? `${b.floors}층` : `${fmt(g.face[0] === 'w' ? b.w : b.d, 1)} m`);
       this.drawMasses();
-    } else if (g.kind === 'rect' || g.kind === 'tape') {
-      const p = g.kind === 'tape' ? this.tapePoint(e) : this.ground(e.clientX, e.clientY);
+    } else if (g.kind === 'rect') {
+      const p = this.ground(e.clientX, e.clientY);
       if (!p) return;
       g.moved = true;
       const frame = this.site?.plan?.frame;
-      if (g.kind === 'tape') {
-        this.drawDraft([[g.g0.x, g.g0.y, g.g0.z || 0], [p.x, p.y, p.z || 0]], false);
-        this.say(`거리 ${fmt(Math.hypot(p.x - g.g0.x, p.y - g.g0.y, (p.z || 0) - (g.g0.z || 0)), 2)} m${this.snapEl.hidden ? '' : ' · 스냅'}`);
-        return;
-      }
       g.block = rectBlock(frame, g.g0, p);
       const a = toFrame(frame, g.g0.x, g.g0.y);
       const b = toFrame(frame, p.x, p.y);
@@ -444,12 +494,28 @@ export const pointerMethods = {
   onUp(cancelled = false) {
     const g = this.gesture;
     this.gesture = null;
+    if (g?.kind === 'section' || g?.kind === 'section-end') {
+      this.sectionUp(g, cancelled);
+      if (this.pending) { const view = this.pending; this.pending = null; this.setBoard(view); }
+      return;
+    }
     if ((g?.kind === 'eye' || g?.kind === 'eye-pick') && !g.moved && !cancelled && g.button !== 2) {
       const p = this.eyeHit(g.x, g.y);
       if (g.kind === 'eye-pick') {
         if (p) this.enterEye(p);
         else this.say('땅 위를 눌러 주세요. 건물이나 하늘에는 설 수 없습니다.');
       } else if (p) this.moveEye({ x: p.x, y: p.y });
+    }
+    if (g?.kind === 'person') {
+      const after = this.people;
+      this.people = g.before;
+      if (g.moved && !cancelled && after !== g.before) this.changePeople(after);
+      else this.drawPeople();
+    }
+    if (g?.kind === 'person-add' && !g.moved && !cancelled) {
+      const spot = this.personSpot(g.x, g.y);
+      if (spot?.wall) this.say('벽에는 세울 수 없습니다. 바닥이나 매스 지붕을 누르세요.');
+      else if (spot) this.addPersonAt(spot);
     }
     if (g?.kind === 'move') {
       // Dropped on the idea board: the circle flies in, and the papers (and their pins) stay hidden
@@ -484,6 +550,7 @@ export const pointerMethods = {
       return;
     }
     if (cancelled && (g?.kind === 'push' || g?.kind === 'gumball')) {
+      if (g.kind === 'gumball' && g.pivotMove) this.gumPivot = g.pivoted ? g.centerUV : null;
       const before = g.kind === 'push' ? new Map([[g.id, g.before]]) : new Map([...g.from].map(([id, from]) => [id, from.blocks]));
       for (const paper of this.papers) if (before.has(paper.id)) paper.blocks = before.get(paper.id);
       this.drawMasses();
@@ -498,12 +565,24 @@ export const pointerMethods = {
         this.syncPapers();
         this.save(p.id, { strokes: p.strokes });
       }
+    } else if (g?.kind === 'gumball' && g.pivotMove) {
+      // Ctrl+click on the middle square (no drag) brings the pivot back to the middle.
+      if (!g.moved && this.gumPivot) { this.gumPivot = null; this.say('기준점을 가운데로 되돌렸습니다.'); }
+      this.invalidate();
     } else if (g?.kind === 'gumball' && g.moved) {
       this.saveBlocks(new Map([...g.from].map(([id, f]) => [id, f.blocks])));
+      // A moved pivot goes with the blocks it stands by.
+      if (this.gumPivot && !g.copy && ['free', 'u', 'v'].includes(g.grip) && g.delta) {
+        const { du = 0, dv = 0 } = g.delta;
+        this.gumPivot = { u: this.gumPivot.u + Math.round(du * 10) / 10, v: this.gumPivot.v + Math.round(dv * 10) / 10 };
+      }
+      if (g.grip === 'rotate') this.invalidate(); // the fan goes
       // A copy leaves the copies picked, as in SketchUp.
       if (g.copies?.size) this.pickBlocks([...g.copies].flatMap(([id, indices]) => indices.map((i) => blockKey(id, i))));
     } else if (g?.kind === 'push' && g.moved) {
       this.saveBlocks(new Map([[g.id, g.before]]));
+    } else if (gumballClick(g, cancelled)) {
+      this.openGumballNumber(g);
     } else if (numericToolClick(g, cancelled)) {
       this.openToolNumber(g);
     } else if (g?.kind === 'rect') {
@@ -601,9 +680,11 @@ export const pointerMethods = {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     // No letter or number shortcuts (2026-11-02 지훈): a word typed on the table goes to the
     // command line (app.js). Only Delete and Esc act here.
-    if (k === 'delete' || k === 'backspace') { e.preventDefault(); if (this.picked.length) this.removePicked(); else this.removeSelected(); }
+    if (k === 'delete' || k === 'backspace') { e.preventDefault(); if (this.removePickedPerson()) return; if (this.picked.length) this.removePicked(); else this.removeSelected(); }
     else if (k === 'escape') {
+      if (this.personPicked) { this.pickPerson(''); return; }
       if (this.detailId) { this.closeDetail(); return; }
+      if (this.cancelMeasure()) return; // first the line or circle being drawn, then what was measured
       if (this.peekId) { this.peekId = ''; this.drawPins(); this.drawPeek(); return; }
       this.select([]);
       if (this.picked.length) this.pickBlocks([]);

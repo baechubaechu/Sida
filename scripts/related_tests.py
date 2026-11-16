@@ -31,7 +31,8 @@ EVERYTHING = "tests"
 RUN_ALL = ("tests/conftest.py", "tests/fixtures/", "pyproject.toml", "config.yaml")
 NODE_TESTS = (
     "node --test tests/webui/model.test.mjs tests/webui/board-model.test.mjs "
-    "tests/webui/command-model.test.mjs tests/webui/talk-panel.test.mjs"
+    "tests/webui/command-model.test.mjs tests/webui/talk-panel.test.mjs "
+    "tests/webui/dock-model.test.mjs tests/webui/section-model.test.mjs"
 )
 
 

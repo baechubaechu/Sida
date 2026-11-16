@@ -1,7 +1,8 @@
 // The drafting table on the screen (table.js), the VWorld 3D view and the model board panel: made
 // when a project opens, fed from the board API, and laid over the redrawn page.
 
-import { expertPath, parseRecommendation, boardExport } from './model.js';
+import { expertPath, parseRecommendation, boardExport, siteCard } from './model.js';
+import { sectionExport } from './section-model.js';
 import { keepSelected, pickedNames, addQuestion, readModelSummary, rangeQuery, pickedBlocks, propertyChange, boardLayers } from './board-model.js';
 import { VWorldView } from './vworld-view.js';
 import { api, expertUrl, projectApi } from './api.js';
@@ -81,6 +82,8 @@ function tableHooks(name) {
       return api(`${projectApi(name)}/board/photos`, { method: 'POST', form });
     }, true),
     photoUrl: (id) => `${projectApi(name)}/board/photos/${encodeURIComponent(id)}`,
+    // The saved site's area and statutory caps, for the figures shown while blocks are edited.
+    siteCard: () => siteCard(ui.site),
     // The site's surroundings in 3D (ground, nearby buildings): GET .../site/context.
     // range {size, shape, orient}: as asked; none: the project's saved range.
     context: (range) => api(`${projectApi(name)}/site/context${range ? `?${rangeQuery(range)}` : ''}`),
@@ -90,6 +93,9 @@ function tableHooks(name) {
     saveView: (v) => api(`${projectApi(name)}/board/view`, { method: 'PUT', body: v }).catch(() => {}),
     // Whether the surroundings are on: kept for the project, so a reload shows them again.
     saveShown: (shown) => api(`${projectApi(name)}/site/context/shown`, { method: 'PUT', body: { shown } }).catch(() => {}),
+    // The scale figures stood about the site (사람 배치), saved as one list.
+    savePeople: (people) => boardCall(name, () => api(`${projectApi(name)}/board/people`, { method: 'PUT', body: { people } })
+      .then((saved) => { if (ui.board) ui.board.people = saved.people; return saved; })),
     saveAroundParts: (hidden) => api(`${projectApi(name)}/site/context/shown`, { method: 'PUT', body: { hidden_parts: hidden } }).catch(() => {}),
     // The model base: the stepped ground (GET .../site/model-base) and its laser files (a zip).
     modelBase: (interval, range) => api(`${projectApi(name)}/site/model-base?interval=${encodeURIComponent(interval)}${range ? `&${rangeQuery(range)}` : ''}`),
@@ -103,6 +109,8 @@ function tableHooks(name) {
       followSelection(ids.length > 0 || ui.picked.length > 0);
       render(false);
     },
+    // A block or paper changed on the table: the 속성 panel (it reads the table's papers) redraws.
+    edited: () => render(false),
     // Buildings picked on their own (paperId#index): the 속성 panel shows them.
     pick: (keys) => {
       ui.picked = keys;
@@ -114,6 +122,8 @@ function tableHooks(name) {
     showProps: () => { ui.dock = reveal(ui.dock, 'props'); ui.narrowSide = 'props'; render(false); },
     // A PDF found to have several pages: the 속성 panel shows its page buttons.
     pdfPages: () => render(false),
+    // A section's drawing as a file (SVG, PDF or DXF), drawn by the server like the table's files.
+    sectionFile: (id, format, title) => downloadSection(name, id, format, title),
     // A paper carried toward the idea board, and papers dropped into it.
     carry: (at) => carryPapers(at),
     stow: (ids) => stowPapers(name, ids),
@@ -230,19 +240,7 @@ export async function downloadBoard(name, format) {
   say(`export — ${filename}을(를) 만드는 중입니다. 주변 3D를 넣느라 1분 넘게 걸릴 수 있습니다.`);
   render(false);
   try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      let detail = '';
-      try { detail = (await response.json()).detail; } catch { /* not JSON */ }
-      throw new Error(typeof detail === 'string' && detail ? detail : `요청이 실패했습니다 (${response.status})`);
-    }
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(await response.blob());
-    link.download = filename;
-    link.hidden = true;
-    document.body.append(link);
-    link.click();
-    setTimeout(() => { link.remove(); URL.revokeObjectURL(link.href); }, 10000);
+    await fetchDownload(url, filename);
     say(`export — ${filename}을(를) 내려받았습니다.`);
     toast(`${filename}을(를) 내려받았습니다.`);
   } catch (error) {
@@ -253,6 +251,37 @@ export async function downloadBoard(name, format) {
     ui.exporting = '';
   }
   render(false);
+}
+
+// A file from the server into the designer's downloads; a refusal comes back as its message.
+async function fetchDownload(url, filename) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    let detail = '';
+    try { detail = (await response.json()).detail; } catch { /* not JSON */ }
+    throw new Error(typeof detail === 'string' && detail ? detail : `요청이 실패했습니다 (${response.status})`);
+  }
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(await response.blob());
+  link.download = filename;
+  link.hidden = true;
+  document.body.append(link);
+  link.click();
+  setTimeout(() => { link.remove(); URL.revokeObjectURL(link.href); }, 10000);
+}
+
+// A section drawing (단면) as SVG, PDF or DXF, for the scheme the table shows.
+async function downloadSection(name, id, format, title) {
+  const { url, filename } = sectionExport(name, id, format, table?.active || '', currentProjectLabel(name), title);
+  toast(`${filename}을(를) 만드는 중입니다.`);
+  try {
+    await fetchDownload(url, filename);
+    say(`section — ${filename}을(를) 내려받았습니다.`);
+  } catch (error) {
+    const text = error instanceof TypeError ? 'Sida 서버에 연결할 수 없습니다.' : error.message;
+    say(`section: ${text}`, 'warn');
+    toast(`단면도를 내려받지 못했습니다: ${text}`, 'error');
+  }
 }
 
 // The laser files for a site model: the zip goes to the designer's downloads; the server's summary

@@ -2,8 +2,8 @@
 // uses must be here: tests/webui/board-model.test.mjs checks), bundled into one file so the
 // screen needs no build step: webui/app/vendor/three.js. To update three.js, see README.md here.
 export {
-  BoxGeometry, BufferGeometry, Color, DirectionalLight, DoubleSide, EdgesGeometry,
-  Float32BufferAttribute, GridHelper, Group, HemisphereLight, Line, LineBasicMaterial,
+  BoxGeometry, BufferGeometry, Color, CylinderGeometry, DirectionalLight, DoubleSide, EdgesGeometry,
+  Float32BufferAttribute, GridHelper, Group, HemisphereLight, IcosahedronGeometry, Line, LineBasicMaterial,
   LineDashedMaterial, LineLoop, LineSegments, Mesh, MeshBasicMaterial, MeshLambertMaterial,
   Path, PCFShadowMap, PerspectiveCamera, Plane, PlaneGeometry, Raycaster, Scene, ShadowMaterial,
   Shape, ShapeGeometry, Vector2, Vector3, WebGLRenderer,

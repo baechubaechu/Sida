@@ -22,6 +22,10 @@ imports a domain by name and adding a domain touches no shared file. `hooks.py` 
   board_ground(project_dir: Path) -> dict | None
       The ground around the site as a height grid (board_export surface form), so the export
       stands each mass on the ground under it. The first domain that answers is used.
+  board_surroundings(project_dir: Path) -> dict | None
+      What a section through the table (sida/board_section.py) cuts besides the masses:
+      {"ground": surface | None, "buildings": [{"outline", "base", "height", "estimate",
+      "on_site"}]}, only what a file may hold. The first domain that answers is used.
   run_needs(config: dict, agent: dict, project_dir: Path) -> str | None
       Something the designer must do before the Conductor may run this expert, as a short
       reason code ("no_site": no site looked up yet), or None. Asked only for runs the

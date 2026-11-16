@@ -1,7 +1,8 @@
 // Helpers for the drafting table (제도판) that touch neither the DOM nor three.js, so
 // tests/webui/board-model.test.mjs can check them. The table is the x–y plane in metres,
 // x east, y north, 0, 0 the middle of the site (GET .../board → site.plan).
-// Figures (coverage, FAR) are never computed here: they come from the server (`figures`).
+// A scheme's papers show the server's figures (`figures`); while blocks are edited the screen
+// works out the same figures by the same rule (massFigures) so they follow the hand.
 
 import { SECTION_LABELS } from './model.js';
 
@@ -9,13 +10,24 @@ export const PX = 0.1; // metres per CSS pixel of paper lying on the table
 // Two views, as in Rhino's Top and Perspective (2026-11-01 지훈): the plan, and one 3D view whose
 // angle the right mouse button sets. `persp` is where the 3D button lands from a plan.
 export const TILT = { plan: 0, persp: 35 };
+// The iso view (2026-11-11 지훈): a parallel view from one corner of the site. The table leans
+// acos(1/√3) so the three axes look equally long, and the viewer faces along a diagonal.
+// ISO_TURNS: the turn (the way the viewer faces) for each corner the viewer stands at.
+export const ISO_TILT = 54.7356;
+export const ISO_TURNS = { sw: 45, se: -45, ne: -135, nw: 135 };
+const ISO_NEXT = { sw: 'se', se: 'ne', ne: 'nw', nw: 'sw' }; // the iso button again: a quarter turn round
+// A parallel view is drawn with a very long lens from far away, so every check that works for
+// the 3D view (picking, snapping, pins) works unchanged; at this lens a building 100 m deeper
+// in the picture is drawn under 1% smaller, which the eye reads as parallel.
+export const PARALLEL_FOV = 0.5;
+const PARALLEL_DEPTH = 4000; // metres kept in front of and behind the target in a parallel view
 export const MAX_TILT = 90; // lying flat to the table shows elevations (2026-11-01 지훈)
 export const FOLD_TILT = 10; // past this lean papers fold into pins, so the model reads (2026-10-26)
 export const VIEW_LIMITS = { min: 12, max: 2500 }; // metres of table shown top to bottom
 export const TRACE_MARGIN = 14; // metres of tracing paper around the site
 // A paper dragged by a corner keeps its size between these (CSS px of paper; 1 px is 0.1 m).
 export const PAPER_LIMITS = { min: 60, max: 4000 };
-export const PAPER_SIZE = { site: [300, 250], mass: [300, 210], note: [200, 140], expert: [320, 270], photo: [300, 225] };
+export const PAPER_SIZE = { site: [300, 250], mass: [300, 210], note: [200, 140], expert: [320, 270], photo: [300, 225], section: [360, 220] };
 export const MAX_BLOCKS = 20;
 export const MAX_CONTEXT = 8; // papers one message may carry (board.MAX_CONTEXT)
 
@@ -81,19 +93,27 @@ export function riseFor(tilt) {
   return Math.max(0.004, smooth(3, 28, tilt));
 }
 
-// Camera position, up vector and lens for a view {x, y, span, tilt, turn, z}. The camera turns
+// Camera position, up vector and lens for a view {x, y, span, tilt, turn, z, para}. The camera turns
 // about one fixed point, the target (x, y, z), as in Rhino: no angle moves it (2026-11-02 지훈:
 // the pivot seemed to change part way through an orbit). z (metres, 0 when left out) lifts the
-// target off the table, so an elevation can be panned up a tower.
+// target off the table, so an elevation can be panned up a tower. para, 0 to 1 (0 when left
+// out), narrows the lens toward PARALLEL_FOV while the camera backs off, so `span` stays in
+// frame: 1 is a parallel view, and the steps between flatten the perspective smoothly.
+// near and far hold the depth range tight around the target, so a far camera still sorts
+// surfaces a centimetre apart.
 export function cameraFor(v) {
   const z = v.z || 0;
-  const fov = lensFor(v.tilt);
+  const para = Math.min(1, Math.max(0, v.para || 0));
+  const lens = lensFor(v.tilt);
+  const fov = para ? lens * (PARALLEL_FOV / lens) ** para : lens;
   const dist = v.span / 2 / Math.tan(rad(fov) / 2);
   const t = rad(v.tilt);
   const fx = Math.sin(rad(v.turn));
   const fy = Math.cos(rad(v.turn)); // the direction the viewer faces on the table
   return {
     fov, dist,
+    near: para ? Math.max(dist * 0.05, dist - PARALLEL_DEPTH) : dist * 0.05,
+    far: para ? Math.min(dist * 20, dist + PARALLEL_DEPTH) : dist * 20,
     position: [v.x - fx * dist * Math.sin(t), v.y - fy * dist * Math.sin(t), z + dist * Math.cos(t)],
     up: [fx * Math.cos(t), fy * Math.cos(t), Math.sin(t)],
     target: [v.x, v.y, z],
@@ -148,18 +168,45 @@ export function orbitBy(v, dx, dy) {
   return { turn: v.turn + dx * 0.3, tilt: Math.min(MAX_TILT, Math.max(0, v.tilt - dy * 0.25)) };
 }
 
-// Which view button is lit: 'plan' near 0°, '3d' at any other lean.
+// Which view a lean is: 'plan' near 0°, '3d' at any other lean.
 export function viewName(tilt) {
   return tilt < PLAN_TILT ? 'plan' : '3d';
 }
 
-// Where a view button (or the keys 1 and 2, or the plan/persp commands) takes the view `v`.
-// The plan faces north. The 3D button leaves a 3D view as it is, and from a plan stands the
-// table up to TILT.persp, turned a little so the masses read. null: nothing to do.
-export function viewFor(name, v) {
-  if (name === 'plan') return { tilt: TILT.plan, turn: 0, z: 0 };
-  if (name !== '3d' || viewName(v.tilt) === '3d') return null;
-  return { tilt: TILT.persp, turn: v.turn || -30 };
+// Which view button is lit for the view `v`: 'plan' near 0°, 'iso' for a parallel view at any
+// other lean (turned off the corner too, as Rhino keeps a parallel view parallel), else 'persp'.
+export function viewMode(v) {
+  if (viewName(v.tilt) === 'plan') return 'plan';
+  return (v.para || 0) >= 0.5 ? 'iso' : 'persp';
+}
+
+const wrapTurn = (a) => ((((a + 180) % 360) + 360) % 360) - 180;
+
+// The corner a parallel view looks from ('sw', 'se', 'ne', 'nw'), or null when it is not an
+// iso view (perspective, another lean, or turned off the diagonal).
+export function isoCorner(v) {
+  if ((v.para || 0) < 0.999 || Math.abs(v.tilt - ISO_TILT) > 0.5) return null;
+  return Object.keys(ISO_TURNS).find((c) => Math.abs(wrapTurn(v.turn - ISO_TURNS[c])) < 0.5) || null;
+}
+
+// Where a view button (or the plan, persp and iso commands) takes the view `v`. null: nothing to do.
+// - 'plan' faces north.
+// - '3d' (a scheme shown in 3D, the surroundings turned on) leaves any leaning view as it is,
+//   parallel or not, and from a plan stands the table up to TILT.persp, turned a little.
+// - 'persp' (the 3D button) is '3d' in perspective: from a parallel view it only opens the lens.
+// - 'iso' goes to the iso view from `corner`; without one, from the corner nearest the way the
+//   view faces (south-west from a plan), or, already there, a quarter turn round.
+export function viewFor(name, v, corner = null) {
+  if (name === 'plan') return { tilt: TILT.plan, turn: 0, z: 0, para: 0 };
+  if (name === 'iso') {
+    const at = isoCorner(v);
+    const near = Object.keys(ISO_TURNS).reduce((a, b) => (Math.abs(wrapTurn(v.turn - ISO_TURNS[b])) < Math.abs(wrapTurn(v.turn - ISO_TURNS[a])) ? b : a));
+    const to = ISO_TURNS[corner] !== undefined ? corner : at ? ISO_NEXT[at] : viewName(v.tilt) === 'plan' ? 'sw' : near;
+    return to === at ? null : { tilt: ISO_TILT, turn: ISO_TURNS[to], para: 1 };
+  }
+  if (name !== '3d' && name !== 'persp') return null;
+  if (viewName(v.tilt) === '3d') return name === 'persp' && v.para ? { para: 0 } : null;
+  return { tilt: TILT.persp, turn: v.turn || -30, para: 0 };
 }
 
 // Zoom factor for one wheel event: rolling forward (deltaY < 0) zooms in. A mouse notch is
@@ -201,6 +248,7 @@ export function lerpView(a, b, k) {
   return {
     x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, span: a.span + (b.span - a.span) * k,
     tilt: a.tilt + (b.tilt - a.tilt) * k, turn: a.turn + dt * k, z: (a.z || 0) + ((b.z || 0) - (a.z || 0)) * k,
+    para: (a.para || 0) + ((b.para || 0) - (a.para || 0)) * k,
   };
 }
 
@@ -330,6 +378,18 @@ export function parseBlockKey(key) {
   return { id: key.slice(0, at), index: Number(key.slice(at + 1)) };
 }
 
+// The papers the 속성 panel describes: the table's own copy while it is open, which an edit changes
+// at once (a copy made by the gumball, a turn, a typed size), else the board as last read from the
+// server. Reading only the server's copy left the panel empty right after a copy (the new block
+// was not there yet) and showed the old size or angle until the page was opened again.
+export function panelPapers(tablePapers, boardPapers) {
+  return tablePapers || boardPapers || [];
+}
+
+// Changes to a paper that the 속성 panel shows (a move of the paper on the table is not one).
+export const PANEL_FIELDS = ['blocks', 'floor_height', 'title', 'layer', 'group'];
+export const changesPanel = (changes) => PANEL_FIELDS.some((key) => key in (changes || {}));
+
 // The picked blocks still on the table, grouped by scheme: [{ paper, indices }].
 export function pickedBlocks(papers, keys) {
   const out = [];
@@ -344,12 +404,136 @@ export function pickedBlocks(papers, keys) {
   return out;
 }
 
-// The gumball on the picked blocks, as in Rhino: arrows along the site's u (red) and v (green)
-// and a square in the middle move them on the ground; the blue arrow raises or lowers them a
-// floor at a time; the small squares on the u and v arrows widen or narrow them about their
-// middles. Blocks stand in the site's frame, so a move on the table becomes a move in u and v.
+// The gumball on the picked blocks, as in Rhino: red and green arrows and a square in the middle
+// move them on the ground; the blue arrow raises or lowers them a floor at a time; the small
+// squares on the red and green arrows widen or narrow them; the blue ring between the red and
+// green arrows turns them (2026-11-11 지훈: "검볼 기능 완전하게, 회전 포함"). The red and green
+// arrows follow the picked blocks' own turn when they share one (otherwise the site's u and v),
+// so a size square widens a turned block the way its arrow points. Blocks stand in the site's
+// frame, so a move on the table becomes a move in u and v.
 export const GUMBALL_PX = 72; // arrow length on the screen
 export const GUMBALL_SCALE_PX = 44; // where the size squares sit on the arrows
+export const GUMBALL_RING_PX = 56; // radius of the rotate ring on the screen
+
+// The turn (degrees from the site's u) the gumball's red arrow takes: the picked blocks' own
+// when they all share it, else 0 (the site's u).
+export function gumballTurn(blocks) {
+  if (!blocks.length) return 0;
+  const a = blocks[0].a || 0;
+  return blocks.every((b) => (b.a || 0) === a) ? a : 0;
+}
+
+// A move of `along` metres on the gumball's red arrow and `across` on its green one (the
+// gumball turned by `turn` degrees) as a move along the site's u and v.
+export function turnedDelta(turn, along, across = 0) {
+  const t = rad(turn || 0);
+  return { du: along * Math.cos(t) - across * Math.sin(t), dv: along * Math.sin(t) + across * Math.cos(t) };
+}
+
+// A point in the site's frame (u, v) on the table.
+export function fromFrame(frame, u, v) {
+  const f = frame || { x: 0, y: 0, angle: 0 };
+  return { x: f.x + u * Math.cos(f.angle) - v * Math.sin(f.angle), y: f.y + u * Math.sin(f.angle) + v * Math.cos(f.angle) };
+}
+
+// Shift on a size square: the blocks at `indices` grown by k each about its own middle, width
+// and depth alike (10 cm steps, never under 1 m); floors stay.
+export function ratioBlocks(blocks, indices, k) {
+  return blocks.map((b, i) => (indices.includes(i) ? { ...b, w: Math.max(1, step10(b.w * k)), d: Math.max(1, step10(b.d * k)) } : b));
+}
+
+// A size square with the gumball's pivot moved off the middle (as in Rhino, it scales from the
+// pivot): the blocks at `indices` stretched by k along the gumball's red ('w') or green ('d')
+// arrow about `pivot` (u, v), their middles spreading along that arrow and their width (or
+// depth) following.
+export function stretchBlocks(blocks, indices, pivot, turn, along, k) {
+  const t = rad(turn || 0);
+  const [ax, ay] = along === 'w' ? [Math.cos(t), Math.sin(t)] : [-Math.sin(t), Math.cos(t)];
+  return blocks.map((b, i) => {
+    if (!indices.includes(i)) return b;
+    const s = (b.u - pivot.u) * ax + (b.v - pivot.v) * ay; // how far along the arrow the middle is
+    const shift = s * (k - 1);
+    return { ...b, u: cm2(b.u + shift * ax), v: cm2(b.v + shift * ay), [along]: Math.max(1, step10(b[along] * k)) };
+  });
+}
+
+// How far the blocks reach from `pivot` along the gumball's arrow ('w' red, 'd' green): what a
+// size square stretches when the pivot is off the middle.
+export function reachAlong(frame, blocks, pivot, turn, along) {
+  const t = rad(turn || 0);
+  const [ax, ay] = along === 'w' ? [Math.cos(t), Math.sin(t)] : [-Math.sin(t), Math.cos(t)];
+  let far = -Infinity;
+  for (const b of blocks) {
+    for (const [x, y] of blockCorners(frame, b)) {
+      const { u, v } = toFrame(frame, x, y);
+      far = Math.max(far, (u - pivot.u) * ax + (v - pivot.v) * ay);
+    }
+  }
+  return far;
+}
+
+// A click (no drag) on one of the gumball's grips opens a number input, as Rhino's gumball does.
+export function gumballClick(gesture, cancelled = false) {
+  return Boolean(!cancelled && gesture?.kind === 'gumball' && gesture.handle && !gesture.moved && !gesture.pivotMove && !gesture.numeric);
+}
+
+// What the number input asks for each grip of the gumball.
+export function gumballNumberField(grip, block) {
+  switch (grip) {
+    case 'u': return { title: '이동', label: '빨간 화살표 방향 거리 (m)', value: 0, help: '화살표 쪽이 +, 반대쪽은 -입니다.' };
+    case 'v': return { title: '이동', label: '초록 화살표 방향 거리 (m)', value: 0, help: '화살표 쪽이 +, 반대쪽은 -입니다.' };
+    case 'free': return { title: '이동', label: '빨간, 초록 화살표 방향 거리 (m)', value: '0, 0', text: true, help: '두 수를 쉼표로 나눠 입력하세요. 예: 5, -2' };
+    case 'w': return { title: '크기', label: '가로 (m)', value: block?.w ?? '', help: '고른 동 모두 이 가로 길이가 됩니다. 동 가운데를 기준으로, 1~1000m.' };
+    case 'd': return { title: '크기', label: '세로 (m)', value: block?.d ?? '', help: '고른 동 모두 이 세로 길이가 됩니다. 동 가운데를 기준으로, 1~1000m.' };
+    case 'z': return { title: '층수', label: '층수', value: block?.floors ?? '', help: '고른 동 모두 이 층수가 됩니다. 1~200층.' };
+    case 'rotate': return { title: '회전', label: '각도 (°)', value: 0, help: '반시계 방향이 +입니다. 검볼 가운데(기준점)를 중심으로 돕니다. -360~360°.' };
+    default: return null;
+  }
+}
+
+// A number typed for a gumball grip, applied to the blocks at `indices`: { blocks } or { error }.
+// `center` is the pivot (u, v) a turn goes round; `turn` is the gumball's (gumballTurn).
+export function numericGumball(blocks, indices, { grip, value, center, turn = 0 }) {
+  if (!indices.length || indices.some((i) => !blocks[i])) return { error: '조절할 동을 다시 골라 주세요.' };
+  const move = (along, across) => {
+    if (![along, across].every((n) => Number.isFinite(n) && Math.abs(n) <= 1000)) return { error: '거리는 -1000~1000m 사이 숫자로 입력해 주세요.' };
+    const { du, dv } = turnedDelta(turn, along, across);
+    return { blocks: blocks.map((b, i) => (indices.includes(i) ? { ...b, u: cm2(b.u + du), v: cm2(b.v + dv) } : b)) };
+  };
+  if (grip === 'free') {
+    const parts = String(value ?? '').split(/[,\s]+/).filter(Boolean).map(Number);
+    if (parts.length !== 2 || parts.some((n) => !Number.isFinite(n))) return { error: '두 수를 쉼표로 나눠 입력해 주세요. 예: 5, -2' };
+    return move(parts[0], parts[1]);
+  }
+  const n = toolNumber(value);
+  if (!Number.isFinite(n)) return { error: '숫자로 입력해 주세요.' };
+  switch (grip) {
+    case 'u': return move(n, 0);
+    case 'v': return move(0, n);
+    case 'w': case 'd':
+      if (n < 1 || n > 1000) return { error: '길이는 1~1000m 사이 숫자로 입력해 주세요.' };
+      return { blocks: blocks.map((b, i) => (indices.includes(i) ? { ...b, [grip]: cm2(n) } : b)) };
+    case 'z':
+      if (!Number.isInteger(n) || n < 1 || n > 200) return { error: '층수는 1~200 사이 정수로 입력해 주세요.' };
+      return { blocks: blocks.map((b, i) => (indices.includes(i) ? { ...b, floors: n } : b)) };
+    case 'rotate':
+      if (Math.abs(n) > 360) return { error: '각도는 -360~360° 사이로 입력해 주세요.' };
+      return { blocks: turnBlocks(blocks, indices, center, n) };
+    default: return { error: '조절할 손잡이를 다시 눌러 주세요.' };
+  }
+}
+
+// Where to put the gumball's pivot while it is dragged with Ctrl: the nearest corner or middle
+// of the picked blocks within `radius` pixels of the pointer, else where the pointer is.
+// `spots` are [{ point, screen }] (point on the table, screen in pixels).
+export function snapPivot(pointer, ground, spots, radius = 10) {
+  let best = null;
+  for (const s of spots) {
+    const d = Math.hypot(pointer.x - s.screen.x, pointer.y - s.screen.y);
+    if (d <= radius && (!best || d < best.d)) best = { d, point: s.point };
+  }
+  return best ? best.point : ground;
+}
 
 // A move (dx, dy) on the table as a move along the site's u and v.
 export function frameDelta(frame, dx, dy) {
@@ -411,6 +595,50 @@ export function snapTape(pointer, segments, project, radius = 10) {
   }
   return best;
 }
+
+// ------------------------------------------------------------------ the tape and the radius tool
+// Both take two clicks (2026-11-10 지훈, no drag): the first sets the start (the radius tool's
+// centre), the pointer then shows the line or circle, and the second click sets the end. A circle
+// lies flat and measures across the ground (x, y); the tape measures straight (x, y, z).
+// What is measured is shown, never saved: the tape keeps its last line, the radius tool up to
+// MAX_CIRCLES circles, until Esc or another tool.
+export const MAX_CIRCLES = 10;
+export const emptyMeasure = () => ({ start: null, circles: [], line: null });
+
+// The length from a to b: across the ground for 'radius', straight for 'tape'.
+export function measureLength(kind, a, b) {
+  const dz = kind === 'radius' ? 0 : (b.z || 0) - (a.z || 0);
+  return Math.hypot(b.x - a.x, b.y - a.y, dz);
+}
+
+// A click at p with the tape or the radius tool. Returns the next state and `made`: the line or
+// circle the click finished, or null (the first click, or a second one on the same spot).
+export function measureClick(state, kind, p) {
+  if (!state.start) return { state: { ...state, start: p }, made: null };
+  const length = measureLength(kind, state.start, p);
+  if (length < 0.05) return { state, made: null };
+  if (kind === 'radius') {
+    const made = { c: state.start, r: length, b: p };
+    return { state: { ...state, start: null, circles: [...state.circles, made].slice(-MAX_CIRCLES) }, made };
+  }
+  const made = { a: state.start, b: p, length };
+  return { state: { ...state, start: null, line: made }, made };
+}
+
+// Circles about the site's middle (the radius command, `radius 250 500`), added to those shown.
+export function siteCircles(state, centre, radii) {
+  const circles = radii.map((r) => ({ c: { x: centre.x, y: centre.y, z: 0 }, r, b: { x: centre.x, y: centre.y + r, z: 0 } }));
+  return { ...state, start: null, circles: [...state.circles, ...circles].slice(-MAX_CIRCLES) };
+}
+
+// n points round a circle of radius r about c, at c's height.
+export function circlePoints(c, r, n = 96) {
+  return Array.from({ length: n }, (_, i) => {
+    const t = (i / n) * Math.PI * 2;
+    return [c.x + r * Math.cos(t), c.y + r * Math.sin(t), c.z || 0];
+  });
+}
+
 const step10 = (n) => Math.round(n * 10) / 10;
 
 // A new block from a rectangle dragged on the table between p0 and p1 (table points), lying
@@ -508,6 +736,12 @@ export function numericScaleBlocks(blocks, indices, center, value) {
   const result = scaleBlocks(blocks, indices, center, k);
   if (indices.some((i) => !Number.isFinite(result[i].u) || !Number.isFinite(result[i].v))) return { error: '조절 후 위치가 너무 큽니다. 배율을 줄여 주세요.' };
   return { blocks: result };
+}
+
+// An angle in degrees brought within -180..180 (a drag past the back of the ring keeps turning
+// the short way).
+export function normalTurn(deg) {
+  return ((((deg + 180) % 360) + 360) % 360) - 180;
 }
 
 // An angle kept to steps (5° by default), as SketchUp's protractor snaps.
@@ -615,6 +849,7 @@ export function paperName(paper) {
   if (paper.kind === 'tracing') return paper.title || '트레이싱지';
   if (paper.kind === 'expert') return `${paper.title || paper.agent} 결과`;
   if (paper.kind === 'photo') return paper.title || '사진';
+  if (paper.kind === 'section') return `단면 ${paper.title || 'A'}–${paper.title || 'A'}′`;
   return paper.title || paper.kind;
 }
 
@@ -637,7 +872,7 @@ export function resultPreview(text, maxLines = Infinity) {
   return out.join('\n');
 }
 
-export const KIND_LABELS = { site: '대지', mass: '매스안', note: '메모', tracing: '트레이싱지', expert: '전문가 결과', photo: '사진' };
+export const KIND_LABELS = { site: '대지', mass: '매스안', note: '메모', tracing: '트레이싱지', expert: '전문가 결과', photo: '사진', section: '단면' };
 
 // ------------------------------------------------------------------ layers and properties
 // The 레이어 and 속성 panels, as in Rhino. The designer's layers are saved with the board
@@ -645,7 +880,7 @@ export const KIND_LABELS = { site: '대지', mass: '매스안', note: '메모', 
 // parent. A paper names its layer (`layer`), a block of a mass may name its own; without one a
 // paper is on its kind's layer (the default layers' ids are the kinds), a block on its scheme's.
 
-export const DEFAULT_LAYERS = [['site', '대지'], ['mass', '매스'], ['tracing', '트레이싱지'], ['note', '메모'], ['photo', '사진'], ['expert', '전문가 결과']]
+export const DEFAULT_LAYERS = [['site', '대지'], ['mass', '매스'], ['tracing', '트레이싱지'], ['note', '메모'], ['photo', '사진'], ['expert', '전문가 결과'], ['section', '단면']]
   .map(([id, name]) => ({ id, name, parent: '', visible: true, locked: false, color: '' }));
 
 export function boardLayers(board) {
@@ -787,6 +1022,92 @@ export function moveLayer(layers, id, direction) {
 
 const m2 = (v) => `${Math.round(v * 10) / 10}㎡`;
 
+// ------------------------------------------------------------------ figures of blocks
+
+// What blocks add up to, by the same rule as the server's mass_figures (sida/board.py): a
+// footprint is width × depth, a floor area footprint × floors, and both are set against the
+// site's area from government data (`site`: siteCard(); none, or no area: no ratios). Overlaps
+// between blocks are not taken out. `bcr` and `far` are the zone's statutory caps (%), or null.
+export function massFigures(blocks, site = null) {
+  const footprint = blocks.reduce((sum, b) => sum + b.w * b.d, 0);
+  const gross = blocks.reduce((sum, b) => sum + b.w * b.d * b.floors, 0);
+  const area = site?.areaM2 > 0 ? site.areaM2 : null;
+  const cap = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  return {
+    footprint, gross, area,
+    coverage: area ? (footprint / area) * 100 : null,
+    far: area ? (gross / area) * 100 : null,
+    bcr: area ? cap(site.bcr) : null,
+    farCap: area ? cap(site.far) : null,
+  };
+}
+
+const pct = (v) => `${Math.round(v * 10) / 10}%`;
+const over = (value, cap) => cap !== null && value > cap + 1e-9;
+
+// A ratio with its statutory cap: "50% (법정 80% 이하)", "85% (법정 80% 초과)", or "50%".
+function ratioText(value, cap) {
+  if (cap === null) return pct(value);
+  return `${pct(value)} (법정 ${cap}% ${over(value, cap) ? '초과' : '이하'})`;
+}
+
+// How much floor is left under a cap (or past it): "48㎡ 남음", "6㎡ 넘음".
+function roomText(used, capPct, area) {
+  const room = (capPct / 100) * area - used;
+  return room < -1e-9 ? `${m2(-room)} 넘음` : `${m2(Math.max(room, 0))} 남음`;
+}
+
+// The scheme's ratios against the caps, as rows of the 속성 panel; [] without the site's area.
+function schemeRatioRows(f, prefix = '') {
+  if (f.coverage === null) return [];
+  const rows = [[`${prefix}건폐율`, ratioText(f.coverage, f.bcr)], [`${prefix}용적률`, ratioText(f.far, f.farCap)]];
+  if (f.bcr !== null) rows.push(['건폐율 여유', roomText(f.footprint, f.bcr, f.area)]);
+  if (f.farCap !== null) rows.push(['용적률 여유', roomText(f.gross, f.farCap, f.area)]);
+  return rows;
+}
+
+// Whether two of the blocks overlap (more than touching): their figures then count the shared
+// part twice. Separating axes of the two rectangles, in the site's frame.
+export function blocksOverlap(blocks) {
+  const shapes = blocks.map((b) => blockCorners(null, { ...b, u: b.u || 0, v: b.v || 0 }));
+  const apart = (a, b) => [a, b].some((poly) => poly.some((p, i) => {
+    const q = poly[(i + 1) % poly.length];
+    const n = [q[1] - p[1], p[0] - q[0]];
+    const len = Math.hypot(...n);
+    if (len < 1e-9) return false;
+    const along = (pts) => pts.map(([x, y]) => (x * n[0] + y * n[1]) / len);
+    const ra = along(a), rb = along(b);
+    return Math.max(...ra) <= Math.min(...rb) + 1e-6 || Math.max(...rb) <= Math.min(...ra) + 1e-6;
+  }));
+  for (let i = 0; i < shapes.length; i++) {
+    for (let j = i + 1; j < shapes.length; j++) if (!apart(shapes[i], shapes[j])) return true;
+  }
+  return false;
+}
+
+const OVERLAP_NOTE = '겹친 동이 있어 겹친 부분이 두 번 더해졌습니다. 실제 면적보다 크게 나옵니다.';
+
+// The band along the foot of the table while a scheme's blocks are picked or edited: its name and
+// either its ratios against the caps ({label, value, cap, over}) or, without the site's area, its
+// areas and why the ratios are missing. null without blocks.
+export function figuresBand(paper, site = null) {
+  const blocks = paper?.blocks || [];
+  if (!blocks.length) return null;
+  const f = massFigures(blocks, site);
+  const items = f.coverage === null
+    ? [{ label: '건축면적', value: m2(f.footprint) }, { label: '연면적', value: m2(f.gross) }, { label: '건폐율·용적률', value: '미확인 (대지면적 모름)' }]
+    : [{ label: '건폐율', value: pct(f.coverage), cap: f.bcr === null ? '' : `법정 ${f.bcr}%`, over: over(f.coverage, f.bcr) },
+      { label: '용적률', value: pct(f.far), cap: f.farCap === null ? '' : `법정 ${f.farCap}%`, over: over(f.far, f.farCap) }];
+  return { title: paperName(paper), items, overlap: blocksOverlap(blocks) };
+}
+
+// The tag beside a picked block: "2동 · 72㎡ · 건폐율 18%" (without the site's area, no ratio).
+export function blockTag(paper, index, site = null) {
+  const b = paper.blocks[index];
+  const f = massFigures([b], site);
+  return `${index + 1}동 · ${m2(f.footprint)}${f.coverage === null ? '' : ` · 건폐율 ${pct(f.coverage)}`}`;
+}
+
 // What the 속성 panel shows for the selected papers, or (when no paper is selected) the buildings
 // picked on their own (`blocks`: pickedBlocks()): {title, rows: [[label, value, field?]], note}.
 // A row with a `field` ({key, type: 'text' | 'number', min, max, step, unit}) can be changed in
@@ -802,15 +1123,20 @@ export const PROPERTY_FIELDS = {
   d: { key: 'd', type: 'number', min: 0.5, max: 1000, step: 0.1, unit: 'm' },
   a: { key: 'a', type: 'number', min: -180, max: 180, step: 1, unit: '°' },
   layer: { key: 'layer', type: 'layer' }, // a choice of the board's layers
+  // a section: how far beyond the cut it shows, and the scale it prints at (1:n, one of SECTION_SCALES)
+  depth: { key: 'depth', type: 'number', min: 0, max: 1000, step: 10, unit: 'm' },
+  scale: { key: 'scale', type: 'number', min: 100, max: 5000, step: 100, unit: '', whole: true,
+    choices: [100, 200, 300, 500, 600, 1000, 1200, 2000, 2500, 5000] },
 };
-const NAMED = new Set(['mass', 'tracing', 'photo']); // the kinds with a name the designer gives
+const NAMED = new Set(['mass', 'tracing', 'photo', 'section']); // the kinds with a name the designer gives
+const SECTION_KEYS = new Set(['depth', 'scale']);
 const round1 = (v) => Math.round(v * 10) / 10;
 
 // One value for all, or '' when they differ.
 const shared = (values) => (new Set(values).size === 1 ? values[0] : '');
 
 export function propertiesOf(papers, site = null, blocks = [], layers = DEFAULT_LAYERS) {
-  if (!papers.length) return blocks.length ? blockProperties(blocks, layers) : null;
+  if (!papers.length) return blocks.length ? blockProperties(blocks, layers, site) : null;
   const layerRow = ['레이어', shared(papers.map((p) => paperLayer(p, layers))), PROPERTY_FIELDS.layer];
   if (papers.length > 1) {
     const kinds = new Map();
@@ -825,17 +1151,17 @@ export function propertiesOf(papers, site = null, blocks = [], layers = DEFAULT_
   if (p.kind === 'mass') {
     const blocks = p.blocks || [];
     const floorHeight = p.floor_height || 4.2;
-    const footprint = blocks.reduce((sum, b) => sum + b.w * b.d, 0);
-    const gross = blocks.reduce((sum, b) => sum + b.w * b.d * b.floors, 0);
+    const f = massFigures(blocks, site);
     const top = blocks.reduce((max, b) => Math.max(max, b.floors), 0);
     rows.push(['동', `${blocks.length}개`], ['층고', floorHeight, PROPERTY_FIELDS.floor_height], ['최고 층수', `${top}층 (${round1(top * floorHeight)}m)`],
-      ['건축면적', m2(footprint)], ['연면적', m2(gross)]);
-    const area = site?.areaM2;
-    if (area) {
-      rows.push(['건폐율', `${Math.round(footprint / area * 1000) / 10}%${site.bcr !== null && site.bcr !== undefined ? ` (법정 ${site.bcr}% 이하)` : ''}`],
-        ['용적률', `${Math.round(gross / area * 1000) / 10}%${site.far !== null && site.far !== undefined ? ` (법정 ${site.far}% 이하)` : ''}`]);
-    }
-    note = '제도판의 동을 더한 값입니다. 동끼리 겹친 부분은 빼지 않았습니다. 동 하나를 누르면 그 동의 층수·크기를 바꿀 수 있습니다.';
+      ['건축면적', m2(f.footprint)], ['연면적', m2(f.gross)], ...schemeRatioRows(f));
+    note = blocksOverlap(blocks)
+      ? `${OVERLAP_NOTE} 동 하나를 누르면 그 동의 층수·크기와 건폐율 몫을 봅니다.`
+      : '제도판의 동을 더한 값입니다. 동끼리 겹친 부분은 빼지 않습니다. 동 하나를 누르면 그 동의 층수·크기와 건폐율 몫을 봅니다.';
+  } else if (p.kind === 'section') {
+    const [[x0, y0], [x1, y1]] = p.line || [[0, 0], [0, 0]];
+    rows.push(['길이', `${round1(Math.hypot(x1 - x0, y1 - y0))}m`], ['뒤쪽 깊이', p.depth ?? 60, PROPERTY_FIELDS.depth], ['축척 (1:n)', p.scale ?? 500, PROPERTY_FIELDS.scale]);
+    note = '단면선 양 끝을 제도판에서 끌어 옮길 수 있습니다. 뒤쪽 깊이 0은 자른 것만 그립니다.';
   } else if (p.kind === 'site') {
     if (site) rows.push(['주소', site.address || '미확인'], ['용도지역', site.zones?.join(', ') || '미확인'], ['대지면적', site.area]);
     else note = '대지를 정하면 주소·용도지역·면적이 나옵니다.';
@@ -849,22 +1175,35 @@ export function propertiesOf(papers, site = null, blocks = [], layers = DEFAULT_
 }
 
 // The buildings picked on their own: one shows its floors, width, depth and turn to change; several
-// show how many and their floors (changed for all at once; empty when they differ).
-function blockProperties(groups, layers) {
+// show how many and their floors (changed for all at once; empty when they differ). Both show
+// their share of the site (건폐율·용적률 몫) and, when they are of one scheme, the scheme's ratios
+// against the caps and the floor left under them (`site`: siteCard()).
+function blockProperties(groups, layers, site = null) {
   const all = groups.flatMap((g) => g.indices.map((i) => g.paper.blocks[i]));
   const layerRow = ['레이어', shared(groups.flatMap((g) => g.indices.map((i) => blockLayer(g.paper, g.paper.blocks[i], layers)))), PROPERTY_FIELDS.layer];
-  const floorArea = all.reduce((sum, b) => sum + b.w * b.d, 0);
-  const gross = all.reduce((sum, b) => sum + b.w * b.d * b.floors, 0);
-  if (all.length === 1) {
+  const own = massFigures(all, site);
+  const several = all.length > 1;
+  const shareRows = own.coverage === null
+    ? [['건폐율·용적률', '미확인 (대지면적 모름)']]
+    : [[several ? '건폐율 몫 합' : '건폐율 몫', pct(own.coverage)], [several ? '용적률 몫 합' : '용적률 몫', pct(own.far)]];
+  // The whole scheme, when the picked blocks are all of one.
+  const scheme = groups.length === 1 ? groups[0].paper : null;
+  const schemeRows = scheme && own.coverage !== null ? schemeRatioRows(massFigures(scheme.blocks, site), '매스안 ') : [];
+  const notes = [];
+  if (own.coverage !== null) notes.push(`몫은 대지면적 ${m2(own.area)}에 대한 ${several ? '고른 동들의' : '이 동의'} 비율입니다.`);
+  if (scheme && blocksOverlap(scheme.blocks)) notes.push(OVERLAP_NOTE);
+  if (!several) {
     const [{ paper, indices: [i] }] = groups;
     const b = all[0];
     return { title: `${paperName(paper)} · ${i + 1}동`, rows: [['종류', '동'], layerRow, ['층수', b.floors, PROPERTY_FIELDS.floors],
       ['폭', round1(b.w), PROPERTY_FIELDS.w], ['깊이', round1(b.d), PROPERTY_FIELDS.d], ['각도', b.a || 0, PROPERTY_FIELDS.a],
-      ['높이', `${round1(b.floors * (paper.floor_height || 4.2))}m`], ['바닥면적', m2(floorArea)], ['연면적', m2(gross)]], note: '' };
+      ['높이', `${round1(b.floors * (paper.floor_height || 4.2))}m`], ['바닥면적', m2(own.footprint)], ['연면적', m2(own.gross)],
+      ...shareRows, ...schemeRows], note: notes.join(' ') };
   }
   const floors = new Set(all.map((b) => b.floors));
+  if (floors.size > 1) notes.unshift('층수가 서로 다릅니다. 값을 넣으면 고른 동이 모두 그 층수가 됩니다.');
   return { title: `동 ${all.length}개`, rows: [['종류', '동'], layerRow, ['층수', floors.size === 1 ? all[0].floors : '', PROPERTY_FIELDS.floors],
-    ['바닥면적 합', m2(floorArea)], ['연면적 합', m2(gross)]], note: floors.size > 1 ? '층수가 서로 다릅니다. 값을 넣으면 고른 동이 모두 그 층수가 됩니다.' : '' };
+    ['바닥면적 합', m2(own.footprint)], ['연면적 합', m2(own.gross)], ...shareRows, ...schemeRows], note: notes.join(' ') };
 }
 
 // A value typed into the 속성 panel, checked: [{id, changes}] for the papers it changes, or
@@ -895,9 +1234,14 @@ export function propertyChange(papers, blocks, key, raw, layers = DEFAULT_LAYERS
     if (!value || !Number.isFinite(n)) return { error: '숫자를 넣어 주세요.' };
     if (field.whole && !Number.isInteger(n)) return { error: '정수로 넣어 주세요.' };
     if (n < field.min || n > field.max) return { error: `${field.min}에서 ${field.max} 사이로 넣어 주세요.` };
+    if (field.choices && !field.choices.includes(n)) return { error: `${field.choices.join(', ')} 중 하나로 넣어 주세요.` };
     value = Math.round(n * 100) / 100;
   } else {
     value = value.slice(0, field.max);
+  }
+  if (SECTION_KEYS.has(key)) {
+    if (papers.length !== 1 || papers[0].kind !== 'section') return { error: '이 종이에는 없는 값입니다.' };
+    return (papers[0][key] ?? (key === 'depth' ? 60 : 500)) === value ? [] : [{ id: papers[0].id, changes: { [key]: value } }];
   }
   if (papers.length === 1 && (key === 'title' || key === 'floor_height')) {
     const p = papers[0];
@@ -1060,6 +1404,7 @@ export function changedFields(before, after) {
 
 function worthKeeping(edit) {
   if (edit.op === 'update') return Object.keys(edit.after || {}).length > 0 && !same(edit.before, edit.after);
+  if (edit.op === 'people') return !same(edit.before, edit.after);
   return UNDOABLE_KINDS.includes(edit.paper?.kind);
 }
 
@@ -1072,6 +1417,7 @@ export function recordStep(history, edits) {
 export function invertStep(step) {
   return [...step].reverse().map((e) => {
     if (e.op === 'update') return { op: 'update', id: e.id, before: e.after, after: e.before };
+    if (e.op === 'people') return { op: 'people', before: e.after, after: e.before };
     return { op: e.op === 'add' ? 'remove' : 'add', paper: e.paper };
   });
 }
@@ -1964,3 +2310,117 @@ export function groupProperties(papers, group) {
   if (m.keys.length) rows.push(['동', `${m.keys.length}개`]);
   return { title: `그룹 (${m.ids.length + m.keys.length}개)`, rows, note: '하나를 누르면 함께 골라집니다. 풀려면 ungroup 명령이나 아래 버튼을 쓰세요.' };
 }
+
+// ------------------------------------------------------------------ people (사람 배치)
+// Scale figures stood about the site in 3D to feel how large a scheme is (2026-11-10 지훈:
+// "사람 배치해보는 기능", 2026-11-11 "제도판 3D부터"). A person is {id, x, y, turn, kind, roof?}:
+// x, y in the plan's metres, turn the way they face (degrees clockwise from north, as the eye's
+// yaw), roof standing them on the roof of the scheme's building under them. Saved as a whole list
+// (PUT .../board/people); the screen only, never sent to the AI.
+
+export const PERSON_KINDS = {
+  stand: { label: '서 있는 사람', short: '서기', height: 1.7 },
+  walk: { label: '걷는 사람', short: '걷기', height: 1.7 },
+  child: { label: '아이', short: '아이', height: 1.1 },
+};
+export const MAX_PEOPLE = 400;
+export const SCATTER_COUNT = 12; // people the 뿌리기 button stands at once
+export const SCATTER_REACH = 15; // metres around the site they may stand in
+export const PERSON_GAP = 1.2; // metres kept between two people scattered
+
+export function personId(rand = Math.random) {
+  return `person-${Math.floor(rand() * 0x100000000).toString(16).padStart(8, '0').slice(-8)}`;
+}
+
+// A point inside a closed ring [[x, y], ...] (even-odd).
+export function insideRing(ring, x, y) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+// How far a point is from a ring's edges, in metres (0 on an edge).
+export function ringGap(ring, x, y) {
+  let best = Infinity;
+  for (let i = 0; i < ring.length; i += 1) {
+    const [ax, ay] = ring[i], [bx, by] = ring[(i + 1) % ring.length];
+    const dx = bx - ax, dy = by - ay;
+    const len = dx * dx + dy * dy;
+    const t = len ? clampTo(((x - ax) * dx + (y - ay) * dy) / len, 0, 1) : 0;
+    best = Math.min(best, Math.hypot(x - (ax + t * dx), y - (ay + t * dy)));
+  }
+  return best;
+}
+
+// The block of a scheme a point stands on (the tallest, where blocks overlap): its index, or -1.
+export function blockUnder(frame, blocks, x, y) {
+  let found = -1;
+  (blocks || []).forEach((b, i) => {
+    if (insideRing(blockCorners(frame, b), x, y) && (found < 0 || b.floors > blocks[found].floors)) found = i;
+  });
+  return found;
+}
+
+// The block of a scheme nearest a point and how far off it is ({index, gap}, 0 inside), or null.
+export function nearestBlock(frame, blocks, x, y) {
+  let best = null;
+  (blocks || []).forEach((b, index) => {
+    const ring = blockCorners(frame, b);
+    const gap = insideRing(ring, x, y) ? 0 : ringGap(ring, x, y);
+    if (!best || gap < best.gap) best = { index, gap };
+  });
+  return best;
+}
+
+// What the table says about a picked person: their height, and the nearest building of the scheme
+// in person heights (a scale the designer can feel).
+export function personNote(person, block, floorHeight = 4.2) {
+  const kind = PERSON_KINDS[person?.kind] || PERSON_KINDS.stand;
+  const head = `${kind.label} ${kind.height} m${person?.roof ? ' · 옥상' : ''}`;
+  if (!block) return head;
+  const h = block.floors * floorHeight;
+  return `${head} · 가까운 동 ${block.floors}층 ${fmt(h, 1)} m, 사람 키로 약 ${Math.round(h / kind.height)}명 높이`;
+}
+
+// What the ground is at a point of the surroundings (board-model GROUND_COLORS keys: g ground,
+// r road, s sidewalk, w water, x outside the range), or '' with no surroundings.
+export function groundClass(terrain, x, y) {
+  if (!terrain?.n || !terrain.classes?.length) return '';
+  const { min, step, n } = terrain;
+  const i = Math.round((x - min) / step), j = Math.round((y - min) / step);
+  if (i < 0 || j < 0 || i >= n || j >= n) return OUTSIDE;
+  return terrain.classes[j * n + i] || '';
+}
+
+// Where the 뿌리기 button stands `count` people: on open ground inside the site or within `reach`
+// metres of it, out of the scheme's buildings and those around (`obstacles`, rings) by 0.6 m,
+// PERSON_GAP from anyone already there, and with the surroundings shown off the road and water.
+// Most of those on a sidewalk walk; a few are children. `rand` makes it repeatable in tests.
+export function scatterSpots({ rings = [], obstacles = [], terrain = null, people = [], count = SCATTER_COUNT, reach = SCATTER_REACH, rand = Math.random } = {}) {
+  const points = rings.flat();
+  if (!points.length) return [];
+  const xs = points.map((p) => p[0]), ys = points.map((p) => p[1]);
+  const box = { x0: Math.min(...xs) - reach, x1: Math.max(...xs) + reach, y0: Math.min(...ys) - reach, y1: Math.max(...ys) + reach };
+  const taken = people.filter((p) => !p.roof).map((p) => [p.x, p.y]);
+  const out = [];
+  for (let tries = 0; out.length < count && tries < count * 200; tries += 1) {
+    const x = box.x0 + rand() * (box.x1 - box.x0);
+    const y = box.y0 + rand() * (box.y1 - box.y0);
+    const onSite = rings.some((r) => insideRing(r, x, y));
+    if (!onSite && !rings.some((r) => ringGap(r, x, y) <= reach)) continue;
+    if (obstacles.some((r) => insideRing(r, x, y) || ringGap(r, x, y) < 0.6)) continue;
+    const ground = groundClass(terrain, x, y);
+    if (['r', 'w', OUTSIDE].includes(ground)) continue;
+    if (taken.some(([px, py]) => Math.hypot(px - x, py - y) < PERSON_GAP)) continue;
+    const k = rand();
+    const walking = ground === 's' ? 0.75 : 0.4;
+    const kind = k < 0.12 ? 'child' : k < 0.12 + walking * 0.88 ? 'walk' : 'stand';
+    out.push({ x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100, turn: Math.round(rand() * 360) % 360, kind });
+    taken.push([x, y]);
+  }
+  return out;
+}
+

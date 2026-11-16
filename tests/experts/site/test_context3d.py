@@ -310,6 +310,23 @@ def test_the_export_hook_gives_nothing_without_a_site(tmp_path):
     from sida.experts.site import hooks
 
     assert hooks.board_export_layers(tmp_path) == []
+    assert hooks.board_surroundings(tmp_path) is None
+
+
+def test_file_buildings_keep_vworld_values_out_and_mark_estimates():
+    ring = square(0, 0, 10)[:-1]
+    common = {"outline": ring, "base": -1.0, "ground": 0.0, "ground_line": [[0, 0, 0]]}
+    around = {"building_source": {"pack": "b"}, "buildings": [
+        {**common, "height": 12.0, "height_source": "ledger", "on_site": True},
+        {**common, "height": 9.9, "height_source": "estimate"},
+        {**common, "height": 6.6, "height_source": "api_estimate", "offline": {"height": 3.3, "source": "map_estimate"}},
+        {**common, "height": 6.6, "height_source": "api_estimate"},  # VWorld's floors only: a ground line
+        {**common, "height": 20.0, "height_source": "ledger", "display_only": True},  # a VWorld outline
+    ]}
+    solids, lines = context3d.file_buildings(around)
+    assert [(b["height"], b["estimate"], b["on_site"]) for b in solids] == [(13.0, False, True), (10.9, True, False), (4.3, True, False)]
+    assert lines == [[[0, 0, 0]]]
+    assert context3d.file_buildings({"buildings": around["buildings"]}) == ([], [])
 
 
 def test_a_file_building_without_height_or_floors_asks_vworld_once_per_layer(tmp_path, monkeypatch):

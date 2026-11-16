@@ -150,7 +150,7 @@ export const aroundMethods = {
     const data = this.aroundOn ? this.around : null;
     this.drawAroundLegend(data);
     this.aroundLow = 0;
-    if (!data) { this.invalidate(); return; }
+    if (!data) { this.drawSections(); this.invalidate(); return; }
     const t = data.terrain;
     if (this.steppedOn && this.stepped) this.drawSteps(around);
     if (t && !(this.steppedOn && this.stepped)) {
@@ -231,6 +231,7 @@ export const aroundMethods = {
       around.add(line);
     }
     this.showAroundParts();
+    this.drawSections(); // the ground and the buildings come into the sections
     this.invalidate();
   },
   // The lane lines and road marks of the 정밀도로지도, filled at their real width just above the
@@ -277,6 +278,7 @@ export const aroundMethods = {
   setAroundParts(hidden, { save = true } = {}) {
     this.aroundPartsHidden = new Set(hidden);
     this.showAroundParts();
+    this.drawSections(); // a part turned off leaves the sections too
     this.invalidate();
     if (save) this.hooks.saveAroundParts?.([...this.aroundPartsHidden]);
   },

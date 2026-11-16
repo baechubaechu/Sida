@@ -11,6 +11,7 @@
 export const COMMANDS = [
   { name: 'plan', aliases: ['top'], label: '평면으로 보기', group: 'view' },
   { name: 'persp', aliases: ['perspective'], label: '3D로 보기', group: 'view' },
+  { name: 'iso', aliases: ['isometric'], label: '아이소로 보기 (평행투영, 다시 하면 90° 돌아감)', group: 'view' },
   { name: 'zoom', aliases: ['z'], label: '전체 맞춤', group: 'view' },
   { name: 'north', aliases: [], label: '북쪽을 위로', group: 'view' },
   { name: 'select', aliases: [], label: '선택 도구', group: 'draw' },
@@ -18,7 +19,9 @@ export const COMMANDS = [
   { name: 'pen', aliases: ['sketch'], label: '펜으로 그리기 (평면에서)', group: 'draw' },
   { name: 'trace', aliases: [], label: '트레이싱지 덮기', group: 'draw' },
   { name: 'mass', aliases: [], label: '숫자로 매스안 만들기', group: 'draw' },
+  { name: 'people', aliases: ['person', 'figure'], label: '사람 배치: 바닥이나 매스 지붕을 눌러 사람 모형(1.7m) 세우기, 대지 주변에 뿌리기', group: 'draw' },
   { name: 'photo', aliases: ['picture', 'image', 'img'], label: '사진·PDF 올리기 (끌어다 놓거나 붙여넣어도 됨)', group: 'draw' },
+  { name: 'section', aliases: ['sec'], label: '단면: 평면에서 끌어 단면선 긋기 (단면도 종이·3D 자르기·SVG/PDF/DXF)', group: 'draw' },
   // SketchUp's basic tools on blocks (2026-11-02 지훈), with the AutoCAD short names.
   { name: 'rect', aliases: ['rec', 'rectangle'], label: '사각형: 끌어서 새 동 그리기', group: 'draw' },
   { name: 'pushpull', aliases: ['pp', 'push'], label: '밀고끌기: 끌어서 조절 · 클릭하면 층수·길이 입력', group: 'draw' },
@@ -27,7 +30,8 @@ export const COMMANDS = [
   { name: 'rotate', aliases: ['ro'], label: '회전: 동 돌리기', group: 'edit' },
   { name: 'scale', aliases: ['sc'], label: '크기: 끌어서 조절 · 클릭하면 배율 입력', group: 'edit' },
   { name: 'eraser', aliases: [], label: '지우개: 누르거나 끌고 지나간 동 지우기', group: 'edit' },
-  { name: 'dist', aliases: ['di', 'measure', 'tape'], label: '줄자: 두 점 사이 거리', group: 'edit' },
+  { name: 'dist', aliases: ['di', 'measure', 'tape'], label: '줄자: 두 점을 찍어 거리 재기', group: 'edit' },
+  { name: 'radius', aliases: ['ra'], label: '반경: 중심과 끝점을 찍어 원 그리기 · 이어서 반경(m)을 치면 대지 가운데에 원', group: 'edit' },
   { name: 'delete', aliases: ['erase', 'e'], label: '고른 것 지우기', group: 'edit' },
   { name: 'group', aliases: [], label: '고른 것을 그룹으로 묶기: 하나를 누르면 함께 골라짐 (Ctrl+G)', group: 'edit' },
   { name: 'ungroup', aliases: [], label: '그룹 풀기 (Ctrl+Shift+G)', group: 'edit' },
@@ -145,6 +149,24 @@ export function pickOption(text, options) {
   return options.find((o) => o.key.toLowerCase() === value || o.label.toLowerCase() === value)
     || options.find((o) => o.label.toLowerCase().startsWith(value) || o.key.toLowerCase().startsWith(value))
     || null;
+}
+
+// The radius command's answer (2026-11-10 지훈): one or more radii in metres, as "500",
+// "250 500 1000", "250, 500m" or "1.5km". null when anything else is typed or a radius is not
+// between 1 m and 20 km.
+export const MAX_RADIUS = 20000;
+export function readRadii(text) {
+  const words = String(text ?? '').trim().toLowerCase().split(/[\s,]+/).filter(Boolean);
+  if (!words.length) return null;
+  const radii = [];
+  for (const w of words) {
+    const m = /^(\d+(?:\.\d+)?)(m|km)?$/.exec(w);
+    if (!m) return null;
+    const r = Number(m[1]) * (m[2] === 'km' ? 1000 : 1);
+    if (!(r >= 1 && r <= MAX_RADIUS)) return null;
+    radii.push(r);
+  }
+  return radii;
 }
 
 // The newest lines of the command history, oldest first.

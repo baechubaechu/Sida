@@ -8,7 +8,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
-from sida import board, board_export, workspace
+from sida import board, board_export, board_section, workspace
 
 
 def create_router(load_config, core) -> APIRouter:
@@ -102,6 +102,11 @@ def create_router(load_config, core) -> APIRouter:
     def set_hidden(name: str, body: dict) -> dict:
         return call(board.set_hidden, call(project, name), body.get("ids"))
 
+    # Scale figures standing about the site in 3D (the screen only), replaced as a whole.
+    @router.put("/people")
+    def set_people(name: str, body: dict) -> dict:
+        return call(board.set_people, call(project, name), body.get("people"))
+
     # The view the table was last seen from, so a reload opens on it.
     @router.put("/view")
     def set_view(name: str, body: dict) -> dict:
@@ -121,6 +126,19 @@ def create_router(load_config, core) -> APIRouter:
         disposition = f"attachment; filename=\"sida-board.{fmt}\"; filename*=UTF-8''{quote(filename)}"
         return Response(
             data, media_type=board_export.MEDIA_TYPES[fmt],
+            headers={"Content-Disposition": disposition, "Cache-Control": "no-store"},
+        )
+
+    @router.get("/sections/{paper_id}/export")
+    def export_section(name: str, paper_id: str, format: str = "svg", active: str = "") -> Response:
+        path = call(project, name)
+        data = call(board_section.export_section, path, paper_id, format, active=active.strip() or None)
+        fmt = format.lower()
+        paper = next(p for p in board.load_board(path)["papers"] if p["id"] == paper_id)
+        filename = f"{path.name}_{board_section.file_name(paper, fmt)}"
+        disposition = f"attachment; filename=\"sida-section.{fmt}\"; filename*=UTF-8''{quote(filename)}"
+        return Response(
+            data, media_type=board_section.MEDIA_TYPES[fmt],
             headers={"Content-Disposition": disposition, "Cache-Control": "no-store"},
         )
 

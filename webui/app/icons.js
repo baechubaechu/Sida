@@ -20,7 +20,10 @@ const PATHS = {
   scale: '<path d="M3.5 9V3.5H9M16.5 11v5.5H11M3.5 3.5l13 13"/>',
   erase: '<path d="m8 16.5 8.5-8.5-4-4-9 9 3.5 3.5z"/><path d="M8 16.5h8.5M6 10.5l4 4"/>',
   tape: '<rect x="2.5" y="6.5" width="15" height="7" rx="1"/><path d="M6 6.5v3M9 6.5v2M12 6.5v3M15 6.5v2"/>',
+  radius: '<circle cx="10" cy="10" r="7"/><path d="M10 10h7"/><circle cx="10" cy="10" r=".9"/>',
   note: '<path d="M4 3.5h12v9l-4 4H4z"/><path d="M12 16.5v-4h4M7 7.5h6M7 10.5h4"/>',
+  // A section line with its arrows toward the looked-at side.
+  section: '<path d="M3 10h14" stroke-dasharray="3 1.6"/><path d="M4 10V5.5l-2 2M4 5.5l2 2M16 10V5.5l-2 2M16 5.5l2 2"/>',
   pen: '<path d="m13.5 3.5 3 3L7 16H4v-3z"/><path d="m11.5 5.5 3 3"/>',
   mass: '<path d="m10 2.5 6.5 3.5v8L10 17.5 3.5 14V6z"/><path d="M10 9.5V17.5M10 9.5l6.5-3.5M10 9.5 3.5 6"/>',
   trace: '<path d="m10 3 7.5 4L10 11 2.5 7z"/><path d="m2.5 10.5 7.5 4 7.5-4"/><path d="m2.5 14 7.5 4 7.5-4" stroke-dasharray="2 2"/>',
@@ -28,6 +31,7 @@ const PATHS = {
   trash: '<path d="M3.5 5.5h13M8 5.5V3.5h4v2M5.5 5.5l1 11h7l1-11"/>',
   around: '<path d="M2.5 16.5h15M3.5 16.5l4-7 3 4.5 2-3 4 5.5"/><path d="M12.5 6.5h3v4"/>',
   tray: '<path d="M10 3v3M10 14v3M3 10h3M14 10h3M5 5l2 2M13 13l2 2M15 5l-2 2M7 13l-2 2"/>',
+  person: '<circle cx="10" cy="4.5" r="2"/><path d="M10 7.5v5M6.5 9.5h7M10 12.5l-2.5 5M10 12.5l2.5 5"/>',
   eye: '<path d="M2 10s3-5.5 8-5.5 8 5.5 8 5.5-3 5.5-8 5.5S2 10 2 10z"/><circle cx="10" cy="10" r="2.5"/>',
   eyeOff: '<path d="M2 10s3-5.5 8-5.5 8 5.5 8 5.5-3 5.5-8 5.5S2 10 2 10z"/><path d="M3.5 16.5l13-13"/>',
   // The 레이어 panel: lock, a new layer, a sublayer, move up and down, the current layer, a group.

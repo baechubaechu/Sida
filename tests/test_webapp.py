@@ -1354,6 +1354,26 @@ def test_rhino_live_api_carries_the_document_to_the_panel_and_the_panels_asks_to
     rhino_live.reset()
 
 
+def test_board_api_keeps_a_section_and_gives_its_drawing_as_svg_pdf_and_dxf(client, project):
+    base = f"/api/projects/{project.name}/board"
+    client.post(f"{base}/papers", json={"kind": "mass", "id": "mass-a", "title": "안 A", "blocks": [{"w": 30, "d": 20, "floors": 4}]})
+    r = client.post(f"{base}/papers", json={"kind": "section", "id": "sec-a", "title": "A", "line": [[-40, 0], [40, 0]]})
+    assert r.status_code == 201 and r.json()["paper"]["depth"] == 60 and r.json()["paper"]["scale"] == 500
+    assert "section" in [layer["id"] for layer in client.get(base).json()["layers"]]
+    assert client.patch(f"{base}/papers/sec-a", json={"flip": True, "scale": 200}).json()["paper"]["flip"] is True
+
+    r = client.get(f"{base}/sections/sec-a/export", params={"format": "svg", "active": "mass-a"})
+    assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml")
+    assert "filename*=UTF-8''" in r.headers["content-disposition"] and 'data-part="mass"' in r.text
+    assert client.get(f"{base}/sections/sec-a/export", params={"format": "pdf"}).content[:5] == b"%PDF-"
+    assert "단면-매스".encode() in client.get(f"{base}/sections/sec-a/export", params={"format": "dxf"}).content
+
+    assert client.get(f"{base}/sections/sec-a/export", params={"format": "3dm"}).status_code == 400
+    assert client.get(f"{base}/sections/mass-a/export").status_code == 400
+    assert client.get(f"{base}/sections/nope/export").status_code == 404
+    assert client.post(f"{base}/papers", json={"kind": "section", "line": [[0, 0], [0.5, 0]]}).status_code == 400
+
+
 def test_board_api_places_and_discards_ai_papers(client, project):
     from sida import board
 
@@ -1560,6 +1580,18 @@ def test_delete_talk_is_blocked_during_running_project_job(client, project):
     response = client.delete(f"/api/projects/{project.name}/talks/01")
     assert response.status_code == 409
     assert client.get(f"/api/projects/{project.name}/talks/01").status_code == 200
+
+
+def test_people_stood_about_the_site_are_kept_per_project(client, project):
+    url = f"/api/projects/{project.name}/board/people"
+    body = client.put(url, json={"people": [{"id": "p1", "x": 2, "y": -3, "turn": 45, "kind": "walk"}, {"x": 0, "y": 0, "roof": True}]}).json()
+    assert body["people"][0] == {"id": "p1", "x": 2.0, "y": -3.0, "turn": 45.0, "kind": "walk"}
+    assert body["people"][1]["roof"] is True and body["people"][1]["kind"] == "stand"
+    assert client.get(f"/api/projects/{project.name}/board").json()["people"] == body["people"]
+    assert client.put(url, json={"people": []}).json()["people"] == []  # 모두 지우기
+    for bad in ({"people": "p1"}, {"people": [{"x": 0, "y": 0, "kind": "dog"}]}, {}):
+        assert client.put(url, json=bad).status_code == 400
+    assert client.put("/api/projects/nope/board/people", json={"people": []}).status_code == 404
 
 
 def test_hidden_3d_buildings_are_kept_per_project_and_only_as_ids(client, project):

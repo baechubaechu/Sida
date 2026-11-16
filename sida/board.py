@@ -1,7 +1,7 @@
 """The drafting table (제도판): sheets of paper laid around the site, saved in the project.
 
 Independent of HTTP and of the screen. The table is stored as board.json in the project
-folder: {"rev", "papers", "tray", "pins", "ideas", "hidden"}. The designer adds, moves and edits papers one
+folder: {"rev", "papers", "tray", "pins", "ideas", "hidden", "people", "layers"}. The designer adds, moves and edits papers one
 at a time (the screen and the AI write to the same file, so nobody saves it whole).
 
 `layers` (2026-11-09 지훈, as in Rhino) are the designer's layers, in order: {id, name, parent ('' at
@@ -18,6 +18,13 @@ A group (2026-11-09 지훈: "아무 개체끼리 묶을 수 있게") is any pape
 `hidden` (2026-11-07) lists the buildings of the VWorld 3D map the designer hid around the site
 (their model ids, so the site's own old building can be taken away from under a scheme). Only the
 screen reads it; it is not geometry and does not go to the AI or into the export.
+
+`people` (2026-11-10 지훈: "사람 배치해보는 기능") are the scale figures the designer stands about
+the site in 3D, to feel how large a scheme is: {id, x, y, turn, kind, roof}. x and y are metres in
+the plan's own coordinates (the site plan's, the same as the surroundings), `turn` is the way the
+person faces in degrees clockwise from north, `kind` is PERSON_KINDS, and `roof` (kept only when
+true) stands them on the roof of the scheme's building under them instead of the ground. Like
+`hidden` they are for the screen only: not sent to the AI, not in the export (yet).
 
 The idea board (`ideas`, 2026-11-05) is the designer's ordered list of main ideas, kept beside
 the table. Only the designer writes it; every Conductor call and expert run reads the ideas
@@ -77,9 +84,9 @@ from sida.storage import atomic_write_text
 
 BOARD_FILE = "board.json"
 SITE_ID = "site"
-KINDS = ("site", "mass", "note", "tracing", "expert", "photo", "rhino")
+KINDS = ("site", "mass", "note", "tracing", "expert", "photo", "section", "rhino")
 RHINO_ID = "rhino"  # the one paper that shows the designer's Rhino model (the newest snapshot)
-DESIGNER_KINDS = ("mass", "note", "tracing")  # what the screen may add
+DESIGNER_KINDS = ("mass", "note", "tracing", "section")  # what the screen may add
 AI_KINDS = ("mass", "note")  # what the Conductor may put in the AI section
 MAX_TRAY = 40  # the AI section keeps the newest papers
 PREVIEW_LINES = 12
@@ -96,7 +103,7 @@ PLACEMENT = ("x", "y", "w", "h")
 ARRANGE = (*PLACEMENT, "folded", "layer", "group")
 PAPER_SIZE = {
     "site": (300, 250), "mass": (300, 210), "note": (200, 140), "tracing": (300, 250), "expert": (320, 270),
-    "photo": (300, 225), "rhino": (300, 210),
+    "photo": (300, 225), "section": (360, 220), "rhino": (300, 210),
 }
 PAPER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 CONTEXT_MODES = ("auto", "full", "names")
@@ -118,6 +125,10 @@ ORPHAN_SECONDS = 24 * 3600  # a removed photo's file is kept this long, so the s
 MAX_IDEAS = 40
 MAX_HIDDEN = 300  # hidden VWorld 3D buildings kept per project
 MAX_HIDDEN_ID = 80
+# Scale figures (`people`): what each kind is, and how many one table keeps.
+PERSON_KINDS = ("stand", "walk", "child")
+MAX_PEOPLE = 400
+MAX_COORD = 100000.0  # metres from the middle of the site plan
 MAX_IDEA_TEXT = 600
 MAX_IDEA_PAPERS = 8
 TALK_ID = re.compile(r"\d{2,4}")  # the Conductor talk ids of sida/talks.py
@@ -127,7 +138,16 @@ LAYER_COLOR = re.compile(r"#[0-9a-fA-F]{6}")
 # The layers a table starts with: one for each kind of paper (their ids are the kinds).
 DEFAULT_LAYERS = (
     ("site", "대지"), ("mass", "매스"), ("tracing", "트레이싱지"), ("note", "메모"), ("photo", "사진"), ("expert", "전문가 결과"),
+    ("section", "단면"),
 )
+# A section (단면, 2026-11-11 지훈): a line drawn across the site, the side it looks toward, how far
+# beyond it the drawing shows and the scale it is printed at. The drawing itself is made from the
+# table and the surroundings each time (sida/board_section.py), so it follows every change.
+SECTION_SCALES = (100, 200, 300, 500, 600, 1000, 1200, 2000, 2500, 5000)
+DEFAULT_SECTION_SCALE = 500
+DEFAULT_SECTION_DEPTH = 60.0
+MAX_SECTION_DEPTH = 1000.0
+MAX_SECTION_REACH = 5000.0  # metres from the site's middle a section line may reach
 
 
 def default_layers() -> list[dict]:
@@ -158,7 +178,7 @@ def _site_paper() -> dict:
 
 
 def _empty() -> dict:
-    return {"rev": 0, "papers": [_site_paper()], "tray": [], "pins": [], "ideas": [], "hidden": [], "layers": default_layers()}
+    return {"rev": 0, "papers": [_site_paper()], "tray": [], "pins": [], "ideas": [], "hidden": [], "people": [], "layers": default_layers()}
 
 
 log = logging.getLogger(__name__)
@@ -208,12 +228,20 @@ def load_board(project_path: Path) -> dict:
         idea["papers"] = [i for i in idea.get("papers") or [] if i in there]
     hidden = data.get("hidden") if isinstance(data.get("hidden"), list) else []
     hidden = [h for h in hidden if isinstance(h, str) and h]
+    people = []
+    for raw in data.get("people") if isinstance(data.get("people"), list) else []:
+        try:  # a hand-edited person that no longer reads is left out, not the whole table
+            person = clean_person(raw, len(people))
+        except ValueError:
+            continue
+        if all(p["id"] != person["id"] for p in people):
+            people.append(person)
     try:
         layers = clean_layers(data["layers"]) if isinstance(data.get("layers"), list) and data["layers"] else default_layers()
     except ValueError:
         layers = default_layers()
     return {"rev": int(data.get("rev") or 0), "papers": papers, "tray": tray, "pins": pins, "ideas": ideas,
-            "hidden": hidden, "layers": layers}
+            "hidden": hidden, "people": people[:MAX_PEOPLE], "layers": layers}
 
 
 def _save(project_path: Path, board: dict) -> dict:
@@ -260,6 +288,9 @@ def add_paper(project_path: Path, data: dict) -> dict:
             raise ValueError(f"a paper with this id already exists: {paper_id}")
         paper = clean_paper({**data, "id": paper_id, "kind": kind})
         board["papers"].append(paper)
+        if kind == "section" and not any(x["id"] == "section" for x in board["layers"]) and len(board["layers"]) < MAX_LAYERS:
+            # a table saved before sections had no layer for them
+            board["layers"].append({"id": "section", "name": "단면", "parent": "", "visible": True, "locked": False, "color": ""})
         board = _save(project_path, board)
     return {"paper": paper, "rev": board["rev"]}
 
@@ -687,6 +718,49 @@ def set_hidden(project_path: Path, ids: list) -> dict:
     return {"hidden": board["hidden"], "rev": board["rev"]}
 
 
+def clean_person(raw, index: int) -> dict:
+    """One scale figure, checked (a new one gets an id). Raises ValueError."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"people[{index}] must be an object")
+    person_id = raw.get("id") or f"person-{uuid.uuid4().hex[:8]}"
+    if not (isinstance(person_id, str) and PAPER_ID.fullmatch(person_id)):
+        raise ValueError(f"people[{index}].id must be an id")
+    kind = raw.get("kind", "stand")
+    if kind not in PERSON_KINDS:
+        raise ValueError(f"people[{index}].kind must be one of {', '.join(PERSON_KINDS)}")
+    x = _number(raw.get("x"), f"people[{index}].x")
+    y = _number(raw.get("y"), f"people[{index}].y")
+    if abs(x) > MAX_COORD or abs(y) > MAX_COORD:
+        raise ValueError(f"people[{index}] is too far from the site")
+    turn = _number(raw.get("turn", 0), f"people[{index}].turn") % 360
+    roof = raw.get("roof", False)
+    if not isinstance(roof, bool):
+        raise ValueError(f"people[{index}].roof must be true or false")
+    person = {"id": person_id, "x": round(x, 3), "y": round(y, 3), "turn": round(turn, 1) % 360, "kind": kind}
+    if roof:
+        person["roof"] = True
+    return person
+
+
+def set_people(project_path: Path, raw: list) -> dict:
+    """
+    The scale figures standing about the site (`people`). Replaces the list; [] takes them all
+    away. Returns {people, rev}. Raises ValueError.
+    """
+    if not isinstance(raw, list):
+        raise ValueError("people must be a list")
+    if len(raw) > MAX_PEOPLE:
+        raise ValueError(f"at most {MAX_PEOPLE} people")
+    people = [clean_person(item, index) for index, item in enumerate(raw)]
+    if len({p["id"] for p in people}) != len(people):
+        raise ValueError("each person needs an id of their own")
+    with _lock:
+        board = load_board(project_path)
+        board["people"] = people
+        board = _save(project_path, board)
+    return {"people": board["people"], "rev": board["rev"]}
+
+
 def clean_layers(raw) -> list[dict]:
     """The layers, checked: unique ids, names, parents that exist (no loops). Raises ValueError."""
     if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_LAYERS:
@@ -852,6 +926,20 @@ def _stroke(raw, index: int) -> list[list[float]]:
     return points
 
 
+def _section_line(raw) -> list[list[float]]:
+    """Two points [[x, y], [x, y]] in metres around the site's middle, at least 1 m apart."""
+    if not isinstance(raw, list) or len(raw) != 2:
+        raise ValueError("a section needs its line: two points [[x, y], [x, y]]")
+    points = []
+    for point in raw:
+        if not isinstance(point, list) or len(point) != 2:
+            raise ValueError("a section line point must be [x, y]")
+        points.append([round(_number(v, "section line", low=-MAX_SECTION_REACH, high=MAX_SECTION_REACH), 2) for v in point])
+    if math.dist(points[0], points[1]) < 1:
+        raise ValueError("a section line must be at least 1 m long")
+    return points
+
+
 def clean_paper(data: dict) -> dict:
     """A paper with only the fields its kind holds, checked. Raises ValueError."""
     kind = data["kind"]
@@ -893,6 +981,20 @@ def clean_paper(data: dict) -> dict:
     elif kind == "rhino":  # laid by the server from a Rhino snapshot (rhino_paper); only moves afterwards
         for key in ("title", "snapshot", "file", "taken_at", "objects", "layers", "figures"):
             paper[key] = data.get(key, 0 if key == "objects" else [] if key == "layers" else {} if key == "figures" else "")
+    elif kind == "section":
+        paper["title"] = title
+        paper["line"] = _section_line(data.get("line"))
+        flip = data.get("flip", False)
+        if not isinstance(flip, bool):
+            raise ValueError("flip must be true or false")
+        paper["flip"] = flip
+        paper["depth"] = _number(data.get("depth", DEFAULT_SECTION_DEPTH), "depth", high=MAX_SECTION_DEPTH)
+        if paper["depth"] < 0:  # 0: only what the line cuts
+            raise ValueError("depth must be 0 or more")
+        scale = data.get("scale", DEFAULT_SECTION_SCALE)
+        if scale not in SECTION_SCALES or isinstance(scale, bool):
+            raise ValueError(f"scale must be one of {', '.join(map(str, SECTION_SCALES))}")
+        paper["scale"] = int(scale)
     elif kind == "photo":  # the file is named by the server (add_photo) and never changes
         file = data.get("file")
         if not isinstance(file, str) or not PHOTO_FILE.fullmatch(file):
@@ -992,12 +1094,15 @@ def paper_name(paper: dict) -> str:
         return paper.get("title") or "사진"
     if kind == "rhino":
         return f"라이노 작업: {paper['title']}" if paper.get("title") else "라이노 작업"
+    if kind == "section":
+        name = paper.get("title") or "A"
+        return f"단면 {name}–{name}′"
     return paper.get("title") or kind
 
 
 KIND_WORDS = {
     "site": "site", "mass": "massing scheme", "note": "note", "tracing": "tracing sheet",
-    "expert": "expert result", "photo": "photo", "rhino": "Rhino model (the designer's own work)",
+    "expert": "expert result", "photo": "photo", "section": "section", "rhino": "Rhino model (the designer's own work)",
 }
 
 
@@ -1069,6 +1174,18 @@ def paper_text(paper: dict, site: dict | None) -> str:
         return (
             f"{head}: a photo the designer put on the table. The image itself is not sent; "
             "ask the designer what it shows if it matters."
+        )
+    if kind == "section":
+        (x0, y0), (x1, y1) = paper["line"]
+        dx, dy = x1 - x0, y1 - y0
+        nx, ny = (dy, -dx) if not paper.get("flip") else (-dy, dx)  # the side it looks toward
+        bearing = math.degrees(math.atan2(nx, ny)) % 360
+        return (
+            f"{head}: a section line from ({_m(x0)}, {_m(y0)}) to ({_m(x1)}, {_m(y1)}) m around the site's "
+            f"middle (x east, y north), {_m(math.hypot(dx, dy))} m long, looking toward bearing {bearing:.0f}° "
+            f"(0 = north), showing what stands up to {paper['depth']:g} m beyond the cut, drawn at 1:{paper['scale']}. "
+            "The drawing cuts the ground, the scheme shown in 3D and the buildings around; ask the designer "
+            "what they want checked on it."
         )
     if kind == "mass":
         area = (site or {}).get("area_m2")
@@ -1337,7 +1454,7 @@ def site_plan(parcels: list[dict]) -> dict | None:
 # Rhino keeps its views in the .3dm: beside board.json, not in it, so saving it does not count as an
 # edit of the table (no rev). {x, y, span, tilt, turn, z}: the screen's camera numbers.
 VIEW_FILE = "table_view.json"
-VIEW_KEYS = ("x", "y", "span", "tilt", "turn", "z")
+VIEW_KEYS = ("x", "y", "span", "tilt", "turn", "z", "para")  # para: 0 perspective to 1 parallel (iso)
 
 
 def load_view(project_path: Path) -> dict | None:
@@ -1358,6 +1475,8 @@ def clean_view(data: dict) -> dict:
         raise ValueError("view span must be positive")
     if not -1 <= out["tilt"] <= 180:
         raise ValueError("view tilt is out of range")
+    if not 0 <= out["para"] <= 1:
+        raise ValueError("view para must be between 0 and 1")
     return {key: round(value, 4) for key, value in out.items()}
 
 

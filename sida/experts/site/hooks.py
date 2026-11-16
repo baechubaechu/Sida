@@ -81,6 +81,26 @@ def board_ground(project_dir) -> dict | None:
     return context3d.ground_surface(around)
 
 
+def board_surroundings(project_dir) -> dict | None:
+    """The ground and the buildings around the site for a section through the table: only what a
+    file may hold (map files, not VWorld). None without a site or when the surroundings cannot be
+    had right now."""
+    from sida.board import site_plan
+    from sida.experts.site import context3d, context_range, landapi
+
+    facts = site_facts.load_facts(project_dir)
+    plan = site_plan(site_facts.board_summary(facts)["parcels"]) if facts else None
+    if not plan:
+        return None
+    picked = context_range.load(project_dir)
+    try:
+        around = context3d.build(plan, picked["radius"], shape=picked["shape"], orient=picked["orient"],
+                                 for_export=True)
+    except (landapi.LandApiError, ValueError):
+        return None
+    return {"ground": context3d.ground_surface(around), "buildings": context3d.file_buildings(around)[0]}
+
+
 def run_needs(config, agent, project_dir) -> str | None:
     """The Conductor runs the site reader only on a looked-up site; the designer picks it first."""
     if agent.get("id") == "site_reader" and site_facts.load_facts(project_dir) is None:
