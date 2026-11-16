@@ -54,6 +54,14 @@ def test_install_bat_puts_the_files_where_rhino_looks_and_says_the_version_rhino
     assert 'rmdir /s /q "%HOME_DIR%"' in gone and "0.3.1" not in gone and gone.endswith("pause\r\n")
 
 
+def test_install_bat_does_not_take_writing_the_version_for_a_failure():
+    """`set /p` with nothing to read leaves errorlevel 1 though the file is written (seen on a PC, 2026-11-16)."""
+    lines = pack.install_bat("0.3.1").decode("utf-8").split("\r\n")
+    wrote = next(i for i, line in enumerate(lines) if "set /p" in line)
+    assert "errorlevel" not in lines[wrote + 1] and lines[wrote + 1] == r'if not exist "%HOME_DIR%\manifest.txt" goto failed'
+    assert "Unblock-File" in lines[wrote + 2]  # reached, so a downloaded plug-in is unblocked
+
+
 def test_packing_writes_both_files_and_says_so_when_the_plugin_is_not_built(tmp_path, capsys):
     assert pack.main(["--rhp", str(tmp_path / "missing.rhp"), "--out", str(tmp_path / "dist")]) == 1
     assert "Build first" in capsys.readouterr().err and not (tmp_path / "dist").exists()

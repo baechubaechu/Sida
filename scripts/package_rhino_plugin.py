@@ -73,8 +73,9 @@ def install_bat(version: str) -> bytes:
         'copy /y "%~dp0manifest.yml" "%DEST%\\" >nul',
         "if errorlevel 1 goto failed",
         # The version Rhino loads; no line end after it, as Rhino's own package manager writes it.
+        # `set /p` leaves errorlevel 1 when it is given nothing to read, so the file itself is the check.
         f'<nul set /p="{version}" > "%HOME_DIR%\\manifest.txt"',
-        "if errorlevel 1 goto failed",
+        'if not exist "%HOME_DIR%\\manifest.txt" goto failed',
         # A file that came from the internet is blocked, and Rhino will not load a blocked plug-in.
         "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Get-ChildItem -LiteralPath $env:DEST | Unblock-File\" >nul 2>nul",
         f"echo Sida 라이노 플러그인 {version}을 설치했습니다.",
