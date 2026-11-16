@@ -15,5 +15,10 @@ TimeoutStartSec=2h
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-PrivateTmp=yes
+# Not PrivateTmp: it gives the service its own empty /var/tmp, so /var/tmp/sida-ledger below would be
+# missing and the service would not start (status 226/NAMESPACE).
+PrivateTmp=no
 ReadWritePaths=/opt/sida-kr/ledger /var/tmp/sida-ledger
+# ProtectSystem=strict leaves /tmp and /var/tmp read-only, and SQLite sorts CREATE INDEX in a temp file
+# ("disk I/O error" otherwise), so its temp files go to the work folder.
+Environment=SQLITE_TMPDIR=/var/tmp/sida-ledger TMPDIR=/var/tmp/sida-ledger

@@ -103,3 +103,32 @@ def test_a_download_is_checked_for_size_and_being_a_zip(tmp_path, monkeypatch):
     for body, length in ((b"", 0), (good[:-5], len(good)), (b"x" * 50, None)):  # 건축HUB's empty 200, cut short, not a zip
         with pytest.raises(ledger_pull.PullError):
             ledger_pull.download("u", dest, opener=lambda url, b=body, n=length: FakeResponse(b, n))
+
+
+def test_a_sqlite_error_ends_the_run_with_one_failed_line(monkeypatch, capsys, tmp_path):
+    # On the server the first run hit "disk I/O error" at CREATE INDEX and printed a traceback instead.
+    def broken(*args, **kwargs):
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(ledger_pull, "run", broken)
+    monkeypatch.setattr("sys.argv", ["ledger_pull.py", "--out", str(tmp_path / "o"), "--work", str(tmp_path / "w")])
+    assert ledger_pull.main() == 1
+    assert capsys.readouterr().err == "failed: disk I/O error\n"
+
+
+def test_the_service_can_write_its_work_folder_and_sqlites_temp_files():
+    unit = (Path(ledger_pull.__file__).with_name("ledger-pull.service")).read_text(encoding="utf-8")
+    settings: dict[str, str] = {}
+    for line in unit.splitlines():
+        key, eq, value = line.partition("=")
+        if eq and not line.startswith("#"):
+            settings[key] = settings.get(key, "") + " " + value if key == "Environment" else value
+    writable = settings["ReadWritePaths"].split()
+    work = settings["ExecStart"].split("--work ")[1].split()[0]
+    assert work in writable
+    # PrivateTmp gives the service an empty /var/tmp of its own: the work folder would be missing (226/NAMESPACE)
+    if work.startswith(("/tmp/", "/var/tmp/")):
+        assert settings.get("PrivateTmp", "no") == "no"
+    # ProtectSystem=strict makes /tmp read-only; SQLite needs a writable temp folder for CREATE INDEX
+    env = dict(item.split("=", 1) for item in settings.get("Environment", "").split())
+    assert env.get("SQLITE_TMPDIR") in writable
