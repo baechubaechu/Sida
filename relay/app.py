@@ -44,6 +44,7 @@ from pathlib import Path
 
 import requests
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from relay.tokens import MAX_CONTACT, Token, TokenStore
@@ -76,6 +77,9 @@ _DATAGO_PATHS = {
 }
 _LAW_PATHS = {"lawSearch.do", "lawService.do"}
 _LAW_TARGETS = {"aiSearch", "ordin"}
+# 건축물대장 packs made on this server each month (relay/ledger/ledger_pull.py), for the apps to download.
+LEDGER_MANIFEST = "manifest.json"
+_LEDGER_FILE = re.compile(r"^[a-z0-9_-]{1,40}-\d{4}-\d{2}\.ledger\.sqlite\.gz$")
 
 # The app's VWorld 3D page and its script (copies of webui/app/, kept identical by a test).
 STATIC = Path(__file__).parent / "static"
@@ -190,7 +194,8 @@ def _mask(answer: Upstream, secrets: list[str]) -> Upstream:
 
 
 def create_app(
-    keys: Keys, store: TokenStore, *, fetch: Fetch | None = None, clock: Callable[[], float] = time.monotonic
+    keys: Keys, store: TokenStore, *, fetch: Fetch | None = None, clock: Callable[[], float] = time.monotonic,
+    ledger_dir: Path | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Sida relay", docs_url=None, redoc_url=None, openapi_url=None)
     get = fetch or _fetch
@@ -333,8 +338,35 @@ def create_app(
         token = access_key(request, image=False)
         return counted(token, "law", lambda: answer(f"{LAW_URL}/{path}", {"OC": keys.law, **params}))
 
+    def ledger_listed() -> set[str]:
+        try:
+            manifest = json.loads((ledger_dir / LEDGER_MANIFEST).read_text(encoding="utf-8"))
+            return {p["file"] for p in manifest["packs"]}
+        except (OSError, ValueError, KeyError, TypeError):
+            return set()
+
+    @app.get("/relay/ledger/manifest.json")
+    def ledger_manifest(request: Request) -> Response:
+        token = access_key(request, image=False)
+        path = ledger_dir / LEDGER_MANIFEST if ledger_dir else None
+        if path is None or not path.is_file():
+            raise HTTPException(status_code=503, detail="건축물대장 packs are not set up on the relay")
+        store.record(token.id, "ledger", True)
+        return Response(content=path.read_bytes(), media_type="application/json", headers={"Cache-Control": "no-cache"})
+
+    @app.get("/relay/ledger/{name}")
+    def ledger_file(name: str, request: Request) -> Response:
+        if not _LEDGER_FILE.match(name):
+            raise HTTPException(status_code=404, detail="not a relayed path")
+        token = access_key(request, image=False)
+        if not ledger_dir or name not in ledger_listed() or not (ledger_dir / name).is_file():
+            raise HTTPException(status_code=404, detail="no such pack")
+        store.record(token.id, "ledger", True)
+        return FileResponse(ledger_dir / name, media_type="application/gzip", filename=name)
+
     return app
 
 
 def from_env() -> FastAPI:
-    return create_app(Keys.from_env(), TokenStore(os.environ.get("SIDA_RELAY_DB", "/data/relay.db")))
+    return create_app(Keys.from_env(), TokenStore(os.environ.get("SIDA_RELAY_DB", "/data/relay.db")),
+                      ledger_dir=Path(os.environ.get("SIDA_LEDGER_DIR", "/ledger")))

@@ -30,7 +30,7 @@ from sida import config as sida_config  # noqa: E402
 from sida import project as prj  # noqa: E402
 from sida.experts.model import model_base  # noqa: E402
 from sida.experts.regulation import lawapi  # noqa: E402
-from sida.experts.site import context3d, datago, landapi, terrain_pack  # noqa: E402
+from sida.experts.site import context3d, datago, landapi, ledger_sync, terrain_pack  # noqa: E402
 
 MAX_TEST_NAME = 300
 
@@ -253,6 +253,9 @@ def isolated_settings(tmp_path, monkeypatch):
     monkeypatch.setattr(terrain_pack, "TERRAIN_DIR", tmp_path / "context_data")
     context3d._cache.clear()
     context3d._ledger_cache.clear()
+    # 건축물대장 packs from the relay: no .env, never downloaded (tests fake _http_get themselves).
+    monkeypatch.setattr(ledger_sync, "ENV_PATH", tmp_path / "no.env")
+    monkeypatch.setattr(ledger_sync, "_http_get", lambda url, stream=False: _no_network(url, {}))
     for cache in (model_base._cache, model_base._grounds, model_base._cuts):
         cache.clear()
     yield

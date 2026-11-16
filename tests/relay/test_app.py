@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 import pytest
@@ -280,3 +281,22 @@ def test_too_many_waiting_requests_are_refused(client, store, monkeypatch):
     assert client.post("/relay/requests", json={"name": "첫째"}).status_code == 201
     r = client.post("/relay/requests", json={"name": "둘째"}, headers={"X-Forwarded-For": "10.0.0.9"})
     assert r.status_code == 429
+
+
+def test_ledger_packs_are_served_to_access_keys_only_and_only_what_the_manifest_lists(store, upstream, token, tmp_path):
+    folder = tmp_path / "ledger"
+    folder.mkdir()
+    app = TestClient(relay.create_app(KEYS, store, fetch=upstream, ledger_dir=folder))
+    assert call(app, "/relay/ledger/manifest.json", token=token).status_code == 503  # nothing made yet
+    manifest = {"format": 1, "packs": [{"name": "seoul", "month": "2026-09", "file": "seoul-2026-09.ledger.sqlite.gz"}]}
+    (folder / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (folder / "seoul-2026-09.ledger.sqlite.gz").write_bytes(b"packed")
+    (folder / "seoul-2026-08.ledger.sqlite.gz").write_bytes(b"old")
+    assert call(app, "/relay/ledger/manifest.json").status_code == 401
+    assert call(app, "/relay/ledger/manifest.json", token=token).json() == manifest
+    got = call(app, "/relay/ledger/seoul-2026-09.ledger.sqlite.gz", token=token)
+    assert got.status_code == 200 and got.content == b"packed"
+    assert call(app, "/relay/ledger/seoul-2026-09.ledger.sqlite.gz").status_code == 401
+    assert call(app, "/relay/ledger/seoul-2026-08.ledger.sqlite.gz", token=token).status_code == 404  # not listed
+    assert call(app, "/relay/ledger/..%2Frelay.db", token=token).status_code == 404
+    assert upstream.calls == []

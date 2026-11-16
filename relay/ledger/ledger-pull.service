@@ -1,0 +1,19 @@
+[Unit]
+Description=Sida: this month's 건축물대장 packs from 건축HUB (does nothing until a new month is out)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ledger
+Group=ledger
+ExecStart=/usr/bin/python3 /opt/sida-kr/ledger-sync/ledger_pull.py --out /opt/sida-kr/ledger --work /var/tmp/sida-ledger --region seoul=11
+Nice=15
+IOSchedulingClass=idle
+MemoryMax=400M
+TimeoutStartSec=2h
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/opt/sida-kr/ledger /var/tmp/sida-ledger

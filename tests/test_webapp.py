@@ -654,6 +654,17 @@ def test_site_context_api_gives_the_surroundings_in_the_table_frame(client, proj
     assert client.get(url, params={"radius": 100}).status_code == 503
 
 
+def test_ledger_pack_status_and_update_api(client, monkeypatch):
+    from sida.experts.site import ledger_sync
+
+    got = client.get("/api/site/ledger").json()
+    assert got["packs"] == [] and got["relay"] is False and got["error"] == ""
+    asked = client.post("/api/site/ledger/update").json()
+    assert asked["started"] is False  # no Sida access key: nothing to ask
+    monkeypatch.setattr(ledger_sync, "check_soon", lambda force=False: force)
+    assert client.post("/api/site/ledger/update").json()["started"] is True
+
+
 def test_address_selection_api_walks_to_a_lot_and_saves_it_by_pnu(client, project, fake_vworld):
     from sida.experts.site import site_facts
 
