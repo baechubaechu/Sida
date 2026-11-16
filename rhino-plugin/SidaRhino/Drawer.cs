@@ -36,7 +36,7 @@ namespace SidaRhino
             // What was drawn of this kind before goes; what the designer changed since is theirs.
             foreach (var obj in doc.Objects.Where(o => o.Attributes.GetUserString(KindKey) == kind).ToList())
             {
-                if (obj.Attributes.GetUserString(Importer.StampKey) == Importer.Stamp(obj.Geometry))
+                if (obj.Attributes.GetUserString(Importer.StampKey) == Mark(obj.Geometry))
                 {
                     doc.Objects.Delete(obj, true);
                     continue;
@@ -72,10 +72,19 @@ namespace SidaRhino
                 var attributes = new ObjectAttributes { LayerIndex = layer, Name = title, ColorSource = ObjectColorSource.ColorFromObject, ObjectColor = color };
                 more?.Invoke(attributes);
                 attributes.SetUserString(KindKey, kind);
-                attributes.SetUserString(Importer.StampKey, Importer.Stamp(geometry));
                 var id = doc.Objects.Add(geometry, attributes);
-                if (id != Guid.Empty)
-                    made.Add(id);
+                if (id == Guid.Empty)
+                    return;
+                made.Add(id);
+                // The mark is taken from the object as the document holds it, which is what the
+                // next drawing compares with: text measured before it is in a document can come
+                // out differently, and a drawing would then leave its own words behind.
+                var placed = doc.Objects.FindId(id);
+                if (placed == null)
+                    return;
+                var marked = placed.Attributes.Duplicate();
+                marked.SetUserString(Importer.StampKey, Mark(placed.Geometry));
+                doc.Objects.ModifyAttributes(id, marked, true);
             }
 
             foreach (var item in drawing.GetProperty("items").EnumerateArray())
@@ -157,6 +166,24 @@ namespace SidaRhino
             if (made.Count > 1)
                 doc.Groups.Add(title, made);
             return made.Count;
+        }
+
+        /// <summary>
+        /// What tells a drawn object the designer has not touched: for words, where they stand,
+        /// which way they face, their height and what they say (text has no extent that holds
+        /// still: it follows the annotation style and the view); for the rest, the extent.
+        /// </summary>
+        internal static string Mark(GeometryBase geometry)
+        {
+            if (geometry is TextEntity text)
+            {
+                string n(double value) => Math.Round(value, 3).ToString("0.###", CultureInfo.InvariantCulture);
+                var plane = text.Plane;
+                return string.Join(",", "text", n(plane.Origin.X), n(plane.Origin.Y), n(plane.Origin.Z),
+                    n(plane.XAxis.X), n(plane.XAxis.Y), n(plane.XAxis.Z), n(plane.YAxis.X), n(plane.YAxis.Y), n(plane.YAxis.Z),
+                    n(text.TextHeight), text.PlainText ?? "");
+            }
+            return Importer.Stamp(geometry);
         }
 
         /// <summary>
