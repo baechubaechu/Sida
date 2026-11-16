@@ -103,3 +103,21 @@ def test_a_download_is_checked_for_size_and_being_a_zip(tmp_path, monkeypatch):
     for body, length in ((b"", 0), (good[:-5], len(good)), (b"x" * 50, None)):  # 건축HUB's empty 200, cut short, not a zip
         with pytest.raises(ledger_pull.PullError):
             ledger_pull.download("u", dest, opener=lambda url, b=body, n=length: FakeResponse(b, n))
+
+
+def test_a_failure_is_one_line_and_exit_1(monkeypatch, tmp_path, capsys):
+    def broken(*args, **kwargs):
+        raise sqlite3.OperationalError("disk I/O error")
+    monkeypatch.setattr(ledger_pull, "run", broken)
+    monkeypatch.setattr("sys.argv", ["ledger_pull.py", "--out", str(tmp_path / "o"), "--work", str(tmp_path / "w")])
+    assert ledger_pull.main() == 1
+    assert capsys.readouterr().err.strip() == "failed: disk I/O error"
+
+
+def test_the_service_lets_sqlite_write_its_temporary_files():
+    unit = (Path(ledger_pull.__file__).parent / "ledger-pull.service").read_text(encoding="utf-8")
+    lines = [line.strip() for line in unit.splitlines() if not line.startswith("#")]
+    assert "PrivateTmp=yes" not in lines  # it would hide the work folder in /var/tmp
+    work = next(line for line in lines if line.startswith("ExecStart=")).split("--work ")[1].split()[0]
+    assert any(line.startswith("Environment=") and f"SQLITE_TMPDIR={work}" in line for line in lines)
+    assert any(line.startswith("ReadWritePaths=") and work in line for line in lines)
