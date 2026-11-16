@@ -329,3 +329,90 @@ def test_chatgpt_reply_cut_off_is_an_error_not_a_short_document(monkeypatch):
     with pytest.raises(LLMError, match="cut off.*max_output_tokens"):
         ChatGPTProvider(lambda: "t").chat("m", [{"role": "user", "content": "hi"}], 0, 1)
     assert len(calls) == 1
+
+
+# --- pictures ---------------------------------------------------------------
+
+PICTURE = providers.image_part(b"\x89PNG-not-really")
+SEEN = [
+    {"role": "system", "content": [{"type": "text", "text": "Be brief."}]},
+    {"role": "user", "content": [{"type": "text", "text": "What is this?", "cache_control": {"type": "ephemeral"}}, PICTURE]},
+    {"role": "assistant", "content": [{"type": "text", "text": "A box."}, PICTURE]},  # only a user's message carries one
+]
+URL = "data:image/png;base64," + PICTURE["data"]
+
+
+def test_a_picture_goes_to_each_provider_in_its_own_shape(monkeypatch):
+    assert providers.has_images(SEEN) and not providers.has_images(providers.without_images(SEEN))
+    assert providers.without_images(SEEN)[1]["content"] == [SEEN[1]["content"][0]]
+
+    sent = json_post(monkeypatch, FakeJson({"choices": [{"message": {"content": "ok"}}]}))
+    providers.OpenRouterProvider("key").chat("m", SEEN, 0.2, 100)
+    user, assistant = sent[0]["messages"][1:]
+    assert user["content"] == [SEEN[1]["content"][0], {"type": "image_url", "image_url": {"url": URL}}]  # cache marker kept
+    assert assistant["content"] == [{"type": "text", "text": "A box."}]
+
+    providers.OpenAIProvider("key").chat("gpt-6-astra", SEEN, 0.2, 100)
+    assert sent[1]["messages"] == [
+        {"role": "system", "content": "Be brief."},
+        {"role": "user", "content": [{"type": "text", "text": "What is this?"}, {"type": "image_url", "image_url": {"url": URL}}]},
+        {"role": "assistant", "content": "A box."},
+    ]
+
+    body = providers.ChatGPTProvider.request_body("gpt-6-luna", SEEN)
+    assert body["instructions"] == "Be brief." and body["input"] == [
+        {"role": "user", "content": [{"type": "input_text", "text": "What is this?"}, {"type": "input_image", "image_url": URL}]},
+        {"role": "assistant", "content": "A box."},
+    ]
+
+    ollama = providers.OllamaProvider()._body("llava", SEEN, 0.2, 100)["messages"]
+    assert ollama[1] == {"role": "user", "content": "What is this?", "images": [PICTURE["data"]]} and "images" not in ollama[2]
+
+
+def test_messages_without_a_picture_go_out_as_they_always_did(monkeypatch):
+    plain = providers.without_images(SEEN)
+    sent = json_post(monkeypatch, FakeJson({"choices": [{"message": {"content": "ok"}}]}))
+    providers.OpenRouterProvider("key").chat("m", plain, 0.2, 100)
+    assert sent[0]["messages"] == plain
+    assert providers.ChatGPTProvider.request_body("m", plain)["input"][0] == {"role": "user", "content": "What is this?"}
+    assert providers.OllamaProvider()._body("m", plain, 0.2, 100)["messages"] == providers._plain_messages(plain)
+
+
+def test_a_model_that_refuses_a_picture_says_so_and_is_not_sent_another(monkeypatch):
+    monkeypatch.setattr(providers, "_NO_IMAGES", set())
+    refusal = FakeJson({}, status=404, text="No endpoints found that support image input")
+    json_post(monkeypatch, refusal)
+    router = providers.OpenRouterProvider("key")
+    assert providers.sees_images(router, "text-only")
+    with pytest.raises(providers.ImagesUnsupported):
+        router.chat("text-only", SEEN, 0.2, 100)
+    with pytest.raises(providers.LLMError) as plain:  # the same answer to a message without one is an ordinary error
+        router.chat("text-only", providers.without_images(SEEN), 0.2, 100)
+    assert not isinstance(plain.value, providers.ImagesUnsupported)
+    providers.images_refused(router, "text-only")
+    assert not providers.sees_images(router, "text-only") and providers.sees_images(router, "other")
+    assert not providers.sees_images(providers.MockProvider(), "mock")  # says nothing about pictures: none is sent
+
+    chatgpt_post(monkeypatch, FakeStream(status=400, body={"error": {"message": "This model does not support image inputs."}}))
+    with pytest.raises(providers.ImagesUnsupported):
+        providers.ChatGPTProvider(lambda: "token").chat("m", SEEN, 0.2, 100)
+
+
+def test_ollama_asks_the_models_card_whether_it_sees_pictures_once(monkeypatch):
+    asked = []
+    cards = {"llava": {"capabilities": ["completion", "vision"]}, "qwen": {"capabilities": ["completion", "tools"]}, "old": {}}
+
+    def post(url, json=None, timeout=None):
+        asked.append((url.rsplit("/", 1)[1], json["model"]))
+        return FakeJson(cards[json["model"]])
+
+    monkeypatch.setattr(providers.requests, "post", post)
+    ollama = providers.OllamaProvider()
+    assert [ollama.sees_images(m) for m in ("llava", "qwen", "old", "llava")] == [True, False, False, True]
+    assert asked == [("show", "llava"), ("show", "qwen"), ("show", "old")]
+
+    def down(url, json=None, timeout=None):
+        raise providers.requests.ConnectionError("no ollama")
+
+    monkeypatch.setattr(providers.requests, "post", down)
+    assert providers.OllamaProvider().sees_images("llava") is False
