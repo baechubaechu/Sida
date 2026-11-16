@@ -33,6 +33,7 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import sys
 import time
 import urllib.request
@@ -194,7 +195,7 @@ def main() -> int:
         regions[name.strip()] = tuple(p.strip() for p in prefixes.split(",") if p.strip())
     try:
         print(run(args.out, args.work, regions, log=lambda m: print(m, flush=True)), flush=True)
-    except (PullError, OSError, zipfile.BadZipFile) as exc:
+    except (PullError, OSError, zipfile.BadZipFile, sqlite3.Error) as exc:
         print(f"failed: {exc}", file=sys.stderr, flush=True)
         return 1
     return 0

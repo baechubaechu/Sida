@@ -15,5 +15,7 @@ TimeoutStartSec=2h
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-PrivateTmp=yes
 ReadWritePaths=/opt/sida-kr/ledger /var/tmp/sida-ledger
+# ProtectSystem=strict leaves /tmp read-only: SQLite sorts for CREATE INDEX in the work folder instead.
+# No PrivateTmp: it would hide /var/tmp/sida-ledger from the service (status 226/NAMESPACE).
+Environment=SQLITE_TMPDIR=/var/tmp/sida-ledger TMPDIR=/var/tmp/sida-ledger
