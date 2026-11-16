@@ -731,3 +731,55 @@ test('measured lengths read in m with fewer decimals as they grow, then km', () 
   assert.equal(distanceLabel(1000), '1 km');
   assert.equal(distanceLabel(-3), '0.00 m');
 });
+
+test('the presentation editor has a 발표자료 tab, and its document is shown without the slide list', async () => {
+  const { expertPageTabs, parseRoute, expertPath, stripSlideList, SLIDES_EXPERT } = await import('../../webui/app/model.js');
+  assert.deepEqual(expertPageTabs(SLIDES_EXPERT), [{ id: 'slides', label: '발표자료' }]);
+  assert.equal(parseRoute(expertPath('p', SLIDES_EXPERT, 'slides')).tab, 'slides');
+  const doc = '# Presentation Editor\n\n## Key Outputs\n- 다이어그램\n\n```json\n{"board": "A1"}\n```\n\n## Handoff\n- 없음\n\n```json\n{"slides": [{"title": "하나"}]}\n```\n';
+  const shown = stripSlideList(doc);
+  assert.ok(!shown.includes('"slides"') && shown.includes('"board": "A1"') && shown.endsWith('- 없음')); // only the list goes
+  assert.equal(stripSlideList(null), '');
+});
+
+test('the deck is shown with where its order came from, which rhino work fills it, and each figure ready to show', async () => {
+  const { deckView, deckFileUrl, downloadName, DECK_FORMATS } = await import('../../webui/app/model.js');
+  const urls = { diagram: (snapshot, kind) => `/d/${snapshot}/${kind}`, view: (snapshot, file) => `/v/${snapshot}/${file}` };
+  const slide = (more) => ({ layout: 'figure', title: 't', subtitle: '', bullets: [], caption: '', notes: '', figure: null, ...more });
+  const deck = {
+    source: 'editor', written: true, title: '무교동 45', notes: ['3번 슬라이드의 그림(view:night)은 비어 있습니다.'],
+    snapshot: { id: '20261116-140200-0001', taken_at: '2026-11-16T14:02:00', file: 'studio.3dm' },
+    figure_rows: [['연면적', '900.0㎡']],
+    slides: [
+      slide({ layout: 'title', title: '무교동 45', subtitle: '저층은 연다' }),
+      slide({ figure: { key: 'diagram:program', kind: 'diagram', title: '프로그램 매스', ready: true, why: '' }, bullets: ['저층 상업'] }),
+      slide({ figure: { key: 'view:night', kind: 'view', title: 'view:night', ready: false, why: '이 이름의 그림이 없습니다.' } }),
+      slide({ figure: { key: 'view:plan', kind: 'view', title: '라이노 평면 뷰', ready: true, why: '', file: 'plan.png' } }),
+      slide({ figure: { key: 'figures', kind: 'figures', title: '수치', ready: true, why: '' }, notes: '숫자는 짧게' }),
+    ],
+  };
+  const view = deckView(deck, urls);
+  assert.equal(view.line, '발표 편집자가 정한 순서와 문장입니다.');
+  assert.ok(view.fromEditor && view.hasModel && view.model.includes('studio.3dm') && view.model.includes('11월 16일'));
+  assert.deepEqual(view.slides.map((s) => s.number), [1, 2, 3, 4, 5]);
+  assert.equal(view.slides[0].figure, null);
+  assert.deepEqual(view.slides[1].figure, { kind: 'image', url: '/d/20261116-140200-0001/program', alt: '프로그램 매스' });
+  assert.deepEqual(view.slides[2].figure, { kind: 'empty', title: 'view:night', why: '이 이름의 그림이 없습니다.' });
+  assert.deepEqual(view.slides[3].figure, { kind: 'image', url: '/v/20261116-140200-0001/plan.png', alt: '라이노 평면 뷰' });
+  assert.deepEqual(view.slides[4].figure, { kind: 'table', rows: [['연면적', '900.0㎡']] });
+  assert.equal(view.slides[4].notes, '숫자는 짧게');
+  assert.deepEqual(view.notes, deck.notes);
+
+  const byRule = deckView({ ...deck, source: 'default', written: false, snapshot: null, notes: [], slides: [deck.slides[0], deck.slides[1]] }, urls);
+  assert.ok(byRule.line.includes('아직 실행하지 않아') && !byRule.fromEditor && !byRule.hasModel && byRule.model.includes('라이노에서 Sida로 보내면'));
+  assert.equal(byRule.slides[1].figure.kind, 'empty'); // without rhino work nothing is shown as if it were there
+  assert.ok(deckView({ ...deck, source: 'default' }, urls).line.includes('슬라이드 목록이 없어'));
+  assert.equal(deckView(null, urls), null);
+
+  assert.equal(deckFileUrl('무교동 45', 'pptx'), '/api/projects/%EB%AC%B4%EA%B5%90%EB%8F%99%2045/presentation/file?format=pptx');
+  assert.deepEqual(DECK_FORMATS.map((f) => f.format), ['pptx', 'pdf', 'zip']);
+  assert.equal(downloadName("attachment; filename*=UTF-8''%EB%AC%B4%EA%B5%90%EB%8F%99%2045%20%EB%B0%9C%ED%91%9C%EC%9E%90%EB%A3%8C.pptx", 'x.pptx'), '무교동 45 발표자료.pptx');
+  assert.equal(downloadName('attachment', '발표자료.pdf'), '발표자료.pdf');
+  assert.equal(downloadName("attachment; filename*=UTF-8''%E0%A4%A", '발표자료.zip'), '발표자료.zip'); // a broken name: the fallback
+  assert.equal(downloadName(null, 'a'), 'a');
+});

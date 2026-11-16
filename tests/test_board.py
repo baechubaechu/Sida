@@ -333,6 +333,31 @@ def test_an_expert_result_waits_in_the_ai_section_only_for_projects_that_use_the
     assert second["id"] in [p["id"] for p in saved["papers"]] and saved["tray"] == [third]
 
 
+def test_the_rhino_paper_is_one_paper_on_the_table_that_keeps_its_place_and_only_moves(tmp_path):
+    figures = {"floor_area_m2": 900.0, "lines": ["연면적 900.0㎡", "건폐율 32.0% · 용적률 90.0%"]}
+    first = board.rhino_paper(tmp_path, {"title": "studio", "snapshot": "20261111-235000-ab12", "file": "studio.3dm",
+                                         "taken_at": "2026-11-11T23:50:00", "objects": 5,
+                                         "layers": [{"path": "Program::Housing", "meaning": "housing"}, {"path": "Sketch", "meaning": ""}],
+                                         "diagrams": [{"kind": "program", "title": "프로그램 매스", "ready": True, "reason": ""}],
+                                         "figures": figures})["paper"]
+    assert first["id"] == board.RHINO_ID and first["kind"] == "rhino" and (first["w"], first["h"]) == (340.0, 240.0)
+    assert first["diagrams"] == [{"kind": "program", "title": "프로그램 매스"}]  # which diagrams can be drawn of it
+    assert board.paper_name(first) == "라이노 작업: studio"
+    assert board.update_paper(tmp_path, "rhino", {"x": 40, "y": -10, "folded": True})["paper"]["x"] == 40.0
+    with pytest.raises(ValueError, match="only moves"):
+        board.update_paper(tmp_path, "rhino", {"title": "다른 이름"})
+    second = board.rhino_paper(tmp_path, {"title": "studio", "snapshot": "20261111-235900-cd34", "file": "studio.3dm",
+                                          "taken_at": "2026-11-11T23:59:00", "objects": 6, "layers": [], "figures": figures})["paper"]
+    assert (second["x"], second["y"], second["folded"]) == (40.0, -10.0, True) and second["snapshot"] == "20261111-235900-cd34"
+    assert [p["id"] for p in board.load_board(tmp_path)["papers"]] == ["site", "rhino"]  # replaced, not added
+    text = board.paper_text(first, None)
+    assert text.startswith('- rhino · Rhino model (the designer\'s own work) "라이노 작업: studio": snapshot 2026-11-11T23:50:00 from Rhino (5 objects).')
+    assert "  - 건폐율 32.0% · 용적률 90.0%" in text and "layer meanings (the designer's): Program::Housing = housing" in text
+    assert "Sketch" not in text
+    board.delete_paper(tmp_path, "rhino")  # the designer may take it off; the next push lays it back
+    assert [p["id"] for p in board.load_board(tmp_path)["papers"]] == ["site"]
+
+
 def test_a_folded_paper_stays_folded_until_opened_and_site_papers_may_fold(tmp_path):
     note = board.add_paper(tmp_path, {"kind": "note", "text": "동선"})["paper"]
     assert "folded" not in note
@@ -762,7 +787,7 @@ def test_a_damaged_board_does_not_stop_the_conductor_or_an_expert_run(make_sessi
 
 
 def test_layers_start_one_per_kind_and_are_replaced_whole(tmp_path):
-    assert [x["id"] for x in board.load_board(tmp_path)["layers"]] == ["site", "mass", "tracing", "note", "photo", "expert", "section"]
+    assert [x["id"] for x in board.load_board(tmp_path)["layers"]] == ["site", "mass", "tracing", "note", "photo", "expert", "section", "rhino"]
     layers = [*board.default_layers(), {"id": "layer-tower", "name": "타워", "parent": "mass", "visible": False, "color": "#AABBCC"}]
     saved = board.set_layers(tmp_path, layers)["layers"]
     assert saved[-1] == {"id": "layer-tower", "name": "타워", "parent": "mass", "visible": False, "locked": False, "color": "#aabbcc"}

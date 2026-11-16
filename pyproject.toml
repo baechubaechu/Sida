@@ -24,6 +24,8 @@ dependencies = [
   "numpy>=1.24",
   "shapely>=2.0,<3",
   "contourpy>=1.2,<2",
+  "python-pptx>=1.0,<2",  # the presentation as an editable PowerPoint file
+  "reportlab>=4.0,<6",  # the presentation as PDF, with Korean letters
 ]
 
 [project.optional-dependencies]

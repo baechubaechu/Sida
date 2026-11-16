@@ -1,7 +1,7 @@
 // Loading a project's session, site and expert results, and following a job (a Conductor turn or
 // an expert run) on the server until it ends.
 
-import { eventNotice, siteCard, sitePageFor } from './model.js';
+import { eventNotice, siteCard, sitePageFor, SLIDES_EXPERT, deckUrl } from './model.js';
 import { addHistory } from './command-model.js';
 import { initialTalk } from './talk-panel-model.js';
 import { ApiError, api, projectApi, sleep } from './api.js';
@@ -96,6 +96,8 @@ export function clearExpert() {
   ui.versions = null;
   ui.version = null;
   ui.versionMissing = false;
+  ui.deck = null;
+  ui.deckError = '';
 }
 
 // What the expert page's open tab needs: the result, the list of earlier results, and the
@@ -106,12 +108,13 @@ export async function loadExpert(name, agent) {
   const { tab, version } = currentRoute;
   const base = `${projectApi(name)}/modules/${encodeURIComponent(agent)}`;
   const skip = Promise.resolve(null);
-  const [chat, module, versions, old] = await Promise.allSettled([
+  const [chat, module, versions, old, deck] = await Promise.allSettled([
     tab === 'chat' && expert?.chat
       ? api(`${projectApi(name)}/experts/${encodeURIComponent(agent)}/chats/${encodeURIComponent(activeChat())}`) : skip,
     expert?.done ? api(base) : Promise.reject(new ApiError(404, '')),
     api(`${base}/versions`),
     tab === 'versions' && version ? api(`${base}/versions/${encodeURIComponent(version)}`) : skip,
+    tab === 'slides' && agent === SLIDES_EXPERT ? api(deckUrl(name)) : skip,
   ]);
   if (chat.status === 'fulfilled') ui.chat = chat.value;
   else ui.chatMissing = chat.reason?.status === 404;
@@ -120,6 +123,8 @@ export async function loadExpert(name, agent) {
   ui.versions = versions.status === 'fulfilled' ? versions.value.versions : [];
   if (old.status === 'fulfilled') ui.version = old.value;
   else ui.versionMissing = old.reason?.status === 404;
+  if (deck.status === 'fulfilled') ui.deck = deck.value;
+  else ui.deckError = deck.reason?.message || '발표자료를 불러오지 못했습니다.';
 }
 
 export async function refreshProject() {

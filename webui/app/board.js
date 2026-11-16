@@ -3,6 +3,7 @@
 
 import { expertPath, parseRecommendation, boardExport, siteCard } from './model.js';
 import { sectionExport } from './section-model.js';
+import { rhinoViewUrl, rhinoDiagramUrl, diagramPngSize } from './rhino-model.js';
 import { keepSelected, pickedNames, addQuestion, readModelSummary, rangeQuery, pickedBlocks, propertyChange, boardLayers } from './board-model.js';
 import { VWorldView } from './vworld-view.js';
 import { api, expertUrl, projectApi } from './api.js';
@@ -82,6 +83,10 @@ function tableHooks(name) {
       return api(`${projectApi(name)}/board/photos`, { method: 'POST', form });
     }, true),
     photoUrl: (id) => `${projectApi(name)}/board/photos/${encodeURIComponent(id)}`,
+    rhinoViewUrl: (snapshot, file) => rhinoViewUrl(name, snapshot, file),
+    // A snapshot's diagram: its picture's address, and the picture as a file (SVG as drawn, PNG made here).
+    rhinoDiagramUrl: (snapshot, kind) => rhinoDiagramUrl(name, snapshot, kind),
+    rhinoDiagramFile: (snapshot, kind, format, filename) => downloadDiagram(name, snapshot, kind, format, filename),
     // The saved site's area and statutory caps, for the figures shown while blocks are edited.
     siteCard: () => siteCard(ui.site),
     // The site's surroundings in 3D (ground, nearby buildings): GET .../site/context.
@@ -253,21 +258,60 @@ export async function downloadBoard(name, format) {
   render(false);
 }
 
-// A file from the server into the designer's downloads; a refusal comes back as its message.
-async function fetchDownload(url, filename) {
+// A file from the server; a refusal comes back as its message.
+async function fetchBlob(url) {
   const response = await fetch(url);
   if (!response.ok) {
     let detail = '';
     try { detail = (await response.json()).detail; } catch { /* not JSON */ }
     throw new Error(typeof detail === 'string' && detail ? detail : `요청이 실패했습니다 (${response.status})`);
   }
+  return response.blob();
+}
+
+export function saveBlob(blob, filename) {
   const link = document.createElement('a');
-  link.href = URL.createObjectURL(await response.blob());
+  link.href = URL.createObjectURL(blob);
   link.download = filename;
   link.hidden = true;
   document.body.append(link);
   link.click();
   setTimeout(() => { link.remove(); URL.revokeObjectURL(link.href); }, 10000);
+}
+
+// A file from the server into the designer's downloads.
+async function fetchDownload(url, filename) {
+  saveBlob(await fetchBlob(url), filename);
+}
+
+// An SVG picture as a PNG, painted by the browser at twice its size (sharp on a slide).
+async function svgToPng(svg) {
+  const address = URL.createObjectURL(svg);
+  try {
+    const image = new Image();
+    image.src = address;
+    await image.decode();
+    const { width, height } = diagramPngSize(image.naturalWidth, image.naturalHeight);
+    const canvas = Object.assign(document.createElement('canvas'), { width, height });
+    canvas.getContext('2d').drawImage(image, 0, 0, width, height);
+    const png = await new Promise((resolve) => { canvas.toBlob(resolve, 'image/png'); });
+    if (!png) throw new Error('이 브라우저에서 PNG를 만들 수 없습니다. SVG로 받아 주세요.');
+    return png;
+  } finally {
+    URL.revokeObjectURL(address);
+  }
+}
+
+// A diagram Sida drew of a Rhino snapshot (라이노 작업 종이), as an SVG or a PNG file.
+async function downloadDiagram(name, snapshot, kind, format, filename) {
+  try {
+    const svg = await fetchBlob(rhinoDiagramUrl(name, snapshot, kind));
+    saveBlob(format === 'png' ? await svgToPng(svg) : svg, filename);
+    toast(`${filename}을(를) 내려받았습니다.`);
+  } catch (error) {
+    const text = error instanceof TypeError ? 'Sida 서버에 연결할 수 없습니다.' : error.message;
+    toast(`다이어그램을 내려받지 못했습니다: ${text}`, 'error');
+  }
 }
 
 // A section drawing (단면) as SVG, PDF or DXF, for the scheme the table shows.

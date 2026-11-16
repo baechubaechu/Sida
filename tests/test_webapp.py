@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from sida import config as sida_config
 from sida import engine, errors, providers, runtime, webapp
 from sida.briefs import BRIEF_FIELD_KEYS
-from tests.conftest import land_fixture
+from tests.conftest import ROOT, land_fixture
 
 
 @pytest.fixture
@@ -277,6 +277,19 @@ def test_main_screen_files_hold_no_keys_or_placeholder_urls():
         assert "figma.com/api/mcp/asset" not in text
         assert "OPENROUTER_API_KEY" not in text
         assert "localStorage" not in text  # project data lives on the server, not the browser
+
+
+def test_the_rhino_panel_is_a_page_of_its_own_that_asks_only_sidas_rhino_api(client):
+    page = client.get("/app/rhino.html")
+    assert page.status_code == 200 and "/app/rhino-panel.js" in page.text and "/app/rhino.css" in page.text
+    script = (webapp.APP_DIR / "rhino-panel.js").read_text(encoding="utf-8")
+    asked = set(re.findall(r"/api/[a-z/]+", script))
+    assert asked == {"/api/rhino/hello", "/api/rhino/live", "/api/rhino/commands", "/api/projects"}
+    assert "rhino-model.js" in script  # what it shows is decided there (node-tested), not here
+    # asking Sida from the panel is the project's own talks API, nothing of Rhino's
+    chat = (webapp.APP_DIR / "rhino-chat.js").read_text(encoding="utf-8")
+    assert "/api/" not in chat and "projectApi(project)}/talks" in chat and "/session/jobs/" in chat
+    assert client.get("/app/rhino.css").status_code == 200
 
 
 def test_main_screen_talks_to_the_conductor_only_through_the_command_line():
@@ -1282,6 +1295,233 @@ def test_board_api_exports_the_table_as_cad_and_rhino_files(client, project):
     assert client.get(f"{base}/export", params={"format": "pdf"}).status_code == 400
     assert client.get(f"{base}/export", params={"format": "dxf", "active": "nope"}).status_code == 400
     assert client.get("/api/projects/nope/board/export").status_code == 404
+
+
+def test_rhino_api_takes_a_snapshot_with_its_views_lays_the_paper_and_answers_live_figures(client, project):
+    import json as _json
+
+    from sida.experts.rhino import snapshot as rhino_snapshot
+
+    hello = client.get("/api/rhino/hello").json()
+    assert hello["ok"] is True and hello["schema"] == 1 and {"code": "housing", "word": "주거", "built": True} in hello["meanings"]
+    assert {"kind": "program", "title": "프로그램 매스", "view": "axo"} in hello["diagrams"] and len(hello["diagrams"]) == 5
+
+    raw = _json.loads((ROOT / "tests" / "fixtures" / "rhino" / "snapshot_studio.json").read_text(encoding="utf-8"))
+    base = f"/api/projects/{project.name}/rhino"
+    png = rhino_snapshot.PNG + b"\x00" * 8
+    files = [("views", ("plan.png", png, "image/png")), ("views", ("axo.png", png, "image/png"))]
+    def part(value) -> tuple:
+        return ("snapshot", ("snapshot.json", value if isinstance(value, bytes) else _json.dumps(value).encode("utf-8"), "application/json"))
+
+    r = client.post(f"{base}/snapshots", files=[part(raw), *files])
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["snapshot"]["file"] == "studio.3dm" and body["snapshot"]["objects"] == 5
+    assert body["figures"]["floor_area_m2"] == 900.0 and body["figures"]["far_pct"] is None  # no site looked up
+    assert body["figures"]["lines"][0] == "연면적 900.0㎡ (주거 720.0, 상업 180.0)" and body["figures"]["limits"] == []
+    assert body["paper"]["id"] == "rhino" and body["paper"]["title"] == "studio" and body["paper"]["figures"]["lines"]
+    assert body["paper"]["views"] == [{"kind": "plan", "file": "plan.png"}, {"kind": "axo", "file": "axo.png"}]
+    assert [d["kind"] for d in body["paper"]["diagrams"]] == ["program", "floors", "stack", "site", "limits"]  # what can be drawn of it
+    snapshot_id = body["snapshot"]["id"]
+
+    got = client.get(f"/api/projects/{project.name}/board").json()
+    assert [p["id"] for p in got["papers"]] == ["site", "rhino"]
+    assert [s["id"] for s in client.get(f"{base}/snapshots").json()["snapshots"]] == [snapshot_id]
+    one = client.get(f"{base}/snapshots/{snapshot_id}").json()
+    assert one["snapshot"]["objects"][0]["sida_id"] == "mass-a:0" and one["figures"]["footprint_m2"] == 320.0
+    image = client.get(f"{base}/snapshots/{snapshot_id}/views/plan.png")
+    assert image.status_code == 200 and image.content == png and image.headers["content-type"] == "image/png"
+    assert client.get(f"{base}/snapshots/{snapshot_id}/views/eye.png").status_code == 404
+    assert client.get(f"{base}/snapshots/20261111-000000-0000").status_code == 404
+
+    live = client.post(f"{base}/figures", json={**raw, "views": [], "objects": raw["objects"][:2]})
+    assert live.status_code == 200 and live.json()["figures"]["floor_area_m2"] == 900.0 and live.json()["figures"]["unmeasured"] == []
+    assert [s["id"] for s in client.get(f"{base}/snapshots").json()["snapshots"]] == [snapshot_id]  # nothing saved
+
+    bad = client.post(f"{base}/snapshots", files=[part({**raw, "schema": 3}), *files])
+    assert bad.status_code == 400 and "schema must be 1" in bad.json()["detail"]
+    assert client.post(f"{base}/snapshots", files=[part(b"{not json"), *files]).status_code == 400
+    assert client.post(f"{base}/snapshots", files=[part(b"\xff\xfe"), *files]).status_code == 400
+    missing = client.post(f"{base}/snapshots", files=[part(raw), files[0]])
+    assert missing.status_code == 400 and "axo.png" in missing.json()["detail"]
+    assert client.delete(f"{base}/snapshots/{snapshot_id}").status_code == 200
+    assert client.get(f"{base}/snapshots").json()["snapshots"] == []
+    assert client.get("/api/projects/nope/rhino/snapshots").status_code == 404
+
+
+def test_rhino_push_takes_a_snapshot_of_megabytes(client, project):
+    """A real document's snapshot is megabytes (the meshes of the surroundings). It comes as a
+    file part: as a form field the server would refuse it at 1 MB."""
+    import json as _json
+
+    from sida.experts.rhino import snapshot as rhino_snapshot
+
+    raw = _json.loads((ROOT / "tests" / "fixtures" / "rhino" / "snapshot_studio.json").read_text(encoding="utf-8"))
+    mesh = {"v": [[i * 0.001, 0.0, 0.0] for i in range(18000)], "f": [[0, 1, 2]]}
+    extra = [{**raw["objects"][1], "id": f"big{i}", "sida_id": None, "mesh": mesh} for i in range(4)]
+    body = _json.dumps({**raw, "views": [], "objects": [*raw["objects"], *extra]}).encode("utf-8")
+    assert len(body) > 1024 * 1024
+    r = client.post(f"/api/projects/{project.name}/rhino/snapshots", files=[("snapshot", ("snapshot.json", body, "application/json"))])
+    assert r.status_code == 201, r.text
+    assert r.json()["snapshot"]["objects"] == len(raw["objects"]) + 4
+    assert rhino_snapshot.MAX_OBJECTS >= 20000  # the surroundings of a dense site are hundreds of bodies already
+
+
+def test_rhino_diagrams_of_a_snapshot_come_as_drawing_instructions_and_as_svg(client, project):
+    import json as _json
+
+    raw = _json.loads((ROOT / "tests" / "fixtures" / "rhino" / "snapshot_studio.json").read_text(encoding="utf-8"))
+    base = f"/api/projects/{project.name}/rhino"
+    body = _json.dumps({**raw, "views": []}).encode("utf-8")
+    pushed = client.post(f"{base}/snapshots", files=[("snapshot", ("snapshot.json", body, "application/json"))])
+    at = f"{base}/snapshots/{pushed.json()['snapshot']['id']}/diagrams"
+
+    listed = client.get(at).json()["diagrams"]
+    assert [d["kind"] for d in listed] == ["program", "floors", "stack", "site", "limits"]
+    assert all(d["ready"] for d in listed) and listed[0]["title"] == "프로그램 매스"
+
+    drawing = client.get(f"{at}/program").json()["drawing"]
+    assert drawing["kind"] == "program" and drawing["view"] == "axo"
+    slabs = [i for i in drawing["items"] if i["type"] == "slab"]
+    assert [(s["tag"], s["z"]) for s in slabs] == [("housing", 0.0), ("housing", 3.0), ("housing", 6.0), ("housing", 9.0), ("commercial", 0.0)]
+    assert any("잴 수 없는 개체 1개" in note for note in drawing["notes"])  # the open body is said, not drawn
+
+    svg = client.get(f"{at}/stack", params={"format": "svg"})
+    assert svg.status_code == 200 and svg.headers["content-type"].startswith("image/svg+xml")
+    assert svg.content.startswith(b"<svg ") and "층별 면적".encode() in svg.content
+    assert "filename*=UTF-8''" in svg.headers["content-disposition"]
+
+    assert client.get(f"{at}/render").status_code == 400
+    assert client.get(f"{at}/program", params={"format": "pdf"}).status_code == 400
+    assert client.get(f"{base}/snapshots/20000101-000000-0001/diagrams").status_code == 404
+    assert client.get(f"{base}/snapshots/20000101-000000-0001/diagrams/program").status_code == 404
+
+
+def test_presentation_api_shows_the_deck_and_makes_its_files_from_the_editors_list_and_the_rhino_snapshot(client, project, monkeypatch):
+    import io
+    import json as _json
+    import zipfile
+
+    from sida.experts.presentation import deck
+    from tests.experts.presentation.test_slides import document, tiny_png
+
+    monkeypatch.setattr(deck, "font_files", lambda: [])  # the PDF is written the same on every machine
+    at = f"/api/projects/{project.name}/presentation"
+    bare = client.get(at).json()
+    assert bare["source"] == "default" and bare["written"] is False and bare["snapshot"] is None and bare["figure_rows"] == []
+    assert [s["layout"] for s in bare["slides"]] == ["title"] and bare["formats"] == ["pptx", "pdf", "zip"]
+    assert client.get(f"{at}/file").content.startswith(b"PK")  # a file can be made even now: the title alone
+
+    raw = _json.loads((ROOT / "tests" / "fixtures" / "rhino" / "snapshot_studio.json").read_text(encoding="utf-8"))
+    views = [("views", (name, tiny_png(16, 9), "image/png")) for name in ("plan.png", "axo.png")]
+    pushed = client.post(f"/api/projects/{project.name}/rhino/snapshots",
+                         files=[("snapshot", ("snapshot.json", _json.dumps(raw).encode("utf-8"), "application/json")), *views])
+    assert pushed.status_code == 201, pushed.text
+    by_rule = client.get(at).json()
+    assert by_rule["snapshot"]["id"] == pushed.json()["snapshot"]["id"] and ["연면적", "900.0㎡"] in by_rule["figure_rows"]
+    assert [s["figure"]["key"] for s in by_rule["slides"][1:]] == [
+        "figures", "diagram:program", "diagram:floors", "diagram:stack", "diagram:site", "diagram:limits", "view:axo", "view:plan"]
+    assert by_rule["slides"][-1]["figure"]["file"] == "plan.png"  # what the screen shows the capture from
+
+    (project.path / "modules").mkdir(exist_ok=True)
+    (project.path / "modules" / "62_presentation_editor.md").write_text(document([
+        {"layout": "title", "title": "금정역 복합", "subtitle": "역과 동네 사이"},
+        {"title": "프로그램", "figure": "diagram:program", "bullets": ["주거 위, 상업 아래"]},
+        {"title": "야경", "figure": "view:night"},
+    ]), encoding="utf-8")
+    shown = client.get(at).json()
+    assert shown["source"] == "editor" and shown["written"] is True and [s["title"] for s in shown["slides"]] == ["금정역 복합", "프로그램", "야경"]
+    assert shown["slides"][1]["figure"]["ready"] is True and shown["slides"][2]["figure"]["ready"] is False
+    assert shown["notes"] == ["3번 슬라이드의 그림(view:night)은 비어 있습니다. 이 이름의 그림이 없습니다."]
+
+    pptx = client.get(f"{at}/file", params={"format": "pptx"})
+    assert pptx.status_code == 200 and pptx.headers["content-type"] == deck.FORMATS["pptx"] and pptx.headers["cache-control"] == "no-store"
+    assert pptx.headers["content-disposition"].startswith("attachment; filename*=UTF-8''") and pptx.headers["content-disposition"].endswith(".pptx")
+    with zipfile.ZipFile(io.BytesIO(pptx.content)) as archive:
+        assert sum(1 for n in archive.namelist() if n.startswith("ppt/slides/slide")) == 3
+        assert "주거 위, 상업 아래" in archive.read("ppt/slides/slide2.xml").decode("utf-8")
+    pdf = client.get(f"{at}/file", params={"format": "pdf"})
+    assert pdf.headers["content-type"] == "application/pdf" and pdf.content.startswith(b"%PDF-")
+    bundle = client.get(f"{at}/file", params={"format": "zip"})
+    with zipfile.ZipFile(io.BytesIO(bundle.content)) as archive:
+        assert {"라이노 뷰/plan.png", "라이노 뷰/axo.png", "수치.csv", "다이어그램/프로그램 매스.svg"} <= set(archive.namelist())
+    bad = client.get(f"{at}/file", params={"format": "key"})
+    assert bad.status_code == 400 and "format must be one of pptx, pdf, zip" in bad.json()["detail"]
+    assert client.get("/api/projects/no-such-project/presentation").status_code == 404
+
+
+def test_rhino_live_api_carries_the_document_to_the_panel_and_the_panels_asks_to_the_plugin(client, project):
+    import json as _json
+
+    from sida.experts.rhino import live as rhino_live
+
+    rhino_live.reset()
+    assert client.get("/api/rhino/live").json() == {"connected": False, "rev": 0, "state": None}
+    assert client.get("/api/rhino/commands", params={"doc": "77-1"}).json() == {"known": False, "commands": []}
+
+    raw = _json.loads((ROOT / "tests" / "fixtures" / "rhino" / "snapshot_studio.json").read_text(encoding="utf-8"))
+    said = {"doc": "77-1", "file": "studio.3dm", "units": "m", "project": project.name, "autosync": False, "snapshot": {**raw, "views": []}}
+    assert client.post("/api/rhino/live", json=said).json() == {"rev": 1}
+    got = client.get("/api/rhino/live", params={"doc": "77-1"}).json()
+    assert got["connected"] is True and got["state"]["project_known"] is True
+    assert got["state"]["figures"]["floor_area_m2"] == 900.0 and got["state"]["figures"]["lines"] and got["state"]["figures"]["limits"] == []
+    assert got["state"]["layers"][3] == {"path": "Sketch", "meaning": "", "color": "", "floor_height": None, "objects": 1}
+
+    assert got["state"]["selection"] == {"count": 0, "bodies": 0, "floor_area_m2": None, "footprint_m2": None}
+
+    # what is selected in Rhino: the panel gets the count, the Conductor is told with every message
+    # (the hook `conductor_site`), for as long as that Rhino is connected to this project
+    from sida import board as sida_board
+
+    assert client.post("/api/rhino/live", json={**said, "selected": ["a1", "s1"], "selected_count": 2}).json() == {"rev": 2}
+    assert client.get("/api/rhino/live").json()["state"]["selection"] == {"count": 2, "bodies": 1, "floor_area_m2": 720.0, "footprint_m2": 180.0}
+    told = sida_board.site_brief(project.path)
+    assert "## Rhino right now" in told and "Selected in Rhino right now: 2 objects, 1 of them building masses" in told
+    assert "- 동 A: layer Program::Housing (주거)" in told
+    assert client.post("/api/rhino/live", json={**said, "selected": "a1"}).status_code == 400
+
+    # a document that names a project this Sida does not have is still shown, without figures
+    assert client.post("/api/rhino/live", json={**said, "project": "nowhere"}).json() == {"rev": 3}
+    state = client.get("/api/rhino/live").json()["state"]
+    assert state["project_known"] is False and state["figures"] is None and len(state["layers"]) == 4
+    assert "Rhino right now" not in sida_board.site_brief(project.path)  # that Rhino is no longer on this project
+
+    asked = client.post("/api/rhino/commands", json={"doc": "77-1", "type": "set_layer", "path": "Sketch", "meaning": "office", "floor_height": 3.3})
+    assert asked.status_code == 200
+    waiting = client.get("/api/rhino/commands", params={"doc": "77-1"}).json()
+    assert waiting["known"] is True and waiting["commands"] == [
+        {"type": "set_layer", "path": "Sketch", "meaning": "office", "floor_height": 3.3, "id": asked.json()["id"]}]
+    assert client.get("/api/rhino/commands", params={"doc": "77-1", "after": asked.json()["id"]}).json()["commands"] == []
+
+    bad = client.post("/api/rhino/commands", json={"doc": "77-1", "type": "explode"})
+    assert bad.status_code == 400 and "type must be one of" in bad.json()["detail"]
+    assert client.post("/api/rhino/commands", json={"doc": "nobody", "type": "pull"}).status_code == 400
+    assert client.post("/api/rhino/live", json={**said, "snapshot": {"schema": 2}}).status_code == 400
+    rhino_live.reset()
+
+
+def test_a_question_asked_while_rhino_is_open_reaches_the_conductor_with_the_model_and_the_selection(session_api, project):
+    """The chat in the Rhino panel is the talks API; what makes it "about the model" is that the
+    Conductor is told the running document and the selection with the message."""
+    import json as _json
+
+    from sida.experts.rhino import live as rhino_live
+
+    client, base, conductor = session_api
+    rhino_live.reset()
+    raw = _json.loads((ROOT / "tests" / "fixtures" / "rhino" / "snapshot_studio.json").read_text(encoding="utf-8"))
+    client.post("/api/rhino/live", json={"doc": "77-1", "file": "studio.3dm", "units": "m", "project": project.name, "autosync": False,
+                                         "snapshot": {**raw, "views": []}, "selected": ["a1"]})
+    talk = client.post(f"{base}/talks").json()["talk"]["id"]
+    conductor.replies.append('고른 동은 720㎡입니다.\n```action\n{"type":"none"}\n```')
+    job = finished_job(client, base, client.post(f"{base}/talks/{talk}/messages", json={"text": "이거 연면적 얼마야?"}))
+    assert job["status"] == "done"
+    sent = "\n".join(str(m.get("content")) for m in conductor.calls[-1]["messages"])
+    assert "## Rhino right now" in sent and "Selected in Rhino right now: 1 objects, 1 of them building masses" in sent
+    assert "- 동 A: layer Program::Housing (주거), footprint 180.0㎡, 4 floors, floor area 720.0㎡" in sent
+    assert client.get(f"{base}/talks/{talk}").json()["messages"] == [
+        {"role": "user", "text": "이거 연면적 얼마야?"}, {"role": "conductor", "text": "고른 동은 720㎡입니다."}]  # the note is not kept in the talk
+    rhino_live.reset()
 
 
 def test_board_api_keeps_a_section_and_gives_its_drawing_as_svg_pdf_and_dxf(client, project):

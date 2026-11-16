@@ -31,8 +31,7 @@ def hook(**attrs):
 def test_domains_are_discovered_alphabetically_and_hooks_are_optional():
     found = [domain for domain, _module in experts.domain_hooks()]
     assert found == sorted(found)
-    assert {"regulation", "site"} <= set(found)
-    assert "rhino" not in found  # a domain folder without hooks.py is fine
+    assert {"model", "regulation", "rhino", "site"} <= set(found)
 
 
 def test_blocks_are_joined_per_slot_in_domain_order_and_blanks_dropped():

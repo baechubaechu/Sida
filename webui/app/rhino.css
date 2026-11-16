@@ -1,0 +1,130 @@
+/* The Sida panel inside Rhino (rhino.html): a narrow, tall page in a docked panel (about 300 to
+   420 px wide). Colours and type are the app's tokens (styles.css); only the layout is its own.
+   The gauges are drawn as scale bars: a ruled track where the limit is one heavier mark. */
+body.rhino-panel { min-height: 100vh; display: flex; flex-direction: column; background: var(--surface); font-size: 13.5px; line-height: 1.5; }
+.rhino-panel main { flex: 1; padding: 14px 14px 8px; display: grid; gap: 16px; align-content: start; min-width: 0; }
+.rhino-panel h1, .rhino-panel h2, .rhino-panel p, .rhino-panel ul, .rhino-panel dl, .rhino-panel dd { margin: 0; padding: 0; }
+.rhino-panel ul { list-style: none; }
+.rhino-panel :focus-visible { outline-offset: 2px; }
+
+.rp-title { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.rp-title h1 { font-size: 15px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-dot { flex: none; font-size: 12px; color: var(--muted); }
+.rp-dot::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--line); }
+.rp-dot.is-on::before { background: var(--ok, #2f7d4f); }
+.rp-dot.is-off::before { background: var(--lot, #cf3f2e); }
+.rp-project { display: grid; gap: 4px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.rhino-panel select, .rhino-panel input[type="text"] { min-height: 32px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); min-width: 0; }
+.rp-project select { width: 100%; font-size: 13.5px; }
+.rp-project.needs select { border-color: var(--brand); box-shadow: 0 0 0 3px var(--selected); }
+.rp-status { padding: 10px 12px; border-radius: 8px; background: var(--surface-subtle); color: var(--text); }
+.rp-empty { color: var(--muted); }
+
+/* Gauges: the track is a scale bar ruled every tenth of the limit; the limit sits at 80% of the
+   track so a model over its limit still has room to show by how much. */
+.gauges { display: grid; gap: 14px; }
+.gauge-head { display: flex; align-items: baseline; justify-content: space-between; }
+.gauge-head span { font-weight: 600; }
+.gauge-head b { font-size: 24px; line-height: 1.2; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.gauge.is-over .gauge-head b { color: var(--lot, #cf3f2e); }
+.gauge.is-unknown .gauge-head b { font-size: 15px; font-weight: 600; color: var(--muted); }
+.gauge-track { position: relative; height: 12px; margin-top: 4px; border: 1px solid var(--text); border-radius: 1px;
+  background: repeating-linear-gradient(90deg, transparent 0 calc(8% - 1px), color-mix(in srgb, var(--text) 35%, transparent) calc(8% - 1px) 8%); }
+.gauge-fill, .gauge-beyond { position: absolute; top: 0; bottom: 0; }
+.gauge-fill { left: 0; background: var(--brand); transition: width var(--motion-200) var(--ease-out); }
+.gauge-beyond { background: repeating-linear-gradient(-45deg, var(--lot, #cf3f2e) 0 3px, color-mix(in srgb, var(--lot, #cf3f2e) 55%, white) 3px 6px); transition: width var(--motion-200) var(--ease-out); }
+.gauge-mark { position: absolute; left: 80%; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: var(--text); }
+.gauge-limit { margin-top: 5px; font-size: 12px; color: var(--muted); }
+.gauge-limit.at-mark { width: 80%; text-align: right; }
+.gauge.is-over .gauge-limit { color: var(--lot, #cf3f2e); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .gauge-fill, .gauge-beyond { transition: none; } }
+
+.rp-rows { display: grid; margin-top: 14px; border-top: 1px solid var(--line); }
+.rp-rows div { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.rp-rows dt { color: var(--muted); }
+.rp-rows dd { font-variant-numeric: tabular-nums; font-weight: 600; }
+.shares { display: flex; height: 8px; margin-top: 12px; gap: 2px; }
+.shares i { flex: 1 1 0; min-width: 3px; }
+.share-0 { background: var(--brand); }
+.share-1 { background: color-mix(in srgb, var(--brand) 62%, white); }
+.share-2 { background: color-mix(in srgb, var(--brand) 38%, white); }
+.share-3 { background: color-mix(in srgb, var(--muted) 70%, white); }
+.share-4 { background: color-mix(in srgb, var(--muted) 40%, white); }
+.share-list { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+.share-list i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; }
+.share-list b { margin-left: 5px; color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.rp-limits, .rp-notes { display: grid; gap: 4px; margin-top: 12px; font-size: 12px; color: var(--muted); }
+.rp-notes li { padding-left: 10px; border-left: 2px solid var(--pick, #e3a008); color: var(--text); }
+
+.rp-layers-head { display: grid; grid-template-columns: minmax(0, 1fr) 104px 58px; gap: 6px; align-items: baseline; padding-bottom: 6px; border-bottom: 1px solid var(--text); font-size: 12px; color: var(--muted); }
+.rp-layers-head h2 { font-size: 13.5px; color: var(--text); }
+.layer { display: grid; grid-template-columns: 10px minmax(0, 1fr) 104px 58px; gap: 6px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.layer .swatch { width: 10px; height: 10px; border: 1px solid color-mix(in srgb, var(--text) 30%, transparent); background: var(--surface); }
+.layer-name { min-width: 0; display: grid; }
+.layer-name b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.layer-name small { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.layer-name .layer-need { color: var(--brand); font-weight: 600; white-space: normal; }
+.layer select, .layer input { width: 100%; font-size: 12.5px; }
+.layer input { text-align: right; font-variant-numeric: tabular-nums; }
+.layer.needs { background: linear-gradient(90deg, var(--selected), transparent 70%); box-shadow: -14px 0 0 var(--selected); }
+.rp-more { margin-top: 8px; padding: 4px 0; font-size: 12px; color: var(--brand); text-decoration: underline; text-underline-offset: 3px; }
+
+.rp-foot { position: sticky; bottom: 0; padding: 10px 14px 12px; display: grid; gap: 8px; background: var(--surface); border-top: 1px solid var(--line); }
+.rp-foot:empty { display: none; }
+.rp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.rp-actions .primary, .rp-actions .secondary { min-height: 40px; padding: 8px 10px; font-size: 13.5px; }
+.rp-actions button:disabled { opacity: .5; cursor: default; }
+.rp-auto { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.rp-notice { font-size: 12.5px; padding: 6px 10px; border-radius: 6px; background: color-mix(in srgb, var(--ok, #2f7d4f) 12%, transparent); overflow-wrap: anywhere; }
+.rp-notice.is-bad { background: color-mix(in srgb, var(--lot, #cf3f2e) 12%, transparent); }
+
+/* Diagrams: which ones to draw in the document (all picked until one is left out). A picked one
+   is a filled tag with a tick, a left-out one an empty outline. */
+.rp-diagrams:empty { display: none; }
+.rp-diagrams { display: grid; gap: 8px; }
+.rp-diagrams h2 { font-size: 13.5px; padding-bottom: 6px; border-bottom: 1px solid var(--text); }
+.rp-hint { font-size: 12px; color: var(--muted); }
+.rp-kinds { display: flex; flex-wrap: wrap; gap: 6px; }
+.rp-kinds button { min-height: 30px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--muted); font-size: 12.5px; }
+.rp-kinds button[aria-pressed="true"] { border-color: var(--brand); background: var(--selected); color: var(--text); font-weight: 600; }
+.rp-kinds button[aria-pressed="true"]::before { content: "✓"; margin-right: 5px; color: var(--brand); }
+.rp-draw { min-height: 36px; padding: 6px 10px; font-size: 13px; }
+.rp-draw:disabled { opacity: .5; cursor: default; }
+
+/* Two views of the panel: the model (figures, layers, diagrams) and the talk with Sida. */
+.rp-tabs:empty { display: none; }
+.rp-tabs { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--line); margin: -4px 0; }
+.rp-tabs button { min-height: 36px; padding: 6px 4px; font-size: 13px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.rp-tabs button[aria-selected="true"] { color: var(--text); font-weight: 700; border-bottom-color: var(--brand); }
+body[data-tab="chat"] :is(.rp-figures, .rp-layers, .rp-diagrams, .rp-foot) { display: none; }
+body[data-tab="model"] .rp-chat { display: none; }
+
+/* The talk: the designer's questions set to the right on a tint, Sida's answers plain. */
+.rp-chat { display: grid; gap: 12px; align-content: start; }
+.rp-chat:empty { display: none; }
+.rc-user { justify-self: end; max-width: 88%; padding: 8px 12px; border-radius: 12px 12px 2px 12px; background: var(--selected); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rc-answer h3 { font-size: 12px; font-weight: 700; color: var(--brand); margin-bottom: 2px; }
+.rc-answer .markdown { line-height: 1.7; }
+.rc-answer .markdown > * + * { margin-top: 8px; }
+.rc-answer .markdown :is(h2, h3, h4, h5, h6) { font-size: 13.5px; margin-top: 12px; }
+.rc-answer .markdown :is(ul, ol) { list-style: revert; padding-left: 20px; }
+.rc-answer .markdown .table-wrap { overflow-x: auto; }
+.rc-note { font-size: 12px; color: var(--muted); padding-left: 10px; border-left: 2px solid var(--line); }
+.rc-note.error { color: var(--lot, #cf3f2e); border-left-color: var(--lot, #cf3f2e); }
+.rc-note.warn { border-left-color: var(--pick, #e3a008); color: var(--text); }
+.rc-working { font-size: 12.5px; color: var(--muted); }
+.rc-empty { display: grid; gap: 10px; color: var(--muted); }
+.rc-empty ul { display: grid; gap: 6px; }
+.rc-empty button { width: 100%; text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 13px; }
+.rc-empty button:hover { border-color: var(--brand); background: var(--selected); }
+.rc-where { font-size: 12px; }
+
+.rp-ask { position: sticky; bottom: 0; padding: 10px 14px 12px; display: grid; gap: 6px; background: var(--surface); border-top: 1px solid var(--line); }
+.rp-ask[hidden] { display: none; }
+.rp-with { margin: 0; font-size: 12px; color: var(--muted); }
+.rp-ask textarea { width: 100%; min-height: 56px; max-height: 40vh; resize: vertical; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; }
+.rp-ask-row { display: flex; align-items: center; gap: 8px; }
+.rp-ask-row .rp-more { margin: 0; }
+.rp-keys { flex: 1; text-align: right; font-size: 11.5px; color: var(--muted); }
+.rp-ask .primary { min-height: 36px; padding: 6px 16px; font-size: 13.5px; }
+.rp-ask .primary:disabled { opacity: .5; cursor: default; }

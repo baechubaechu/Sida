@@ -5,6 +5,7 @@
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
 import { drawPage, pdfInfo } from './pdf-view.js';
+import { rhinoPaperParts, diagramFileName } from './rhino-model.js';
 import { paperGlyph, PX, PAPER_SIZE, isOverlaid, freeSpot, folded, pinnedPapers, peekSpot, paperName, resultPreview, KIND_LABELS, originLabel, figureLines, toggleSelected, fmt, photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE, MAX_PHOTO_BYTES, isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, resizable, resizedPaper, paperTextScale } from './board-model.js';
 import { PHOTO_GAP, cm, strokePath } from './table-shared.js';
 
@@ -226,7 +227,37 @@ export const papersMethods = {
       };
     }
     if (p.kind === 'section') return { title: paperName(p), body: this.sectionBody(p) };
+    if (p.kind === 'rhino') return { title: paperName(p), body: this.rhinoBody(p) };
     return { title: paperName(p), body: '' };
+  },
+  // The designer's Rhino model: the newest snapshot's capture and the figures Sida computed from
+  // what Rhino measured (rhino-model.js). `large`: in the 속성 panel, with every capture, the limits
+  // and the diagrams Sida draws of the snapshot (`on(action)`: a button's attributes, as in detailParts).
+  rhinoBody(p, large = false, on = null) {
+    const parts = rhinoPaperParts(p);
+    const shown = large ? parts.views : parts.views.slice(0, 1);
+    const views = parts.snapshot ? shown.map((v) => `<figure class="rhino-view"><img src="${escape(this.hooks.rhinoViewUrl(parts.snapshot, v.file))}" alt="라이노 ${escape(v.word)} 뷰" draggable="false" decoding="async">${large ? `<figcaption>${escape(v.word)}</figcaption>` : ''}</figure>`).join('') : '';
+    const lines = parts.lines.length
+      ? (large ? parts.lines : parts.lines.slice(0, 3)).map((l) => `<p class="figure">${escape(l)}</p>`).join('')
+      : '<p class="muted">아직 수치가 없습니다. 라이노 패널에서 레이어에 의미를 주고 다시 보내세요.</p>';
+    const limits = large && parts.limits.length ? `<ul class="facts">${parts.limits.map((l) => `<li>${escape(l)}</li>`).join('')}</ul>` : '';
+    const diagrams = large && on && parts.snapshot && parts.diagrams.length ? `<h4 class="rhino-sub">다이어그램</h4>
+      <div class="rhino-diagrams">${parts.diagrams.map((d) => {
+        const url = escape(this.hooks.rhinoDiagramUrl(parts.snapshot, d.kind));
+        return `<figure class="rhino-diagram"><a href="${url}" target="_blank" rel="noopener" title="새 탭에서 크게 보기"><img src="${url}" alt="${escape(d.title)} 다이어그램" loading="lazy" decoding="async" draggable="false"></a>
+          <figcaption><span>${escape(d.title)}</span><span class="detail-files" role="group" aria-label="${escape(d.title)} 내려받기">${['svg', 'png'].map((f) => `<button type="button" ${on(`diagram-${f}-${d.kind}`)}>${f.toUpperCase()}</button>`).join('')}</span></figcaption></figure>`;
+      }).join('')}</div>
+      <p class="detail-caption">Sida가 이 작업을 규칙대로 그린 그림입니다. 라이노 패널의 "라이노에 그리기"로 같은 그림을 모델 안에 선과 면으로 넣을 수 있습니다.</p>` : '';
+    return `<div class="rhino-sheet${large ? ' is-large' : ''}">${views}<div class="rhino-figures">${lines}</div></div>${limits}${diagrams}
+      <p class="source">${escape(parts.source)}</p>`;
+  },
+  // A Rhino paper's button (a diagram as an SVG or PNG file). True when it was one.
+  rhinoAction(action, p) {
+    const asked = /^diagram-(svg|png)-(.+)$/.exec(action);
+    if (p?.kind !== 'rhino' || !asked) return false;
+    const diagram = rhinoPaperParts(p).diagrams.find((d) => d.kind === asked[2]);
+    if (diagram) this.hooks.rhinoDiagramFile?.(p.snapshot, diagram.kind, asked[1], diagramFileName(p.title, diagram.title, asked[1]));
+    return true;
   },
   traceSvg(p) {
     const b = this.bounds;

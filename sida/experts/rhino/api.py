@@ -1,0 +1,159 @@
+"""JSON API the Rhino plugin talks to (docs/rhino-api.md). The logic is in snapshot.py.
+
+/api/rhino/hello says Sida is up and which snapshot schema it reads. Under the project:
+snapshots (push, list, read, a view image, delete), a snapshot's diagrams (diagrams.py), and
+figures for a snapshot the plugin has not saved. /api/rhino/live and /api/rhino/commands are the running Rhino (live.py): the plugin
+reports its document and asks what to do, the panel page reads the report and asks for things.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Annotated
+from urllib.parse import quote
+
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, Response
+
+from sida import board, workspace
+from sida.experts.rhino import diagram_svg, diagrams, live, snapshot
+from sida.i18n import t
+
+
+def create_router(load_config, core) -> APIRouter:
+    router = APIRouter()
+
+    def project(name: str):
+        return core(workspace.find_project, load_config(), name).resolve()
+
+    def call(fn, *args, bad: str = "web_rhino_snapshot_bad", **kwargs):
+        try:
+            return core(fn, *args, **kwargs)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=t(bad, reason=str(exc))) from exc
+        except snapshot.SnapshotNotFound as exc:
+            raise HTTPException(status_code=404, detail=t("web_rhino_snapshot_none", id=exc.args[0])) from exc
+
+    def with_figures(path, saved: dict) -> dict:
+        area = (board.site_summary(path) or {}).get("area_m2")
+        fig = snapshot.figures(saved, area)
+        return {**fig, "lines": snapshot.figure_lines(fig), "limits": snapshot.limits(path)}
+
+    @router.get("/api/rhino/hello")
+    def hello() -> dict:
+        return {
+            "ok": True, "app": "sida", "schema": snapshot.SCHEMA,
+            "meanings": [{"code": code, "word": m["word"], "built": m["built"]} for code, m in snapshot.MEANINGS.items()],
+            "views": list(snapshot.VIEW_KINDS),
+            "diagrams": [{"kind": kind, "title": d["title"], "view": d["view"]} for kind, d in diagrams.KINDS.items()],
+        }
+
+    @router.post("/api/projects/{name}/rhino/snapshots")
+    def push(
+        name: str,
+        snapshot_file: Annotated[UploadFile, File(alias="snapshot")],
+        views: Annotated[list[UploadFile], File()] = [],  # noqa: B006 (FastAPI reads the default)
+    ) -> JSONResponse:
+        """Save a snapshot with its view images (one file per declared view, named as declared);
+        the newest snapshot becomes the table's "라이노 작업" paper. The snapshot comes as a file
+        part, not a form field: with its meshes it is megabytes, and a field stops at 1 MB."""
+        path = project(name)
+        body = snapshot_file.file.read(snapshot.MAX_SNAPSHOT_BYTES + 1)
+        try:
+            if len(body) > snapshot.MAX_SNAPSHOT_BYTES:
+                raise ValueError("too large")
+            raw = json.loads(body.decode("utf-8"))
+        except ValueError as exc:  # too large, not UTF-8, or not JSON
+            raise HTTPException(status_code=400, detail=t("web_rhino_snapshot_json")) from exc
+        files = {v.filename: v.file.read(snapshot.MAX_VIEW_BYTES + 1) for v in views if v.filename}
+        saved = call(snapshot.save_snapshot, path, raw, files)
+        fig = with_figures(path, saved)
+        placed = core(board.rhino_paper, path, {
+            "title": saved["rhino"]["file"].rsplit(".", 1)[0] if saved["rhino"]["file"] else "",
+            "snapshot": saved["id"], "file": saved["rhino"]["file"], "taken_at": saved["taken_at"],
+            "objects": len(saved["objects"]), "layers": saved["layers"], "views": saved["views"], "figures": fig,
+            "diagrams": [d for d in diagrams.available(saved, diagrams.context(path, around=False)) if d["ready"]],
+        })
+        return JSONResponse({"snapshot": snapshot.summary(saved), "figures": fig, "paper": placed["paper"], "rev": placed["rev"]},
+                            status_code=201)
+
+    @router.get("/api/projects/{name}/rhino/snapshots")
+    def list_all(name: str) -> dict:
+        return {"snapshots": snapshot.list_snapshots(project(name))}
+
+    @router.get("/api/projects/{name}/rhino/snapshots/{snapshot_id}")
+    def read(name: str, snapshot_id: str) -> dict:
+        path = project(name)
+        saved = call(snapshot.load_snapshot, path, snapshot_id)
+        return {"snapshot": saved, "figures": with_figures(path, saved)}
+
+    @router.get("/api/projects/{name}/rhino/snapshots/{snapshot_id}/views/{file}")
+    def view(name: str, snapshot_id: str, file: str) -> FileResponse:
+        image = call(snapshot.view_file, project(name), snapshot_id, file)
+        # A snapshot's view never changes, so the browser (and the plugin's panel) may keep it.
+        return FileResponse(image, media_type="image/png", headers={"Cache-Control": "private, max-age=31536000, immutable"})
+
+    @router.delete("/api/projects/{name}/rhino/snapshots/{snapshot_id}")
+    def delete(name: str, snapshot_id: str) -> dict:
+        call(snapshot.delete_snapshot, project(name), snapshot_id)
+        return {"ok": True}
+
+    @router.get("/api/projects/{name}/rhino/snapshots/{snapshot_id}/diagrams")
+    def diagram_list(name: str, snapshot_id: str) -> dict:
+        """The kinds of diagram and whether this snapshot can be drawn as each."""
+        return {"diagrams": call(diagrams.of_snapshot, project(name), snapshot_id)}
+
+    @router.get("/api/projects/{name}/rhino/snapshots/{snapshot_id}/diagrams/{kind}")
+    def diagram(name: str, snapshot_id: str, kind: str, format: str = "json"):
+        """One diagram of the snapshot: its drawing instruction (the plugin draws it in Rhino), or
+        with format=svg the same drawing as a picture."""
+        if format not in ("json", "svg"):
+            raise HTTPException(status_code=400, detail=t("web_rhino_diagram_bad", reason="format must be json or svg"))
+        made = call(diagrams.of_snapshot, project(name), snapshot_id, kind, bad="web_rhino_diagram_bad")
+        if format == "json":
+            return {"drawing": made}
+        # Drawn again on each request (the site facts may have changed); a minute's keeping spares a screen that redraws.
+        return Response(diagram_svg.to_svg(made), media_type="image/svg+xml",
+                        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(made['title'])}.svg",
+                                 "Cache-Control": "private, max-age=60"})
+
+    @router.post("/api/projects/{name}/rhino/figures")
+    def live_figures(name: str, raw: dict) -> dict:
+        """Figures for a snapshot that is not saved (the plugin's live panel): the body is the
+        snapshot itself, views and meshes left out."""
+        path = project(name)
+        checked = call(snapshot.clean_snapshot, raw)
+        return {"figures": with_figures(path, checked)}
+
+    @router.post("/api/rhino/live")
+    def live_report(raw: dict) -> dict:
+        """The plugin says how its document stands; Sida computes the figures for the panel."""
+        checked = call(live.clean_report, raw)
+        path = None
+        if checked["project"]:
+            try:
+                path = workspace.find_project(load_config(), checked["project"]).resolve()
+            except workspace.ProjectNotFound:
+                path = None  # the document names a project this Sida does not have: the panel says so
+        snap = checked["snapshot"]
+        fig = with_figures(path, snap) if path is not None and snap is not None else None
+        picked = snapshot.selection(snap, checked["selected"], checked["selected_count"]) if snap is not None else None
+        brief = snapshot.live_text(snap, fig, checked["file"], picked) if fig is not None else ""
+        return live.report(checked, fig, path is not None, selection=picked, path=path, brief=brief)
+
+    @router.get("/api/rhino/live")
+    def live_read(doc: str | None = None) -> dict:
+        """What the panel shows: the named document, or the one whose plugin asked last."""
+        return live.current(doc)
+
+    @router.post("/api/rhino/commands")
+    def live_ask(raw: dict) -> dict:
+        """The panel asks the plugin for something (pull, push, a layer's meaning, ...)."""
+        return call(live.ask, raw, bad="web_rhino_live_bad")
+
+    @router.get("/api/rhino/commands")
+    def live_pending(doc: str, after: int = 0) -> dict:
+        """The plugin asks what to do next (also its heartbeat)."""
+        return call(live.pending, doc, after, bad="web_rhino_live_bad")
+
+    return router

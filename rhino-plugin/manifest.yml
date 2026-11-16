@@ -1,0 +1,15 @@
+# Yak package manifest (https://developer.rhino3d.com/guides/yak/). Build the plugin first
+# (see README.md), then `yak build` in the folder that holds SidaRhino.rhp and this file.
+name: sida
+version: 0.1.0
+authors:
+  - Sida team
+description: >
+  Sida for Rhino. Pulls the Sida drafting table (site, massing schemes, surroundings) into the
+  document, and pushes what Rhino measured (volumes, footprints, floor areas, view captures)
+  back to Sida, which computes the figures and makes diagrams and presentation material.
+url: https://sida-kr.duckdns.org
+keywords:
+  - sida
+  - architecture
+  - site

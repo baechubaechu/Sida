@@ -38,6 +38,11 @@ section, `tray`: massing schemes and notes the Conductor proposes (a change to t
 scheme comes as a copy, `based_on` the original) and expert results. The designer moves the
 ones they like onto the table (`place_paper`) and throws the rest away.
 
+The designer's Rhino model (kind "rhino", 2026-11-11) is one paper, RHINO_ID, laid by the server
+from the newest snapshot the Rhino plugin sent (sida/experts/rhino/snapshot.py, `rhino_paper`): the
+designer's own work, so on the table and not in the AI section; it keeps its place when a new
+snapshot replaces its content, and only moves.
+
 A photo (kind "photo") is uploaded as a file with `add_photo` and kept in board_photos/; the
 paper names the file. A PDF is a photo paper too, showing one `page` of it. Taking the paper off the table leaves the file for a day, so an undo can
 lay it back (`add_paper` with that file); `add_photo` clears files nobody has used since.
@@ -79,7 +84,8 @@ from sida.storage import atomic_write_text
 
 BOARD_FILE = "board.json"
 SITE_ID = "site"
-KINDS = ("site", "mass", "note", "tracing", "expert", "photo", "section")
+KINDS = ("site", "mass", "note", "tracing", "expert", "photo", "section", "rhino")
+RHINO_ID = "rhino"  # the one paper that shows the designer's Rhino model (the newest snapshot)
 DESIGNER_KINDS = ("mass", "note", "tracing", "section")  # what the screen may add
 AI_KINDS = ("mass", "note")  # what the Conductor may put in the AI section
 MAX_TRAY = 40  # the AI section keeps the newest papers
@@ -97,7 +103,7 @@ PLACEMENT = ("x", "y", "w", "h")
 ARRANGE = (*PLACEMENT, "folded", "layer", "group")
 PAPER_SIZE = {
     "site": (300, 250), "mass": (300, 210), "note": (200, 140), "tracing": (300, 250), "expert": (320, 270),
-    "photo": (300, 225), "section": (360, 220),
+    "photo": (300, 225), "section": (360, 220), "rhino": (340, 240),
 }
 PAPER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 CONTEXT_MODES = ("auto", "full", "names")
@@ -132,7 +138,7 @@ LAYER_COLOR = re.compile(r"#[0-9a-fA-F]{6}")
 # The layers a table starts with: one for each kind of paper (their ids are the kinds).
 DEFAULT_LAYERS = (
     ("site", "대지"), ("mass", "매스"), ("tracing", "트레이싱지"), ("note", "메모"), ("photo", "사진"), ("expert", "전문가 결과"),
-    ("section", "단면"),
+    ("section", "단면"), ("rhino", "라이노"),
 )
 # A section (단면, 2026-11-11 지훈): a line drawn across the site, the side it looks toward, how far
 # beyond it the drawing shows and the scale it is printed at. The drawing itself is made from the
@@ -295,7 +301,7 @@ def update_paper(project_path: Path, paper_id: str, changes: dict) -> dict:
     with _lock:
         board = load_board(project_path)
         current = _find(board, paper_id)
-        if current["kind"] in {"site", "expert"}:
+        if current["kind"] in {"site", "expert", "rhino"}:
             extra = sorted(set(changes) - set(ARRANGE))
             if extra:
                 raise ValueError(f"this paper only moves; cannot change: {', '.join(extra)}")
@@ -500,6 +506,38 @@ def expert_result(project_path: Path, agent: dict, text: str, about: list[str]) 
         _to_tray(board, paper)
         _save(project_path, board)
     return paper
+
+
+def rhino_paper(project_path: Path, data: dict) -> dict:
+    """
+    The designer's Rhino model on the table as the one "라이노 작업" paper (id RHINO_ID), from the
+    newest snapshot (sida.experts.rhino.snapshot): its title, snapshot id, file, time, object
+    count, layer meanings, view captures, the diagrams that can be drawn of it ({kind, title})
+    and figures (with their `lines` as the paper and the models read them). A paper already there keeps its place; this is the designer's own work, so it goes
+    on the table and not in the AI section. Returns {paper, rev}.
+    """
+    with _lock:
+        board = load_board(project_path)
+        current = next((p for p in board["papers"] if p["id"] == RHINO_ID), None)
+        place = {k: current[k] for k in ARRANGE if current and k in current} if current else {}
+        paper = clean_paper({
+            **place, "id": RHINO_ID, "kind": "rhino",
+            "title": _text(data.get("title"), "title", MAX_TITLE),
+            "snapshot": str(data.get("snapshot") or ""), "file": str(data.get("file") or "")[:MAX_TITLE],
+            "taken_at": str(data.get("taken_at") or ""), "objects": int(data.get("objects") or 0),
+            "layers": [{"path": str(x.get("path") or "")[:MAX_TITLE], "meaning": str(x.get("meaning") or "")}
+                       for x in (data.get("layers") or [])[:50]],
+            "views": [{"kind": str(x.get("kind") or ""), "file": str(x.get("file") or "")} for x in (data.get("views") or [])[:8]],
+            "diagrams": [{"kind": str(x.get("kind") or ""), "title": str(x.get("title") or "")[:MAX_TITLE]}
+                         for x in (data.get("diagrams") or [])[:12]],
+            "figures": dict(data.get("figures") or {}),
+        })
+        if current:
+            board["papers"][board["papers"].index(current)] = paper
+        else:
+            board["papers"].append(paper)
+        board = _save(project_path, board)
+    return {"paper": paper, "rev": board["rev"]}
 
 
 def place_paper(project_path: Path, paper_id: str, placement: dict | None = None) -> dict:
@@ -943,6 +981,9 @@ def clean_paper(data: dict) -> dict:
         paper["title"] = title
         paper["strokes"] = [_stroke(s, i) for i, s in enumerate(strokes)]
         paper["overlaid"] = bool(data.get("overlaid", False))
+    elif kind == "rhino":  # laid by the server from a Rhino snapshot (rhino_paper); only moves afterwards
+        for key in ("title", "snapshot", "file", "taken_at", "objects", "layers", "views", "diagrams", "figures"):
+            paper[key] = data.get(key, 0 if key == "objects" else [] if key in {"layers", "views", "diagrams"} else {} if key == "figures" else "")
     elif kind == "section":
         paper["title"] = title
         paper["line"] = _section_line(data.get("line"))
@@ -1054,6 +1095,8 @@ def paper_name(paper: dict) -> str:
         return f"{paper.get('title') or paper.get('agent')} 결과"
     if kind == "photo":
         return paper.get("title") or "사진"
+    if kind == "rhino":
+        return f"라이노 작업: {paper['title']}" if paper.get("title") else "라이노 작업"
     if kind == "section":
         name = paper.get("title") or "A"
         return f"단면 {name}–{name}′"
@@ -1062,7 +1105,7 @@ def paper_name(paper: dict) -> str:
 
 KIND_WORDS = {
     "site": "site", "mass": "massing scheme", "note": "note", "tracing": "tracing sheet",
-    "expert": "expert result", "photo": "photo", "section": "section",
+    "expert": "expert result", "photo": "photo", "section": "section", "rhino": "Rhino model (the designer's own work)",
 }
 
 
@@ -1115,6 +1158,15 @@ def paper_text(paper: dict, site: dict | None) -> str:
         return (
             f"{head}: {len(paper.get('strokes') or [])} pen strokes, {where}. "
             "The drawing itself cannot be read as text; ask the designer what it shows."
+        )
+    if kind == "rhino":
+        figures = paper.get("figures") or {}
+        meant = [f"{x['path']} = {x['meaning']}" for x in paper.get("layers") or [] if x.get("meaning")]
+        return (
+            f"{head}: snapshot {paper.get('taken_at') or '?'} from Rhino ({paper.get('objects', 0)} objects). "
+            "Figures computed by Sida from what Rhino measured (unmeasured objects are not estimated):\n"
+            + "\n".join(f"  - {line}" for line in figures.get("lines") or ["no figures"])
+            + (f"\n  - layer meanings (the designer's): {'; '.join(meant)}" if meant else "")
         )
     if kind == "photo":
         if str(paper.get("file") or "").endswith(".pdf"):
