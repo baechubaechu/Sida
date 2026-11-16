@@ -65,7 +65,7 @@ def create_router(load_config, core) -> APIRouter:
         placed = core(board.rhino_paper, path, {
             "title": saved["rhino"]["file"].rsplit(".", 1)[0] if saved["rhino"]["file"] else "",
             "snapshot": saved["id"], "file": saved["rhino"]["file"], "taken_at": saved["taken_at"],
-            "objects": len(saved["objects"]), "layers": saved["layers"], "figures": fig,
+            "objects": len(saved["objects"]), "layers": saved["layers"], "views": saved["views"], "figures": fig,
         })
         return JSONResponse({"snapshot": snapshot.summary(saved), "figures": fig, "paper": placed["paper"], "rev": placed["rev"]},
                             status_code=201)

@@ -6,7 +6,7 @@
 
 ## 스냅샷
 
-가장 새 스냅샷이 제도판의 "라이노 작업" 종이(`kind: rhino`, id `rhino`)가 됩니다. 설계자 자신의 작업이라 AI 섹션이 아니라 제도판에 바로 놓이고, 다시 보내면 같은 종이가 자리를 지킨 채 내용만 바뀝니다. 종이는 `title`(파일 이름), `snapshot`(id), `file`, `taken_at`, `objects`(개체 수), `layers`(`[{path, meaning}]`), `figures`(아래 수치와 `lines`)를 가지고, 옮기기만 됩니다. 전문가는 가장 새 스냅샷의 수치와 레이어 의미만 프롬프트로 받고(`hooks.py`), 도형은 받지 않습니다.
+가장 새 스냅샷이 제도판의 "라이노 작업" 종이(`kind: rhino`, id `rhino`)가 됩니다. 설계자 자신의 작업이라 AI 섹션이 아니라 제도판에 바로 놓이고, 다시 보내면 같은 종이가 자리를 지킨 채 내용만 바뀝니다. 종이는 `title`(파일 이름), `snapshot`(id), `file`, `taken_at`, `objects`(개체 수), `layers`(`[{path, meaning}]`), `views`(`[{kind, file}]`), `figures`(아래 수치와 `lines`)를 가지고, 옮기기만 됩니다. 화면은 종이에 가장 새 캡처(투시 먼저)와 수치 줄을 보여 주고, 레이어는 `라이노`입니다. 전문가는 가장 새 스냅샷의 수치와 레이어 의미만 프롬프트로 받고(`hooks.py`), 도형은 받지 않습니다.
 
 스냅샷은 프로젝트 폴더 `rhino/snapshots/<id>/`에 `snapshot.json`과 `views/*.png`로 저장되고, 새 것 30개만 남습니다. id는 `YYYYMMDD-HHMMSS-NNNN`(보낸 시각, 같은 초 안의 순번)입니다.
 

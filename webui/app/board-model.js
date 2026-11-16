@@ -27,7 +27,7 @@ export const VIEW_LIMITS = { min: 12, max: 2500 }; // metres of table shown top 
 export const TRACE_MARGIN = 14; // metres of tracing paper around the site
 // A paper dragged by a corner keeps its size between these (CSS px of paper; 1 px is 0.1 m).
 export const PAPER_LIMITS = { min: 60, max: 4000 };
-export const PAPER_SIZE = { site: [300, 250], mass: [300, 210], note: [200, 140], expert: [320, 270], photo: [300, 225], section: [360, 220] };
+export const PAPER_SIZE = { site: [300, 250], mass: [300, 210], note: [200, 140], expert: [320, 270], photo: [300, 225], section: [360, 220], rhino: [340, 240] };
 export const MAX_BLOCKS = 20;
 export const MAX_CONTEXT = 8; // papers one message may carry (board.MAX_CONTEXT)
 
@@ -850,6 +850,7 @@ export function paperName(paper) {
   if (paper.kind === 'expert') return `${paper.title || paper.agent} 결과`;
   if (paper.kind === 'photo') return paper.title || '사진';
   if (paper.kind === 'section') return `단면 ${paper.title || 'A'}–${paper.title || 'A'}′`;
+  if (paper.kind === 'rhino') return paper.title ? `라이노 작업: ${paper.title}` : '라이노 작업';
   return paper.title || paper.kind;
 }
 
@@ -872,7 +873,7 @@ export function resultPreview(text, maxLines = Infinity) {
   return out.join('\n');
 }
 
-export const KIND_LABELS = { site: '대지', mass: '매스안', note: '메모', tracing: '트레이싱지', expert: '전문가 결과', photo: '사진', section: '단면' };
+export const KIND_LABELS = { site: '대지', mass: '매스안', note: '메모', tracing: '트레이싱지', expert: '전문가 결과', photo: '사진', section: '단면', rhino: '라이노 작업' };
 
 // ------------------------------------------------------------------ layers and properties
 // The 레이어 and 속성 panels, as in Rhino. The designer's layers are saved with the board
@@ -880,7 +881,7 @@ export const KIND_LABELS = { site: '대지', mass: '매스안', note: '메모', 
 // parent. A paper names its layer (`layer`), a block of a mass may name its own; without one a
 // paper is on its kind's layer (the default layers' ids are the kinds), a block on its scheme's.
 
-export const DEFAULT_LAYERS = [['site', '대지'], ['mass', '매스'], ['tracing', '트레이싱지'], ['note', '메모'], ['photo', '사진'], ['expert', '전문가 결과'], ['section', '단면']]
+export const DEFAULT_LAYERS = [['site', '대지'], ['mass', '매스'], ['tracing', '트레이싱지'], ['note', '메모'], ['photo', '사진'], ['expert', '전문가 결과'], ['section', '단면'], ['rhino', '라이노']]
   .map(([id, name]) => ({ id, name, parent: '', visible: true, locked: false, color: '' }));
 
 export function boardLayers(board) {
@@ -1849,7 +1850,7 @@ export function heldPapers(board) {
   return (board?.ideas || []).map((i) => i.paper).filter((p) => p && typeof p === 'object');
 }
 
-const DOT_GLYPHS = { note: '✎', mass: '▣', tracing: '≈', expert: '◎', pdf: 'PDF', site: '◇' };
+const DOT_GLYPHS = { note: '✎', mass: '▣', tracing: '≈', expert: '◎', pdf: 'PDF', site: '◇', rhino: 'Rh' };
 
 // The mark a paper shows as a circle (a pin on the table, an idea on the idea board).
 export function paperGlyph(p) {

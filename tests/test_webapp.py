@@ -1292,6 +1292,7 @@ def test_rhino_api_takes_a_snapshot_with_its_views_lays_the_paper_and_answers_li
     assert body["figures"]["floor_area_m2"] == 900.0 and body["figures"]["far_pct"] is None  # no site looked up
     assert body["figures"]["lines"][0] == "연면적 900.0㎡ (주거 720.0, 상업 180.0)" and body["figures"]["limits"] == []
     assert body["paper"]["id"] == "rhino" and body["paper"]["title"] == "studio" and body["paper"]["figures"]["lines"]
+    assert body["paper"]["views"] == [{"kind": "plan", "file": "plan.png"}, {"kind": "axo", "file": "axo.png"}]
     snapshot_id = body["snapshot"]["id"]
 
     got = client.get(f"/api/projects/{project.name}/board").json()

@@ -17,6 +17,7 @@
 | `webui/app/table.js`, `table-*.js` | 제도판(`DraftingTable`). `table.js`에 장면·보기·되돌리기·조작 막대가 있고, `table-papers.js`(종이·핀·AI 섹션·사진·PDF), `table-blocks.js`(동 편집·검볼·스케치업 도구·매스안 입력), `table-around.js`(대지 주변 3D·범위·계단식 지형), `table-detail.js`(고른 종이의 내용과 할 일, 속성 칸 아래), `table-pointer.js`(마우스·휠·키), `table-eye.js`(눈높이 보기), `table-measure.js`(줄자·반경 두 점 찍기), `table-section.js`(단면선·단면 종이·3D 자르기), `table-shared.js`(도구 목록 등 공용 값)가 메서드를 보탭니다(`Object.assign(DraftingTable.prototype, ...)`). 프로젝트를 열 때만 불러옵니다 |
 | `webui/app/pdf-view.js` | 제도판에 올린 PDF의 한 페이지를 pdf.js(`webui/app/vendor/pdfjs/`)로 보이는 크기에 맞춰 그립니다. PDF가 있을 때만 불러옵니다 |
 | `webui/app/section-model.js` | 단면의 DOM 없는 도우미(단면선 방향, 자르는 구간, 지형 단면, 뒤쪽 건물, 단면도 SVG, 내보내기 주소). 서버의 `sida/board_section.py`와 같은 규칙입니다. `tests/webui/section-model.test.mjs`가 확인합니다 |
+| `webui/app/rhino-model.js` | 라이노의 DOM 없는 도우미: 제도판의 "라이노 작업" 종이(수치 줄, 캡처 순서, 한도 줄)와 라이노 안 패널(`rhino.html`)이 보여 주는 것(상태, 건폐율·용적률 게이지, 레이어 표, 층고 읽기). 수치는 계산하지 않고 서버가 보낸 대로 보여 줍니다. `tests/webui/rhino-model.test.mjs`가 확인합니다 |
 | `webui/app/board-model.js` | 제도판의 DOM 없는 도우미(카메라·확대, 대지 범위, 동 꼭짓점, 새 종이 자리, 3D 이름표와 내용 카드 자리, 종이 이름, 매스안 입력 검사, 고른 종이, 두 안 비교 질문, 되돌리기 기록, 상세 창 배치도). `tests/webui/board-model.test.mjs`가 확인합니다 |
 | `webui/app/talk-panel-model.js` | Conductor 패널 열기·닫기, 이전 대화와 새 대화 선택 상태, 양쪽 너비 계산. `tests/webui/talk-panel.test.mjs`가 확인합니다 |
 | `webui/app/dock-model.js` | 패널 배치: 탭을 다른 묶음·위·아래·빈 쪽으로 옮기기, 묶음 높이, 접기, 끌어 놓을 자리 계산, 저장 형식. `tests/webui/dock-model.test.mjs`가 확인합니다 |

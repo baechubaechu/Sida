@@ -5,6 +5,7 @@
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
 import { drawPage, pdfInfo } from './pdf-view.js';
+import { rhinoPaperParts } from './rhino-model.js';
 import { paperGlyph, PX, PAPER_SIZE, isOverlaid, freeSpot, folded, pinnedPapers, peekSpot, paperName, resultPreview, KIND_LABELS, originLabel, figureLines, toggleSelected, fmt, photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE, MAX_PHOTO_BYTES, isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, resizable, resizedPaper, paperTextScale } from './board-model.js';
 import { PHOTO_GAP, cm, strokePath } from './table-shared.js';
 
@@ -226,7 +227,21 @@ export const papersMethods = {
       };
     }
     if (p.kind === 'section') return { title: paperName(p), body: this.sectionBody(p) };
+    if (p.kind === 'rhino') return { title: paperName(p), body: this.rhinoBody(p) };
     return { title: paperName(p), body: '' };
+  },
+  // The designer's Rhino model: the newest snapshot's capture and the figures Sida computed from
+  // what Rhino measured (rhino-model.js). `large`: in the 속성 panel, with every capture and the limits.
+  rhinoBody(p, large = false) {
+    const parts = rhinoPaperParts(p);
+    const shown = large ? parts.views : parts.views.slice(0, 1);
+    const views = parts.snapshot ? shown.map((v) => `<figure class="rhino-view"><img src="${escape(this.hooks.rhinoViewUrl(parts.snapshot, v.file))}" alt="라이노 ${escape(v.word)} 뷰" draggable="false" decoding="async">${large ? `<figcaption>${escape(v.word)}</figcaption>` : ''}</figure>`).join('') : '';
+    const lines = parts.lines.length
+      ? (large ? parts.lines : parts.lines.slice(0, 3)).map((l) => `<p class="figure">${escape(l)}</p>`).join('')
+      : '<p class="muted">아직 수치가 없습니다. 라이노 패널에서 레이어에 의미를 주고 다시 보내세요.</p>';
+    const limits = large && parts.limits.length ? `<ul class="facts">${parts.limits.map((l) => `<li>${escape(l)}</li>`).join('')}</ul>` : '';
+    return `<div class="rhino-sheet${large ? ' is-large' : ''}">${views}<div class="rhino-figures">${lines}</div></div>${limits}
+      <p class="source">${escape(parts.source)}</p>`;
   },
   traceSvg(p) {
     const b = this.bounds;

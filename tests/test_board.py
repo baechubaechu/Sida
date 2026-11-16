@@ -339,7 +339,7 @@ def test_the_rhino_paper_is_one_paper_on_the_table_that_keeps_its_place_and_only
                                          "taken_at": "2026-11-11T23:50:00", "objects": 5,
                                          "layers": [{"path": "Program::Housing", "meaning": "housing"}, {"path": "Sketch", "meaning": ""}],
                                          "figures": figures})["paper"]
-    assert first["id"] == board.RHINO_ID and first["kind"] == "rhino" and (first["w"], first["h"]) == (300.0, 210.0)
+    assert first["id"] == board.RHINO_ID and first["kind"] == "rhino" and (first["w"], first["h"]) == (340.0, 240.0)
     assert board.paper_name(first) == "라이노 작업: studio"
     assert board.update_paper(tmp_path, "rhino", {"x": 40, "y": -10, "folded": True})["paper"]["x"] == 40.0
     with pytest.raises(ValueError, match="only moves"):
@@ -785,7 +785,7 @@ def test_a_damaged_board_does_not_stop_the_conductor_or_an_expert_run(make_sessi
 
 
 def test_layers_start_one_per_kind_and_are_replaced_whole(tmp_path):
-    assert [x["id"] for x in board.load_board(tmp_path)["layers"]] == ["site", "mass", "tracing", "note", "photo", "expert", "section"]
+    assert [x["id"] for x in board.load_board(tmp_path)["layers"]] == ["site", "mass", "tracing", "note", "photo", "expert", "section", "rhino"]
     layers = [*board.default_layers(), {"id": "layer-tower", "name": "타워", "parent": "mass", "visible": False, "color": "#AABBCC"}]
     saved = board.set_layers(tmp_path, layers)["layers"]
     assert saved[-1] == {"id": "layer-tower", "name": "타워", "parent": "mass", "visible": False, "locked": False, "color": "#aabbcc"}

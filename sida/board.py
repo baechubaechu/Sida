@@ -103,7 +103,7 @@ PLACEMENT = ("x", "y", "w", "h")
 ARRANGE = (*PLACEMENT, "folded", "layer", "group")
 PAPER_SIZE = {
     "site": (300, 250), "mass": (300, 210), "note": (200, 140), "tracing": (300, 250), "expert": (320, 270),
-    "photo": (300, 225), "section": (360, 220), "rhino": (300, 210),
+    "photo": (300, 225), "section": (360, 220), "rhino": (340, 240),
 }
 PAPER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 CONTEXT_MODES = ("auto", "full", "names")
@@ -138,7 +138,7 @@ LAYER_COLOR = re.compile(r"#[0-9a-fA-F]{6}")
 # The layers a table starts with: one for each kind of paper (their ids are the kinds).
 DEFAULT_LAYERS = (
     ("site", "대지"), ("mass", "매스"), ("tracing", "트레이싱지"), ("note", "메모"), ("photo", "사진"), ("expert", "전문가 결과"),
-    ("section", "단면"),
+    ("section", "단면"), ("rhino", "라이노"),
 )
 # A section (단면, 2026-11-11 지훈): a line drawn across the site, the side it looks toward, how far
 # beyond it the drawing shows and the scale it is printed at. The drawing itself is made from the
@@ -527,6 +527,7 @@ def rhino_paper(project_path: Path, data: dict) -> dict:
             "taken_at": str(data.get("taken_at") or ""), "objects": int(data.get("objects") or 0),
             "layers": [{"path": str(x.get("path") or "")[:MAX_TITLE], "meaning": str(x.get("meaning") or "")}
                        for x in (data.get("layers") or [])[:50]],
+            "views": [{"kind": str(x.get("kind") or ""), "file": str(x.get("file") or "")} for x in (data.get("views") or [])[:8]],
             "figures": dict(data.get("figures") or {}),
         })
         if current:
@@ -979,8 +980,8 @@ def clean_paper(data: dict) -> dict:
         paper["strokes"] = [_stroke(s, i) for i, s in enumerate(strokes)]
         paper["overlaid"] = bool(data.get("overlaid", False))
     elif kind == "rhino":  # laid by the server from a Rhino snapshot (rhino_paper); only moves afterwards
-        for key in ("title", "snapshot", "file", "taken_at", "objects", "layers", "figures"):
-            paper[key] = data.get(key, 0 if key == "objects" else [] if key == "layers" else {} if key == "figures" else "")
+        for key in ("title", "snapshot", "file", "taken_at", "objects", "layers", "views", "figures"):
+            paper[key] = data.get(key, 0 if key == "objects" else [] if key in {"layers", "views"} else {} if key == "figures" else "")
     elif kind == "section":
         paper["title"] = title
         paper["line"] = _section_line(data.get("line"))

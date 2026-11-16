@@ -702,6 +702,18 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .paper.kind-photo .pdf-page { width: 100%; height: 100%; background: #fff; pointer-events: none; }
 .pdf-page .pdf-canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
 .pdf-page.is-broken { background: repeating-linear-gradient(45deg, var(--surface-subtle) 0 8px, var(--surface) 8px 16px); }
+/* The Rhino paper (라이노 작업, rhino-model.js): the newest capture beside the figures Sida computed. */
+.kind-rhino .paper-head { border-top: 4px solid var(--brand); }
+.rhino-sheet { flex: 1; min-height: 0; overflow: hidden; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 10px; align-items: start; }
+.rhino-sheet:not(:has(.rhino-view)) { grid-template-columns: 1fr; }
+.rhino-sheet.is-large { display: block; }
+.rhino-view { margin: 0; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: var(--surface-subtle); }
+.rhino-view img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; pointer-events: none; user-select: none; -webkit-user-drag: none; }
+.rhino-sheet.is-large .rhino-view { margin-bottom: 8px; }
+.rhino-sheet.is-large .rhino-view img { aspect-ratio: auto; object-fit: contain; max-height: 240px; }
+.rhino-view figcaption { padding: 3px 8px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); background: var(--surface); }
+.rhino-figures { display: grid; gap: 4px; align-content: start; min-width: 0; }
+.rhino-figures .figure { margin: 0; font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 /* Section papers (단면, section-model.js sectionSvg): the drawing in the screen's own neutral colours. */
 .kind-section .paper-head { border-top: 4px solid var(--line); }
 .section-sheet { flex: 1; min-height: 0; display: flex; background: var(--surface); }
