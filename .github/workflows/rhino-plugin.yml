@@ -5,7 +5,7 @@ name: Rhino plugin
 
 on:
   pull_request:
-    paths: ["rhino-plugin/**", ".github/workflows/rhino-plugin.yml"]
+    paths: ["rhino-plugin/**", "scripts/package_rhino_plugin.py", ".github/workflows/rhino-plugin.yml"]
   push:
     branches: [main]
     paths: ["rhino-plugin/**"]
@@ -20,7 +20,11 @@ jobs:
           dotnet-version: "8.0.x"
       - name: Build
         run: dotnet build rhino-plugin/SidaRhino/SidaRhino.csproj -c Release
+      - name: Pack (Rhino's package and the bundle with install.bat)
+        run: python3 scripts/package_rhino_plugin.py
       - uses: actions/upload-artifact@v4
         with:
-          name: SidaRhino.rhp
-          path: rhino-plugin/SidaRhino/bin/Release/net7.0/SidaRhino.rhp
+          name: sida-rhino-plugin
+          path: |
+            rhino-plugin/dist/
+            rhino-plugin/SidaRhino/bin/Release/net7.0/SidaRhino.rhp

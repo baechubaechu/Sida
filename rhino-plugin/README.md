@@ -28,14 +28,19 @@ dotnet build -c Release
 
 Sida 앱이 같은 PC에서 `run.bat`으로 떠 있어야 합니다(`127.0.0.1:8765`). 다른 주소면 환경 변수 `SIDA_URL`.
 
-## Yak 패키지 (CBT 배포)
+## 나눠 줄 파일 만들기 (CBT 배포)
 
 ```powershell
-mkdir dist; copy SidaRhino\bin\Release\net7.0\SidaRhino.rhp dist\; copy manifest.yml dist\
-cd dist; & "C:\Program Files\Rhino 8\System\Yak.exe" build
+dotnet build rhino-plugin\SidaRhino\SidaRhino.csproj -c Release
+python scripts\package_rhino_plugin.py
+# → rhino-plugin\dist\Sida-Rhino-0.1.0.zip        참가자에게 주는 묶음
+# → rhino-plugin\dist\sida-0.1.0-rh8_0-win.yak    라이노 패키지
 ```
 
-만들어진 `sida-0.1.0-rh8_0-any.yak`을 라이노 패키지 관리자(`PackageManager`)에서 설치하거나, CBT 참가자에게 파일로 줍니다.
+Yak.exe는 쓰지 않습니다(없거나 고장 난 PC가 있고, 패키지는 zip일 뿐입니다). 버전은 `manifest.yml`의 `version` 하나에서 읽고, `SidaRhino.csproj`의 `<Version>`과 같아야 합니다(테스트가 확인). PR마다 GitHub Actions(`rhino-plugin.yml`)가 같은 두 파일을 만들어 결과물로 올립니다.
+
+- **`Sida-Rhino-<버전>.zip`**: `SidaRhino.rhp`, `manifest.yml`, `install.bat`, `uninstall.bat`, `설치 안내.txt`([`INSTALL.ko.txt`](INSTALL.ko.txt)). 압축을 풀고 라이노를 끈 채 `install.bat`을 더블클릭하면 라이노 패키지 관리자가 두는 자리(`%APPDATA%\McNeel\Rhinoceros\packages\8.0\sida\<버전>\`)에 파일을 넣고, `sida\manifest.txt`에 버전을 적고(이 파일이 없으면 라이노가 시작할 때 폴더를 지웁니다), 내려받은 파일의 차단을 풉니다. 전에 설치한 버전은 지우고 넣습니다.
+- **`.yak`**: `manifest.yml`과 `.rhp`가 든 zip입니다. `yak install <파일>`이 되는 PC나 패키지 서버에 올릴 때 씁니다.
 
 ## 한 사이클 시험 순서 (무교동 45)
 
@@ -47,4 +52,5 @@ cd dist; & "C:\Program Files\Rhino 8\System\Yak.exe" build
 6. 패널의 "라이노에 그리기": `Sida 다이어그램` 레이어에 고른 그림이 모델 옆에 생기는지, 다시 눌러도 겹쳐 쌓이지 않는지. Sida 제도판의 "라이노 작업" 종이 속성에 같은 그림이 보이고 SVG·PNG로 내려받아지는지.
 7. "저장할 때마다 보내기"를 켜고 저장: 제도판의 종이가 새 스냅샷으로 바뀌는지.
 8. 패널의 "Sida에게 묻기": 매스 하나를 고르고 "이거 연면적 얼마야?"를 물어, 답이 패널의 수치와 맞는지. Sida 화면의 "이전 대화"에 같은 대화가 있는지.
-9. Sida를 끄기: 패널에 한국어 안내가 나오고 라이노가 멈추지 않는지. 다시 켜면 패널이 저절로 이어지는지.
+9. Sida의 발표 편집자 화면 "발표자료" 탭: 슬라이드에 방금 보낸 모델의 다이어그램·캡처·수치가 들어 있는지. "PowerPoint 받기"로 받은 파일이 파워포인트에서 고치라는 말 없이 열리고, 수치 표의 숫자가 4번의 패널 숫자와 같은지, 다이어그램을 눌러 도형 색을 바꿀 수 있는지. "PDF 받기"의 한글이 깨지지 않는지.
+10. Sida를 끄기: 패널에 한국어 안내가 나오고 라이노가 멈추지 않는지. 다시 켜면 패널이 저절로 이어지는지.
