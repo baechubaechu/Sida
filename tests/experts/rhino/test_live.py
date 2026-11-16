@@ -122,3 +122,34 @@ def test_only_a_few_documents_are_remembered_and_the_longest_silent_one_goes(fre
         live.report(live.clean_report(said(doc=f"p-{i}")), None, True)
     assert live.current("p-0")["state"] is None and live.current("p-1")["state"] is not None
     assert live.current()["state"]["doc"] == f"p-{live.MAX_DOCS}"
+
+
+def test_the_selection_in_rhino_reaches_the_panel_and_the_conductor_only_while_rhino_is_connected(fresh, tmp_path):
+    from sida.experts.rhino import snapshot
+
+    checked = live.clean_report(said(selected=["a1", "c1", "nothing-measured"], selected_count=7))
+    assert checked["selected"] == ["a1", "c1", "nothing-measured"] and checked["selected_count"] == 7
+    assert live.clean_report(said())["selected"] == [] and live.clean_report(said(selected=["a1"], selected_count="x"))["selected_count"] == 1
+    with pytest.raises(ValueError, match="selected"):
+        live.clean_report(said(selected="a1"))
+    with pytest.raises(ValueError, match="selected"):
+        live.clean_report(said(selected=["x"] * (snapshot.MAX_SELECTED + 1)))
+
+    picked = snapshot.selection(checked["snapshot"], checked["selected"], checked["selected_count"])
+    here, there = tmp_path / "here", tmp_path / "there"
+    live.report(checked, {"floor_area_m2": 900.0}, True, selection=picked, path=here, brief="RHINO NOW")
+    state = live.current("4242-1")["state"]
+    assert state["selection"] == {key: picked[key] for key in ("count", "bodies", "floor_area_m2", "footprint_m2")}
+    assert "lines" not in state["selection"]  # the panel shows the count; the lines are for the Conductor
+    assert live.brief_for(here) == "RHINO NOW" and live.brief_for(there) == ""
+
+    # a second Rhino on the same project, reporting later, is the one the Conductor hears about
+    fresh["t"] += 1
+    live.report(live.clean_report(said(doc="4242-2")), {"floor_area_m2": 900.0}, True, path=here, brief="THE OTHER RHINO")
+    assert live.brief_for(here) == "THE OTHER RHINO"
+    assert live.current("4242-2")["state"]["selection"] is None
+
+    fresh["t"] += live.CONNECTED_FOR + 1  # both stopped asking: the Conductor is told nothing stale
+    assert live.brief_for(here) == ""
+    live.pending("4242-1")
+    assert live.brief_for(here) == "RHINO NOW"
