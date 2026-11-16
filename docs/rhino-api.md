@@ -58,6 +58,17 @@
 | `DELETE /api/projects/{name}/rhino/snapshots/{id}` | | `{ok}` |
 | `POST /api/projects/{name}/rhino/figures` | 스냅샷 JSON 본문(뷰·메시는 비워도 됨) | `{figures}`. 저장하지 않음. 플러그인의 실시간 수치 패널이 모델링 중에 부름 |
 
+## 실시간 (패널 ↔ 플러그인)
+
+라이노 안 패널은 Sida 화면(`/app/rhino.html`)이고 라이노와 직접 말하지 않습니다. Sida가 가운데에서 전합니다(`sida/experts/rhino/live.py`). 플러그인은 문서가 바뀔 때마다 상태를 알리고 0.5초마다 할 일을 물어 가며, 패널은 1초마다 상태를 읽습니다. 이 상태는 메모리에만 있고 저장하지 않습니다. Sida를 다시 켜면 플러그인이 `known: false`를 보고 다시 알립니다. 붙잡아 두는 요청(long-poll)을 쓰지 않는 것은 Sida를 끌 때 서버가 바로 멈추게 하기 위해서입니다.
+
+| 메서드·경로 | 요청 | 응답 |
+|---|---|---|
+| `POST /api/rhino/live` | 플러그인: `{doc, file, units, project, autosync, snapshot, notice}`. `doc`은 플러그인이 정한 문서 id, `snapshot`은 뷰·메시 없는 스냅샷(없으면 `null`), `notice`는 방금 한 일의 결과 `{text, ok}`(선택) | `{rev}`. 패널에 보이는 것이 바뀌었을 때만 `rev`가 오릅니다 |
+| `GET /api/rhino/live?doc=` | 패널. `doc`이 없으면 가장 최근에 물어 온 문서 | `{connected, rev, state}`. `state`는 `{doc, file, units, project, project_known, autosync, rhino, layers: [{path, meaning, color, floor_height, objects}], objects, figures, notice: {text, ok, at, n}}`. 도형은 담지 않습니다. 플러그인이 5초 넘게 묻지 않으면 `connected: false` |
+| `POST /api/rhino/commands` | 패널: `{doc, type, …}`. `type`은 `pull`, `push`, `set_project`(`project`), `set_layer`(`path`, `meaning`, `floor_height` m 또는 `null`), `set_autosync`(`on`), `report` | `{id}`. 모르는 `type`·의미, 연결된 적 없는 `doc`은 `400` |
+| `GET /api/rhino/commands?doc=&after=` | 플러그인. `after`는 끝낸 마지막 명령 id | `{known, commands: [{id, type, …}]}`. 묻는 것이 곧 연결 신호입니다 |
+
 ## 3dm 내보내기와의 연결
 
 제도판 내보내기(`GET /api/projects/{name}/board/export?format=3dm`)의 개체에는 사용자 문자열 `sida.id`(매스 동은 `<종이 id>:<동 번호>`, 필지는 `site:<pnu>`, 기준점은 `origin`)와 `sida.kind`가 붙고, 기준점에는 `sida.project`(프로젝트 폴더 이름)와 `sida.origin`(`경도,위도`)도 붙습니다. 자기 id가 없는 것(주변 건물, 지형, 도로)은 레이어 안의 순번으로 `context:<레이어 이름>:<번호>`와 `sida.kind` `context`가 붙습니다. 플러그인은 이것으로 Sida에서 온 개체와 설계자가 만든 개체를 가르고, 다시 가져올 때 Sida에서 온 개체만 바꾸며, 보낼 때 `sida_id`를 채웁니다. 가져올 때 개체마다 놓인 범위를 `sida.stamp`로 적어 두었다가, 다시 가져올 때 범위가 달라진 개체(설계자가 옮기거나 고친 것)는 지우지 않고 설계자의 개체로 남깁니다(`sida.id`가 `sida.from`으로 바뀜). Sida 자신의 레이어에는 의미도 붙여 둡니다(주변은 `surroundings`, 대지 경계는 `site`, 기준점·트레이싱은 `ignore`, 매스는 설계자가 정함). DXF에는 id가 없습니다.

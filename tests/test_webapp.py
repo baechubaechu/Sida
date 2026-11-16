@@ -279,6 +279,16 @@ def test_main_screen_files_hold_no_keys_or_placeholder_urls():
         assert "localStorage" not in text  # project data lives on the server, not the browser
 
 
+def test_the_rhino_panel_is_a_page_of_its_own_that_asks_only_sidas_rhino_api(client):
+    page = client.get("/app/rhino.html")
+    assert page.status_code == 200 and "/app/rhino-panel.js" in page.text and "/app/rhino.css" in page.text
+    script = (webapp.APP_DIR / "rhino-panel.js").read_text(encoding="utf-8")
+    asked = set(re.findall(r"/api/[a-z/]+", script))
+    assert asked == {"/api/rhino/hello", "/api/rhino/live", "/api/rhino/commands", "/api/projects"}
+    assert "rhino-model.js" in script  # what it shows is decided there (node-tested), not here
+    assert client.get("/app/rhino.css").status_code == 200
+
+
 def test_main_screen_talks_to_the_conductor_only_through_the_command_line():
     # 2026-11-01: the left Conductor panel is gone. The workspace is the drafting table and the
     # right-hand panel; questions go through the command line, and the talk list opens above it.

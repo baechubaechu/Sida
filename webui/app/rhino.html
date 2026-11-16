@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#36536b">
+  <title>Sida · 라이노</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/app/styles.css">
+  <link rel="stylesheet" href="/app/rhino.css">
+  <script type="module" src="/app/rhino-panel.js"></script>
+</head>
+<!-- The Sida panel inside Rhino (the plugin shows this page in a web view; it also opens in a
+     browser beside Rhino). It talks to Sida only: /api/rhino/live and /api/rhino/commands. -->
+<body class="rhino-panel">
+  <main id="panel">
+    <header class="rp-head" id="rp-head"></header>
+    <p class="rp-status" id="rp-status" role="status"></p>
+    <section class="rp-figures" id="rp-figures" aria-label="Sida가 계산한 수치"></section>
+    <section class="rp-layers" id="rp-layers" aria-label="레이어 의미"></section>
+  </main>
+  <footer class="rp-foot" id="rp-foot"></footer>
+</body>
+</html>

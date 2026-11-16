@@ -1,0 +1,212 @@
+// The Sida panel inside Rhino (rhino.html). The plugin shows this page in a web view; the page
+// never talks to Rhino. It reads the running document from Sida once a second (/api/rhino/live)
+// and asks the plugin for things through Sida (/api/rhino/commands); what it shows and how is
+// decided in rhino-model.js. Opened in a browser without ?doc= it follows the document whose
+// plugin asked last.
+
+import { api } from './api.js';
+import { panelStatus, panelFigures, layerRows, readFloorHeight, meaningChoices } from './rhino-model.js';
+
+const POLL_MS = 1000;
+const BUSY_MS = 20000;  // a pull or push that has not answered by then is no longer "in progress"
+const BUSY_WORDS = { pull: '가져오는 중…', push: '보내는 중…' };
+const named = new URLSearchParams(location.search).get('doc') || '';
+const el = (id) => document.getElementById(id);
+const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+const ui = {
+  live: { connected: false, rev: 0, state: null },
+  meanings: [], projects: [],
+  serverDown: false,
+  allLayers: false,
+  busy: '', busyUntil: 0, busyNotice: 0,  // the command in progress, and the notice count when it was asked
+  error: '',
+  drawn: {},
+};
+
+// ------------------------------------------------------------------ drawing
+
+// A part is written again only when what it shows changed, and never under the designer's
+// fingers: a part that holds the focused field waits.
+function draw(id, html) {
+  const node = el(id);
+  if (ui.drawn[id] === html) return;
+  const active = document.activeElement;
+  if (active && node.contains(active) && (active.tagName === 'INPUT' || active.tagName === 'SELECT')) return;
+  ui.drawn[id] = html;
+  node.innerHTML = html;
+}
+
+function drawHead(state, status) {
+  const file = state ? (state.file || '저장하지 않은 문서') : 'Sida';
+  const dot = ui.serverDown ? ['off', 'Sida 꺼짐'] : !state ? ['wait', '라이노 기다리는 중'] : ui.live.connected ? ['on', '라이노 연결됨'] : ['off', '라이노 연결 끊김'];
+  const options = [`<option value="">프로젝트 고르기</option>`,
+    ...ui.projects.map((p) => `<option value="${escape(p.name)}" ${state?.project === p.name ? 'selected' : ''}>${escape(p.display_name && p.display_name !== p.name ? `${p.display_name} (${p.name})` : p.name)}</option>`)].join('');
+  draw('rp-head', `
+    <div class="rp-title"><h1>${escape(file)}</h1><span class="rp-dot is-${dot[0]}">${escape(dot[1])}</span></div>
+    ${state ? `<label class="rp-project ${status.code === 'no-project' || status.code === 'bad-project' ? 'needs' : ''}">Sida 프로젝트
+      <select id="rp-project" ${ui.live.connected ? '' : 'disabled'}>${options}</select></label>` : ''}`);
+}
+
+function gaugeHtml(g) {
+  const scale = 1.25;  // the track runs to 125% of the limit, so the mark sits at 80%
+  const within = Math.min(g.fill, 1) / scale * 100;
+  const beyond = Math.max(g.fill - 1, 0) / scale * 100;
+  const said = `${g.label} ${g.text}${g.limitText ? `, ${g.limitText}` : ''}${g.over ? ', 한도를 넘음' : ''}`;
+  return `<div class="gauge ${g.over ? 'is-over' : ''} ${g.value == null ? 'is-unknown' : ''}">
+    <div class="gauge-head"><span>${escape(g.label)}</span><b>${escape(g.text)}</b></div>
+    ${g.limit == null ? '' : `<div class="gauge-track" role="img" aria-label="${escape(said)}">
+      <i class="gauge-fill" style="width:${within.toFixed(2)}%"></i>
+      ${beyond > 0 ? `<i class="gauge-beyond" style="left:80%;width:${beyond.toFixed(2)}%"></i>` : ''}
+      <i class="gauge-mark"></i></div>`}
+    ${g.limitText ? `<p class="gauge-limit ${g.limit == null ? '' : 'at-mark'}">${escape(g.limitText)}${g.over ? ' 초과' : ''}</p>` : ''}
+  </div>`;
+}
+
+function drawFigures(state, status) {
+  if (!state || status.code === 'no-project' || status.code === 'bad-project') { draw('rp-figures', ''); return; }
+  const view = panelFigures(state.figures);
+  if (!view) { draw('rp-figures', '<p class="rp-empty">아직 수치가 없습니다.</p>'); return; }
+  const shares = view.shares.length > 1 ? `<div class="shares" role="img" aria-label="용도별 연면적: ${escape(view.shares.map((s) => `${s.word} ${s.text}`).join(', '))}">
+      ${view.shares.map((s, i) => `<i class="share-${i % 5}" style="flex-grow:${Math.max(s.share * 100, 2).toFixed(2)}"></i>`).join('')}</div>
+    <ul class="share-list">${view.shares.map((s, i) => `<li><i class="share-${i % 5}"></i>${escape(s.word)}<b>${escape(s.text)}</b></li>`).join('')}</ul>` : '';
+  draw('rp-figures', `
+    ${view.empty ? '<p class="rp-empty">건물 의미를 준 레이어에 입체가 없습니다. 아래에서 레이어의 의미를 정하세요.</p>' : ''}
+    <div class="gauges">${view.gauges.map(gaugeHtml).join('')}</div>
+    <dl class="rp-rows">${view.rows.map((r) => `<div><dt>${escape(r.label)}</dt><dd>${escape(r.text)}</dd></div>`).join('')}</dl>
+    ${shares}
+    ${view.limits.length > 1 ? `<ul class="rp-limits">${view.limits.map((l) => `<li>${escape(l)}</li>`).join('')}</ul>` : ''}
+    ${view.notes.length ? `<ul class="rp-notes">${view.notes.map((n) => `<li>${escape(n)}</li>`).join('')}</ul>` : ''}`);
+}
+
+function drawLayers(state) {
+  if (!state) { draw('rp-layers', ''); return; }
+  const { rows, quiet } = layerRows(state.layers, ui.meanings, { all: ui.allLayers });
+  const choices = meaningChoices(ui.meanings);
+  const select = (row) => `<select data-layer="${escape(row.path)}" aria-label="${escape(row.name)} 레이어의 의미" ${ui.live.connected ? '' : 'disabled'}>
+      <option value="" ${row.meaning ? '' : 'selected'}>의미 없음</option>
+      <optgroup label="건물 (수치에 들어감)">${choices.built.map((m) => `<option value="${escape(m.code)}" ${row.meaning === m.code ? 'selected' : ''}>${escape(m.word)}</option>`).join('')}</optgroup>
+      <optgroup label="건물 아님 (수치에서 빠짐)">${choices.other.map((m) => `<option value="${escape(m.code)}" ${row.meaning === m.code ? 'selected' : ''}>${escape(m.word)}</option>`).join('')}</optgroup>
+    </select>`;
+  const needWords = { meaning: '의미를 정하면 수치에 들어갑니다', height: '층고를 적으면 연면적에 들어갑니다' };
+  const body = rows.map((row) => `<li class="layer ${row.needs ? 'needs' : ''}">
+      <i class="swatch" style="${row.color ? `background:${escape(row.color)}` : ''}"></i>
+      <div class="layer-name"><b title="${escape(row.path)}">${escape(row.name)}</b>
+        <small>${escape([row.under, `입체 ${row.objects}개`].filter(Boolean).join(', '))}</small>
+        ${row.needs ? `<small class="layer-need">${escape(needWords[row.needs])}</small>` : ''}</div>
+      ${select(row)}
+      ${row.takesHeight ? `<input type="text" inputmode="decimal" data-height="${escape(row.path)}" value="${escape(row.floorHeight)}" placeholder="예: 3.3"
+        aria-label="${escape(row.name)} 레이어의 층고 (m)" ${ui.live.connected ? '' : 'disabled'}>` : '<span class="no-height" aria-hidden="true"></span>'}
+    </li>`).join('');
+  draw('rp-layers', `
+    <div class="rp-layers-head"><h2>레이어</h2><span>의미</span><span>층고 m</span></div>
+    ${rows.length ? `<ul class="layers">${body}</ul>` : '<p class="rp-empty">입체가 있는 레이어가 없습니다. 라이노에서 매스를 만들면 여기에 레이어가 나옵니다.</p>'}
+    ${quiet || ui.allLayers ? `<button type="button" class="rp-more" id="rp-more">${ui.allLayers ? '입체가 있는 레이어만 보기' : `빈 레이어 ${quiet}개도 보기`}</button>` : ''}`);
+}
+
+function drawFoot(state, status) {
+  if (!state) { draw('rp-foot', ''); return; }
+  const ready = ui.live.connected && status.code === 'ready';
+  const notice = ui.error ? { text: ui.error, ok: false } : state.notice;
+  draw('rp-foot', `
+    ${notice ? `<p class="rp-notice ${notice.ok ? '' : 'is-bad'}" role="status">${escape(notice.text)}</p>` : ''}
+    <div class="rp-actions">
+      <button type="button" class="secondary" data-ask="pull" ${ready && !ui.busy ? '' : 'disabled'}>${ui.busy === 'pull' ? BUSY_WORDS.pull : 'Sida에서 가져오기'}</button>
+      <button type="button" class="primary" data-ask="push" ${ready && !ui.busy ? '' : 'disabled'}>${ui.busy === 'push' ? BUSY_WORDS.push : 'Sida로 보내기'}</button>
+    </div>
+    <label class="rp-auto"><input type="checkbox" id="rp-auto" ${state.autosync ? 'checked' : ''} ${ready ? '' : 'disabled'}> 라이노에서 저장할 때마다 보내기</label>`);
+}
+
+function drawAll() {
+  const state = ui.live.state;
+  const status = ui.serverDown
+    ? { code: 'down', text: 'Sida 앱에 연결할 수 없습니다. run.bat으로 Sida를 켜면 다시 이어집니다.' } : panelStatus(ui.live);
+  document.body.dataset.status = status.code;
+  drawHead(state, status);
+  draw('rp-status', escape(status.text));
+  el('rp-status').hidden = !status.text;
+  drawFigures(state, status);
+  drawLayers(state);
+  drawFoot(state, status);
+}
+
+// ------------------------------------------------------------------ asking the plugin
+
+async function ask(command) {
+  const state = ui.live.state;
+  if (!state) return;
+  ui.error = '';
+  try {
+    await api('/api/rhino/commands', { method: 'POST', body: { doc: state.doc, ...command } });
+  } catch (error) {
+    ui.error = error.message;
+    ui.busy = '';
+  }
+  drawAll();
+}
+
+document.addEventListener('click', (event) => {
+  const asked = event.target.closest('[data-ask]');
+  if (asked && !asked.disabled) {
+    ui.busy = asked.dataset.ask;
+    ui.busyUntil = Date.now() + BUSY_MS;
+    ui.busyNotice = ui.live.state?.notice?.n || 0;
+    ask({ type: asked.dataset.ask });
+  } else if (event.target.id === 'rp-more') {
+    ui.allLayers = !ui.allLayers;
+    drawAll();
+  }
+});
+
+document.addEventListener('change', (event) => {
+  const target = event.target;
+  if (target.id === 'rp-project') {
+    if (target.value) ask({ type: 'set_project', project: target.value });
+  } else if (target.id === 'rp-auto') {
+    ask({ type: 'set_autosync', on: target.checked });
+  } else if (target.dataset.layer !== undefined || target.dataset.height !== undefined) {
+    const row = target.closest('.layer');
+    const path = target.dataset.layer ?? target.dataset.height;
+    const meaning = row.querySelector('select').value;
+    const field = row.querySelector('input');
+    const height = readFloorHeight(field ? field.value : '');
+    if (height.error) {
+      ui.error = height.error;
+      drawAll();
+      return;
+    }
+    ask({ type: 'set_layer', path, meaning, floor_height: height.value });
+  }
+  target.blur?.();  // so the part is written again with what Rhino now says
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && event.target.dataset?.height !== undefined) event.target.blur();
+});
+
+// ------------------------------------------------------------------ reading Sida
+
+async function readOnce() {
+  try {
+    if (!ui.meanings.length) ui.meanings = (await api('/api/rhino/hello')).meanings || [];
+    const live = await api(`/api/rhino/live${named ? `?doc=${encodeURIComponent(named)}` : ''}`);
+    const fresh = live.rev !== ui.live.rev || live.connected !== ui.live.connected || ui.serverDown;
+    ui.serverDown = false;
+    ui.live = live;
+    if (fresh || !ui.projects.length) ui.projects = (await api('/api/projects')).projects || [];
+  } catch {
+    ui.serverDown = true;
+  }
+  // A pull or push is over when the plugin says so (a new notice), or after a while.
+  if (ui.busy && ((ui.live.state?.notice?.n || 0) !== ui.busyNotice || Date.now() > ui.busyUntil)) ui.busy = '';
+  drawAll();
+}
+
+async function loop() {
+  await readOnce();
+  setTimeout(loop, POLL_MS);
+}
+
+// The panel just opened: have the plugin say its document again, so a page opened late is not stale.
+if (named) api('/api/rhino/commands', { method: 'POST', body: { doc: named, type: 'report' } }).catch(() => {});
+loop();
