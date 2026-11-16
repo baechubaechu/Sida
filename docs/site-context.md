@@ -107,7 +107,14 @@ python scripts/build_ledger_pack.py --zip "<표제부 zip>" --name seoul --sigun
 
 - 결과는 `~/Sida/context_data/<이름>.ledger.sqlite`이고, 행 모양은 `datago.buildings`와 같습니다. 묶음이 덮는 시군구의 필지는 묶음에서 읽고(묶음에 없으면 대장이 없는 필지), 덮지 않는 곳은 지금처럼 API로 묻습니다.
 - 대지에서 50m(`LIVE_NEAR`) 안의 필지는 묶음이 있어도 늘 API로 다시 물어, 바로 옆 건물은 최신 값을 씁니다. 응답의 `ledger_source`에 묶음 기준월과 묶음에서 읽은 필지 수·물은 필지 수가 들어갑니다(묶음을 쓰지 않으면 `null`).
-- 새 달 파일이 나오면 같은 명령으로 다시 만듭니다(묶음이 바뀜).
+- 새 달 파일이 나오면 같은 명령으로 다시 만듭니다(묶음이 바뀜). 보통은 아래처럼 서버가 만들고 앱이 받아 갑니다.
+
+### 매달 자동 갱신 (2026-11-16)
+
+- 국내 서버가 매일 밤 `relay/ledger/ledger_pull.py`(systemd `ledger-pull.timer`)를 돌립니다. 건축HUB 대용량 목록에서 최신 표제부(업무코드 0303, 0302 총괄표제부 아님)의 파일 ID를 읽고, 지난번과 같으면 끝냅니다. 새 달이면 zip을 받아(이어받기 안 됨, 잘못된 ID에도 200·빈 응답이라 크기·zip 검사) 지역별 묶음을 만들고, 행 수가 지난달의 95%보다 적으면 버립니다. 통과한 묶음은 gzip으로 `/opt/sida-kr/ledger/`에 두고 `manifest.json`(기준 달, 행 수, 크기, SHA-256)을 고칩니다. 전월분은 매달 20일쯤 올라옵니다.
+- 중계 서버가 `GET /relay/ledger/manifest.json`, `GET /relay/ledger/<파일>`로 내줍니다(Sida 키 필요, `manifest.json`에 있는 파일만).
+- 앱(`ledger_sync.py`)은 주변 3D를 만들 때 하루에 한 번 뒤에서 목록을 보고, 같은 이름의 묶음보다 새 달이면 받아서 크기·SHA-256·묶음 안의 기준 달과 행 수를 확인한 뒤 바꿔 끼웁니다. 실패하면 지난 묶음을 그대로 쓰고 다음 날 다시 봅니다. 마지막 확인은 `context_data/ledger_sync.json`에 남습니다.
+- `GET /api/site/ledger`: 이 PC의 묶음(이름, 기준 달, 행 수)과 마지막 확인(`checked_at`, `updated`, `error`: `no_relay`·`refused`·`network`·`bad_manifest`·`bad_file`·`disk`), `running`, `relay`(Sida 키가 있는지). `POST /api/site/ledger/update`: 지금 확인(`started`).
 
 ## 차선·노면표시
 

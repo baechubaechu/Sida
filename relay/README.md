@@ -60,6 +60,7 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
 | `GET /relay/vworld/req/wms`, `req/wmts/1.0.0/Base/{z}/{y}/{x}.png` | 지도 배경·지적선 이미지 (브라우저가 부름) |
 | `GET /relay/datago/<토지이음·건축물대장 4개 경로>` | `apis.data.go.kr/1613000/...` |
 | `GET /relay/law/DRF/lawSearch.do`, `lawService.do` (`target`은 `aiSearch`, `ordin`만) | `www.law.go.kr/DRF/...` |
+| `GET /relay/ledger/manifest.json`, `GET /relay/ledger/<이름>-<YYYY-MM>.ledger.sqlite.gz` | 이 서버가 매달 만든 건축물대장 묶음(아래). 목록에 있는 파일만. 묶음이 아직 없으면 목록이 503 |
 
 - 그 밖의 경로는 404입니다. 아무 주소나 대신 불러 주는 서버가 되지 않게 Sida가 쓰는 경로만 엽니다.
 - 응답은 상태 코드·형식·본문을 그대로 돌려줍니다. **저장하지 않습니다**(캐시 없음, 브이월드 이용약관 제19조). 질의도 기록하지 않습니다(`--no-access-log`).
@@ -75,6 +76,22 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
 - 3D 키는 보는 사람의 브라우저에 들어갑니다(웹 지도는 다 그렇고, 개발자 도구로 볼 수 있습니다). 그래서 **3D 지도 API만 고른 브이월드 키를 따로** 받아(서비스 URL `https://sida-kr.duckdns.org`) `relay.env`에 `VWORLD_3D_API_KEY=`로 넣습니다. 서버의 다른 조회에 쓰는 `VWORLD_API_KEY`는 절대 브라우저로 가지 않습니다. `VWORLD_3D_API_KEY`가 없으면 3D 페이지는 `503`이고 `/relay/health`의 `vworld3d`가 `false`라, 앱은 3D 지도 대신 "아직 Sida 자료 서버에 준비되지 않았습니다" 안내를 띄웁니다.
 - 3D 키가 새어 나가면 브이월드에서 그 키만 폐기하고 새로 받아 `relay.env`를 바꾼 뒤 `docker compose up -d relay`로 다시 켭니다. 개발키는 도메인 확인이 느슨해 다른 곳에서도 쓰일 수 있고, 운영키는 도메인을 엄격히 봅니다.
 - 페이지와 스크립트는 `webui/app/`의 것을 `relay/static/`에 복사해 둡니다(서버 이미지는 `relay/`만으로 만들기 때문). 둘이 다르면 테스트가 실패하니, `webui/app/vworld3d.html`이나 `vworld3d-frame.js`를 고치면 `relay/static/`에도 복사합니다.
+
+## 건축물대장 묶음 (매달)
+
+앱이 주변 건물 높이에 쓰는 건축물대장 표제부 묶음을 이 서버가 매달 만들어 둡니다(설명은 `docs/site-context.md` "건축물대장 묶음"). 건축HUB 대용량 파일은 로그인 없이 받는 공개 자료(이용허락범위 제한 없음)이고 좌표가 없어 이 서버에 두어도 됩니다.
+
+- `relay/ledger/ledger_pull.py`를 `ledger` 계정이 매일 04:30쯤(`ledger-pull.timer`) 돌립니다. 새 달이 없으면 목록 한 장만 받고 끝납니다. 새 달이면 zip(약 650MB)을 `/var/tmp/sida-ledger`에 받아 묶음을 만들고 gzip으로 `/opt/sida-kr/ledger/`에 둔 뒤 zip을 지웁니다. 잠깐 1GB쯤의 여유가 필요합니다.
+- 중계 컨테이너는 `/opt/sida-kr/ledger`를 `/ledger`로 읽기만 합니다(`SIDA_LEDGER_DIR`).
+- 기록 보기: `journalctl -u ledger-pull.service -n 20`. 바로 돌리기: `systemctl start ledger-pull.service`. 지역 추가: 서비스의 `--region 이름=시군구앞자리`(예: `gyeonggi=41`)를 더합니다.
+
+### 처음 설치 (서버)
+
+1. 계정과 폴더: `useradd -r -m -d /var/lib/sida-ledger -s /usr/sbin/nologin ledger`, `mkdir -p /opt/sida-kr/ledger /var/tmp/sida-ledger && chown ledger:ledger /opt/sida-kr/ledger /var/tmp/sida-ledger && chmod 755 /opt/sida-kr/ledger`.
+2. 코드: `relay/ledger/ledger_pull.py`를 `/opt/sida-kr/ledger-sync/`에, 묶음 코드를 그 아래 `src/`에 같은 경로로 복사합니다(`sida/__init__.py`, `sida/experts/__init__.py`, `sida/experts/site/__init__.py`, `sida/experts/site/ledger_pack.py`, `sida/experts/site/terrain_pack.py`; 모두 표준 라이브러리만 씀). 묶음 형식(`ledger_pack.py`)이 바뀌면 다시 복사합니다. root 소유, 644.
+3. `ledger-pull.service`, `ledger-pull.timer`를 `/etc/systemd/system/`에 복사하고 `systemctl daemon-reload && systemctl enable --now ledger-pull.timer`. 첫 묶음은 `systemctl start ledger-pull.service`로 바로 만듭니다.
+4. `compose.yaml`의 `relay`에 `volumes: - ./ledger:/ledger:ro`를 더하고, 이미지를 다시 만들어 켭니다(`docker compose up -d --build relay`).
+5. 확인: `curl -H "Authorization: Bearer sida_…" https://sida-kr.duckdns.org/relay/ledger/manifest.json`.
 
 ## 앱에서 이 서버로 안 되는 것
 

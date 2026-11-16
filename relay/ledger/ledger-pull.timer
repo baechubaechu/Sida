@@ -1,0 +1,10 @@
+[Unit]
+Description=Sida: look for a new month's 건축물대장 every night
+
+[Timer]
+OnCalendar=*-*-* 04:30
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
