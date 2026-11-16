@@ -34,6 +34,9 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+from shapely.geometry import Polygon
+from shapely.geometry import box as shapely_box
+
 from sida import board
 from sida.experts.rhino import snapshot as snap
 
@@ -365,6 +368,25 @@ def _scale_bar(width: float) -> float:
     return next((m for m in (1, 2, 5, 10, 20, 50, 100, 200, 500) if m >= width / 6), 1000)
 
 
+def _within(outline: list, x0: float, y0: float, x1: float, y1: float) -> list[list[list[float]]]:
+    """
+    A building's outline as far as it lies in the plan's frame: itself when all of it does, cut
+    at the frame when it reaches over, nothing when it stands outside. (A plan is cut at its
+    frame; a building left whole would hang out of it, and one left out would leave a hole.)
+    """
+    ring = [[round(p[0], 3), round(p[1], 3)] for p in outline]
+    if all(x0 <= x <= x1 and y0 <= y <= y1 for x, y in ring):
+        return [ring]
+    if max(x for x, _ in ring) <= x0 or min(x for x, _ in ring) >= x1 or max(y for _, y in ring) <= y0 or min(y for _, y in ring) >= y1:
+        return []
+    shape = Polygon(ring)
+    if not shape.is_valid:
+        shape = shape.buffer(0)
+    cut = shape.intersection(shapely_box(x0, y0, x1, y1))
+    parts = [cut] if cut.geom_type == "Polygon" else [g for g in getattr(cut, "geoms", []) if g.geom_type == "Polygon"]
+    return [[[round(x, 3), round(y, 3)] for x, y in part.exterior.coords[:-1]] for part in parts if part.area > 0.01]
+
+
 def _site(snapshot: dict, fig: dict, ctx: dict) -> dict:
     drawn, left = bodies(snapshot)
     own = [ring for body in drawn for ring in body["rings"]] + list(ctx["lot"])
@@ -378,14 +400,13 @@ def _site(snapshot: dict, fig: dict, ctx: dict) -> dict:
         outline = building.get("outline") or []
         if len(outline) < 3 or near >= MAX_SITE_BUILDINGS:
             continue
-        cx = sum(p[0] for p in outline) / len(outline)
-        cy = sum(p[1] for p in outline) / len(outline)
-        if not (x0 <= cx <= x1 and y0 <= cy <= y1):
+        rings = _within(outline, x0, y0, x1, y1)
+        if not rings:
             continue
         near += 1
-        ring = [[round(p[0], 3), round(p[1], 3)] for p in outline]
-        items.append(_fill([ring], SOFT, light=bool(building.get("estimate"))))
-        items.append(_line(ring, closed=True, color="#8a929b"))
+        for ring in rings:
+            items.append(_fill([ring], SOFT, light=bool(building.get("estimate"))))
+            items.append(_line(ring, closed=True, color="#8a929b"))
     for body in drawn:
         items.append(_fill(body["rings"], INK))
     for ring in ctx["lot"]:

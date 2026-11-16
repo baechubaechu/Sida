@@ -175,6 +175,23 @@ def test_the_site_plan_has_the_lot_the_footprints_and_only_the_buildings_near_to
     assert [t["text"] for t in of(bare, "text", role="caption")][0] == "대지면적 미확인"
 
 
+def test_a_building_that_reaches_over_the_site_plans_frame_is_cut_at_it():
+    """Seen on a slide (2026-11-16): buildings at the edge hung out of the frame."""
+    whole = diagrams.drawing("site", studio(), ctx(buildings=[]))
+    x0, y0, _z0, x1, y1, _z1 = whole["bounds"]
+    frame = next(line for line in of(whole, "line", closed=True, bold=False, dashed=False) if len(line["points"]) == 4)
+    fx0, fx1 = frame["points"][0][0], frame["points"][2][0]
+    around = [{"outline": box(fx0 - 10, 0, fx0 + 30, 20), "base": 0, "height": 9, "estimate": False},  # over the west edge
+              {"outline": box(fx1 + 5, 0, fx1 + 25, 20), "base": 0, "height": 9, "estimate": False}]  # wholly outside
+    drawing = diagrams.drawing("site", studio(), ctx(buildings=around))
+    soft = of(drawing, "fill", color=diagrams.SOFT)
+    assert len(soft) == 1
+    xs = sorted({p[0] for p in soft[0]["rings"][0]})
+    ys = sorted({p[1] for p in soft[0]["rings"][0]})
+    assert xs == [fx0, fx0 + 30] and ys == [0, 20]  # only the part inside is drawn
+    assert drawing["bounds"][:2] == [x0, y0] and drawing["bounds"][3:5] == [x1, y1]  # so the plan is no wider for it
+
+
 def test_a_ratio_is_drawn_against_the_ordinance_then_the_legal_ceiling_and_only_in_one_zone():
     assert diagrams.gauge(42.4, [ZONE], "ordinance_bcr", "bcr_max") == {"value": 42.4, "limit": 60, "source": "조례"}
     legal_only = {**ZONE, "ordinance_far": None}
