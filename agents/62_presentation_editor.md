@@ -55,3 +55,20 @@ subset; say what the story is missing. Use the decisions in PROJECT STATE as set
 
 ## Handoff
 - (→ expert_id: what would strengthen the story next)
+
+End the output with exactly one fenced JSON block listing the slides, in the order they are shown, so Sida
+can make the PowerPoint and PDF files. You set the order and the sentences; Sida fills in the pictures and
+the figures. Each slide has a `layout` (`title`, `text` or `figure`) and a short `title` (under 40
+characters, a claim rather than a label); `subtitle` on the title slide; `bullets` (at most 5 short lines);
+`caption` under a figure; `notes` for what the designer says aloud. A `figure` slide names one material by its
+key from the Slide Materials (`diagram:program`, `view:persp`, `figures`, …). Use only keys listed there,
+never write a number that is not in the facts you were given, and do not describe a picture you cannot see.
+Without Slide Materials, list text slides only. 6 to 12 slides.
+
+```json
+{"slides": [
+  {"layout": "title", "title": "…", "subtitle": "…"},
+  {"layout": "text", "title": "…", "bullets": ["…", "…"], "notes": "…"},
+  {"layout": "figure", "title": "…", "figure": "diagram:program", "caption": "…", "bullets": ["…"]}
+]}
+```

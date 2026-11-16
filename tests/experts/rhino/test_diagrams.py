@@ -266,3 +266,18 @@ def test_a_floor_may_carry_its_own_outline_and_a_malformed_one_is_refused():
     with pytest.raises(ValueError, match=r"floors\[0\]\.outline"):
         studio(objects=[{"id": "p", "layer": "Shop", "height": 9.0, "base": 0.0, "footprint": PODIUM,
                          "floors": [{"z": 0, "area": 1.0, "outline": [[0, 0], [1, 1]]}]}])
+
+
+def test_a_page_can_be_set_without_the_drawings_words_which_are_then_given_apart():
+    for kind in ("program", "stack"):  # one seen from the south-west, one flat
+        drawing = diagrams.drawing(kind, studio(), ctx())
+        whole, alone = diagram_svg.layout(drawing), diagram_svg.layout(drawing, words=False)
+        said = diagram_svg.words(drawing)
+        assert said["legend"][0] == (snap.MEANINGS["commercial"]["color"], of(drawing, "text", role="legend")[0]["text"])
+        assert said["caption"] == [item["text"] for item in of(drawing, "text", role="caption")] and said["caption"]
+        texts = {shape["text"] for shape in alone["shapes"] if shape["type"] == "text"}
+        assert drawing["title"] not in texts and not texts & {text for _color, text in said["legend"]} and not texts & set(said["caption"])
+        assert [s for s in alone["shapes"] if s["tag"] == "face"] or kind == "stack"
+        assert len(alone["shapes"]) < len(whole["shapes"]) and not any(s["tag"] == "swatch" for s in alone["shapes"])
+    assert diagram_svg.to_svg(drawing) == diagram_svg.to_svg(diagrams.drawing("stack", studio(), ctx()))  # the file keeps its words
+

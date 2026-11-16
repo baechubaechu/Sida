@@ -36,3 +36,17 @@ def test_representation_planner_leads_with_diagrams():
     # the laser-cut site model comes last, from Sida's board numbers only, with a JSON block to place it
     assert sections[-2:] == ["Physical Model", "Handoff"]
     assert "come only from the Board Options" in prompt and '"board": "W600x900"' in prompt
+
+
+def test_presentation_editor_ends_with_a_slide_list_that_names_materials_by_key():
+    sections = output_sections("62_presentation_editor.md")
+    assert sections[0] == "One-line Summary" and sections[-1] == "Handoff"
+    prompt = (ROOT / "agents" / "62_presentation_editor.md").read_text(encoding="utf-8")
+    assert "exactly one fenced JSON block listing the slides" in prompt and '{"slides": [' in prompt
+    assert "Use only keys listed there" in prompt and "never write a number that is not in the facts" in prompt
+    from sida.experts.presentation import slides
+
+    block = slides.read_block(prompt)  # the example in the prompt is a list Sida reads
+    listed, notes = slides.clean(block)
+    assert [s["layout"] for s in listed] == ["title", "text", "figure"] and listed[2]["figure"] == "diagram:program" and notes == []
+

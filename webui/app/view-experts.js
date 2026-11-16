@@ -1,6 +1,7 @@
 // The experts panel and an expert's page: result layout, analysis chat, earlier results, review.
 
-import { phaseLabel, visibleExperts, STATUS_LABELS, escapeHtml as escape, chatItems, expertStatus, renderMarkdown, chatTitle, chatLabel, projectPath as projectUrl, expertPath, dateTime, arrangeDocument, itemTag, renderInline, parseRecommendation, stripRecommendation, expertPageTabs, MODEL_EXPERT, questionAnswer, stateChangeView, sitePath, siteHeadline } from './model.js';
+import { phaseLabel, visibleExperts, STATUS_LABELS, escapeHtml as escape, chatItems, expertStatus, renderMarkdown, chatTitle, chatLabel, projectPath as projectUrl, expertPath, dateTime, arrangeDocument, itemTag, renderInline, parseRecommendation, stripRecommendation, expertPageTabs, MODEL_EXPERT, SLIDES_EXPERT, stripSlideList, deckView, DECK_FORMATS, questionAnswer, stateChangeView, sitePath, siteHeadline } from './model.js';
+import { rhinoDiagramUrl, rhinoViewUrl } from './rhino-model.js';
 import { expertUrl } from './api.js';
 import { SITE_EXPERTS, activeChat, currentRoute, draftFor, expertById, jobRunning, ui } from './state.js';
 import { bubble, composer, workingLine } from './view-conductor.js';
@@ -170,8 +171,50 @@ function docTab(name, agent, expert) {
   }
   const reads = expert.inputs?.length
     ? `<p class="reads">읽은 전문가 ${expert.inputs.map((id) => expertLink(name, id)).join('')}</p>` : '';
-  const content = agent === MODEL_EXPERT ? stripRecommendation(ui.module.content) : ui.module.content;
+  let { content } = ui.module;
+  if (agent === MODEL_EXPERT) content = stripRecommendation(content);
+  if (agent === SLIDES_EXPERT) content = stripSlideList(content); // the list is shown as slides on the 발표자료 tab
   return `${proposalBlock(agent)}${siteNote(name, agent)}${reads}${arrangedDoc(name, agent, content)}`;
+}
+
+function slideFigure(figure) {
+  if (!figure) return '';
+  if (figure.kind === 'image') return `<div class="deck-figure"><img src="${escape(figure.url)}" alt="${escape(figure.alt)}" loading="lazy"></div>`;
+  if (figure.kind === 'table') {
+    return `<div class="deck-figure"><table class="deck-table" style="--rows: ${figure.rows.length}"><tbody>${figure.rows.map(([label, value]) => `<tr><th scope="row">${escape(label.trim())}</th><td>${escape(value)}</td></tr>`).join('')}</tbody></table></div>`;
+  }
+  return `<div class="deck-figure is-empty"><p>${escape(figure.title)}</p><p>${escape(figure.why)}</p></div>`;
+}
+
+// The presentation editor's 발표자료 tab: the slides as Sida will make them (the editor's order and
+// sentences, Sida's pictures and figures), and the files.
+function slidesTab(name) {
+  if (ui.deckError) return `<div class="expert-note error-text">${escape(ui.deckError)}</div>`;
+  const view = deckView(ui.deck, {
+    diagram: (snapshot, kind) => rhinoDiagramUrl(name, snapshot, kind),
+    view: (snapshot, file) => rhinoViewUrl(name, snapshot, file),
+  });
+  if (!view) return '<p class="muted">불러오는 중입니다.</p>';
+  const making = ui.deckMaking;
+  const files = DECK_FORMATS.map(({ format, label }, index) => `<button class="${index ? 'secondary' : 'primary'} small" data-action="deck-file" data-format="${format}" ${making ? 'disabled' : ''}>${making === format ? '<span class="spinner" aria-hidden="true"></span>만드는 중' : escape(label)}</button>`).join('');
+  const slide = (s) => `<li class="deck-slide">
+      <div class="deck-page" aria-hidden="true"><div class="deck-sheet is-${escape(s.layout)} ${s.figure && s.bullets.length ? 'has-side' : ''}">
+        <p class="deck-title">${escape(s.title)}</p>
+        ${s.layout === 'title' && s.subtitle ? `<p class="deck-subtitle">${escape(s.subtitle)}</p>` : ''}
+        ${s.layout !== 'title' ? `<div class="deck-body">${slideFigure(s.figure)}
+          ${s.bullets.length ? `<ul class="deck-bullets">${s.bullets.map((b) => `<li>${escape(b)}</li>`).join('')}</ul>` : ''}</div>` : ''}
+        ${s.caption ? `<p class="deck-caption">${escape(s.caption)}</p>` : ''}
+      </div></div>
+      <p class="deck-under"><span class="deck-number">${s.number}</span><span class="deck-name">${escape(s.title)}</span>
+        ${s.notes ? `<span class="deck-notes">말할 것: ${escape(s.notes)}</span>` : ''}</p>
+    </li>`;
+  return `<section class="deck" aria-label="발표자료">
+    <p class="site-note ${view.fromEditor ? '' : 'warn'}">${escape(view.line)}</p>
+    <p class="site-note ${view.hasModel ? '' : 'warn'}">${escape(view.model)}</p>
+    ${view.notes.length ? `<ul class="deck-left-out">${view.notes.map((n) => `<li>${escape(n)}</li>`).join('')}</ul>` : ''}
+    <div class="deck-files">${files}<span class="muted small-text">슬라이드 ${view.slides.length}장 · 파워포인트에서 글과 도형을 그대로 고칠 수 있습니다.</span></div>
+    <ol class="deck-slides">${view.slides.map(slide).join('')}</ol>
+  </section>`;
 }
 
 // The representation planner's 모형 tab: the model board panel (placeModelMaker), with
@@ -279,7 +322,7 @@ export function expertPage(name, agent) {
       <a class="icon-button" href="${projectUrl(name)}" aria-label="전문가 화면 닫기">×</a></header></section>`;
   }
   const extra = expertPageTabs(agent);
-  const known = currentRoute.tab !== 'model' || extra.some((t) => t.id === 'model');
+  const known = !['model', 'slides'].includes(currentRoute.tab) || extra.some((t) => t.id === currentRoute.tab);
   const tab = (currentRoute.tab === 'chat' && !expert.chat) || !known ? 'doc' : currentRoute.tab;
   const status = expertStatus(expert, ui.job);
   const tabs = [
@@ -289,7 +332,7 @@ export function expertPage(name, agent) {
     ...extra.map((t) => [t.id, t.label, expertPath(name, agent, t.id)]),
   ];
   const body = tab === 'chat' ? chatTab(name, agent, expert) : tab === 'versions' ? versionsTab(name, agent)
-    : tab === 'model' ? modelTab() : docTab(name, agent, expert);
+    : tab === 'model' ? modelTab() : tab === 'slides' ? slidesTab(name) : docTab(name, agent, expert);
   return `<section class="expert-page" aria-label="${escape(expert.name)}">
     <header class="expert-head"><div>
       <h1>${escape(expert.name)}</h1>

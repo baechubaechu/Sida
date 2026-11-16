@@ -1,4 +1,8 @@
-"""A diagram's drawing instruction (diagrams.py) as an SVG picture, for the screen and for files.
+"""A diagram's drawing instruction (diagrams.py) as a flat picture, for the screen and for files.
+
+`layout` sets the drawing on a page (pixels, y down) as plain polygons, lines and texts; `to_svg`
+writes that page as SVG, and the presentation files (sida/experts/presentation) draw the same
+page as PowerPoint shapes and PDF paths, so a diagram looks the same wherever it is shown.
 
 A flat drawing is shown from above, to scale, with its words where the drawing has them. An
 axonometric one is seen from the south-west and from above (the usual isometric: east to the
@@ -13,7 +17,7 @@ import math
 from xml.sax.saxutils import escape
 
 from sida.experts.rhino import snapshot as snap
-from sida.experts.rhino.diagrams import text_width
+from sida.experts.rhino.diagrams import _extent, text_width
 
 WIDTH = 960.0  # px; the picture scales (viewBox)
 MARGIN = 28.0
@@ -30,27 +34,21 @@ def _shade(color: str, factor: float) -> str:
     return "#{:02x}{:02x}{:02x}".format(*(max(0, min(255, round(v * factor))) for v in (r, g, b)))
 
 
-def _path(rings, at) -> str:
-    return " ".join("M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in (at(p) for p in ring)) + " Z" for ring in rings)
+def _poly(rings, fill: str, tag: str, *, opacity: float = 1.0, stroke: str | None = None, width: float = 0.0) -> dict:
+    return {"type": "poly", "rings": rings, "fill": fill, "opacity": opacity, "stroke": stroke, "width": width, "tag": tag}
 
 
-def _line_svg(item: dict, at) -> str:
-    points = " ".join(f"{x:.1f},{y:.1f}" for x, y in (at(p) for p in item["points"]))
-    tag = "polygon" if item["closed"] else "polyline"
-    dash = ' stroke-dasharray="7 4"' if item["dashed"] else ""
-    return (f'<{tag} points="{points}" fill="none" stroke="{item["color"]}" stroke-width="{2.2 if item["bold"] else 1.0}" '
-            f'stroke-linejoin="round" stroke-linecap="round"{dash} data-type="line"/>')
+def _line(item: dict, at) -> dict:
+    return {"type": "line", "points": [at(p) for p in item["points"]], "closed": item["closed"], "stroke": item["color"],
+            "width": 2.2 if item["bold"] else 1.0, "dashed": item["dashed"], "tag": "line"}
 
 
-def _text_svg(x: float, y: float, text: str, px: float, anchor: str = "start", weight: int = 400) -> str:
-    return (f'<text x="{x:.1f}" y="{y:.1f}" font-size="{px:.1f}" font-weight="{weight}" text-anchor="{anchor}" fill="{INK}" '
-            f'font-family="{FONT}" data-type="text">{escape(text)}</text>')
+def _text(x: float, y: float, text: str, px: float, anchor: str = "start", weight: int = 400) -> dict:
+    return {"type": "text", "x": x, "y": y, "text": text, "px": px, "anchor": anchor, "weight": weight, "tag": "text"}
 
 
-def _page(width: float, height: float, kind: str, body: list[str]) -> bytes:
-    head = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" height="{height:.0f}" viewBox="0 0 {width:.1f} {height:.1f}" '
-            f'data-kind="{escape(kind)}">')
-    return "\n".join([head, f'<rect width="{width:.1f}" height="{height:.1f}" fill="#ffffff"/>', *body, "</svg>"]).encode("utf-8")
+def _page(width: float, height: float, kind: str, shapes: list[dict]) -> dict:
+    return {"kind": kind, "width": width, "height": height, "shapes": shapes}
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +56,7 @@ def _page(width: float, height: float, kind: str, body: list[str]) -> bytes:
 # ---------------------------------------------------------------------------
 
 
-def _flat(drawing: dict) -> bytes:
+def _flat(drawing: dict) -> dict:
     items = drawing["items"]
     x0, y0, _z0, x1, y1, _z1 = drawing["bounds"]
     for item in items:  # a text reaches beyond its anchor
@@ -75,19 +73,19 @@ def _flat(drawing: dict) -> bytes:
     def at(p):
         return MARGIN + (p[0] - x0) * k, MARGIN + (y1 - p[1]) * k
 
-    body = []
+    shapes = []
     for item in items:
         if item["type"] == "fill":
-            opacity = ' fill-opacity="0.5"' if item.get("light") else ""
-            body.append(f'<path d="{_path(item["rings"], at)}" fill="{item["color"]}" fill-rule="evenodd"{opacity} data-type="fill"/>')
+            shapes.append(_poly([[at(p) for p in ring] for ring in item["rings"]], item["color"], "fill",
+                                opacity=0.5 if item.get("light") else 1.0))
     for item in items:
         if item["type"] == "line":
-            body.append(_line_svg(item, at))
+            shapes.append(_line(item, at))
     for item in items:
         if item["type"] == "text":
             x, y = at(item["at"])
-            body.append(_text_svg(x, y, item["text"], item["size"] * k, item["anchor"], 600 if item["role"] == "title" else 400))
-    return _page(WIDTH, height, drawing["kind"], body)
+            shapes.append(_text(x, y, item["text"], item["size"] * k, item["anchor"], 600 if item["role"] == "title" else 400))
+    return _page(WIDTH, height, drawing["kind"], shapes)
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +100,7 @@ def _iso(p) -> tuple[float, float]:
 
 
 def _solids(slab: dict) -> list[dict]:
-    """A slab as solid pieces to paint: {z, top, depth, faces: [(path in picture metres, colour)]}, each piece's walls before its lid."""
+    """A slab as solid pieces to paint: {z, top, depth, faces: [(rings in picture metres, colour)]}, each piece's walls before its lid."""
     from shapely.geometry.polygon import orient
 
     shape = snap._shape(slab["rings"])
@@ -125,11 +123,10 @@ def _solids(slab: dict) -> list[dict]:
                     continue
                 light = 0.68 + 0.14 * max(0.0, -dy / length)  # the west side a little lighter than the south side
                 quad = [_iso((ax, ay, z)), _iso((bx, by, z)), _iso((bx, by, top)), _iso((ax, ay, top))]
-                walls.append(((ax + bx) / 2 + (ay + by) / 2, "M" + " L".join(f"{x:.3f},{y:.3f}" for x, y in quad) + " Z",
-                              _shade(slab["color"], light)))
+                walls.append(((ax + bx) / 2 + (ay + by) / 2, [quad], _shade(slab["color"], light)))
         walls.sort(key=lambda wall: -wall[0])  # the far walls first (the far side of a courtyard shows through it)
-        lid = " ".join("M" + " L".join(f"{x:.3f},{y:.3f}" for x, y in (_iso((px, py, top)) for px, py in loop)) + " Z" for loop in loops)
-        out.append({"z": z, "top": top, "depth": cx + cy, "faces": [*((path, color) for _d, path, color in walls), (lid, slab["color"])]})
+        lid = [[_iso((px, py, top)) for px, py in loop] for loop in loops]
+        out.append({"z": z, "top": top, "depth": cx + cy, "faces": [*((rings, color) for _d, rings, color in walls), (lid, slab["color"])]})
     return out
 
 
@@ -169,7 +166,7 @@ def _far_first(solids: list[dict]) -> list[dict]:
     return order
 
 
-def _axo(drawing: dict) -> bytes:
+def _axo(drawing: dict, words: bool = True) -> dict:
     items = drawing["items"]
     slabs = [i for i in items if i["type"] == "slab"]
     lines = [i for i in items if i["type"] == "line"]
@@ -205,31 +202,79 @@ def _axo(drawing: dict) -> bytes:
     top = MARGIN + TITLE_PX * 1.8
     left = MARGIN + ((WIDTH - 2 * MARGIN) - (x1 - x0) * k) / 2  # centred when the height decides the scale
 
-    def at(p):
-        sx, sy = _iso(p)
-        return left + (sx - x0) * k, top + (sy - y0) * k
+    def page(point):
+        return left + (point[0] - x0) * k, top + (point[1] - y0) * k
 
-    body = [_text_svg(MARGIN, MARGIN + TITLE_PX, title, TITLE_PX, weight=600)]
-    body += [_line_svg(line, at) for line in lines]
-    solids = _far_first([solid for slab in slabs for solid in _solids(slab)])
-    move = f"translate({left - x0 * k:.2f} {top - y0 * k:.2f}) scale({k:.5f})"
-    body.append(f'<g transform="{move}" stroke="{INK}" stroke-width="{0.7 / k:.4f}" stroke-linejoin="round" fill-rule="evenodd">')
-    body += [f'<path d="{path}" fill="{color}" data-type="face"/>' for solid in solids for path, color in solid["faces"]]
-    body.append("</g>")
+    def at(p):
+        return page(_iso(p))
+
+    shapes = [_text(MARGIN, MARGIN + TITLE_PX, title, TITLE_PX, weight=600)] if words else []
+    shapes += [_line(line, at) for line in lines]
+    for solid in _far_first([solid for slab in slabs for solid in _solids(slab)]):
+        for rings, color in solid["faces"]:
+            shapes.append(_poly([[page(point) for point in ring] for ring in rings], color, "face", stroke=INK, width=0.7))
     for label in labels:
         x, y = at(label["at"])
-        body.append(_text_svg(x, y, label["text"], max(label["size"] * k, 9.0), label["anchor"]))
+        shapes.append(_text(x, y, label["text"], max(label["size"] * k, 9.0), label["anchor"]))
     y = top + (y1 - y0) * k + MARGIN
     for row in legend:
-        body.append(f'<rect x="{MARGIN:.1f}" y="{y:.1f}" width="{WORD_PX:.1f}" height="{WORD_PX:.1f}" fill="{row["swatch"] or INK}" data-type="swatch"/>')
-        body.append(_text_svg(MARGIN + WORD_PX * 1.6, y + WORD_PX * 0.85, row["text"], WORD_PX))
+        box = [(MARGIN, y), (MARGIN + WORD_PX, y), (MARGIN + WORD_PX, y + WORD_PX), (MARGIN, y + WORD_PX)]
+        shapes.append(_poly([box], row["swatch"] or INK, "swatch"))
+        shapes.append(_text(MARGIN + WORD_PX * 1.6, y + WORD_PX * 0.85, row["text"], WORD_PX))
         y += WORD_PX * 1.7
     for text in caption:
-        body.append(_text_svg(MARGIN, y + WORD_PX * 0.85, text, WORD_PX))
+        shapes.append(_text(MARGIN, y + WORD_PX * 0.85, text, WORD_PX))
         y += WORD_PX * 1.7
-    return _page(WIDTH, y + MARGIN - WORD_PX * 0.7, drawing["kind"], body)
+    return _page(WIDTH, y + MARGIN - WORD_PX * 0.7, drawing["kind"], shapes)
+
+
+def words(drawing: dict) -> dict:
+    """The drawing's words apart from the drawing: {legend: [(colour, text)], caption: [text]}."""
+    texts = [item for item in drawing["items"] if item["type"] == "text"]
+    return {"legend": [(item["swatch"] or INK, item["text"]) for item in texts if item["role"] == "legend"],
+            "caption": [item["text"] for item in texts if item["role"] == "caption"]}
+
+
+def layout(drawing: dict, *, words: bool = True) -> dict:
+    """
+    The drawing set on a page: {kind, width, height, shapes}, in pixels with y down. Shapes, in
+    the order they are painted:
+        {"type": "poly", "rings": [[(x, y), ...], ...], "fill", "opacity", "stroke" | None, "width", "tag"}
+            rings by the even-odd rule; tag "face" (a side of a solid), "fill" or "swatch"
+        {"type": "line", "points": [(x, y), ...], "closed", "stroke", "width", "dashed", "tag": "line"}
+        {"type": "text", "x", "y", "text", "px", "anchor": start|middle|end, "weight", "tag": "text"}
+            x, y is the baseline at the anchor; px the letter height
+    With `words=False` the page holds the drawing alone, without its title, legend and figure
+    lines: a slide sets those itself, at a size that reads on a slide (`words`).
+    """
+    if not words:
+        items = [item for item in drawing["items"] if not item.get("role")]
+        drawing = {**drawing, "items": items, "bounds": _extent(items)}
+    return _axo(drawing, words) if drawing["view"] == "axo" else _flat(drawing)
+
+
+def _d(rings) -> str:
+    return " ".join("M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in ring) + " Z" for ring in rings)
 
 
 def to_svg(drawing: dict) -> bytes:
-    """The drawing as an SVG file (UTF-8)."""
-    return _axo(drawing) if drawing["view"] == "axo" else _flat(drawing)
+    """The drawing as an SVG file (UTF-8): the page of `layout`, shape by shape."""
+    page = layout(drawing)
+    width, height = page["width"], page["height"]
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" height="{height:.0f}" viewBox="0 0 {width:.1f} {height:.1f}" '
+           f'data-kind="{escape(page["kind"])}">', f'<rect width="{width:.1f}" height="{height:.1f}" fill="#ffffff"/>']
+    for shape in page["shapes"]:
+        if shape["type"] == "poly":
+            opacity = f' fill-opacity="{shape["opacity"]:g}"' if shape["opacity"] < 1 else ""
+            stroke = (f' stroke="{shape["stroke"]}" stroke-width="{shape["width"]:g}" stroke-linejoin="round"' if shape["stroke"] else "")
+            out.append(f'<path d="{_d(shape["rings"])}" fill="{shape["fill"]}" fill-rule="evenodd"{opacity}{stroke} data-type="{shape["tag"]}"/>')
+        elif shape["type"] == "line":
+            points = " ".join(f"{x:.1f},{y:.1f}" for x, y in shape["points"])
+            dash = ' stroke-dasharray="7 4"' if shape["dashed"] else ""
+            out.append(f'<{"polygon" if shape["closed"] else "polyline"} points="{points}" fill="none" stroke="{shape["stroke"]}" '
+                       f'stroke-width="{shape["width"]:g}" stroke-linejoin="round" stroke-linecap="round"{dash} data-type="line"/>')
+        else:
+            out.append(f'<text x="{shape["x"]:.1f}" y="{shape["y"]:.1f}" font-size="{shape["px"]:.1f}" font-weight="{shape["weight"]}" '
+                       f'text-anchor="{shape["anchor"]}" fill="{INK}" font-family="{FONT}" data-type="text">{escape(shape["text"])}</text>')
+    out.append("</svg>")
+    return "\n".join(out).encode("utf-8")

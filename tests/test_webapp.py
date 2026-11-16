@@ -1386,6 +1386,59 @@ def test_rhino_diagrams_of_a_snapshot_come_as_drawing_instructions_and_as_svg(cl
     assert client.get(f"{base}/snapshots/20000101-000000-0001/diagrams/program").status_code == 404
 
 
+def test_presentation_api_shows_the_deck_and_makes_its_files_from_the_editors_list_and_the_rhino_snapshot(client, project, monkeypatch):
+    import io
+    import json as _json
+    import zipfile
+
+    from sida.experts.presentation import deck
+    from tests.experts.presentation.test_slides import document, tiny_png
+
+    monkeypatch.setattr(deck, "font_files", lambda: [])  # the PDF is written the same on every machine
+    at = f"/api/projects/{project.name}/presentation"
+    bare = client.get(at).json()
+    assert bare["source"] == "default" and bare["written"] is False and bare["snapshot"] is None and bare["figure_rows"] == []
+    assert [s["layout"] for s in bare["slides"]] == ["title"] and bare["formats"] == ["pptx", "pdf", "zip"]
+    assert client.get(f"{at}/file").content.startswith(b"PK")  # a file can be made even now: the title alone
+
+    raw = _json.loads((ROOT / "tests" / "fixtures" / "rhino" / "snapshot_studio.json").read_text(encoding="utf-8"))
+    views = [("views", (name, tiny_png(16, 9), "image/png")) for name in ("plan.png", "axo.png")]
+    pushed = client.post(f"/api/projects/{project.name}/rhino/snapshots",
+                         files=[("snapshot", ("snapshot.json", _json.dumps(raw).encode("utf-8"), "application/json")), *views])
+    assert pushed.status_code == 201, pushed.text
+    by_rule = client.get(at).json()
+    assert by_rule["snapshot"]["id"] == pushed.json()["snapshot"]["id"] and ["연면적", "900.0㎡"] in by_rule["figure_rows"]
+    assert [s["figure"]["key"] for s in by_rule["slides"][1:]] == [
+        "figures", "diagram:program", "diagram:floors", "diagram:stack", "diagram:site", "diagram:limits", "view:axo", "view:plan"]
+    assert by_rule["slides"][-1]["figure"]["file"] == "plan.png"  # what the screen shows the capture from
+
+    (project.path / "modules").mkdir(exist_ok=True)
+    (project.path / "modules" / "62_presentation_editor.md").write_text(document([
+        {"layout": "title", "title": "금정역 복합", "subtitle": "역과 동네 사이"},
+        {"title": "프로그램", "figure": "diagram:program", "bullets": ["주거 위, 상업 아래"]},
+        {"title": "야경", "figure": "view:night"},
+    ]), encoding="utf-8")
+    shown = client.get(at).json()
+    assert shown["source"] == "editor" and shown["written"] is True and [s["title"] for s in shown["slides"]] == ["금정역 복합", "프로그램", "야경"]
+    assert shown["slides"][1]["figure"]["ready"] is True and shown["slides"][2]["figure"]["ready"] is False
+    assert shown["notes"] == ["3번 슬라이드의 그림(view:night)은 비어 있습니다. 이 이름의 그림이 없습니다."]
+
+    pptx = client.get(f"{at}/file", params={"format": "pptx"})
+    assert pptx.status_code == 200 and pptx.headers["content-type"] == deck.FORMATS["pptx"] and pptx.headers["cache-control"] == "no-store"
+    assert pptx.headers["content-disposition"].startswith("attachment; filename*=UTF-8''") and pptx.headers["content-disposition"].endswith(".pptx")
+    with zipfile.ZipFile(io.BytesIO(pptx.content)) as archive:
+        assert sum(1 for n in archive.namelist() if n.startswith("ppt/slides/slide")) == 3
+        assert "주거 위, 상업 아래" in archive.read("ppt/slides/slide2.xml").decode("utf-8")
+    pdf = client.get(f"{at}/file", params={"format": "pdf"})
+    assert pdf.headers["content-type"] == "application/pdf" and pdf.content.startswith(b"%PDF-")
+    bundle = client.get(f"{at}/file", params={"format": "zip"})
+    with zipfile.ZipFile(io.BytesIO(bundle.content)) as archive:
+        assert {"라이노 뷰/plan.png", "라이노 뷰/axo.png", "수치.csv", "다이어그램/프로그램 매스.svg"} <= set(archive.namelist())
+    bad = client.get(f"{at}/file", params={"format": "key"})
+    assert bad.status_code == 400 and "format must be one of pptx, pdf, zip" in bad.json()["detail"]
+    assert client.get("/api/projects/no-such-project/presentation").status_code == 404
+
+
 def test_rhino_live_api_carries_the_document_to_the_panel_and_the_panels_asks_to_the_plugin(client, project):
     import json as _json
 

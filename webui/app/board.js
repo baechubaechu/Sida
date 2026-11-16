@@ -269,7 +269,7 @@ async function fetchBlob(url) {
   return response.blob();
 }
 
-function saveBlob(blob, filename) {
+export function saveBlob(blob, filename) {
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
   link.download = filename;

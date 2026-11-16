@@ -377,12 +377,17 @@ export function sitePageFor(event, name, site) {
   return sitePath(name, site?.available ? 'facts' : 'find');
 }
 
-const EXPERT_TABS = ['chat', 'versions', 'model'];
+const EXPERT_TABS = ['chat', 'versions', 'model', 'slides'];
 
 // Tabs an expert's page has besides 결과, 분석 채팅 and 이전 버전: the representation planner's
-// 모형 holds the model board panel (model-maker.js) for the laser-cut site model.
-export const EXPERT_PAGE_TABS = { representation_planner: [{ id: 'model', label: '모형' }] };
+// 모형 holds the model board panel (model-maker.js) for the laser-cut site model, the
+// presentation editor's 발표자료 the slides Sida makes files of (deckView).
+export const EXPERT_PAGE_TABS = {
+  representation_planner: [{ id: 'model', label: '모형' }],
+  presentation_editor: [{ id: 'slides', label: '발표자료' }],
+};
 export const MODEL_EXPERT = 'representation_planner';
+export const SLIDES_EXPERT = 'presentation_editor';
 
 export function expertPageTabs(agentId) {
   return EXPERT_PAGE_TABS[agentId] || [];
@@ -992,4 +997,62 @@ export function parseRecommendation(markdown) {
 // The document without its recommendation block (the page shows the recommendation as a button).
 export function stripRecommendation(markdown) {
   return String(markdown || '').replace(FENCE, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// --- The presentation (the presentation editor's 발표자료 tab) -----------------
+
+// The editor's document without its slide list: the list is shown as slides on the 발표자료 tab.
+export function stripSlideList(markdown) {
+  return String(markdown || '').replace(FENCE, (block, body) => (/"slides"\s*:/.test(body) ? '' : block))
+    .replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// The files the deck can be had as, in the order of the buttons.
+export const DECK_FORMATS = [
+  { format: 'pptx', label: 'PowerPoint 받기', word: 'PowerPoint 파일' },
+  { format: 'pdf', label: 'PDF 받기', word: 'PDF' },
+  { format: 'zip', label: '그림까지 모두 받기', word: '묶음 파일' },
+];
+
+export const deckUrl = (project) => `/api/projects/${encodeURIComponent(project)}/presentation`;
+export const deckFileUrl = (project, format) => `${deckUrl(project)}/file?format=${encodeURIComponent(format)}`;
+
+// The file name a download answers with (Content-Disposition: filename*=UTF-8''...), else `fallback`.
+export function downloadName(disposition, fallback) {
+  const match = /filename\*=UTF-8''([^;]+)/i.exec(disposition || '');
+  if (!match) return fallback;
+  try { return decodeURIComponent(match[1].trim()) || fallback; } catch { return fallback; }
+}
+
+// What the 발표자료 tab shows of the deck (GET /api/projects/{name}/presentation): where the
+// order came from, which Rhino work the pictures are of, what is left out, and each slide with
+// its figure ready to show. `urls` builds the picture addresses: {diagram(snapshot, kind),
+// view(snapshot, file)}. A figure is {kind: 'image', url, alt}, {kind: 'table', rows} or
+// {kind: 'empty', title, why}.
+export function deckView(deck, urls) {
+  if (!deck) return null;
+  const snapshot = deck.snapshot?.id || '';
+  const figure = (f) => {
+    if (!f) return null;
+    if (!f.ready || !snapshot) return { kind: 'empty', title: f.title, why: f.why || '만들 수 없습니다.' };
+    if (f.kind === 'diagram') return { kind: 'image', url: urls.diagram(snapshot, f.key.split(':')[1]), alt: f.title };
+    if (f.kind === 'view') return { kind: 'image', url: urls.view(snapshot, f.file), alt: f.title };
+    return { kind: 'table', rows: deck.figure_rows || [] };
+  };
+  let line = '발표 편집자가 정한 순서와 문장입니다.';
+  if (deck.source !== 'editor') {
+    line = deck.written
+      ? '발표 편집자의 결과에 슬라이드 목록이 없어 Sida가 기본 순서로 놓았습니다. 다시 실행하면 순서와 문장이 채워집니다.'
+      : '발표 편집자를 아직 실행하지 않아 Sida가 기본 순서로 놓았습니다. 실행하면 순서와 문장이 채워집니다.';
+  }
+  const model = deck.snapshot
+    ? `그림과 수치는 ${dateTime(deck.snapshot.taken_at)}에 보낸 라이노 작업${deck.snapshot.file ? `(${deck.snapshot.file})` : ''}에서 왔습니다.`
+    : '라이노 작업이 아직 없어 그림과 수치가 비어 있습니다. 라이노에서 Sida로 보내면 채워집니다.';
+  return {
+    line, model, fromEditor: deck.source === 'editor', hasModel: Boolean(deck.snapshot), notes: deck.notes || [],
+    slides: deck.slides.map((s, index) => ({
+      number: index + 1, layout: s.layout, title: s.title, subtitle: s.subtitle, bullets: s.bullets, caption: s.caption,
+      notes: s.notes, figure: figure(s.figure),
+    })),
+  };
 }

@@ -9,7 +9,7 @@ import { talkMenu } from './talk-panel-model.js';
 import { api, expertUrl, projectApi } from './api.js';
 import { applyModelRecommendation, askAbout, closeTable, editProperty, downloadBoard, hideVWorld, loadBoard, openTable, placeTable, table, takePicked, toggleVWorld, unpick } from './board.js';
 import { commandKey, focusCommandLine, runCommandLine } from './commands.js';
-import { decideProposal, newChat, runExpert, send, sendFeedback } from './experts.js';
+import { decideProposal, downloadDeck, newChat, runExpert, send, sendFeedback } from './experts.js';
 import { addTypedIdea, ideaAction, placeIdeaFloat, saveIdea } from './ideas.js';
 import { clearExpert, loadExpert, loadOrdinance, loadProjectSites, loadProjects, loadSession, loadSite, resetTracking, start, track } from './jobs.js';
 import { syncPanelWidths } from './panels.js';
@@ -223,6 +223,7 @@ app.addEventListener('click', (event) => {
   if (action === 'ask-selection') askAbout(button.dataset.compare === 'true' ? COMPARE_QUESTION : '');
   if (action === 'open-expert') location.hash = expertUrl(name, button.dataset.agent);
   if (action === 'model-apply') applyModelRecommendation();
+  if (action === 'deck-file') downloadDeck(button.dataset.format);
   if (action === 'open-chat') location.hash = expertUrl(name, button.dataset.agent, button.dataset.chat);
   if (action === 'new-chat') newChat(button.dataset.agent);
   if (action === 'run-expert') runExpert(name, button.dataset.agent, button.dataset.withoutSite === 'true');
