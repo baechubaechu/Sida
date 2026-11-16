@@ -2,10 +2,11 @@
 // talks the Sida screen shows), written and read through the talks API. What makes it about
 // the model is on the server: while this Rhino is connected the Conductor is told how the
 // document stands and what is selected (sida/experts/rhino/hooks.py). Nothing is sent from here
-// but the question.
+// but the question, and whether a picture of the active Rhino viewport should go with it: Sida
+// then asks the plugin for that picture itself (sida/views.py).
 
 import { api, projectApi, sleep } from './api.js';
-import { escapeHtml as escape, eventNotice, renderMarkdown } from './model.js';
+import { escapeHtml as escape, eventNotice, renderMarkdown, talkViewUrl } from './model.js';
 import { chatRows } from './rhino-model.js';
 
 const POLL_MS = 1000;
@@ -46,14 +47,15 @@ export function newTalk() {
   chat.changed();
 }
 
-export async function send(text) {
+// `withView`: a picture of the active Rhino viewport goes with the question.
+export async function send(text, withView = false) {
   const project = chat.project;
   if (!project || chat.busy || !text.trim()) return false;
   Object.assign(chat, { busy: true, error: '', pending: text.trim(), live: [] });
   chat.changed();
   try {
     if (!chat.talk) chat.talk = (await api(`${projectApi(project)}/talks`, { method: 'POST' })).talk.id;
-    const { job } = await api(`${projectApi(project)}/talks/${encodeURIComponent(chat.talk)}/messages`, { method: 'POST', body: { text: text.trim(), context: [] } });
+    const { job } = await api(`${projectApi(project)}/talks/${encodeURIComponent(chat.talk)}/messages`, { method: 'POST', body: { text: text.trim(), context: [], views: withView } });
     follow(project, job);
     return true;
   } catch (error) {
@@ -107,16 +109,26 @@ async function follow(project, job) {
   chat.changed();
 }
 
+// The pictures that went with a question: each opens large in a new tab, and under it what
+// Sida told the model of the document at that moment (the figures the answer was given on).
+function sentViews(views) {
+  return (views || []).map((view) => {
+    const url = escape(talkViewUrl(chat.project, view.file));
+    const facts = view.facts ? `<details><summary>그때 모델에 알려 준 수치</summary><pre>${escape(view.facts)}</pre></details>` : '';
+    return `<figure class="rc-view"><a href="${url}" target="_blank" rel="noopener" title="새 탭에서 크게 보기"><img src="${url}" alt="질문과 함께 보낸 라이노 화면" loading="lazy" decoding="async"></a>${facts}</figure>`;
+  }).join('');
+}
+
 // The talk's rows, or what to do when there are none yet.
 export function chatHtml(canAsk) {
   const rows = chatRows(chat.messages, chat.pending, chat.live);
   const body = rows.map((row) => {
-    if (row.kind === 'user') return `<article class="rc-user" aria-label="내 질문">${escape(row.text)}</article>`;
+    if (row.kind === 'user') return `<article class="rc-user" aria-label="내 질문">${escape(row.text)}${sentViews(row.views)}</article>`;
     if (row.kind === 'note') return `<p class="rc-note ${escape(row.tone || '')}">${escape(row.text)}</p>`;
     return `<article class="rc-answer"><h3>Sida</h3><div class="markdown">${renderMarkdown(row.text)}</div></article>`;
   }).join('');
   const empty = rows.length ? '' : `<div class="rc-empty">
-      <p>지금 열려 있는 모델을 두고 Sida에게 물어보세요. 모델의 수치(연면적, 건폐율, 용적률, 레이어의 의미)와 라이노에서 고른 개체가 질문과 함께 갑니다. 화면 캡처와 도형은 가지 않습니다.</p>
+      <p>지금 열려 있는 모델을 두고 Sida에게 물어보세요. 모델의 수치(연면적, 건폐율, 용적률, 레이어의 의미)와 라이노에서 고른 개체가 질문과 함께 갑니다. 도형은 가지 않습니다. 아래에서 켜면 지금 보이는 뷰 한 장도 같이 갑니다.</p>
       ${canAsk ? `<ul>${EXAMPLES.map((text) => `<li><button type="button" data-example="${escape(text)}">${escape(text)}</button></li>`).join('')}</ul>` : ''}
       <p class="rc-where">여기서 나눈 대화는 Sida 화면의 "이전 대화"에도 남습니다.</p></div>`;
   return `${empty}${body}

@@ -74,9 +74,40 @@ export async function loadTalk(name, id) {
   }
 }
 
+// Whether a Rhino is open on this project right now, and whether questions take its active view
+// along (the designer's switch, kept on this PC). Read when a conversation opens and when the
+// window gets the focus back (the designer comes over from Rhino); it decides only what the
+// composer offers: Sida itself asks Rhino for the picture when the question is sent.
+let switched = 0;  // counts the designer's flips of the switch: what was read before one does not undo it
+
+export async function readRhino(name) {
+  const before = switched;
+  try {
+    const [live, prefs] = await Promise.all([api('/api/rhino/live'), api('/api/rhino/prefs')]);
+    const now = { connected: Boolean(live.connected && live.state?.project === name), sendView: before === switched ? prefs.send_view === true : ui.rhino.sendView };
+    if (ui.project !== name || (now.connected === ui.rhino.connected && now.sendView === ui.rhino.sendView)) return;
+    ui.rhino = now;
+    render(false);
+  } catch {
+    // Sida did not answer: the composer stays as it was
+  }
+}
+
+export function setRhinoView(on) {
+  switched += 1;
+  ui.rhino = { ...ui.rhino, sendView: on };
+  api('/api/rhino/prefs', { method: 'PUT', body: { send_view: on } }).catch(() => {});  // not kept: it still holds until the page is left
+  render(false);
+}
+
+window.addEventListener('focus', () => {
+  if (currentRoute.name && ui.talkViews.length) readRhino(currentRoute.name);
+});
+
 // Selecting a conversation preserves each conversation's draft and paper context.
 export function openTalk(name, id, context = []) {
   dismissTalkMenu();
+  readRhino(name);
   const known = ui.talkViews.find((p) => p.id === id);
   ui.talkViews = [...ui.talkViews.filter((p) => p.id !== id), { id, context: known?.context || context }];
   ui.conductor = talkPanel(ui.conductor, 'select', id);
@@ -117,7 +148,8 @@ export function sendTalk(id) {
   if (!text || !view) return;
   if (jobRunning()) { toast('이전 작업이 아직 실행 중입니다. 끝나면 다시 보내 주세요.', 'warn'); return; }
   drafts.delete(key);
-  start(name, `${projectApi(name)}/talks/${encodeURIComponent(id)}/messages`, { text, context: view.context },
+  // With the switch on while Rhino is open on the project, its active view goes along (the switch is in this composer).
+  start(name, `${projectApi(name)}/talks/${encodeURIComponent(id)}/messages`, { text, context: view.context, views: ui.rhino.connected && ui.rhino.sendView },
     { target: key, text, context: pickedNames(view.context, ui.board) });
 }
 

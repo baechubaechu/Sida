@@ -70,6 +70,9 @@ export const ui = {
   ordinance: null, ordinanceError: '', ordinanceBusy: '', useFind: null, mapLayers: null, mapError: '', mapErrorStatus: 0,
   // Loaded conversations and their next-question contexts; closing the panel keeps both.
   talks: new Map(), talkViews: [],
+  // A Rhino open on this project right now, and the designer's switch for questions taking its
+  // active view along (talks.js readRhino). The composer offers the switch only while connected.
+  rhino: { connected: false, sendView: false },
   // The command line: history lines, typed lines for ↑↓, a command's open question, the last
   // command (an empty Enter repeats it), the highlighted suggestion and the help card.
   cmd: { lines: [], typed: [], back: -1, prompt: null, last: '', pick: 0, help: false },

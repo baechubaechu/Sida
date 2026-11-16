@@ -973,6 +973,9 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .paper-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border-radius: 999px; background: var(--selected); color: var(--brand); font-size: 12px; font-weight: 600; }
 .context-chips { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin: 26px 0 -18px; }
 .context-chips .paper-chip { padding-right: 10px; }
+/* A picture that went with a message (the Rhino view then), in the message under its words. */
+.sent-views { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; white-space: normal; }
+.sent-views img { display: block; width: 220px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 @container (max-width: 1000px) { .ui-tools button { padding: 7px 8px; } }
 @container (max-width: 640px) {
   /* A narrow table: the tools wrap at the top; the view group drops the tilt slider and the scale
@@ -1256,6 +1259,7 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .talk-composer { margin: 0 10px 10px; padding: 8px 10px 4px; }
 .talk-composer textarea { min-height: 34px; font-size: 14px; }
 .talk-context { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-bottom: 4px; }
+.talk-rhino-view { display: flex; align-items: center; gap: 8px; padding-bottom: 4px; font-size: 12px; color: var(--muted); }
 .talk-add-picked { font-size: 12px; color: var(--brand); border: 1px dashed var(--brand); border-radius: 6px; padding: 2px 8px; }
 .command-talks { flex-shrink: 0; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); font-size: 12px; font-weight: 600; color: var(--brand); }
 .command-talks.open { background: var(--selected); border-color: var(--brand); }

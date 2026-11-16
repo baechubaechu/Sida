@@ -284,7 +284,7 @@ def test_the_rhino_panel_is_a_page_of_its_own_that_asks_only_sidas_rhino_api(cli
     assert page.status_code == 200 and "/app/rhino-panel.js" in page.text and "/app/rhino.css" in page.text
     script = (webapp.APP_DIR / "rhino-panel.js").read_text(encoding="utf-8")
     asked = set(re.findall(r"/api/[a-z/]+", script))
-    assert asked == {"/api/rhino/hello", "/api/rhino/live", "/api/rhino/commands", "/api/projects"}
+    assert asked == {"/api/rhino/hello", "/api/rhino/live", "/api/rhino/commands", "/api/rhino/prefs", "/api/projects"}
     assert "rhino-model.js" in script  # what it shows is decided there (node-tested), not here
     # asking Sida from the panel is the project's own talks API, nothing of Rhino's
     chat = (webapp.APP_DIR / "rhino-chat.js").read_text(encoding="utf-8")
@@ -1800,6 +1800,16 @@ def test_a_question_takes_the_rhino_view_along_while_rhino_is_open_on_the_projec
     shown = client.get(f"{base}/session").json()["messages"][-2]["views"][0]
     assert "## Rhino right now" in shown["facts"] and client.get(f"{base}/talk-views/{shown['file']}").content == png
     rhino_live.reset()
+
+
+def test_taking_the_rhino_view_along_is_off_until_switched_on_and_kept_on_this_pc(client):
+    from sida import preferences
+
+    assert client.get("/api/rhino/prefs").json() == {"send_view": False}
+    assert client.put("/api/rhino/prefs", json={"send_view": True}).json() == {"send_view": True}
+    assert client.get("/api/rhino/prefs").json() == {"send_view": True} and preferences.get("rhino_send_view") is True
+    assert client.put("/api/rhino/prefs", json={"send_view": "yes"}).status_code == 400
+    assert client.put("/api/rhino/prefs", json={"send_view": False}).json() == {"send_view": False}
 
 
 def test_talks_reject_unknown_ids_and_empty_messages(session_api):

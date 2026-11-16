@@ -165,11 +165,16 @@ export function projectSummary(project) {
   return `전문가 ${done}/${project.visible_expert_count ?? project.expert_count} 완료`;
 }
 
+// Where a picture that went to the Conductor with a message is served (a message's views[].file).
+export function talkViewUrl(project, file) {
+  return `/api/projects/${encodeURIComponent(project)}/talk-views/${encodeURIComponent(file)}`;
+}
+
 // Stored chat entries (GET .../session or .../experts/{agent}/chat) → what the screen draws.
 export function chatItems(messages) {
   const items = [];
   for (const m of messages || []) {
-    if (m.role === 'user') items.push({ kind: 'user', text: m.text, context: m.context || [] });
+    if (m.role === 'user') items.push({ kind: 'user', text: m.text, context: m.context || [], views: m.views || [] });
     else if (m.role === 'conductor' || m.role === 'expert') items.push({ kind: m.role, text: m.text });
     else if (m.role === 'system') {
       const name = m.name || m.agent || '전문가';
@@ -218,6 +223,10 @@ export function eventNotice(event) {
       ? notice(`전문가 결과는 저장됐지만 Conductor가 이어서 답하지 못했습니다. ${data.reason || ''}`.trim(), 'warn', true)
       : notice(`Conductor가 답하지 못했습니다. 이 메시지는 기록되지 않았으니 다시 보내 주세요. ${data.reason || ''}`.trim(), 'error', true);
     case 'notice': return notice(String(data.message || ''), 'warn');
+    case 'views_shown': return notice(`지금 라이노 화면 ${(data.files || []).length || 1}장을 질문과 함께 보냈습니다. 수치는 그림이 아니라 글로 갑니다.`);
+    case 'views_unseen': return data.reason === 'model'
+      ? notice('지금 Conductor 모델은 그림을 볼 수 없어 화면 없이 글만 보냈습니다. 설정에서 그림을 보는 모델로 바꾸면 화면도 같이 갑니다.', 'warn', true)
+      : notice('라이노에서 화면을 받지 못해 글만 보냈습니다. 라이노가 연결돼 있고 실행 중인 명령이 없을 때 다시 보내 주세요.', 'warn', true);
     default: return null;
   }
 }

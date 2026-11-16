@@ -208,13 +208,15 @@ export function panelHash({ tab, project, talk }) {
 
 // The one line above the question field: what goes to Sida with the question. The model's
 // figures always go; what is selected in Rhino goes when something is.
-export function askContext(state) {
+// `withView`: the designer switched on "지금 보이는 뷰도 같이 보내기".
+export function askContext(state, withView = false) {
   const picked = state?.selection;
-  if (!picked?.count) return '지금 모델의 수치가 함께 갑니다. 라이노에서 개체를 고르면 그 개체를 두고 물을 수 있습니다.';
+  const view = withView ? ' 지금 보이는 뷰 한 장도 같이 갑니다.' : '';
+  if (!picked?.count) return `지금 모델의 수치가 함께 갑니다.${view || ' 라이노에서 개체를 고르면 그 개체를 두고 물을 수 있습니다.'}`;
   const of = picked.bodies
     ? ` (매스 ${picked.bodies}개, 연면적 ${fmt(picked.floor_area_m2 || 0)}㎡)`
     : ' (잰 매스는 없음)';
-  return `고른 개체 ${picked.count}개${of}와 지금 모델의 수치가 함께 갑니다.`;
+  return `고른 개체 ${picked.count}개${of}와 지금 모델의 수치가 함께 갑니다.${view}`;
 }
 
 // Whether a question can be asked now, and if not, why (shown instead of the hint).
@@ -231,8 +233,8 @@ export function askReady(live, status, busy) {
 export function chatRows(messages, pending, live) {
   const rows = chatItems(messages).map((item) => (item.kind === 'card'
     ? { kind: 'note', text: `${item.name} 결과가 나왔습니다. 문서는 Sida 화면에서 볼 수 있습니다.` }
-    : { kind: item.kind === 'expert' ? 'conductor' : item.kind, text: item.text, tone: '' }));
-  if (pending) rows.push({ kind: 'user', text: pending });
+    : { kind: item.kind === 'expert' ? 'conductor' : item.kind, text: item.text, tone: '', views: item.views || [] }));
+  if (pending) rows.push({ kind: 'user', text: pending, views: [] });
   for (const item of live || []) rows.push({ kind: item.kind, text: item.text, tone: item.tone || '' });
   return rows;
 }

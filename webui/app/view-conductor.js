@@ -1,6 +1,6 @@
 // The Conductor panel: saved talks, one conversation, the message composer (HTML strings).
 
-import { STATUS_LABELS, escapeHtml as escape, relativeDate, chatItems, expertStatus, renderMarkdown } from './model.js';
+import { STATUS_LABELS, escapeHtml as escape, relativeDate, chatItems, expertStatus, renderMarkdown, talkViewUrl } from './model.js';
 import { pickedNames } from './board-model.js';
 import { MAIN_JOBS, currentRoute, draftFor, expertById, jobRunning, tableShown, talkViewById, ui } from './state.js';
 
@@ -23,6 +23,15 @@ function contextChips(context) {
   return `<div class="context-chips" aria-label="함께 보낸 제도판 종이">${context.map((c) => `<span class="paper-chip">${escape(c.name || c.id)}</span>`).join('')}</div>`;
 }
 
+// The pictures that went to the Conductor with a message (the Rhino view at that moment); each opens large.
+function sentViews(views) {
+  if (!views?.length) return '';
+  return `<div class="sent-views" aria-label="함께 보낸 화면">${views.map((view) => {
+    const url = escape(talkViewUrl(currentRoute.name, view.file));
+    return `<a href="${url}" target="_blank" rel="noopener" title="새 탭에서 크게 보기"><img src="${url}" alt="질문과 함께 보낸 라이노 화면" loading="lazy" decoding="async"></a>`;
+  }).join('')}</div>`;
+}
+
 export function composer(key, placeholder, label, disabled) {
   return `<form class="composer" data-composer="${escape(key)}" aria-label="${escape(label)} 입력">
     ${pickedChips()}
@@ -39,7 +48,7 @@ function ideaButton(source) {
 }
 
 export function bubble(item, speaker, source = null) {
-  if (item.kind === 'user') return `${contextChips(item.context)}<article class="message-user" aria-label="내 메시지">${escape(item.text)}${source && item.text ? ideaButton(source) : ''}</article>`;
+  if (item.kind === 'user') return `${contextChips(item.context)}<article class="message-user" aria-label="내 메시지">${escape(item.text)}${sentViews(item.views)}${source && item.text ? ideaButton(source) : ''}</article>`;
   if (item.kind === 'note') return `<p class="event-note ${item.tone || ''}">${escape(item.text)}</p>`;
   if (item.kind === 'card') {
     const expert = expertById(item.agent);
@@ -151,6 +160,7 @@ function talkConversation(view) {
       </div>
       <form class="composer talk-composer" data-composer="${escape(key)}" aria-label="이 대화에 이어서 묻기">
         ${talkContext(view)}
+        ${ui.rhino.connected ? `<label class="talk-rhino-view"><input type="checkbox" data-rhino-view ${ui.rhino.sendView ? 'checked' : ''} title="질문을 보낼 때 라이노에서 지금 보이는 뷰 한 장이 같이 갑니다. 수치는 그림이 아니라 글로 갑니다."> 라이노 뷰도 같이 보내기</label>` : ''}
         <textarea data-focus="${escape(key)}" aria-label="이 대화에 이어서 묻기" placeholder="이어서 묻기" maxlength="6000" rows="1">${escape(draftFor(key))}</textarea>
         <div class="composer-footer"><span class="composer-hint">${busy ? '작업이 끝나면 보낼 수 있습니다.' : 'Enter로 보내기 · Shift+Enter로 줄 바꿈'}</span>
           <button class="send-button" type="submit" aria-label="이 대화에 보내기" ${busy ? 'disabled' : ''}>↑</button></div>
