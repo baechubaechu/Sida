@@ -43,7 +43,15 @@ from pathlib import Path
 import numpy as np
 
 from sida.board import EARTH_RADIUS
-from sida.experts.site import datago, ground_tiles, landapi, road_marks, street_trees, terrain_pack
+from sida.experts.site import (
+    datago,
+    ground_tiles,
+    landapi,
+    ledger_pack,
+    road_marks,
+    street_trees,
+    terrain_pack,
+)
 
 DEFAULT_RADIUS = 200.0  # m around the site's middle
 MAX_RADIUS = 500.0
@@ -75,6 +83,7 @@ CACHE_SECONDS = 600
 LEDGER_WORKERS = 4  # 건축물대장 lookups at once (more drops more replies on data.go.kr)
 LEDGER_RETRY = ("network", "bad_response")  # failures worth one more try, after LEDGER_WAIT s
 LEDGER_WAIT = 0.6
+LIVE_NEAR = 50.0  # m beyond the site within which the 건축물대장 is always asked live, not read from a ledger pack
 
 _cache: dict[tuple, tuple[float, dict]] = {}
 # 건축물대장 rows by PNU, kept CACHE_SECONDS so a change of range does not ask again for the parcels
@@ -691,11 +700,15 @@ def surroundings(
     frame: Frame, radius: float, ground_at: Callable, *, site_rings: list[np.ndarray] | None = None,
     http_get=None, ledger: Callable[[str], list[dict]] | None = None, packed: list[dict] | None = None,
     mapped: list[dict] | None = None, for_export: bool = False, shape: str = DEFAULT_SHAPE,
+    folder: Path | None = None,
 ) -> dict:
     """
     Buildings (with their height and where it came from) and parcels around the site. The
     buildings come from the packs (`packed`, GIS건물통합정보) where there are some, else from
     VWorld's 건축물정보 and 도로명주소 건물 layers.
+    Their 건축물대장 rows: from `ledger` for every parcel when it is given; else from a ledger pack
+    (ledger_pack.py, the monthly bulk file) where one covers the parcel, except within LIVE_NEAR m of
+    the site, which is always asked of data.go.kr so the buildings next to it are current.
     """
     box = frame.box(radius)
     notes: list[str] = []
@@ -749,7 +762,17 @@ def surroundings(
     pnus = {i: str(found[i][1].get("pnu") or "") or pnu_at(found[i][3]) for i in range(len(found)) if i not in inner}
     records: dict[str, list[dict]] = {}
     wanted = sorted({p for p in pnus.values() if p})
-    if wanted:
+    ledger_source = None
+    if wanted and ledger is None:
+        reach = max((float(np.hypot(r[:, 0], r[:, 1]).max()) for r in site_rings or [] if len(r)), default=0.0) + LIVE_NEAR
+        near = {pnus[i] for i in pnus if pnus[i] and float(np.hypot(*found[i][3])) <= reach}
+        from_pack, meta = ledger_pack.lookup([p for p in wanted if p not in near], folder)
+        records.update(from_pack)
+        if meta:
+            ledger_source = {"month": meta.get("month", ""), "from_pack": len(from_pack),
+                             "asked": len(wanted) - len(from_pack), "live_within_m": LIVE_NEAR}
+    to_ask = [p for p in wanted if p not in records]
+    if to_ask:
         look = ledger or _ledger_rows
 
         def one(pnu):
@@ -762,7 +785,7 @@ def surroundings(
                     time.sleep(LEDGER_WAIT)
 
         with ThreadPoolExecutor(max_workers=LEDGER_WORKERS) as pool:
-            for pnu, rows in pool.map(one, wanted):
+            for pnu, rows in pool.map(one, to_ask):
                 if isinstance(rows, str):
                     notes.append(f"ledger:{rows}")
                     records[pnu] = []
@@ -783,8 +806,11 @@ def surroundings(
     extra: list[dict] = []  # outlines found for 동 the file lacks: {ring, row, ratio, source, pnu}
     used_maps: set[int] = set()
     vworld_rings: list | None = None
+    by_pnu: dict[str, list[int]] = {}
+    for i, p in pnus.items():
+        by_pnu.setdefault(p, []).append(i)
     for pnu in wanted:
-        keys = [i for i, p in pnus.items() if p == pnu]
+        keys = by_pnu.get(pnu, [])
         taken, left = assign_ledger(records.get(pnu, []), [(i, found[i][2], found[i][1]) for i in keys])
         matched.update(taken)
         near = [found[i][3] for i in keys]
@@ -824,8 +850,9 @@ def surroundings(
                 extra.append({"ring": ring, "row": row, "ratio": round(abs(_area(ring)) / arch, 2),
                               "source": source, "pnu": pnu})
     # File outlines that lie mostly inside an outline found above are pieces of that building.
+    extra_boxes = Boxes(e["ring"] for e in extra)
     covered = {i for i in pnus if i not in matched
-               and any(overlap_share(found[i][0], e["ring"]) > OVERLAP for e in extra)}
+               and any(overlap_share(found[i][0], extra[k]["ring"]) > OVERLAP for k in extra_boxes.meeting(found[i][0]))}
     # A leftover file record carrying the name of a 대장 동 placed on another outline repeats that
     # building: its own height and floors are not used again.
     placed = {str(r.get("name") or "").strip() for r, _ratio in matched.values()} | {
@@ -905,7 +932,7 @@ def surroundings(
                 lots_out.append({"ring": [[round(float(x), 2), round(float(y), 2)] for x, y in ring],
                                  "road": jibun.strip().endswith("도"), "label": jibun.strip()})
     return {"buildings": buildings, "unknown_buildings": unknown, "left_out": left_out,
-            "parcels": lots_out, "counts": counts, "notes": notes}
+            "parcels": lots_out, "counts": counts, "notes": notes, "ledger_source": ledger_source}
 
 
 # ---------------------------------------------------------------------------
@@ -1183,7 +1210,8 @@ def build(plan: dict, radius: float = DEFAULT_RADIUS, *, folder: Path | None = N
             return sample(g["grid"], g["half"], g["step"], x, y)
     packed = [b for b in g["buildings"] if in_range(frame.local(b["ring"]).mean(axis=0), radius, key_shape)[0]]
     around = surroundings(frame, radius, ground_at, site_rings=site_rings, http_get=http_get, ledger=ledger,
-                          packed=packed, mapped=g["map_buildings"], for_export=for_export, shape=key_shape)
+                          packed=packed, mapped=g["map_buildings"], for_export=for_export, shape=key_shape,
+                          folder=folder)
 
     def source(s):
         return {"name": s.get("source", ""), "date": s.get("source_date", ""), "pack": s.get("name", "")}
