@@ -4,7 +4,8 @@ Make map packs (sida/experts/site/terrain_pack.py) from map downloads (VWorld �
 CC BY). Only what lies in the box is kept. Each kind of source goes in its own pack:
 
   --contours DIR   국토지리정보원 연속수치지형도 등고선 N3L_F0010000*.shp, 표고점 N3P_F0020000*.shp
-  --areas DIR      1:5,000 수치지형도 v2.0 SHP sheets (unzipped, any depth): 도로경계 N3A_A0010000,
+  --areas DIR      1:5,000 수치지형도 v2.0 SHP sheets (unzipped, any depth), or the same layers of a
+                   연속수치지형도 download (N3A_E0032111_11.shp …, a whole 시도): 도로경계 N3A_A0010000,
                    보도 N3A_A0033320, 하천경계 N3A_E0010001, 실폭하천 N3A_E0032111, 호소 N3A_E0052114,
                    and 건물 N3A_B0010000 (층수, 용도: floors where GIS건물통합정보 has none)
   --buildings PATH GIS건물통합정보 AL_D010_<시도>_<날짜>.zip (or a folder of them: the newest by the
@@ -169,7 +170,7 @@ def build(args, staging: Path, cleanup: ExitStack) -> int:
         path, conn = pack("areas", args.source_date)
         count = 0
         for layer, kind in AREA_LAYERS.items():
-            for shp in sorted(args.areas.rglob(f"{layer}.shp")):
+            for shp in layer_files(args.areas, layer):
                 tr, own = projected(shp)
                 for shape in shapefile.Reader(str(shp)[:-4], encoding="euc_kr").iterShapes():
                     if outside(shape.bbox, own):
@@ -179,7 +180,7 @@ def build(args, staging: Path, cleanup: ExitStack) -> int:
                         terrain_pack.add_area(conn, kind, [list(p) for p in zip(lons, lats, strict=True)])
                         count += 1
         houses = 0
-        for shp in sorted(args.areas.rglob("N3A_B0010000.shp")):
+        for shp in layer_files(args.areas, "N3A_B0010000"):
             tr, own = projected(shp)
             # building names hold a few characters outside euc-kr: cp949 reads them, a stray byte is replaced
             reader = shapefile.Reader(str(shp)[:-4], encoding="cp949", encodingErrors="replace")
@@ -473,6 +474,12 @@ def _dense(part, gap: float = ROAD_POINT_GAP):
         k = max(1, int(((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5 // gap))
         out += [(x1 + (x2 - x1) * s / k, y1 + (y2 - y1) * s / k, z1 + (z2 - z1) * s / k) for s in range(1, k + 1)]
     return out
+
+
+def layer_files(root: Path, layer: str) -> list[Path]:
+    """The files of one 수치지형도 layer under `root`, at any depth: a 1:5,000 sheet's `<layer>.shp`
+    and the pieces of a 연속수치지형도 download, `<layer>_<n>.shp` (one 시도 cut into numbered files)."""
+    return sorted(p for p in root.rglob(f"{layer}*.shp") if p.stem == layer or p.stem.startswith(f"{layer}_"))
 
 
 def _off_ground_test(lines, areas):

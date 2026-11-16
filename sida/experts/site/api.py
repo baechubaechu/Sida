@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from sida import board, telemetry, workspace
-from sida.experts.site import context3d, context_range, datago, landapi, site_facts
+from sida.experts.site import context3d, context_range, datago, landapi, ledger_sync, site_facts
 from sida.i18n import t
 from sida.project import load_project
 
@@ -125,6 +125,18 @@ def _address_router() -> APIRouter:
             raise HTTPException(status_code=400, detail=t("web_site_pnu_bad", pnu=bad))
         return {"shapes": [{"pnu": p, "shape": _land(landapi.parcel_shape, p)} for p in pnus]}
 
+    @router.get("/ledger")
+    def get_ledger() -> dict:
+        """This PC's 건축물대장 packs and the last check against the Sida relay (ledger_sync.status)."""
+        return ledger_sync.status()
+
+    @router.post("/ledger/update")
+    def update_ledger() -> dict:
+        """Ask the relay for newer packs now, in the background; `started` is false when one is running
+        or there is no access key."""
+        started = ledger_sync.check_soon(force=True)
+        return {**ledger_sync.status(), "started": started}
+
     @router.get("/uses")
     def get_uses(q: str = "") -> dict:
         query = " ".join(q.split())
@@ -188,6 +200,7 @@ def _project_router(load_config, core) -> APIRouter:
         plan = board.site_plan(site_facts.board_summary(facts)["parcels"])
         if plan is None:
             raise HTTPException(status_code=400, detail=t("web_site_context_no_plan"))
+        ledger_sync.check_soon()  # a newer month's 건축물대장 pack, at most once a day, for the next build
         out = _land(context3d.build, plan, radius, shape=shape, orient=orient)
         return {**out, "disclaimer": t("site_context_disclaimer")}
 
