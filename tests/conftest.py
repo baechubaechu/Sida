@@ -252,6 +252,7 @@ def isolated_settings(tmp_path, monkeypatch):
     # Terrain packs: never this machine's ~/Sida/context_data; no site surroundings cached across tests.
     monkeypatch.setattr(terrain_pack, "TERRAIN_DIR", tmp_path / "context_data")
     context3d._cache.clear()
+    context3d._ledger_cache.clear()
     for cache in (model_base._cache, model_base._grounds, model_base._cuts):
         cache.clear()
     yield

@@ -792,3 +792,44 @@ def test_street_trees_stand_along_the_packs_sidewalks(pack, monkeypatch):
     trees = context3d.build(plan_for_site(), 100, folder=pack, ledger=ledger, use_cache=False)["trees"]
     assert trees["points"] and all(abs(x) <= 100 and y == pytest.approx(-68.8, abs=0.01) for x, y, _ in trees["points"])
     assert "표현용" in trees["rule"]
+
+
+def test_a_change_of_range_does_not_ask_the_ledger_again_for_the_same_parcels(pack, monkeypatch):
+    fake_vworld_layers(monkeypatch)
+    asked = []
+    monkeypatch.setattr(context3d.datago, "buildings", lambda pnu: asked.append(pnu) or ledger(pnu))
+    context3d.build(plan_for_site(), 200, folder=pack)
+    first = len(asked)
+    assert first
+    context3d.build(plan_for_site(), 300, folder=pack)  # a bigger range: same parcels in it here
+    assert len(asked) == first
+
+
+def test_classify_tests_only_the_points_under_each_area_and_answers_as_testing_all():
+    rng = np.random.default_rng(3)
+    pts = rng.uniform(-100, 100, (400, 2))
+    areas = [(kind, rng.uniform(-60, 60, 2) + rng.uniform(-30, 30, (5, 2)))
+             for kind in ("road", "water", "sidewalk", "road")]
+    every = np.full(len(pts), "g", dtype="<U1")
+    taken = np.zeros(len(pts), dtype=bool)
+    for kind in context3d.CLASS_ORDER:
+        for k, ring in areas:
+            if k == kind:
+                hit = context3d.inside_many(pts, ring) & ~taken
+                every[hit] = context3d.CLASS_CODES[kind]
+                taken |= hit
+    assert context3d.classify(pts, areas) == "".join(every)
+
+
+def test_boxes_skip_rings_far_away_but_keep_every_touching_one():
+    rings = [np.array([[0, 0], [10, 0], [10, 10], [0, 10]], float), np.array([[50, 50], [60, 50], [60, 60]], float)]
+    boxes = context3d.Boxes(rings)
+    assert list(boxes.holding([5, 5])) == [0] and list(boxes.holding([100, 100])) == []
+    assert list(boxes.meeting(np.array([[9, 9], [55, 55], [9, 55]], float))) == [0, 1]
+    assert list(context3d.Boxes([]).holding([0, 0])) == []
+
+
+def test_away_from_roads_takes_an_array_too():
+    roads = np.array([[0.0, 0.0]])
+    fixed = np.array([[0.0, 5.0, 1.0], [0.0, 2.5 * context3d.ROAD_TRUST, 2.0]])
+    assert context3d.away_from_roads(fixed, roads).tolist() == [[0.0, 2.5 * context3d.ROAD_TRUST, 2.0]]
