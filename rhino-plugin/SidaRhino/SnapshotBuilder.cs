@@ -36,9 +36,20 @@ namespace SidaRhino
         public const int MaxFloors = 200;   // snapshot.py MAX_FLOORS
         private const double SectionLift = 0.05;  // metres above a floor level, so a box gives one clean section
 
+        /// <summary>
+        /// What was measured of one object, kept by the live link so that an object nobody touched
+        /// is not cut again: Rhino gives an object a new runtime serial number when its geometry
+        /// is replaced, and the rest of what the measuring depends on is kept beside it.
+        /// </summary>
+        public sealed record Measured(uint Serial, bool Cut, double? FloorHeight, double ToMetres, Dictionary<string, object?>? Item);
+
         /// <param name="built">The meaning codes Sida counts as building (from /api/rhino/hello).</param>
-        public static Dictionary<string, object?> Build(RhinoDoc doc, ICollection<string> built, bool withMeshes)
+        /// <param name="cache">Measurements from the last time (only read and written without meshes).</param>
+        public static Dictionary<string, object?> Build(RhinoDoc doc, ICollection<string> built, bool withMeshes, Dictionary<Guid, Measured>? cache = null)
         {
+            if (withMeshes)
+                cache = null;
+            var seen = new HashSet<Guid>();
             var toMetres = RhinoMath.UnitScale(doc.ModelUnitSystem, UnitSystem.Meters);
             var layers = new List<object>();
             var meaningByIndex = new Dictionary<int, (string Meaning, double? FloorHeight)>();
@@ -66,18 +77,38 @@ namespace SidaRhino
                     continue;
                 meaningByIndex.TryGetValue(obj.Attributes.LayerIndex, out var meant);
                 var meaning = meant.Meaning ?? "";
-                var measured = Measure(
-                    obj.Geometry, toMetres,
-                    cut: built.Contains(meaning),
-                    floorHeight: meant.FloorHeight,  // document units
-                    withMesh: withMeshes && meaning.Length > 0);
+                var cut = built.Contains(meaning);
+                Dictionary<string, object?>? measured;
+                if (cache != null && cache.TryGetValue(obj.Id, out var kept) && kept.Serial == obj.RuntimeSerialNumber
+                    && kept.Cut == cut && kept.FloorHeight == meant.FloorHeight && kept.ToMetres == toMetres)
+                {
+                    measured = kept.Item;
+                }
+                else
+                {
+                    measured = Measure(
+                        obj.Geometry, toMetres, cut,
+                        floorHeight: meant.FloorHeight,  // document units
+                        withMesh: withMeshes && meaning.Length > 0);
+                    if (cache != null)
+                        cache[obj.Id] = new Measured(obj.RuntimeSerialNumber, cut, meant.FloorHeight, toMetres, measured);
+                }
+                seen.Add(obj.Id);
                 if (measured == null)
                     continue;
-                measured["id"] = obj.Id.ToString();
-                measured["sida_id"] = obj.Attributes.GetUserString(Importer.IdKey) ?? obj.Attributes.GetUserString(Importer.FromKey);
-                measured["layer"] = layer.FullPath;
-                measured["name"] = obj.Name ?? "";
+                measured = new Dictionary<string, object?>(measured)  // the kept one stays as measured
+                {
+                    ["id"] = obj.Id.ToString(),
+                    ["sida_id"] = obj.Attributes.GetUserString(Importer.IdKey) ?? obj.Attributes.GetUserString(Importer.FromKey),
+                    ["layer"] = layer.FullPath,
+                    ["name"] = obj.Name ?? "",
+                };
                 objects.Add(measured);
+            }
+            if (cache != null)
+            {
+                foreach (var gone in cache.Keys.Where(id => !seen.Contains(id)).ToList())
+                    cache.Remove(gone);
             }
 
             var snapshot = new Dictionary<string, object?>
@@ -111,16 +142,7 @@ namespace SidaRhino
         /// </summary>
         private static Dictionary<string, object?>? Measure(GeometryBase geometry, double toMetres, bool cut, double? floorHeight, bool withMesh)
         {
-            Brep? brep = geometry switch
-            {
-                Brep b => b,
-                Extrusion e => e.ToBrep(true),
-                Surface s => s.ToBrep(),
-                SubD d => d.ToBrep(new SubDToBrepOptions()),
-                _ => null,
-            };
-            Mesh? mesh = geometry as Mesh;
-            if (brep == null && mesh == null)
+            if (!(geometry is Brep || geometry is Extrusion || geometry is Surface || geometry is SubD || geometry is Mesh))
                 return null;
             var box = geometry.GetBoundingBox(true);
             if (!box.IsValid)
@@ -134,6 +156,20 @@ namespace SidaRhino
                 ["footprint"] = null,
                 ["floors"] = new List<object>(),
             };
+            if (!cut && !withMesh)
+                return item;  // its extent is all that is asked: no need to turn it into a polysurface
+
+            Brep? brep = geometry switch
+            {
+                Brep b => b,
+                Extrusion e => e.ToBrep(true),
+                Surface s => s.ToBrep(),
+                SubD d => d.ToBrep(new SubDToBrepOptions()),
+                _ => null,
+            };
+            Mesh? mesh = geometry as Mesh;
+            if (brep == null && mesh == null)
+                return item;  // Rhino could not make a body of it: Sida counts it as not measurable
             if (cut)
             {
                 double? volume = null;

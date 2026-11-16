@@ -26,7 +26,7 @@
 
 - `layers[].meaning`: 설계자가 플러그인 패널에서 레이어마다 고른 의미. `housing`(주거) `commercial`(상업) `office`(업무) `culture`(문화·교육) `core`(코어·설비) `other`(기타 용도)는 건물로 세고, `outdoor`(외부 공간) `surroundings`(주변 건물) `site`(대지 경계) `ignore`(제외)는 세지 않습니다. 모르는 값은 의미 없음으로 둡니다. 의미 없는 레이어의 개체는 수치에서 빠지고 개수만 알려 줍니다.
 - `objects[]`: 보이는 입체(폴리서피스, 돌출, 서피스, SubD, 메시)마다. 건물 의미 레이어의 개체는 다 재고, 그 밖의 의미(주변 건물 등) 레이어의 개체는 `base`·`height`만, 의미 없는 레이어의 개체는 이름만 보냅니다(몇 개가 빠졌는지 알리려고). `sida_id`는 Sida에서 가져온 개체면 그 id(3dm 내보내기의 사용자 문자열 `sida.id`, 예 `mass-a:0`, 가져온 뒤 설계자가 고친 개체는 `sida.from`), 아니면 `null`. `volume`·`height`·`base`(가장 낮은 점의 z)·`footprint`·`floors`는 라이노가 잰 값이고 못 재면 `null`/빈 목록.
-- `footprint`는 고리 하나(`[[x, y], …]`)이거나 고리 여러 개(`[[[x, y], …], …]`, 50개까지)입니다. 다른 고리 안에 있는 고리는 뚫린 곳(중정)이고 떨어져 있는 고리는 또 한 덩어리입니다(짝홀 규칙). 저장할 때는 늘 고리 목록입니다. `floors`는 개체 바닥에서 레이어 층고마다 자른 단면의 높이(`z`)와 넓이(중정 제외)입니다. `mesh`는 화면용으로 선택이며 꼭짓점 20,000개를 넘으면 버리고 `mesh_dropped: true`가 남습니다(수치는 그대로). 개체 2,000개, 층 200개, 외곽선 점 500개까지.
+- `footprint`는 고리 하나(`[[x, y], …]`)이거나 고리 여러 개(`[[[x, y], …], …]`, 50개까지)입니다. 다른 고리 안에 있는 고리는 뚫린 곳(중정)이고 떨어져 있는 고리는 또 한 덩어리입니다(짝홀 규칙). 저장할 때는 늘 고리 목록입니다. `floors`는 개체 바닥에서 레이어 층고마다 자른 단면의 높이(`z`)와 넓이(중정 제외)입니다. `mesh`는 화면용으로 선택이며 꼭짓점 20,000개를 넘으면 버리고 `mesh_dropped: true`가 남습니다(수치는 그대로). 개체 20,000개, 층 200개, 외곽선 점 500개까지.
 - `views[]`: `kind`는 `plan` `axo` `persp` `elevation` `section` `eye`, `file`은 `plan.png`처럼 소문자·숫자 이름(8장, 각 10MB까지). 올릴 때 같은 이름의 PNG 파일을 함께 보냅니다.
 
 ## 수치 (`figures`)
@@ -51,7 +51,7 @@
 | 메서드·경로 | 요청 | 응답 |
 |---|---|---|
 | `GET /api/rhino/hello` | | `{ok, app, schema, meanings: [{code, word, built}], views}`. 플러그인이 Sida가 켜져 있는지, 어떤 스냅샷 형식을 읽는지 확인 |
-| `POST /api/projects/{name}/rhino/snapshots` | `multipart/form-data`: `snapshot`(스냅샷 JSON 문자열), `views`(선언한 뷰마다 PNG 파일, 파일 이름이 `views[].file`) | `201 {snapshot, figures, paper, rev}`. `snapshot`은 요약(`id, taken_at, file, version, objects, layers, views, origin`). 형식이 틀리면 `400`(이유 포함), 선언한 뷰 파일이 빠져도 `400` |
+| `POST /api/projects/{name}/rhino/snapshots` | `multipart/form-data`: `snapshot`(스냅샷 JSON을 담은 파일 부분, 예: `snapshot.json`, 64MB까지. 메시가 들어가면 몇 MB가 되어 폼 필드로는 1MB에서 막히므로 파일로 보냅니다), `views`(선언한 뷰마다 PNG 파일, 파일 이름이 `views[].file`) | `201 {snapshot, figures, paper, rev}`. `snapshot`은 요약(`id, taken_at, file, version, objects, layers, views, origin`). 형식이 틀리면 `400`(이유 포함), 선언한 뷰 파일이 빠져도 `400` |
 | `GET /api/projects/{name}/rhino/snapshots` | | `{snapshots: [요약…]}` 새 것부터 |
 | `GET /api/projects/{name}/rhino/snapshots/{id}` | | `{snapshot, figures}` 스냅샷 전체(메시 포함) |
 | `GET /api/projects/{name}/rhino/snapshots/{id}/views/{file}` | | 그 뷰의 PNG. 없으면 `404` |
@@ -64,7 +64,7 @@
 
 | 메서드·경로 | 요청 | 응답 |
 |---|---|---|
-| `POST /api/rhino/live` | 플러그인: `{doc, file, units, project, autosync, snapshot, notice}`. `doc`은 플러그인이 정한 문서 id, `snapshot`은 뷰·메시 없는 스냅샷(없으면 `null`), `notice`는 방금 한 일의 결과 `{text, ok}`(선택) | `{rev}`. 패널에 보이는 것이 바뀌었을 때만 `rev`가 오릅니다 |
+| `POST /api/rhino/live` | 플러그인: `{doc, file, units, project, autosync, snapshot, notice}`. `doc`은 플러그인이 정한 문서 id(라이노 하나에 하나, `rhino-<프로세스 번호>`: 그 라이노의 지금 문서), `snapshot`은 뷰·메시 없는 스냅샷(없으면 `null`), `notice`는 방금 한 일의 결과 `{text, ok}`(선택) | `{rev}`. 패널에 보이는 것이 바뀌었을 때만 `rev`가 오릅니다 |
 | `GET /api/rhino/live?doc=` | 패널. `doc`이 없으면 가장 최근에 물어 온 문서 | `{connected, rev, state}`. `state`는 `{doc, file, units, project, project_known, autosync, rhino, layers: [{path, meaning, color, floor_height, objects}], objects, figures, notice: {text, ok, at, n}}`. 도형은 담지 않습니다. 플러그인이 5초 넘게 묻지 않으면 `connected: false` |
 | `POST /api/rhino/commands` | 패널: `{doc, type, …}`. `type`은 `pull`, `push`, `set_project`(`project`), `set_layer`(`path`, `meaning`, `floor_height` m 또는 `null`), `set_autosync`(`on`), `report` | `{id}`. 모르는 `type`·의미, 연결된 적 없는 `doc`은 `400` |
 | `GET /api/rhino/commands?doc=&after=` | 플러그인. `after`는 끝낸 마지막 명령 id | `{known, commands: [{id, type, …}]}`. 묻는 것이 곧 연결 신호입니다 |

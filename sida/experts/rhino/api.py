@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
 from sida import board, workspace
@@ -49,15 +49,19 @@ def create_router(load_config, core) -> APIRouter:
     @router.post("/api/projects/{name}/rhino/snapshots")
     def push(
         name: str,
-        snapshot_json: Annotated[str, Form(alias="snapshot")],
+        snapshot_file: Annotated[UploadFile, File(alias="snapshot")],
         views: Annotated[list[UploadFile], File()] = [],  # noqa: B006 (FastAPI reads the default)
     ) -> JSONResponse:
         """Save a snapshot with its view images (one file per declared view, named as declared);
-        the newest snapshot becomes the table's "라이노 작업" paper."""
+        the newest snapshot becomes the table's "라이노 작업" paper. The snapshot comes as a file
+        part, not a form field: with its meshes it is megabytes, and a field stops at 1 MB."""
         path = project(name)
+        body = snapshot_file.file.read(snapshot.MAX_SNAPSHOT_BYTES + 1)
         try:
-            raw = json.loads(snapshot_json)
-        except json.JSONDecodeError as exc:
+            if len(body) > snapshot.MAX_SNAPSHOT_BYTES:
+                raise ValueError("too large")
+            raw = json.loads(body.decode("utf-8"))
+        except ValueError as exc:  # too large, not UTF-8, or not JSON
             raise HTTPException(status_code=400, detail=t("web_rhino_snapshot_json")) from exc
         files = {v.filename: v.file.read(snapshot.MAX_VIEW_BYTES + 1) for v in views if v.filename}
         saved = call(snapshot.save_snapshot, path, raw, files)

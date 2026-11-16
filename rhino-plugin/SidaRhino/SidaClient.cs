@@ -7,25 +7,26 @@ using System.Text.Json;
 
 namespace SidaRhino
 {
-    /// <summary>One Sida project as the app lists it.</summary>
-    public sealed record SidaProject(string Name, string DisplayName);
-
     /// <summary>A layer meaning Sida knows (from /api/rhino/hello): its code and Korean word.</summary>
     public sealed record Meaning(string Code, string Word, bool Built);
 
-    /// <summary>What Sida answered to a push or a live figures request.</summary>
+    /// <summary>What Sida answered to a push: its figure lines and the snapshot it saved.</summary>
     public sealed record FigureLines(IReadOnlyList<string> Lines, string? SnapshotId);
 
     /// <summary>
     /// The HTTP side: Sida runs on this PC at 127.0.0.1:8765 (docs/rhino-api.md). Calls are
-    /// synchronous and short; Rhino commands run on the UI thread and the server is local.
+    /// synchronous: the commands (pull, push) make theirs on Rhino's UI thread, the live link
+    /// makes its own on a background thread.
     /// </summary>
     public sealed class SidaClient
     {
         public const string DefaultBaseUrl = "http://127.0.0.1:8765";
         public const int Schema = 1;
 
-        private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+        // Long: the first export of a project builds its surroundings on the server (half a minute and more).
+        private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(300) };
+        // Short: the live link asks twice a second from a background thread and must notice a stopped Sida soon.
+        private static readonly HttpClient Quick = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
         private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
         {
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
@@ -43,7 +44,7 @@ namespace SidaRhino
         {
             try
             {
-                using var response = Http.GetAsync(BaseUrl + "/api/rhino/hello").GetAwaiter().GetResult();
+                using var response = Quick.GetAsync(BaseUrl + "/api/rhino/hello").GetAwaiter().GetResult();
                 if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                     throw new SidaException("켜져 있는 Sida가 라이노 연결보다 오래된 버전입니다. Sida를 업데이트한 뒤 다시 하세요.");
                 EnsureOk(response);
@@ -69,24 +70,11 @@ namespace SidaRhino
             }
         }
 
-        public IReadOnlyList<SidaProject> Projects()
-        {
-            using var doc = GetJson("/api/projects");
-            var projects = new List<SidaProject>();
-            foreach (var item in doc.RootElement.GetProperty("projects").EnumerateArray())
-            {
-                var name = item.GetProperty("name").GetString() ?? "";
-                var shown = item.TryGetProperty("display_name", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null;
-                projects.Add(new SidaProject(name, string.IsNullOrWhiteSpace(shown) ? name : shown!));
-            }
-            return projects;
-        }
-
         /// <summary>The drafting table as a 3dm file in metres (the board export).</summary>
         public byte[] Export3dm(string project)
         {
-            var response = Http.GetAsync($"{BaseUrl}/api/projects/{Uri.EscapeDataString(project)}/board/export?format=3dm")
-                .GetAwaiter().GetResult();
+            var response = Sent(() => Http.GetAsync($"{BaseUrl}/api/projects/{Uri.EscapeDataString(project)}/board/export?format=3dm")
+                .GetAwaiter().GetResult());
             EnsureOk(response);
             return response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
         }
@@ -95,29 +83,36 @@ namespace SidaRhino
         public FigureLines Push(string project, Dictionary<string, object?> snapshot, IReadOnlyDictionary<string, byte[]> views)
         {
             using var form = new MultipartFormDataContent();
-            form.Add(new StringContent(JsonSerializer.Serialize(snapshot, JsonOptions), Encoding.UTF8, "application/json"), "snapshot");
+            // A file part, not a form field: with its meshes the snapshot is megabytes and Sida's server stops a field at 1 MB.
+            var json = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(snapshot, JsonOptions));
+            json.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+            form.Add(json, "snapshot", "snapshot.json");
             foreach (var (file, bytes) in views)
             {
                 var part = new ByteArrayContent(bytes);
                 part.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
                 form.Add(part, "views", file);
             }
-            var response = Http.PostAsync($"{BaseUrl}/api/projects/{Uri.EscapeDataString(project)}/rhino/snapshots", form)
-                .GetAwaiter().GetResult();
+            var response = Sent(() => Http.PostAsync($"{BaseUrl}/api/projects/{Uri.EscapeDataString(project)}/rhino/snapshots", form)
+                .GetAwaiter().GetResult());
             EnsureOk(response);
             using var doc = JsonDocument.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
             return new FigureLines(Lines(doc.RootElement.GetProperty("figures")), doc.RootElement.GetProperty("snapshot").GetProperty("id").GetString());
         }
 
-        /// <summary>Figures for a snapshot Sida does not keep (the panel while the designer models).</summary>
-        public FigureLines Figures(string project, Dictionary<string, object?> snapshot)
+        /// <summary>What the panel wants done next ({known, commands}); asking is also this Rhino's heartbeat.</summary>
+        public JsonDocument Pending(string doc, long after)
         {
-            var body = new StringContent(JsonSerializer.Serialize(snapshot, JsonOptions), Encoding.UTF8, "application/json");
-            var response = Http.PostAsync($"{BaseUrl}/api/projects/{Uri.EscapeDataString(project)}/rhino/figures", body)
-                .GetAwaiter().GetResult();
+            var response = Quick.GetAsync($"{BaseUrl}/api/rhino/commands?doc={Uri.EscapeDataString(doc)}&after={after}").GetAwaiter().GetResult();
             EnsureOk(response);
-            using var doc = JsonDocument.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
-            return new FigureLines(Lines(doc.RootElement.GetProperty("figures")), null);
+            return JsonDocument.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+        }
+
+        /// <summary>Tell Sida how the document stands (the live panel reads it).</summary>
+        public void Report(Dictionary<string, object?> report)
+        {
+            var body = new StringContent(JsonSerializer.Serialize(report, JsonOptions), Encoding.UTF8, "application/json");
+            EnsureOk(Quick.PostAsync($"{BaseUrl}/api/rhino/live", body).GetAwaiter().GetResult());
         }
 
         private static IReadOnlyList<string> Lines(JsonElement figures)
@@ -128,11 +123,20 @@ namespace SidaRhino
             return lines;
         }
 
-        private JsonDocument GetJson(string path)
+        private static HttpResponseMessage Sent(Func<HttpResponseMessage> send)
         {
-            var response = Http.GetAsync(BaseUrl + path).GetAwaiter().GetResult();
-            EnsureOk(response);
-            return JsonDocument.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+            try
+            {
+                return send();
+            }
+            catch (HttpRequestException)
+            {
+                throw new SidaException("Sida 앱과 연결이 끊겼습니다. Sida가 켜져 있는지 확인한 뒤 다시 하세요.");
+            }
+            catch (System.Threading.Tasks.TaskCanceledException)
+            {
+                throw new SidaException("Sida가 너무 오래 대답하지 않습니다. Sida 창을 확인한 뒤 다시 하세요.");
+            }
         }
 
         private static void EnsureOk(HttpResponseMessage response)

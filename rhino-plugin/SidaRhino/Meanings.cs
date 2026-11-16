@@ -17,6 +17,7 @@ namespace SidaRhino
         public const string ProjectKey = "sida.project";
         public const string MeaningKey = "sida.meaning";
         public const string FloorHeightKey = "sida.floor_height";
+        public const string AutosyncKey = "sida.autosync";
 
         public static string? Project(RhinoDoc doc)
         {
@@ -27,6 +28,14 @@ namespace SidaRhino
         public static void SetProject(RhinoDoc doc, string name)
         {
             doc.Strings.SetString(ProjectKey, name);
+        }
+
+        /// <summary>Push to Sida every time this document is saved.</summary>
+        public static bool Autosync(RhinoDoc doc) => doc.Strings.GetValue(AutosyncKey) == "1";
+
+        public static void SetAutosync(RhinoDoc doc, bool on)
+        {
+            doc.Strings.SetString(AutosyncKey, on ? "1" : "");
         }
 
         public static string MeaningOf(Layer layer)

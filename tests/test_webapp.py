@@ -1295,7 +1295,10 @@ def test_rhino_api_takes_a_snapshot_with_its_views_lays_the_paper_and_answers_li
     base = f"/api/projects/{project.name}/rhino"
     png = rhino_snapshot.PNG + b"\x00" * 8
     files = [("views", ("plan.png", png, "image/png")), ("views", ("axo.png", png, "image/png"))]
-    r = client.post(f"{base}/snapshots", data={"snapshot": _json.dumps(raw)}, files=files)
+    def part(value) -> tuple:
+        return ("snapshot", ("snapshot.json", value if isinstance(value, bytes) else _json.dumps(value).encode("utf-8"), "application/json"))
+
+    r = client.post(f"{base}/snapshots", files=[part(raw), *files])
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["snapshot"]["file"] == "studio.3dm" and body["snapshot"]["objects"] == 5
@@ -1319,14 +1322,33 @@ def test_rhino_api_takes_a_snapshot_with_its_views_lays_the_paper_and_answers_li
     assert live.status_code == 200 and live.json()["figures"]["floor_area_m2"] == 900.0 and live.json()["figures"]["unmeasured"] == []
     assert [s["id"] for s in client.get(f"{base}/snapshots").json()["snapshots"]] == [snapshot_id]  # nothing saved
 
-    bad = client.post(f"{base}/snapshots", data={"snapshot": _json.dumps({**raw, "schema": 3})}, files=files)
+    bad = client.post(f"{base}/snapshots", files=[part({**raw, "schema": 3}), *files])
     assert bad.status_code == 400 and "schema must be 1" in bad.json()["detail"]
-    assert client.post(f"{base}/snapshots", data={"snapshot": "{not json"}, files=files).status_code == 400
-    missing = client.post(f"{base}/snapshots", data={"snapshot": _json.dumps(raw)}, files=files[:1])
+    assert client.post(f"{base}/snapshots", files=[part(b"{not json"), *files]).status_code == 400
+    assert client.post(f"{base}/snapshots", files=[part(b"\xff\xfe"), *files]).status_code == 400
+    missing = client.post(f"{base}/snapshots", files=[part(raw), files[0]])
     assert missing.status_code == 400 and "axo.png" in missing.json()["detail"]
     assert client.delete(f"{base}/snapshots/{snapshot_id}").status_code == 200
     assert client.get(f"{base}/snapshots").json()["snapshots"] == []
     assert client.get("/api/projects/nope/rhino/snapshots").status_code == 404
+
+
+def test_rhino_push_takes_a_snapshot_of_megabytes(client, project):
+    """A real document's snapshot is megabytes (the meshes of the surroundings). It comes as a
+    file part: as a form field the server would refuse it at 1 MB."""
+    import json as _json
+
+    from sida.experts.rhino import snapshot as rhino_snapshot
+
+    raw = _json.loads((ROOT / "tests" / "fixtures" / "rhino" / "snapshot_studio.json").read_text(encoding="utf-8"))
+    mesh = {"v": [[i * 0.001, 0.0, 0.0] for i in range(18000)], "f": [[0, 1, 2]]}
+    extra = [{**raw["objects"][1], "id": f"big{i}", "sida_id": None, "mesh": mesh} for i in range(4)]
+    body = _json.dumps({**raw, "views": [], "objects": [*raw["objects"], *extra]}).encode("utf-8")
+    assert len(body) > 1024 * 1024
+    r = client.post(f"/api/projects/{project.name}/rhino/snapshots", files=[("snapshot", ("snapshot.json", body, "application/json"))])
+    assert r.status_code == 201, r.text
+    assert r.json()["snapshot"]["objects"] == len(raw["objects"]) + 4
+    assert rhino_snapshot.MAX_OBJECTS >= 20000  # the surroundings of a dense site are hundreds of bodies already
 
 
 def test_rhino_live_api_carries_the_document_to_the_panel_and_the_panels_asks_to_the_plugin(client, project):
