@@ -1719,6 +1719,38 @@ def test_talks_keep_their_own_history_and_share_the_project(session_api, project
     assert (project.path / "talks" / "02.json").exists()
 
 
+def test_a_message_takes_pictures_along_and_the_talk_keeps_them(session_api, project, monkeypatch):
+    from sida import views
+
+    client, base, conductor = session_api
+    png = b"\x89PNG\r\n\x1a\n" + b"view"
+    made = []
+    monkeypatch.setattr(views, "ask", lambda path, hooks=None: made.append(path) or [
+        {"data": png, "media_type": "image/png", "about": "the Rhino view Perspective", "facts": "용적률 210%"}])
+    conductor.sees_images = lambda model: True
+    conductor.replies += ['봤습니다\n```action\n{"type":"none"}\n```'] * 2
+    talk = client.post(f"{base}/talks").json()["talk"]["id"]
+
+    job = finished_job(client, base, client.post(f"{base}/talks/{talk}/messages", json={"text": "이 매스 어때?", "views": True}))
+    assert job["status"] == "done" and [e["kind"] for e in job["events"]] == ["views_shown", "conductor_reply"]
+    file = job["events"][0]["data"]["files"][0]
+    assert any(part.get("type") == "image" for part in conductor.calls[-1]["messages"][-1]["content"])
+    asked = client.get(f"{base}/talks/{talk}").json()["messages"][0]
+    assert asked == {"role": "user", "text": "이 매스 어때?", "views": [
+        {"file": file, "about": "the Rhino view Perspective", "facts": "용적률 210%", "at": asked["views"][0]["at"]}]}
+    assert client.get(f"{base}/talks").json()["talks"][-1]["title"] == "이 매스 어때?"
+    shown = client.get(f"{base}/talk-views/{file}")
+    assert shown.status_code == 200 and shown.content == png and shown.headers["content-type"] == "image/png"
+    assert client.get(f"{base}/talk-views/board.json").status_code == 404
+    assert client.get(f"{base}/talk-views/20261117-101502-000000-0.png").status_code == 404
+
+    finished_job(client, base, client.post(f"{base}/session/messages", json={"text": "그림 없이"}))
+    assert len(made) == 1  # asked for only with the message that wanted a picture
+
+    assert client.delete(f"{base}/talks/{talk}").status_code == 200  # its pictures go with the talk
+    assert client.get(f"{base}/talk-views/{file}").status_code == 404 and list((project.path / views.DIR).iterdir()) == []
+
+
 def test_talks_reject_unknown_ids_and_empty_messages(session_api):
     client, base, _conductor = session_api
     assert client.get(f"{base}/talks/02").status_code == 404

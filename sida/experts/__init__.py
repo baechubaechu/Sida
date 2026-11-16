@@ -20,6 +20,13 @@ imports a domain by name and adding a domain touches no shared file. `hooks.py` 
       the facts, the lot in the frame massing blocks stand in, the surroundings, and the designer's
       Rhino document while one is open on the project. "" for nothing;
       it must be quick (a message waits for it) and never raise.
+  conductor_views(project_dir: Path) -> list[dict]
+      Pictures to show the Conductor with the message being sent now (sida/views.py):
+      [{"data": bytes (PNG or JPEG), "about": one English line on what it shows, "facts": the
+      domain's figures at that moment as text, "" for none}]. Asked only when the designer
+      wanted pictures with this message and the Conductor's model can look at them; the message
+      waits for it, so it may take a few seconds at most, and it must never raise. [] for
+      nothing (the designer is then told the message went without a picture).
   board_ground(project_dir: Path) -> dict | None
       The ground around the site as a height grid (board_export surface form), so the export
       stands each mass on the ground under it. The first domain that answers is used.

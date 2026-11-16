@@ -520,3 +520,106 @@ def test_site_reader_runs_on_a_saved_site_and_other_experts_never_wait(tmp_path)
     assert run_needs({}, other, tmp_path) is None
     site_facts.save_facts(tmp_path, {"parcels": [{"pnu": "4141010500106890014"}]})
     assert run_needs({}, site, tmp_path) is None
+
+
+# --- pictures with a message (sida/views.py) ---
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"view"
+
+
+@pytest.fixture
+def seeing(scripted):
+    """A scripted Conductor whose model looks at pictures."""
+
+    class Seeing(scripted):
+        @staticmethod
+        def sees_images(model):
+            return True
+
+    return Seeing
+
+
+@pytest.fixture
+def rhino_view(monkeypatch):
+    """A domain that has one picture for each message that asks for one; counts the asking."""
+    from sida import views
+
+    asked = []
+
+    def ask(path, hooks=None):
+        asked.append(path)
+        return [{"data": PNG, "media_type": "image/png", "about": "the Rhino view Perspective", "facts": "FAR 210%"}]
+
+    monkeypatch.setattr(views, "ask", ask)
+    return asked
+
+
+def pictures(call):
+    """The picture parts in one call to the model, by the message they are on."""
+    return {i: [p for p in m["content"] if p.get("type") == "image"] for i, m in enumerate(call["messages"])
+            if isinstance(m.get("content"), list) and any(p.get("type") == "image" for p in m["content"])}
+
+
+def test_a_picture_goes_with_the_message_that_asked_for_it_and_again_with_the_next(core, seeing, rhino_view):
+    from sida import views
+
+    s = core(c_provider=seeing([NONE, NONE]))
+    engine.converse(s, "이 매스 어때?", with_views=True)
+    assert kinds(s) == ["views_shown", "conductor_reply"] and len(rhino_view) == 1
+    file = s.events[0][1]["files"][0]
+    assert s.history[0]["content"] == f"이 매스 어때?\n\n[pictures shown] {file}"
+    assert views.record(s.project.path, file)["facts"] == "FAR 210%"  # the figures then stay beside the picture
+    first = s.c_provider.calls[0]["messages"]
+    assert list(pictures(s.c_provider.calls[0])) == [len(first) - 1]
+    assert "Never read or estimate a dimension" in first[-1]["content"][0]["text"]
+
+    engine.converse(s, "그럼 저층부는?")  # no picture asked for: the last one is shown again, on its own message
+    assert len(rhino_view) == 1 and kinds(s)[2:] == ["conductor_reply"]
+    second = s.c_provider.calls[1]["messages"]
+    assert list(pictures(s.c_provider.calls[1])) == [len(second) - 3] and second[-1]["content"] == "그럼 저층부는?"
+    assert engine.history_messages(s.history)[0] == {"role": "user", "text": "이 매스 어때?", "views": [{"file": file}]}
+
+
+def test_a_model_that_cannot_look_is_sent_no_picture_and_the_designer_is_told(core, scripted, rhino_view):
+    s = core(c_provider=scripted([NONE]))
+    engine.converse(s, "이 매스 어때?", with_views=True)
+    assert kinds(s) == ["views_unseen", "conductor_reply"] and s.events[0][1] == {"reason": "model"}
+    assert rhino_view == [] and s.history[0]["content"] == "이 매스 어때?"  # no picture was even made
+    assert pictures(s.c_provider.calls[0]) == {}
+
+
+def test_no_picture_to_send_is_said_and_the_message_still_goes(core, seeing, monkeypatch):
+    from sida import views
+
+    monkeypatch.setattr(views, "ask", lambda path, hooks=None: [])
+    s = core(c_provider=seeing([NONE]))
+    engine.converse(s, "이 매스 어때?", with_views=True)
+    assert kinds(s) == ["views_unseen", "conductor_reply"] and s.events[0][1] == {"reason": "none"}
+    assert s.history[0]["content"] == "이 매스 어때?" and not (s.project.path / views.DIR).exists()
+
+
+def test_a_model_that_refuses_the_picture_is_asked_again_without_it(core, seeing, rhino_view, monkeypatch):
+    from sida import providers, views
+
+    monkeypatch.setattr(providers, "_NO_IMAGES", set())
+    s = core(c_provider=seeing([providers.ImagesUnsupported("no vision"), NONE, NONE]))
+    turn = engine.converse(s, "이 매스 어때?", with_views=True)
+    assert turn.error is None and kinds(s) == ["views_shown", "views_unseen", "conductor_reply"]
+    assert pictures(s.c_provider.calls[0]) and not pictures(s.c_provider.calls[1])
+    assert s.history[0]["content"] == "이 매스 어때?"  # nothing says a picture was shown
+    assert list((s.project.path / views.DIR).iterdir()) == []
+    engine.converse(s, "다시", with_views=True)  # and it is not sent another
+    assert len(rhino_view) == 1 and s.events[-2] == ("views_unseen", {"reason": "model"})
+
+
+def test_a_message_that_asks_for_no_picture_makes_none(core, seeing, rhino_view):
+    s = core(c_provider=seeing([NONE]))
+    engine.converse(s, "이 매스 어때?")
+    assert rhino_view == [] and kinds(s) == ["conductor_reply"] and pictures(s.c_provider.calls[0]) == {}
+
+
+def test_history_shows_the_papers_and_the_pictures_sent_with_a_message():
+    content = "보자\n\n[selected on the table] n1 = 메모: 북측 일조\n\n[pictures shown] 20261117-101502-000001-0.png"
+    assert engine.history_messages([{"role": "user", "content": content}]) == [
+        {"role": "user", "text": "보자", "context": [{"id": "n1", "name": "메모: 북측 일조"}],
+         "views": [{"file": "20261117-101502-000001-0.png"}]}]

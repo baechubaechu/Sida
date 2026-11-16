@@ -27,6 +27,9 @@ Event kinds and their data:
   state_applied     agent, path
   state_unchanged   agent
   state_failed      agent, reason    (model error or a changed source; nothing written)
+  views_shown       files            (pictures went to the Conductor with the message, sida/views.py)
+  views_unseen      reason ("model": the Conductor's model cannot look at pictures | "none": no
+                    picture could be made); the message went without one
 """
 
 from __future__ import annotations
@@ -36,7 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from sida import board
+from sida import board, views
 from sida.conductor import ask_conductor, parse_action
 from sida.conductor_context import render_conductor_prompt
 from sida.config import ROOT, agent_by_id, get_agents, is_held, resolve_agent
@@ -45,7 +48,7 @@ from sida.experts import run_needs
 from sida.i18n import get_language
 from sida.project import MAIN_TALK, Project, open_or_create
 from sida.project_documents import DocumentConflict
-from sida.providers import LLMError, format_usage
+from sida.providers import ImagesUnsupported, LLMError, format_usage, images_refused, sees_images
 from sida.runtime import conductor_provider, worker_provider
 from sida.state_revisions import content_revision, module_revisions
 from sida.worker import run_worker_agent
@@ -320,6 +323,8 @@ def conductor_turn(
     pending_text = user_text
     replies: list[str] = []
     table_context, board_tool = table_for_conductor(session)
+    asked = [{"role": "user", "content": user_text}] if user_text is not None and not ephemeral else []
+    shown = views.latest(session.project.path, session.history + asked) if _sees_pictures(session) else []
     while True:
         try:
             reply, action, usage = ask_conductor(
@@ -339,8 +344,18 @@ def conductor_turn(
                 extra_messages=extra,
                 table_context=table_context,
                 board_tool=board_tool,
+                views=shown,
             )
         except LLMError as exc:
+            if isinstance(exc, ImagesUnsupported) and shown:
+                # The model turned out not to look at pictures: say so and ask again without them.
+                images_refused(session.c_provider, _conductor_model(session))
+                session.send("views_unseen", reason="model")
+                shown = []
+                if asked and pending_text is not None:
+                    pending_text, files = views.split(pending_text)
+                    views.forget(session.project.path, files)
+                continue
             extra_data = {"after_run": True} if after_run else {}
             session.send("conductor_error", reason=str(exc), **extra_data)
             return Turn("continue", replies=replies, error=str(exc))
@@ -429,6 +444,32 @@ def conductor_turn(
         ephemeral = True
 
 
+def _conductor_model(session: Session) -> str:
+    from sida.runtime import resolve_conductor_runtime
+
+    return str(resolve_conductor_runtime(session.config)["model"])
+
+
+def _sees_pictures(session: Session) -> bool:
+    return sees_images(session.c_provider, _conductor_model(session))
+
+
+def take_views(session: Session) -> list[str]:
+    """The designer wanted pictures with the message being sent: ask the domains for them and
+    keep them in the project. Returns their files ([] when the model cannot look at pictures or
+    none could be made; the designer is told which)."""
+    if not _sees_pictures(session):
+        session.send("views_unseen", reason="model")
+        return []
+    kept = views.keep(session.project.path, views.ask(session.project.path))
+    if not kept:
+        session.send("views_unseen", reason="none")
+        return []
+    files = [view["file"] for view in kept]
+    session.send("views_shown", files=files)
+    return files
+
+
 def table_for_conductor(session: Session) -> tuple[str, bool]:
     """(drawing-table text for the Conductor's calls, whether it gets read_board).
     Every Conductor gets the designer's main ideas (the idea board). Beyond that a local one
@@ -477,7 +518,9 @@ def follow_up_prompt(agent: dict, *, may_run: bool, state_pending: bool = False)
     return text
 
 
-def converse(session: Session, user_text: str | None, *, ephemeral: bool = False) -> Turn:
+def converse(
+    session: Session, user_text: str | None, *, ephemeral: bool = False, with_views: bool = False
+) -> Turn:
     """
     A Conductor exchange that carries out the Conductor's decisions without asking.
     A `run` action runs the expert at once and settles project_state.md by
@@ -488,9 +531,12 @@ def converse(session: Session, user_text: str | None, *, ephemeral: bool = False
     in answer to the designer's message, never as a step the Conductor chose after a run.
     For front ends that cannot stop mid-turn to ask (the web UI).
     The Turn carries every reply; its error is set only when the first Conductor call failed.
+    with_views: the designer wants pictures to go with this message (sida/views.py).
     """
     if user_text is not None and not ephemeral:
         user_text = board.mark_text(user_text, session.table)
+        if with_views:
+            user_text = views.mark(user_text, take_views(session))
         session.project.append_transcript("You", user_text)
     turn = conductor_turn(session, user_text, ephemeral=ephemeral)
     replies = list(turn.replies)
@@ -745,7 +791,8 @@ def history_messages(history: list[dict]) -> list[dict]:
     model ("[module completed] …", "[read] …", "/run …", "[system] …") become system entries.
 
     Each entry: {"role": "user" | "conductor" | "system", "text": str}; a user message sent
-    with drawing-table papers also carries "context" ([{id, name}]); system entries
+    with drawing-table papers also carries "context" ([{id, name}]), one sent with pictures
+    "views" ([{file}], sida/views.py); system entries
     also carry "event" ("module_completed" | "read" | "run_requested" | "note") and, except
     for "note" (a note for the model only, such as a saved site lookup), "agent" (an expert
     id, or an output file name for "read").
@@ -773,9 +820,12 @@ def history_messages(history: list[dict]) -> list[dict]:
             if text:  # a reply that was only a tool call
                 messages.append({"role": "conductor", "text": text})
         elif role == "user":
+            content, files = views.split(content)
             text, chips = board.split_mark(content)
             entry = {"role": "user", "text": text}
             if chips:
                 entry["context"] = chips
+            if files:
+                entry["views"] = [{"file": file} for file in files]
             messages.append(entry)
     return messages

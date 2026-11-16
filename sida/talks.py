@@ -15,6 +15,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+from sida import views
 from sida.engine import history_messages
 from sida.errors import SidaError
 from sida.project import MAIN_TALK, TALKS_DIRNAME, talk_history_path
@@ -64,11 +65,13 @@ def delete_talk(project_path: Path, talk_id: str) -> None:
     marker = project_path / TALKS_DIRNAME / DELETED_DIR / f"{talk_id}.json"
     marker.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(marker, "[]\n")  # Contains no conversation text.
+    shown = views.files_in(_history(talk_history_path(project_path, talk_id)))
     try:
         talk_history_path(project_path, talk_id).unlink(missing_ok=True)
     except OSError as exc:
         marker.unlink(missing_ok=True)  # Keep the original conversation visible on failure.
         raise SidaError(f"대화를 삭제하지 못했습니다. 다시 시도하세요: {exc}") from exc
+    views.forget(project_path, shown)  # the pictures that went with its messages go with it
 
 
 def _history(path: Path) -> list[dict]:

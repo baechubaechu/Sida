@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from sida import expert_chat, workspace
+from sida import expert_chat, views, workspace
 from sida.session_jobs import SessionJobs
 
 
 class Message(BaseModel):
     text: str
     context: list[str] = Field(default_factory=list)  # drawing-table paper ids
+    views: bool = False  # Conductor messages only: send pictures with it (sida/views.py)
 
 
 class Run(BaseModel):
@@ -46,7 +47,7 @@ def create_router(jobs: SessionJobs, load_config, core) -> APIRouter:
 
     @router.post("/session/messages")
     def message(name: str, body: Message) -> JSONResponse:
-        return started(call(jobs.start_message, load_config(), name, body.text, body.context))
+        return started(call(jobs.start_message, load_config(), name, body.text, body.context, views=body.views))
 
     # Conductor talks: "01" is the conversation above; the command line opens the others.
     @router.get("/talks")
@@ -69,8 +70,16 @@ def create_router(jobs: SessionJobs, load_config, core) -> APIRouter:
     @router.post("/talks/{talk_id}/messages")
     def talk_message(name: str, talk_id: str, body: Message) -> JSONResponse:
         return started(
-            call(jobs.start_message, load_config(), name, body.text, body.context, talk_id)
+            call(jobs.start_message, load_config(), name, body.text, body.context, talk_id, views=body.views)
         )
+
+    @router.get("/talk-views/{file}")
+    def talk_view(name: str, file: str) -> FileResponse:
+        """A picture that went to the Conductor with a message (a talk's message names it in "views")."""
+        path = call(lambda: views.path_of(workspace.find_project(load_config(), name).resolve(), file))
+        media = "image/png" if path.suffix == ".png" else "image/jpeg"
+        # A kept picture never changes, so the browser may keep it.
+        return FileResponse(path, media_type=media, headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
     @router.post("/session/experts/{agent}/run")
     def run_expert(name: str, agent: str, body: Run | None = None) -> JSONResponse:

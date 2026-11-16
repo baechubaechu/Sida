@@ -13,7 +13,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sida import preferences
+from sida import preferences, views
 from sida.briefs import BRIEF_FIELD_KEYS, build_brief_markdown
 from sida.config import ROOT, agent_by_id, agent_inputs, agent_tier, get_agents
 from sida.engine import history_messages
@@ -288,6 +288,8 @@ def chat_messages(config: dict, path: Path, talk: str = MAIN_TALK) -> list[dict]
     )
     messages = history_messages(stub.load_history())
     for message in messages:
+        if "views" in message:  # what was kept beside each picture: what it shows, the figures then
+            message["views"] = [views.record(path, view["file"]) for view in message["views"]]
         if message["role"] != "system" or "agent" not in message:
             continue
         if message["event"] == "read":
