@@ -15,11 +15,22 @@
 <body class="rhino-panel">
   <main id="panel">
     <header class="rp-head" id="rp-head"></header>
+    <nav class="rp-tabs" id="rp-tabs" role="tablist" aria-label="패널 보기"></nav>
     <p class="rp-status" id="rp-status" role="status"></p>
     <section class="rp-figures" id="rp-figures" aria-label="Sida가 계산한 수치"></section>
     <section class="rp-layers" id="rp-layers" aria-label="레이어 의미"></section>
     <section class="rp-diagrams" id="rp-diagrams" aria-label="다이어그램 그리기"></section>
+    <section class="rp-chat" id="rp-chat" aria-label="Sida와 나눈 대화" aria-live="polite"></section>
   </main>
   <footer class="rp-foot" id="rp-foot"></footer>
+  <form class="rp-ask" id="rp-ask" hidden>
+    <p class="rp-with" id="rp-with"></p>
+    <textarea id="rp-question" rows="2" maxlength="4000" aria-label="Sida에게 물을 내용" aria-describedby="rp-with" placeholder="지금 모델을 두고 물어보세요"></textarea>
+    <div class="rp-ask-row">
+      <button type="button" class="rp-more" id="rp-new-talk" hidden>새 대화 시작</button>
+      <span class="rp-keys">Enter 보내기, Shift+Enter 줄 바꿈</span>
+      <button type="submit" class="primary" id="rp-send">보내기</button>
+    </div>
+  </form>
 </body>
 </html>

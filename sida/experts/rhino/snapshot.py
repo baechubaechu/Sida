@@ -560,6 +560,9 @@ def summary(snapshot: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 HEADER = "## Rhino model (the designer's own work)"
+LIVE_HEADER = "## Rhino right now (the designer's open Rhino document)"
+MAX_SELECTED = 200  # selected objects the plugin names in a report
+SELECTED_LINES = 12  # of them, described one by one to the Conductor
 
 
 def prompt_text(snapshot: dict, fig: dict) -> str:
@@ -575,4 +578,77 @@ def prompt_text(snapshot: dict, fig: dict) -> str:
     ]
     if layers:
         lines.append("- Layer meanings (the designer's): " + "; ".join(layers))
+    return "\n".join(lines)
+
+
+def selection(snapshot: dict, ids: list[str], count: int | None = None) -> dict:
+    """
+    What the designer has selected in Rhino, from what the snapshot holds of those objects:
+    {count, bodies, floor_area_m2, footprint_m2, lines}. `count` is every selected object
+    (curves and points too; the plugin's own count when it named only the first of many),
+    `bodies` those the snapshot measured on layers that mean building, and `lines` describe
+    the selected snapshot objects one by one for the Conductor. The areas are of the bodies
+    (None without any); nothing is estimated.
+    """
+    wanted = set(ids)
+    meaning = meaning_of(snapshot)
+    floor_heights = {layer["path"]: layer["floor_height"] for layer in snapshot["layers"]}
+    picked = [item for item in snapshot["objects"] if item["id"] in wanted]
+    lines: list[str] = []
+    bodies = 0
+    floor_area = 0.0
+    outlines: list = []
+    for item in picked:
+        code = meaning.get(item["layer"], "")
+        built = code in BUILT
+        said = [f"layer {item['layer']} ({MEANINGS[code]['word'] if code else 'no meaning'})"]
+        if built:
+            bodies += 1
+            floors = counted_floors(item, floor_heights.get(item["layer"]))
+            area = sum(f["area"] for f in floors)
+            floor_area += area
+            if item["footprint"]:
+                outlines.append(item["footprint"])
+                said.append(f"footprint {_union_area([item['footprint']]):,.1f}㎡")
+            said.append(f"{len(floors)} floor{'' if len(floors) == 1 else 's'}, floor area {area:,.1f}㎡" if floors else "no floor area (no floor height on its layer, or not measurable)")
+        if item["height"] is not None:
+            said.append(f"height {item['height']:,.1f}m" + (f" from z {item['base']:,.1f}m" if item["base"] is not None else ""))
+        if len(lines) < SELECTED_LINES:
+            lines.append(f"{item['name'] or 'unnamed object'}: " + ", ".join(said))
+    if len(picked) > SELECTED_LINES:
+        lines.append(f"and {len(picked) - SELECTED_LINES} more")
+    return {
+        "count": max(count or 0, len(ids)),
+        "bodies": bodies,
+        "floor_area_m2": round(floor_area, 1) if bodies else None,
+        "footprint_m2": round(_union_area(outlines), 1) if bodies else None,
+        "lines": lines,
+    }
+
+
+def live_text(snapshot: dict, fig: dict, file: str, selected: dict | None) -> str:
+    """
+    The running Rhino document for the Conductor (hooks.conductor_site): the figures of the
+    model as it stands this moment, the layers' meanings and what is selected, never the geometry.
+    """
+    layers = [f"{x['path']} = {MEANINGS[x['meaning']]['word']}" for x in snapshot["layers"] if x["meaning"]]
+    lines = [
+        LIVE_HEADER,
+        f"{file or 'An unsaved Rhino document'}, connected to this project, as it stands this moment "
+        f"({len(snapshot['objects'])} objects; it may be newer than the \"라이노 작업\" paper on the table). Figures computed by "
+        "Sida from the geometry Rhino measured; ratios are against the site area in the site facts. "
+        "Unmeasured objects are not estimated.",
+        *(f"- {line}" for line in figure_lines(fig)),
+    ]
+    if layers:
+        lines.append("- Layer meanings (the designer's): " + "; ".join(layers))
+    if selected and selected["count"]:
+        head = f"Selected in Rhino right now: {selected['count']} objects"
+        if selected["bodies"]:
+            head += (f", {selected['bodies']} of them building masses (together floor area {selected['floor_area_m2']:,.1f}㎡, "
+                     f"footprint {selected['footprint_m2']:,.1f}㎡)")
+        lines.append(head + ". When the designer says \"this\" or \"the selected one\", these are meant:")
+        lines += [f"- {line}" for line in selected["lines"]] or ["- (none of them is a body the plugin measures)"]
+    else:
+        lines.append("Nothing is selected in Rhino right now.")
     return "\n".join(lines)

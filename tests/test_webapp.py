@@ -286,6 +286,9 @@ def test_the_rhino_panel_is_a_page_of_its_own_that_asks_only_sidas_rhino_api(cli
     asked = set(re.findall(r"/api/[a-z/]+", script))
     assert asked == {"/api/rhino/hello", "/api/rhino/live", "/api/rhino/commands", "/api/projects"}
     assert "rhino-model.js" in script  # what it shows is decided there (node-tested), not here
+    # asking Sida from the panel is the project's own talks API, nothing of Rhino's
+    chat = (webapp.APP_DIR / "rhino-chat.js").read_text(encoding="utf-8")
+    assert "/api/" not in chat and "projectApi(project)}/talks" in chat and "/session/jobs/" in chat
     assert client.get("/app/rhino.css").status_code == 200
 
 
@@ -1400,10 +1403,24 @@ def test_rhino_live_api_carries_the_document_to_the_panel_and_the_panels_asks_to
     assert got["state"]["figures"]["floor_area_m2"] == 900.0 and got["state"]["figures"]["lines"] and got["state"]["figures"]["limits"] == []
     assert got["state"]["layers"][3] == {"path": "Sketch", "meaning": "", "color": "", "floor_height": None, "objects": 1}
 
+    assert got["state"]["selection"] == {"count": 0, "bodies": 0, "floor_area_m2": None, "footprint_m2": None}
+
+    # what is selected in Rhino: the panel gets the count, the Conductor is told with every message
+    # (the hook `conductor_site`), for as long as that Rhino is connected to this project
+    from sida import board as sida_board
+
+    assert client.post("/api/rhino/live", json={**said, "selected": ["a1", "s1"], "selected_count": 2}).json() == {"rev": 2}
+    assert client.get("/api/rhino/live").json()["state"]["selection"] == {"count": 2, "bodies": 1, "floor_area_m2": 720.0, "footprint_m2": 180.0}
+    told = sida_board.site_brief(project.path)
+    assert "## Rhino right now" in told and "Selected in Rhino right now: 2 objects, 1 of them building masses" in told
+    assert "- 동 A: layer Program::Housing (주거)" in told
+    assert client.post("/api/rhino/live", json={**said, "selected": "a1"}).status_code == 400
+
     # a document that names a project this Sida does not have is still shown, without figures
-    assert client.post("/api/rhino/live", json={**said, "project": "nowhere"}).json() == {"rev": 2}
+    assert client.post("/api/rhino/live", json={**said, "project": "nowhere"}).json() == {"rev": 3}
     state = client.get("/api/rhino/live").json()["state"]
     assert state["project_known"] is False and state["figures"] is None and len(state["layers"]) == 4
+    assert "Rhino right now" not in sida_board.site_brief(project.path)  # that Rhino is no longer on this project
 
     asked = client.post("/api/rhino/commands", json={"doc": "77-1", "type": "set_layer", "path": "Sketch", "meaning": "office", "floor_height": 3.3})
     assert asked.status_code == 200
@@ -1416,6 +1433,30 @@ def test_rhino_live_api_carries_the_document_to_the_panel_and_the_panels_asks_to
     assert bad.status_code == 400 and "type must be one of" in bad.json()["detail"]
     assert client.post("/api/rhino/commands", json={"doc": "nobody", "type": "pull"}).status_code == 400
     assert client.post("/api/rhino/live", json={**said, "snapshot": {"schema": 2}}).status_code == 400
+    rhino_live.reset()
+
+
+def test_a_question_asked_while_rhino_is_open_reaches_the_conductor_with_the_model_and_the_selection(session_api, project):
+    """The chat in the Rhino panel is the talks API; what makes it "about the model" is that the
+    Conductor is told the running document and the selection with the message."""
+    import json as _json
+
+    from sida.experts.rhino import live as rhino_live
+
+    client, base, conductor = session_api
+    rhino_live.reset()
+    raw = _json.loads((ROOT / "tests" / "fixtures" / "rhino" / "snapshot_studio.json").read_text(encoding="utf-8"))
+    client.post("/api/rhino/live", json={"doc": "77-1", "file": "studio.3dm", "units": "m", "project": project.name, "autosync": False,
+                                         "snapshot": {**raw, "views": []}, "selected": ["a1"]})
+    talk = client.post(f"{base}/talks").json()["talk"]["id"]
+    conductor.replies.append('고른 동은 720㎡입니다.\n```action\n{"type":"none"}\n```')
+    job = finished_job(client, base, client.post(f"{base}/talks/{talk}/messages", json={"text": "이거 연면적 얼마야?"}))
+    assert job["status"] == "done"
+    sent = "\n".join(str(m.get("content")) for m in conductor.calls[-1]["messages"])
+    assert "## Rhino right now" in sent and "Selected in Rhino right now: 1 objects, 1 of them building masses" in sent
+    assert "- 동 A: layer Program::Housing (주거), footprint 180.0㎡, 4 floors, floor area 720.0㎡" in sent
+    assert client.get(f"{base}/talks/{talk}").json()["messages"] == [
+        {"role": "user", "text": "이거 연면적 얼마야?"}, {"role": "conductor", "text": "고른 동은 720㎡입니다."}]  # the note is not kept in the talk
     rhino_live.reset()
 
 

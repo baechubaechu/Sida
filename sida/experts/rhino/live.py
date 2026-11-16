@@ -78,9 +78,19 @@ def clean_report(raw) -> dict:
         "project": _text(raw.get("project"), "project"),
         "autosync": raw.get("autosync") is True,
         "busy": raw.get("busy") if raw.get("busy") in BUSY else "",
+        "selected": [],
+        "selected_count": 0,
         "snapshot": None,
         "notice": None,
     }
+    selected = raw.get("selected")
+    if selected is not None:
+        if not isinstance(selected, list) or len(selected) > snapshot.MAX_SELECTED:
+            raise ValueError(f"selected must be a list of at most {snapshot.MAX_SELECTED} object ids")
+        out["selected"] = [_text(item, "selected id", 64) for item in selected]
+        count = raw.get("selected_count")
+        out["selected_count"] = max(count if isinstance(count, int) and not isinstance(count, bool) and 0 <= count <= 10**7 else 0,
+                                    len(out["selected"]))
     if raw.get("snapshot") is not None:
         out["snapshot"] = snapshot.clean_snapshot(raw["snapshot"])
     notice = raw.get("notice")
@@ -105,15 +115,19 @@ def _entry(doc: str) -> dict:
             del _docs[min(_docs, key=lambda key: _docs[key]["seen"])]
         # Command ids go on from the clock, so a plugin that outlived a restart of Sida (and
         # still says "done up to 7") does not have its next commands taken for old ones.
-        entry = _docs[doc] = {"state": None, "rev": 0, "seen": _now(), "pending": [], "last_command": int(time.time() * 1000)}
+        entry = _docs[doc] = {"state": None, "rev": 0, "seen": _now(), "pending": [], "path": None, "brief": "",
+                              "last_command": int(time.time() * 1000)}
     return entry
 
 
-def report(checked: dict, figures: dict | None, project_known: bool) -> dict:
+def report(checked: dict, figures: dict | None, project_known: bool, *, selection: dict | None = None,
+           path=None, brief: str = "") -> dict:
     """
     Keep what the plugin reported (clean_report), with the figures Sida computed for it (None
-    without a project or a snapshot). The revision goes up only when something the panel
-    shows changed. Returns {rev}.
+    without a project or a snapshot). `selection` is what is selected in Rhino
+    (snapshot.selection); `path` is the project's folder and `brief` what the Conductor is told
+    about this document while it is connected (brief_for). The revision goes up only when
+    something the panel shows changed. Returns {rev}.
     """
     snap = checked["snapshot"]
     state = {
@@ -128,10 +142,13 @@ def report(checked: dict, figures: dict | None, project_known: bool) -> dict:
         "layers": _layers(snap) if snap else [],
         "objects": len(snap["objects"]) if snap else 0,
         "figures": figures,
+        "selection": {key: selection[key] for key in ("count", "bodies", "floor_area_m2", "footprint_m2")} if selection else None,
     }
     with _lock:
         entry = _entry(checked["doc"])
         entry["seen"] = _now()
+        entry["path"] = path
+        entry["brief"] = brief
         before = entry["state"]
         notice = before.get("notice") if before else None
         if checked["notice"]:
@@ -156,6 +173,17 @@ def current(doc: str | None = None) -> dict:
         if entry is None or entry["state"] is None:
             return {"connected": False, "rev": 0, "state": None}
         return {"connected": _now() - entry["seen"] <= CONNECTED_FOR, "rev": entry["rev"], "state": entry["state"]}
+
+
+def brief_for(path) -> str:
+    """
+    What the Conductor is told about the Rhino document open on this project right now ("" when
+    none is connected): the one whose plugin asked most recently.
+    """
+    with _lock:
+        now = _now()
+        live_ones = [e for e in _docs.values() if e.get("path") == path and e.get("brief") and now - e["seen"] <= CONNECTED_FOR]
+        return max(live_ones, key=lambda e: e["seen"])["brief"] if live_ones else ""
 
 
 def ask(raw) -> dict:

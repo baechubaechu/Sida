@@ -189,3 +189,39 @@ def test_the_limits_come_from_the_site_facts_as_they_stand(tmp_path, monkeypatch
     assert snapshot.limits(tmp_path) == [{
         "zone": "제2종일반주거지역", "bcr_max": 60, "far_min": 100, "far_max": 250, "ordinance_bcr": 60, "ordinance_far": None,
     }]
+
+
+def test_what_is_selected_in_rhino_is_summed_and_described_from_what_was_measured():
+    clean = snapshot.clean_snapshot(studio())
+    picked = snapshot.selection(clean, ["a1", "b1", "c1", "n1", "a-curve"], 9)
+    assert (picked["count"], picked["bodies"], picked["floor_area_m2"], picked["footprint_m2"]) == (9, 3, 900.0, 320.0)
+    assert picked["lines"] == [
+        "동 A: layer Program::Housing (주거), footprint 180.0㎡, 4 floors, floor area 720.0㎡, height 12.0m",
+        "unnamed object: layer Program::Shop (상업), footprint 180.0㎡, 1 floor, floor area 180.0㎡, height 4.0m",
+        "열린 면: layer Program::Housing (주거), footprint 50.0㎡, no floor area (no floor height on its layer, or not measurable), height 6.0m",
+        "unnamed object: layer Context::Buildings (주변 건물), height 30.0m",
+    ]
+    # nothing measured among them: a count, and no areas made up
+    only_sketch = snapshot.selection(clean, ["s1", "a-curve"])
+    assert (only_sketch["count"], only_sketch["bodies"], only_sketch["floor_area_m2"], only_sketch["footprint_m2"]) == (2, 0, None, None)
+    assert snapshot.selection(clean, [])["count"] == 0
+
+    many = copy.deepcopy(clean)
+    many["objects"] = [{**many["objects"][0], "id": f"x{i}"} for i in range(snapshot.SELECTED_LINES + 3)]
+    lines = snapshot.selection(many, [f"x{i}" for i in range(snapshot.SELECTED_LINES + 3)])["lines"]
+    assert len(lines) == snapshot.SELECTED_LINES + 1 and lines[-1] == "and 3 more"
+
+
+def test_the_conductor_is_told_the_running_document_its_figures_and_the_selection_never_the_geometry():
+    clean = snapshot.clean_snapshot(studio())
+    fig = snapshot.figures(clean, 1000.0)
+    text = snapshot.live_text(clean, fig, "studio.3dm", snapshot.selection(clean, ["a1", "s1"]))
+    assert text.startswith(snapshot.LIVE_HEADER) and "studio.3dm, connected to this project" in text
+    assert "- 건폐율 32.0% · 용적률 90.0%" in text and "Program::Housing = 주거" in text
+    assert "Selected in Rhino right now: 2 objects, 1 of them building masses (together floor area 720.0㎡, footprint 180.0㎡)" in text
+    assert "- 동 A: layer Program::Housing (주거)" in text
+    assert "footprint\"" not in text and "[[" not in text  # no outlines
+    nothing = snapshot.live_text(clean, fig, "", None)
+    assert "An unsaved Rhino document" in nothing and nothing.endswith("Nothing is selected in Rhino right now.")
+    curves = snapshot.live_text(clean, fig, "", snapshot.selection(clean, ["a-curve"]))
+    assert "Selected in Rhino right now: 1 objects." in curves and curves.endswith("- (none of them is a body the plugin measures)")

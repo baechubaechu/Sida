@@ -3,6 +3,8 @@
 // the figures and the limits are Sida's (sida/experts/rhino/snapshot.py) and are shown as sent;
 // this file only chooses, orders and words them. tests/webui/rhino-model.test.mjs checks it.
 
+import { chatItems } from './model.js';
+
 const fmt = (value, digits = 1) => Number(value).toLocaleString('ko-KR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
 // ------------------------------------------------------------------ the paper on the table
@@ -184,4 +186,53 @@ export function meaningChoices(meanings) {
     built: list.filter((m) => m.built).map((m) => ({ code: m.code, word: m.word })),
     other: list.filter((m) => !m.built).map((m) => ({ code: m.code, word: m.word })),
   };
+}
+
+// ------------------------------------------------------------------ asking Sida from Rhino
+
+// What the panel remembers in its address (after #) so a reload keeps the open tab and talk:
+// {tab: 'model' | 'chat', project, talk}. The talk belongs to a project, so both go together.
+export function readPanelHash(hash) {
+  const q = new URLSearchParams(String(hash || '').replace(/^#/, ''));
+  const talk = /^\d{2,4}$/.test(q.get('talk') || '') ? q.get('talk') : '';
+  return { tab: q.get('tab') === 'chat' ? 'chat' : 'model', project: talk ? q.get('project') || '' : '', talk: talk && q.get('project') ? talk : '' };
+}
+
+export function panelHash({ tab, project, talk }) {
+  const q = new URLSearchParams();
+  if (tab === 'chat') q.set('tab', 'chat');
+  if (project && talk) { q.set('project', project); q.set('talk', talk); }
+  const text = q.toString();
+  return text ? `#${text}` : '';
+}
+
+// The one line above the question field: what goes to Sida with the question. The model's
+// figures always go; what is selected in Rhino goes when something is.
+export function askContext(state) {
+  const picked = state?.selection;
+  if (!picked?.count) return '지금 모델의 수치가 함께 갑니다. 라이노에서 개체를 고르면 그 개체를 두고 물을 수 있습니다.';
+  const of = picked.bodies
+    ? ` (매스 ${picked.bodies}개, 연면적 ${fmt(picked.floor_area_m2 || 0)}㎡)`
+    : ' (잰 매스는 없음)';
+  return `고른 개체 ${picked.count}개${of}와 지금 모델의 수치가 함께 갑니다.`;
+}
+
+// Whether a question can be asked now, and if not, why (shown instead of the hint).
+export function askReady(live, status, busy) {
+  if (status.code === 'waiting' || status.code === 'down') return { ok: false, why: status.text };
+  if (status.code === 'no-project' || status.code === 'bad-project') return { ok: false, why: '먼저 위에서 Sida 프로젝트를 고르세요. 대화는 그 프로젝트에 남습니다.' };
+  if (status.code === 'lost') return { ok: false, why: '라이노와 연결이 끊겨 지금 모델을 함께 보낼 수 없습니다. 라이노가 다시 이어지면 물을 수 있습니다.' };
+  if (busy) return { ok: false, why: '' };  // the talk itself says Sida is answering
+  return { ok: true, why: '' };
+}
+
+// The talk as rows to draw: what is stored, then the question just sent and what the job has
+// said so far. An expert's result is a line here (the document itself opens in Sida).
+export function chatRows(messages, pending, live) {
+  const rows = chatItems(messages).map((item) => (item.kind === 'card'
+    ? { kind: 'note', text: `${item.name} 결과가 나왔습니다. 문서는 Sida 화면에서 볼 수 있습니다.` }
+    : { kind: item.kind === 'expert' ? 'conductor' : item.kind, text: item.text, tone: '' }));
+  if (pending) rows.push({ kind: 'user', text: pending });
+  for (const item of live || []) rows.push({ kind: item.kind, text: item.text, tone: item.tone || '' });
+  return rows;
 }

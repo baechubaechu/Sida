@@ -5,7 +5,8 @@
 // plugin asked last.
 
 import { api } from './api.js';
-import { panelStatus, panelFigures, panelBusy, diagramChoices, layerRows, readFloorHeight, meaningChoices } from './rhino-model.js';
+import { panelStatus, panelFigures, panelBusy, diagramChoices, layerRows, readFloorHeight, meaningChoices, askContext, askReady, readPanelHash, panelHash } from './rhino-model.js';
+import { chat, chatFor, chatHtml, newTalk, send } from './rhino-chat.js';
 
 const POLL_MS = 1000;
 const BUSY_MS = 20000;  // a button pressed counts as "in progress" this long, unless the plugin says more (rhino-model.js panelBusy)
@@ -14,7 +15,9 @@ const named = new URLSearchParams(location.search).get('doc') || '';
 const el = (id) => document.getElementById(id);
 const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+const kept = readPanelHash(location.hash);  // the tab and talk open before a reload
 const ui = {
+  tab: kept.tab,
   live: { connected: false, rev: 0, state: null },
   meanings: [], diagrams: [], projects: [],
   serverDown: false,
@@ -47,6 +50,34 @@ function drawHead(state, status) {
     <div class="rp-title"><h1>${escape(file)}</h1><span class="rp-dot is-${dot[0]}">${escape(dot[1])}</span></div>
     ${state ? `<label class="rp-project ${status.code === 'no-project' || status.code === 'bad-project' ? 'needs' : ''}">Sida 프로젝트
       <select id="rp-project" ${ui.live.connected ? '' : 'disabled'}>${options}</select></label>` : ''}`);
+  draw('rp-tabs', state ? [['model', '모델'], ['chat', 'Sida에게 묻기']].map(([tab, word]) =>
+    `<button type="button" role="tab" id="rp-tab-${tab}" data-tab="${tab}" aria-selected="${ui.tab === tab}" tabindex="${ui.tab === tab ? 0 : -1}">${word}</button>`).join('') : '');
+}
+
+// The talk with Sida about this model (rhino-chat.js). The question field is not drawn again
+// (it is in rhino.html): only its hint, and whether it can be sent, change.
+function drawChat(state, status) {
+  const tabbed = Boolean(state) && ui.tab === 'chat';
+  el('rp-ask').hidden = !tabbed;
+  if (!tabbed) { draw('rp-chat', ''); return; }
+  const project = status.code === 'ready' || status.code === 'lost' ? state.project : '';  // a lost Rhino's talk stays readable
+  chatFor(project, kept.project === project ? kept.talk : '');
+  if (project) kept.talk = '';  // taken once
+  const ready = askReady(ui.live, status, chat.busy);
+  const rows = el('rp-chat').childElementCount;
+  draw('rp-chat', chatHtml(ready.ok));
+  if (el('rp-chat').childElementCount !== rows) window.scrollTo(0, document.body.scrollHeight);  // the newest line in view
+  el('rp-with').textContent = ready.ok || chat.busy ? askContext(state) : ready.why;
+  if (chat.unsent) {  // the answer failed and the question was not kept: back into the field, unless a new one is being written
+    if (!el('rp-question').value) el('rp-question').value = chat.unsent;
+    chat.unsent = '';
+  }
+  el('rp-question').disabled = !project;
+  el('rp-send').disabled = !ready.ok;
+  el('rp-new-talk').hidden = !chat.talk;
+  el('rp-new-talk').disabled = chat.busy;
+  const address = panelHash({ tab: ui.tab, project: chat.project, talk: chat.talk });
+  if (address !== location.hash) history.replaceState(null, '', address || location.pathname + location.search);
 }
 
 function gaugeHtml(g) {
@@ -136,6 +167,7 @@ function drawAll() {
   const status = ui.serverDown
     ? { code: 'down', text: 'Sida 앱에 연결할 수 없습니다. run.bat으로 Sida를 켜면 다시 이어집니다.' } : panelStatus(ui.live);
   document.body.dataset.status = status.code;
+  document.body.dataset.tab = state ? ui.tab : 'model';
   drawHead(state, status);
   draw('rp-status', escape(status.text));
   el('rp-status').hidden = !status.text;
@@ -144,6 +176,7 @@ function drawAll() {
   const busy = panelBusy(ui.live, ui.asked, Date.now());
   drawDiagrams(state, status, busy);
   drawFoot(state, status, busy);
+  drawChat(state, status);
 }
 
 // ------------------------------------------------------------------ asking the plugin
@@ -164,7 +197,19 @@ async function ask(command) {
 document.addEventListener('click', (event) => {
   const asked = event.target.closest('[data-ask]');
   const kind = event.target.closest('[data-kind]');
-  if (asked && !asked.disabled) {
+  const tab = event.target.closest('[data-tab]');
+  const example = event.target.closest('[data-example]');
+  if (tab) {
+    ui.tab = tab.dataset.tab;
+    drawAll();
+    if (ui.tab === 'chat') el('rp-question').focus({ preventScroll: true });
+  } else if (example) {
+    el('rp-question').value = example.dataset.example;
+    el('rp-question').focus();
+  } else if (event.target.id === 'rp-new-talk') {
+    newTalk();
+    el('rp-question').focus();
+  } else if (asked && !asked.disabled) {
     const what = asked.dataset.ask;
     ui.asked = { what, notice: ui.live.state?.notice?.n || 0, until: Date.now() + BUSY_MS };
     ask(what === 'draw' ? { type: 'draw', kinds: diagramChoices(ui.diagrams, ui.skipped).picked } : { type: what });
@@ -202,7 +247,27 @@ document.addEventListener('change', (event) => {
 
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && event.target.dataset?.height !== undefined) event.target.blur();
+  // Enter sends the question, Shift+Enter breaks the line; not while a Hangul syllable is being composed.
+  if (event.key === 'Enter' && event.target.id === 'rp-question' && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    el('rp-ask').requestSubmit();
+  }
+  if ((event.key === 'ArrowRight' || event.key === 'ArrowLeft') && event.target.dataset?.tab) {
+    ui.tab = ui.tab === 'chat' ? 'model' : 'chat';
+    drawAll();
+    el(`rp-tab-${ui.tab}`)?.focus();
+  }
 });
+
+el('rp-ask').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const field = el('rp-question');
+  if (el('rp-send').disabled || !field.value.trim()) return;
+  const text = field.value;
+  field.value = '';
+  if (!await send(text)) field.value = text;  // not sent: the question is not lost
+});
+chat.changed = () => drawAll();
 
 // ------------------------------------------------------------------ reading Sida
 

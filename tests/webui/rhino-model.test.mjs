@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { rhinoPaperParts, rhinoViewUrl, rhinoDiagramUrl, diagramFileName, diagramPngSize, limitLines, panelStatus, panelFigures, panelBusy, diagramChoices, layerRows, readFloorHeight, meaningChoices } from '../../webui/app/rhino-model.js';
+import { rhinoPaperParts, rhinoViewUrl, rhinoDiagramUrl, diagramFileName, diagramPngSize, limitLines, panelStatus, panelFigures, panelBusy, diagramChoices, layerRows, readFloorHeight, meaningChoices, askContext, askReady, chatRows, readPanelHash, panelHash } from '../../webui/app/rhino-model.js';
 
 const MEANINGS = [
   { code: 'housing', word: '주거', built: true }, { code: 'commercial', word: '상업', built: true },
@@ -138,4 +138,42 @@ test('every diagram is picked to be drawn until the designer leaves one out', ()
   assert.deepEqual(some.picked, ['program', 'site']);
   assert.deepEqual(some.rows.map((r) => [r.title, r.on]), [['프로그램 매스', true], ['층별 분해', false], ['대지 배치도', true]]);
   assert.deepEqual(diagramChoices(undefined, undefined), { rows: [], picked: [] });
+});
+
+test('the line above the question says what goes to Sida with it', () => {
+  assert.match(askContext({ selection: null }), /^지금 모델의 수치가 함께 갑니다/);
+  assert.match(askContext({ selection: { count: 0 } }), /개체를 고르면/);
+  assert.equal(askContext({ selection: { count: 3, bodies: 2, floor_area_m2: 4496, footprint_m2: 616 } }), '고른 개체 3개 (매스 2개, 연면적 4,496.0㎡)와 지금 모델의 수치가 함께 갑니다.');
+  assert.equal(askContext({ selection: { count: 2, bodies: 0, floor_area_m2: null } }), '고른 개체 2개 (잰 매스는 없음)와 지금 모델의 수치가 함께 갑니다.');
+});
+
+test('a question can be asked only of a connected document that belongs to a project', () => {
+  const ready = { code: 'ready', text: '' };
+  assert.deepEqual(askReady({}, ready, false), { ok: true, why: '' });
+  assert.deepEqual(askReady({}, ready, true), { ok: false, why: '' });
+  assert.match(askReady({}, { code: 'no-project', text: 'x' }, false).why, /프로젝트를 고르세요/);
+  assert.match(askReady({}, { code: 'bad-project', text: 'x' }, false).why, /프로젝트를 고르세요/);
+  assert.match(askReady({}, { code: 'lost', text: 'x' }, false).why, /연결이 끊겨/);
+  assert.equal(askReady({}, { code: 'down', text: 'Sida 꺼짐' }, false).why, 'Sida 꺼짐');
+});
+
+test('the talk is drawn from what Sida kept, then the question just sent and what the job said so far', () => {
+  const kept = [{ role: 'user', text: '연면적?' }, { role: 'conductor', text: '900㎡입니다.' },
+    { role: 'system', event: 'module_completed', agent: 'site_analyst', name: '대지 분석가', text: '…' },
+    { role: 'system', event: 'note', text: '[system] …' }];
+  const rows = chatRows(kept, '한 층 더 올리면?', [{ kind: 'note', text: '제도판 종이를 읽는 중입니다.', tone: 'info' }, { kind: 'conductor', text: '1,080㎡가 됩니다.' }]);
+  assert.deepEqual(rows.map((r) => r.kind), ['user', 'conductor', 'note', 'user', 'note', 'conductor']);
+  assert.equal(rows[2].text, '대지 분석가 결과가 나왔습니다. 문서는 Sida 화면에서 볼 수 있습니다.');
+  assert.equal(rows[3].text, '한 층 더 올리면?');
+  assert.deepEqual(chatRows([], '', []), []);
+});
+
+test('the panel keeps its tab and talk in its address, and a talk only with its project', () => {
+  assert.deepEqual(readPanelHash(''), { tab: 'model', project: '', talk: '' });
+  const address = panelHash({ tab: 'chat', project: '무교동 45', talk: '07' });
+  assert.deepEqual(readPanelHash(address), { tab: 'chat', project: '무교동 45', talk: '07' });
+  assert.equal(panelHash({ tab: 'model', project: 'a', talk: '' }), '');
+  assert.equal(panelHash({ tab: 'chat', project: '', talk: '07' }), '#tab=chat');
+  assert.deepEqual(readPanelHash('#tab=chat&talk=07'), { tab: 'chat', project: '', talk: '' });       // a talk without its project is nothing
+  assert.deepEqual(readPanelHash('#talk=../x&project=a'), { tab: 'model', project: '', talk: '' });   // not a talk id
 });

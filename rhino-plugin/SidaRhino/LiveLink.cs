@@ -26,6 +26,7 @@ namespace SidaRhino
         private const int AskEveryMs = 500;
         private const int WhenDownMs = 3000;
         private const int ReportEveryMs = 700;
+        private const int MaxSelected = 200;  // selected objects named in a report (Sida takes no more)
 
         private static readonly SidaClient Client = new SidaClient();
         private static readonly ConcurrentQueue<JsonElement> Waiting = new ConcurrentQueue<JsonElement>();
@@ -78,6 +79,10 @@ namespace SidaRhino
                 RhinoDoc.ModifyObjectAttributes += (s, e) => _dirty = true;
                 RhinoDoc.LayerTableEvent += (s, e) => _dirty = true;
                 RhinoDoc.DocumentPropertiesChanged += (s, e) => _dirty = true;
+                // What is selected goes with the report, so a question asked in the panel is about "this one".
+                RhinoDoc.SelectObjects += (s, e) => _dirty = true;
+                RhinoDoc.DeselectObjects += (s, e) => _dirty = true;
+                RhinoDoc.DeselectAllObjects += (s, e) => _dirty = true;
                 RhinoDoc.EndOpenDocument += (s, e) => Reset();
                 RhinoDoc.NewDocument += (s, e) => Reset();
                 RhinoDoc.ActiveDocumentChanged += (s, e) => Reset();
@@ -286,6 +291,17 @@ namespace SidaRhino
                 ["busy"] = _busy,
                 ["snapshot"] = snapshot,
             };
+            // The selection by id (the first MaxSelected; the count says how many there are in all).
+            var selected = new List<string>();
+            var count = 0;
+            foreach (var picked in doc.Objects.GetSelectedObjects(false, false))
+            {
+                count++;
+                if (selected.Count < MaxSelected)
+                    selected.Add(picked.Id.ToString());
+            }
+            report["selected"] = selected;
+            report["selected_count"] = count;
             if (notice != null)
                 report["notice"] = new Dictionary<string, object?> { ["text"] = notice.Text, ["ok"] = notice.Ok };
             return report;

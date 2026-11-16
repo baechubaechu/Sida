@@ -135,8 +135,11 @@ def create_router(load_config, core) -> APIRouter:
                 path = workspace.find_project(load_config(), checked["project"]).resolve()
             except workspace.ProjectNotFound:
                 path = None  # the document names a project this Sida does not have: the panel says so
-        fig = with_figures(path, checked["snapshot"]) if path is not None and checked["snapshot"] is not None else None
-        return live.report(checked, fig, path is not None)
+        snap = checked["snapshot"]
+        fig = with_figures(path, snap) if path is not None and snap is not None else None
+        picked = snapshot.selection(snap, checked["selected"], checked["selected_count"]) if snap is not None else None
+        brief = snapshot.live_text(snap, fig, checked["file"], picked) if fig is not None else ""
+        return live.report(checked, fig, path is not None, selection=picked, path=path, brief=brief)
 
     @router.get("/api/rhino/live")
     def live_read(doc: str | None = None) -> dict:
