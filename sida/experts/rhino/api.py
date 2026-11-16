@@ -4,6 +4,7 @@
 snapshots (push, list, read, a view image, delete), a snapshot's diagrams (diagrams.py), and
 figures for a snapshot the plugin has not saved. /api/rhino/live and /api/rhino/commands are the running Rhino (live.py): the plugin
 reports its document and asks what to do, the panel page reads the report and asks for things.
+/api/rhino/live/view takes the plugin's picture of the active viewport for a message that waits for it.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
-from sida import board, workspace
+from sida import board, views, workspace
 from sida.experts.rhino import diagram_svg, diagrams, live, snapshot
 from sida.i18n import t
 
@@ -140,6 +141,13 @@ def create_router(load_config, core) -> APIRouter:
         picked = snapshot.selection(snap, checked["selected"], checked["selected_count"]) if snap is not None else None
         brief = snapshot.live_text(snap, fig, checked["file"], picked) if fig is not None else ""
         return live.report(checked, fig, path is not None, selection=picked, path=path, brief=brief)
+
+    @router.post("/api/rhino/live/view")
+    def live_view(doc: str, command: int, view: Annotated[UploadFile, File()], title: str = "") -> dict:
+        """The plugin's answer to the command `view`: a picture (PNG or JPEG) of the active
+        viewport, for the Conductor message that asked for it. {taken: false} when none waits."""
+        data = view.file.read(views.MAX_BYTES + 1)
+        return call(live.give_view, doc, command, data, title, bad="web_rhino_live_bad")
 
     @router.get("/api/rhino/live")
     def live_read(doc: str | None = None) -> dict:

@@ -1751,6 +1751,57 @@ def test_a_message_takes_pictures_along_and_the_talk_keeps_them(session_api, pro
     assert client.get(f"{base}/talk-views/{file}").status_code == 404 and list((project.path / views.DIR).iterdir()) == []
 
 
+def test_a_question_takes_the_rhino_view_along_while_rhino_is_open_on_the_project(session_api, project):
+    """The whole way: the message asks, Sida asks the plugin for `view`, the plugin posts its
+    picture, the Conductor gets it with the figures as text, and the talk keeps both."""
+    import json as _json
+    import threading
+    import time
+
+    from sida.experts.rhino import live as rhino_live
+
+    client, base, conductor = session_api
+    rhino_live.reset()
+    png = b"\x89PNG\r\n\x1a\n" + b"the view"
+    conductor.sees_images = lambda model: True
+    conductor.replies += ['봤습니다\n```action\n{"type":"none"}\n```'] * 2
+
+    # no Rhino: the message goes without a picture and says so
+    job = finished_job(client, base, client.post(f"{base}/session/messages", json={"text": "이 매스 어때?", "views": True}))
+    assert [e["kind"] for e in job["events"]] == ["views_unseen", "conductor_reply"] and job["events"][0]["data"] == {"reason": "none"}
+
+    raw = _json.loads((ROOT / "tests" / "fixtures" / "rhino" / "snapshot_studio.json").read_text(encoding="utf-8"))
+    said = {"doc": "77-1", "file": "studio.3dm", "units": "m", "project": project.name, "autosync": False, "snapshot": {**raw, "views": []}}
+    assert client.post("/api/rhino/live", json=said).json() == {"rev": 1}
+    # nobody waits for a picture yet; what is not a picture is refused
+    late = client.post("/api/rhino/live/view", params={"doc": "77-1", "command": 1}, files={"view": ("view.png", png, "image/png")})
+    assert late.status_code == 200 and late.json() == {"taken": False}
+    assert client.post("/api/rhino/live/view", params={"doc": "77-1", "command": 1}, files={"view": ("view.png", b"<html>", "image/png")}).status_code == 400
+
+    posted = []
+
+    def plugin():
+        for _ in range(400):
+            commands = rhino_live.pending("77-1")["commands"]
+            if commands:
+                posted.append(client.post("/api/rhino/live/view", params={"doc": "77-1", "command": commands[0]["id"], "title": "Perspective"},
+                                          files={"view": ("view.png", png, "image/png")}).json())
+                return
+            time.sleep(0.005)
+
+    thread = threading.Thread(target=plugin, daemon=True)
+    thread.start()
+    job = finished_job(client, base, client.post(f"{base}/session/messages", json={"text": "이 매스 어때?", "views": True}))
+    thread.join(5)
+    assert posted == [{"taken": True}] and [e["kind"] for e in job["events"]] == ["views_shown", "conductor_reply"]
+    text, picture = conductor.calls[-1]["messages"][-1]["content"]
+    assert picture["type"] == "image" and 'Picture 1: the Rhino viewport "Perspective" of the document studio.3dm' in text["text"]
+    assert any("## Rhino right now" in str(m["content"]) for m in conductor.calls[-1]["messages"][:-1])  # the figures, as text
+    shown = client.get(f"{base}/session").json()["messages"][-2]["views"][0]
+    assert "## Rhino right now" in shown["facts"] and client.get(f"{base}/talk-views/{shown['file']}").content == png
+    rhino_live.reset()
+
+
 def test_talks_reject_unknown_ids_and_empty_messages(session_api):
     client, base, _conductor = session_api
     assert client.get(f"{base}/talks/02").status_code == 404
