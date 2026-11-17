@@ -1,4 +1,4 @@
-// The settings panel: the AI (providers, ChatGPT sign-in, models), the Sida relay key, how the work
+// The settings panel: the AI (providers, ChatGPT sign-in, Anthropic key, models), the Sida relay key, how the work
 // goes, privacy, and run modes and keys typed in by hand.
 
 import { PROVIDER_LABELS, MODE_LABELS, STATE_UPDATE_LABELS, escapeHtml as escape, DATA_KEYS, keyChanges, relayKeyView, settingsChanges, settingsDirty } from './model.js';
@@ -17,10 +17,13 @@ function draftFromSettings(settings) {
     worker_provider: settings.worker.provider,
     chatgpt_model: settings.chatgpt.model,
     worker_chatgpt_model: settings.chatgpt.worker_model,
+    anthropic_model: settings.anthropic?.model || '',
+    worker_anthropic_model: settings.anthropic?.worker_model || '',
     rag_enabled: settings.rag_enabled,
     state_update: settings.state_update,
     telemetry_enabled: settings.telemetry_enabled,
     openrouter_key: '',
+    anthropic_key: '',
     keys: Object.fromEntries(DATA_KEYS.map(({ id, secret }) => [id, secret ? '' : settings.keys?.[id]?.value || ''])),
   };
 }
@@ -41,6 +44,7 @@ function renderSettings() {
     s.warnings.openrouter_key_missing && 'OpenRouter 키가 없습니다. 아래 AI 연결에 키를 넣어 주세요.',
     s.warnings.rag_key_missing && '법령 검색을 켰지만 법제처 인증값이 없습니다. Sida 키를 받거나 고급의 정부 키에 넣어 주세요.',
     s.warnings.chatgpt_signed_out && 'ChatGPT 구독을 쓰게 되어 있지만 로그인되어 있지 않습니다.',
+    s.warnings.anthropic_key_missing && 'Anthropic 키가 없습니다. 아래 AI 연결에 키를 넣어 주세요.',
   ].filter(Boolean);
   const roles = [d.conductor_provider, d.worker_provider];
   const chatgpt = s.chatgpt;
@@ -66,6 +70,7 @@ function renderSettings() {
   const openrouterKey = `<label for="set-openrouter">OpenRouter 키</label>
     <input id="set-openrouter" data-field="openrouter_key" type="password" autocomplete="off" placeholder="${escape(keyStatus?.set ? `저장됨 ${keyStatus.hint || ''}` : '키를 넣으면 저장할 때 확인합니다')}" value="${escape(d.openrouter_key)}">`;
   const usesOpenrouter = roles.includes('openrouter');
+  const anthropicPart = roles.includes('anthropic') ? anthropicSettings(s, d) : '';
   const modes = d.mode === 'custom' ? [...s.options.modes, 'custom'] : s.options.modes;
   const dataKeys = DATA_KEYS.map(({ id, label, secret }) => {
     const status = s.keys?.[id];
@@ -85,6 +90,7 @@ function renderSettings() {
       <label for="set-worker">전문가가 쓰는 AI</label>
       ${providerSelect('set-worker', 'worker_provider', s.options.worker_providers || s.options.providers, d.worker_provider)}
       ${chatgptPart}
+      ${anthropicPart}
       ${usesOpenrouter ? openrouterKey : ''}
     </section>
     <section class="settings-section" id="settings-relay" aria-labelledby="settings-relay-title">
@@ -108,7 +114,7 @@ function renderSettings() {
       <summary><h3>고급</h3><span class="settings-note">실행 모드, API 키, 정부 키 직접 넣기</span></summary>
       <label for="set-mode">실행 모드</label>
       <select id="set-mode" data-field="mode">${modes.map((m) => optionTag(m, MODE_LABELS[m] || m, d.mode)).join('')}</select>
-      <p class="settings-hint">Conductor와 전문가에 같은 AI를 한 번에 고릅니다. ChatGPT 구독은 위 AI 연결에서 역할마다 고릅니다.</p>
+      <p class="settings-hint">Conductor와 전문가에 같은 AI를 한 번에 고릅니다. ChatGPT 구독과 Anthropic은 위 AI 연결에서 역할마다 고릅니다.</p>
       ${d.mode === 'local' && s.options.local_profiles.length ? `<label for="set-profile">이 PC의 모델 묶음</label>
         <select id="set-profile" data-field="local_profile">${s.options.local_profiles.map((p) => optionTag(p, p, d.local_profile)).join('')}</select>` : ''}
       ${usesOpenrouter ? '' : openrouterKey}
@@ -117,6 +123,24 @@ function renderSettings() {
       ${dataKeys}
     </details>`;
   updateFooter();
+}
+
+// The user's own Anthropic API key (billed by use on that account) and the Claude model each role
+// uses. The Claude plans (Pro, Max) cannot be signed in to here: Anthropic's terms do not allow it.
+function anthropicSettings(s, d) {
+  const status = s.keys?.anthropic;
+  const models = s.anthropic?.models || [];
+  const select = (id, field, label, value) => `<label for="${id}">${label}</label>
+    <select id="${id}" data-field="${field}">${(models.includes(value) || !value ? models : [value, ...models])
+      .map((m) => optionTag(m, m, value)).join('')}</select>`;
+  return `<div class="settings-sub" id="settings-anthropic">
+      <p class="settings-sub-title">Anthropic (Claude)</p>
+      <label for="set-anthropic">Anthropic API 키</label>
+      <input id="set-anthropic" data-field="anthropic_key" type="password" autocomplete="off" placeholder="${escape(status?.set ? `저장됨 ${status.hint || ''}` : '키를 넣으면 저장할 때 확인합니다')}" value="${escape(d.anthropic_key)}">
+      <p class="settings-hint">쓴 만큼 이 키의 Anthropic 계정에 청구됩니다. Claude 구독(Pro, Max)으로는 연결할 수 없습니다.</p>
+      ${d.conductor_provider === 'anthropic' ? select('set-anthropic-model', 'anthropic_model', 'Conductor 모델', d.anthropic_model) : ''}
+      ${d.worker_provider === 'anthropic' ? select('set-worker-anthropic-model', 'worker_anthropic_model', '전문가 모델', d.worker_anthropic_model) : ''}
+    </div>`;
 }
 
 // 자료 출처 (2026-11-09 지훈: kept here, not over the drafting table): where the surroundings shown
@@ -309,6 +333,9 @@ async function saveSettings() {
     if (d.openrouter_key.trim()) {
       await api('/api/settings/keys/openrouter', { method: 'PUT', body: { value: d.openrouter_key.trim() } });
     }
+    if (d.anthropic_key.trim()) {
+      await api('/api/settings/keys/anthropic', { method: 'PUT', body: { value: d.anthropic_key.trim() } });
+    }
     for (const [key, value] of keyChanges(d.keys, s.keys)) {
       await api(`/api/settings/keys/${key}`, { method: 'PUT', body: { value } });
     }
@@ -336,15 +363,16 @@ settingsDialog.addEventListener('change', (event) => {
     d.worker_provider = provider;
   }
   if (field === 'conductor_provider' || field === 'worker_provider') {
-    d.mode = d.conductor_provider === d.worker_provider && d.conductor_provider !== 'chatgpt'
+    d.mode = d.conductor_provider === d.worker_provider && ['openrouter', 'ollama'].includes(d.conductor_provider)
       ? (d.conductor_provider === 'openrouter' ? 'cloud' : 'local') : 'custom';
   }
-  if (field !== 'openrouter_key') renderSettings();
+  if (field !== 'openrouter_key' && field !== 'anthropic_key') renderSettings();
 });
 
 settingsDialog.addEventListener('input', (event) => {
   if (!ui.settingsDraft) return;
   if (event.target.dataset.field === 'openrouter_key') ui.settingsDraft.openrouter_key = event.target.value;
+  if (event.target.dataset.field === 'anthropic_key') ui.settingsDraft.anthropic_key = event.target.value;
   if (event.target.dataset.key) ui.settingsDraft.keys[event.target.dataset.key] = event.target.value;
   if (event.target.dataset.relay) ui.relayKeyDraft[event.target.dataset.relay] = event.target.value;
   updateFooter();

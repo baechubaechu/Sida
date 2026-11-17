@@ -23,6 +23,7 @@ export const STATUS_LABELS = {
 
 export const PROVIDER_LABELS = {
   openrouter: 'OpenRouter (API 키)', ollama: '이 PC의 모델 (Ollama)', chatgpt: 'ChatGPT 구독',
+  anthropic: 'Anthropic (API 키)',
 };
 
 export const MODE_LABELS = { cloud: '둘 다 OpenRouter', local: '둘 다 이 PC의 모델', custom: '따로 고름' };
@@ -75,10 +76,11 @@ export function readiness(settings, relayRequest = null) {
   if (roles.includes('chatgpt') && !chatgpt.signed_in) ai = { ok: false, text: 'ChatGPT 로그인 필요', target: '#settings-chatgpt' };
   else if (roles.includes('chatgpt') && !chatgpt.plan_usage) ai = { ok: false, text: 'ChatGPT 다시 로그인 필요', target: '#settings-chatgpt' };
   else if (roles.includes('openrouter') && !keys.openrouter?.set) ai = { ok: false, text: 'OpenRouter 키 필요', target: '#set-openrouter' };
+  else if (roles.includes('anthropic') && !keys.anthropic?.set) ai = { ok: false, text: 'Anthropic 키 필요', target: '#set-anthropic' };
   else {
     const provider = settings.conductor?.provider;
     const model = provider === 'chatgpt' ? chatgpt.model : settings.conductor?.model;
-    const name = { chatgpt: 'ChatGPT', openrouter: 'OpenRouter', ollama: '이 PC 모델' }[provider] || provider || '';
+    const name = { chatgpt: 'ChatGPT', openrouter: 'OpenRouter', ollama: '이 PC 모델', anthropic: 'Anthropic' }[provider] || provider || '';
     ai = { ok: true, text: [name, model].filter(Boolean).join(' · '), target: provider === 'chatgpt' ? '#settings-chatgpt' : '#set-conductor' };
   }
   let data;
@@ -105,14 +107,18 @@ export function settingsChanges(settings, draft) {
   for (const [key, saved] of pairs) if (draft[key] !== saved) changes[key] = draft[key];
   if (draft.chatgpt_model && draft.chatgpt_model !== settings.chatgpt.model) changes.chatgpt_model = draft.chatgpt_model;
   if (draft.worker_chatgpt_model && draft.worker_chatgpt_model !== settings.chatgpt.worker_model) changes.worker_chatgpt_model = draft.worker_chatgpt_model;
+  const claude = settings.anthropic || {};
+  if (draft.anthropic_model && draft.anthropic_model !== claude.model) changes.anthropic_model = draft.anthropic_model;
+  if (draft.worker_anthropic_model && draft.worker_anthropic_model !== claude.worker_model) changes.worker_anthropic_model = draft.worker_anthropic_model;
   return changes;
 }
 
-// Whether the form holds anything unsaved: a setting, an OpenRouter key or a government key typed in.
+// Whether the form holds anything unsaved: a setting, an OpenRouter or Anthropic key or a government key typed in.
 export function settingsDirty(settings, draft) {
   if (!settings || !draft) return false;
   return Object.keys(settingsChanges(settings, draft)).length > 0
-    || Boolean(String(draft.openrouter_key || '').trim()) || keyChanges(draft.keys, settings.keys).length > 0;
+    || Boolean(String(draft.openrouter_key || '').trim()) || Boolean(String(draft.anthropic_key || '').trim())
+    || keyChanges(draft.keys, settings.keys).length > 0;
 }
 
 // The keys to save: [id, value] for each one typed in (a shown value only when it changed).

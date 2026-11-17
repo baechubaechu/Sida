@@ -416,3 +416,164 @@ def test_ollama_asks_the_models_card_whether_it_sees_pictures_once(monkeypatch):
 
     monkeypatch.setattr(providers.requests, "post", down)
     assert providers.OllamaProvider().sees_images("llava") is False
+
+
+# ---------------------------------------------------------------------------
+# Anthropic (Claude API key, official SDK, streamed)
+# ---------------------------------------------------------------------------
+
+
+class _Obj:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+def _claude_message(*blocks, stop="end_turn", usage=None):
+    usage = usage or _Obj(input_tokens=10, output_tokens=5, cache_read_input_tokens=100, cache_creation_input_tokens=20)
+    return _Obj(content=list(blocks), stop_reason=stop, usage=usage)
+
+
+class FakeClaude:
+    """Stands in for anthropic.Anthropic: records each request, answers from a queue (an exception is raised)."""
+
+    def __init__(self, *replies):
+        self.requests = []
+        self.replies = list(replies)
+        self.beta = _Obj(messages=_Obj(stream=self._stream))
+
+    def _stream(self, **request):
+        self.requests.append(request)
+        reply = self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
+        if isinstance(reply, Exception):
+            raise reply
+        return _Stream(reply)
+
+
+class _Stream:
+    def __init__(self, reply):
+        self.reply = reply
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def get_final_message(self):
+        return self.reply
+
+
+def claude(monkeypatch, *replies):
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    provider = make_provider("anthropic", api_key="sk-ant-test")
+    fake = FakeClaude(*replies)
+    provider._client = fake
+    return provider, fake
+
+
+def _status_error(status, text="bad"):
+    import anthropic
+    import httpx2
+
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx2.Response(status, request=request, json={"error": {"message": text}})
+    cls = {401: anthropic.AuthenticationError, 400: anthropic.BadRequestError, 429: anthropic.RateLimitError}.get(
+        status, anthropic.APIStatusError
+    )
+    return cls(text, response=response, body={"error": {"message": text}})
+
+
+SYSTEM_CACHED = [
+    {"role": "system", "content": [{"type": "text", "text": "rules", "cache_control": {"type": "ephemeral", "ttl": "1h"}}]},
+    {"role": "user", "content": [
+        {"type": "text", "text": "brief", "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": "state", "cache_control": {"type": "ephemeral"}},
+    ]},
+    {"role": "assistant", "content": "earlier answer"},
+    {"role": "user", "content": "now this"},
+]
+
+
+def test_make_provider_anthropic_needs_a_key():
+    assert make_provider("anthropic", api_key="sk-ant-x").name == "anthropic"
+    with pytest.raises(LLMError, match="Anthropic API key"):
+        make_provider("anthropic", api_key="")
+
+
+def test_claude_request_moves_system_out_keeps_cache_marks_and_sends_no_temperature(monkeypatch):
+    provider, fake = claude(monkeypatch, _claude_message(_Obj(type="thinking"), _Obj(type="text", text=" hi ")))
+    text, usage = provider.chat("claude-opus-5-5", SYSTEM_CACHED, 0.2, 2000)
+    assert text == "hi"
+    req = fake.requests[0]
+    assert req["system"] == [{"type": "text", "text": "rules", "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
+    assert [m["role"] for m in req["messages"]] == ["user", "assistant", "user"]
+    assert req["messages"][0]["content"][1]["cache_control"] == {"type": "ephemeral"}
+    assert "temperature" not in req
+    assert req["max_tokens"] == providers.ANTHROPIC_MIN_TOKENS  # room for the model's thinking
+    # Refusals are re-run server-side on the model Anthropic picks for that kind of refusal.
+    assert req["fallbacks"] == "default" and req["betas"] == [providers.ANTHROPIC_FALLBACK_BETA]
+    assert usage == {"prompt_tokens": 130, "completion_tokens": 5, "prompt_tokens_details": {"cached_tokens": 100}}
+
+
+def test_claude_request_drops_cache_marks_past_four_and_joins_same_role_turns(monkeypatch):
+    provider, fake = claude(monkeypatch, _claude_message(_Obj(type="text", text="ok")))
+    marked = {"type": "text", "text": "x", "cache_control": {"type": "ephemeral"}}
+    messages = [
+        {"role": "system", "content": [dict(marked), dict(marked)]},
+        {"role": "user", "content": [dict(marked), dict(marked), dict(marked)]},
+        {"role": "system", "content": "late note"},
+    ]
+    provider.chat("claude-haiku-5-5", messages, 0, 100)
+    req = fake.requests[0]
+    blocks = [*req["system"], *(b for m in req["messages"] for b in m["content"])]
+    assert sum("cache_control" in b for b in blocks) == 4
+    assert len(req["messages"]) == 1 and req["messages"][0]["content"][-1] == {"type": "text", "text": "late note"}
+    assert "fallbacks" not in req and "betas" not in req  # no server-side fallback for this model
+
+
+def test_claude_pictures_go_as_base64_images(monkeypatch):
+    provider, fake = claude(monkeypatch, _claude_message(_Obj(type="text", text="I see it")))
+    picture = providers.image_part(b"png-bytes", "image/png")
+    provider.chat("claude-opus-5-5", [{"role": "user", "content": [{"type": "text", "text": "look"}, picture]}], 0, 100)
+    part = fake.requests[0]["messages"][0]["content"][1]
+    assert part == {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": picture["data"]}}
+    assert providers.sees_images(provider, "claude-opus-5-5")
+
+
+def test_claude_tools_are_sent_as_input_schema_and_calls_come_back(monkeypatch):
+    reply = _claude_message(
+        _Obj(type="text", text="Asking the site analyst."),
+        _Obj(type="tool_use", name="run_expert", input={"expert": "site_analyst"}),
+        stop="tool_use",
+    )
+    provider, fake = claude(monkeypatch, reply)
+    tools = [{"name": "run_expert", "description": "Run one expert", "parameters": {"type": "object"}}]
+    text, calls, _ = provider.chat_tools("claude-opus-5-5", [{"role": "user", "content": "go"}], tools, 0.2, 100)
+    assert fake.requests[0]["tools"] == [{"name": "run_expert", "description": "Run one expert", "input_schema": {"type": "object"}}]
+    assert "tool_choice" not in fake.requests[0]
+    assert text == "Asking the site analyst."
+    assert calls == [{"name": "run_expert", "arguments": {"expert": "site_analyst"}}]
+
+
+def test_claude_refusal_is_an_error_not_an_empty_reply(monkeypatch):
+    provider, _ = claude(monkeypatch, _claude_message(stop="refusal"))
+    with pytest.raises(LLMError, match="declined"):
+        provider.chat("claude-opus-5-5", [{"role": "user", "content": "x"}], 0, 100)
+
+
+def test_claude_errors_retry_on_busy_and_stop_on_a_bad_key(monkeypatch):
+    provider, fake = claude(monkeypatch, _status_error(529, "overloaded"), _claude_message(_Obj(type="text", text="ok")))
+    assert provider.chat("claude-opus-5-5", [{"role": "user", "content": "x"}], 0, 100)[0] == "ok"
+    assert len(fake.requests) == 2
+
+    provider, fake = claude(monkeypatch, _status_error(401, "invalid x-api-key"))
+    with pytest.raises(LLMError, match="refused the API key"):
+        provider.chat("claude-opus-5-5", [{"role": "user", "content": "x"}], 0, 100)
+    assert len(fake.requests) == 1
+
+
+def test_claude_image_refusal_is_images_unsupported(monkeypatch):
+    provider, _ = claude(monkeypatch, _status_error(400, "This model does not support image input"))
+    picture = providers.image_part(b"x")
+    with pytest.raises(providers.ImagesUnsupported):
+        provider.chat("claude-x", [{"role": "user", "content": [{"type": "text", "text": "a"}, picture]}], 0, 100)

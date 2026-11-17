@@ -144,3 +144,36 @@ def test_write_env_value_replaces_the_line_and_keeps_the_rest(tmp_path):
     assert path.read_text(encoding="utf-8") == (
         "# comment\nOPENROUTER_API_KEY=new\nVWORLD_API_KEY=vw\n\nLAW_OPEN_API_OC=oc\n"
     )
+
+
+def test_anthropic_key_is_checked_and_the_role_runs_on_claude(client, env_keys, monkeypatch):
+    monkeypatch.setattr(settings, "_check_anthropic_key", lambda key: (False, "unauthorized (401)"))
+    r = client.put("/api/settings/keys/anthropic", json={"value": "sk-ant-wrongwrongwrong"})
+    assert r.status_code == 400 and "unauthorized" in r.json()["detail"]
+
+    body = client.put("/api/settings", json={"conductor_provider": "anthropic"}).json()
+    assert body["mode"] == "custom"
+    assert body["conductor"] == {"provider": "anthropic", "model": "claude-opus-5-5"}
+    assert body["anthropic"]["models"][0] == "claude-opus-5-5"
+    assert body["warnings"]["anthropic_key_missing"] is True
+
+    monkeypatch.setattr(settings, "_check_anthropic_key", lambda key: (True, "authorized"))
+    assert client.put("/api/settings/keys/anthropic", json={"value": "sk-ant-rightrightright"}).json()["verified"] is True
+    body = client.put("/api/settings", json={"worker_provider": "anthropic", "worker_anthropic_model": "claude-sonnet-5-5"}).json()
+    assert body["worker"] == {"provider": "anthropic", "model": "claude-sonnet-5-5"}
+    assert body["warnings"]["anthropic_key_missing"] is False
+    assert body["keys"]["anthropic"] == {"env": "ANTHROPIC_API_KEY", "set": True, "hint": "…ight"}
+
+
+@pytest.mark.parametrize("model", ["anthropic/claude-opus-5-5", "claude opus", ""])
+def test_anthropic_model_must_be_a_claude_api_id(client, model):
+    assert client.put("/api/settings", json={"anthropic_model": model}).status_code == 400
+
+
+def test_an_anthropic_role_gets_the_anthropic_key_not_openrouters(env_keys, monkeypatch):
+    from sida import runtime
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-for-claude")
+    cfg = {"conductor": {"provider": "anthropic"}, "worker": {"provider": "openrouter"}}
+    assert runtime.conductor_provider(cfg, "sk-or-openrouter")._client.api_key == "sk-ant-for-claude"
+    assert runtime.worker_provider(cfg, "sk-or-openrouter").api_key == "sk-or-openrouter"

@@ -691,6 +691,10 @@ test('the sidebar says whether the AI and the government data are ready, and whe
   assert.deepEqual([noKey.ok, noKey.text, noKey.target], [false, 'OpenRouter 키 필요', '#set-openrouter']);
   const local = readiness({ ...base, conductor: { provider: 'ollama', model: 'qwen' }, worker: { provider: 'ollama' } })[0];
   assert.deepEqual([local.ok, local.text, local.target], [true, '이 PC 모델 · qwen', '#set-conductor']);
+  const claude = { ...base, conductor: { provider: 'anthropic', model: 'claude-opus-5-5' }, worker: { provider: 'anthropic' } };
+  const claudeNoKey = readiness(claude)[0];
+  assert.deepEqual([claudeNoKey.ok, claudeNoKey.text, claudeNoKey.target], [false, 'Anthropic 키 필요', '#set-anthropic']);
+  assert.equal(readiness({ ...claude, keys: { anthropic: { set: true } } })[0].text, 'Anthropic · claude-opus-5-5');
 
   assert.equal(readiness({ ...base, keys: { vworld: { set: true }, data_go_kr: { set: true } } })[1].text, '이 PC의 정부 키로 연결됨');
   assert.deepEqual(readiness({ ...base, keys: {} }, { state: 'pending' })[1].text, 'Sida 키 승인 기다리는 중');
@@ -728,6 +732,12 @@ test('the settings form knows what saving would change and whether anything is u
   assert.equal(settingsDirty(settings, { ...draft, keys: { ...draft.keys, law: 'oc' } }), true);
   assert.equal(settingsDirty(settings, { ...draft, keys: { ...draft.keys, vworld_domain: 'localhost' } }), false);
   assert.equal(settingsDirty(null, draft), false);
+  // The Claude models and key (the user's own Anthropic API key).
+  const claude = { ...settings, anthropic: { model: 'claude-opus-5-5', worker_model: 'claude-opus-5-5' } };
+  const claudeDraft = { ...draft, anthropic_model: 'claude-opus-5-5', worker_anthropic_model: 'claude-opus-5-5', anthropic_key: '' };
+  assert.deepEqual(settingsChanges(claude, claudeDraft), {});
+  assert.deepEqual(settingsChanges(claude, { ...claudeDraft, worker_anthropic_model: 'claude-sonnet-5-5' }), { worker_anthropic_model: 'claude-sonnet-5-5' });
+  assert.equal(settingsDirty(claude, { ...claudeDraft, anthropic_key: 'sk-ant-1' }), true);
 });
 
 test('a project made without a name gets the first free 무제 number', () => {

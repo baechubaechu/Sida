@@ -1,4 +1,4 @@
-"""LLM providers (OpenRouter, OpenAI, ChatGPT plan, Ollama, mock) behind one `chat()` call."""
+"""LLM providers (OpenRouter, OpenAI, Anthropic, ChatGPT plan, Ollama, mock) behind one `chat()` call."""
 
 from __future__ import annotations
 
@@ -757,6 +757,203 @@ class OllamaProvider:
         return _with_retries(send)
 
 
+# ---------------------------------------------------------------------------
+# Anthropic (Claude API, the user's own API key)
+# ---------------------------------------------------------------------------
+# Billed by use on the key's account. The Claude plans (Pro, Max) are not used here: Anthropic's
+# terms do not allow third-party apps to sign in with them.
+
+# Models whose declined requests the API re-runs on the model Anthropic picks for that kind of
+# refusal (server-side fallback), inside the same call.
+ANTHROPIC_FALLBACK_MODELS = {"claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-fable-5-2"}
+ANTHROPIC_FALLBACK_BETA = "server-side-fallback-2026-07-01"
+# Thinking is always on in the current models and counts against max_tokens, so the role's own
+# limit (1,400-2,500, sized for a reply alone) would cut it: this is the least a request asks for.
+ANTHROPIC_MIN_TOKENS = 16000
+ANTHROPIC_CACHE_MARKERS = 4  # the API takes at most this many cache_control markers a request
+
+
+def _anthropic_parts(content: Any, *, role: str) -> list[dict]:
+    """A message's content → Messages API blocks (text keeps its cache marker; a user's pictures go as base64)."""
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}] if content.strip() else []
+    if not isinstance(content, list):
+        return [{"type": "text", "text": str(content)}] if content is not None and str(content).strip() else []
+    out: list[dict] = []
+    for part in content:
+        if isinstance(part, str):
+            if part.strip():
+                out.append({"type": "text", "text": part})
+        elif _is_image(part):
+            if role == "user":
+                out.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": part.get("media_type") or "image/png", "data": part["data"]},
+                })
+        elif isinstance(part, dict) and part.get("type") == "text" and str(part.get("text", "")).strip():
+            block = {"type": "text", "text": str(part["text"])}
+            if part.get("cache_control"):
+                block["cache_control"] = dict(part["cache_control"])
+            out.append(block)
+    return out
+
+
+def _anthropic_request(messages: list[dict[str, Any]]) -> tuple[list[dict], list[dict]]:
+    """
+    Sida's messages → (system blocks, messages) for the Messages API. The leading system messages
+    become `system`; a later one goes in as the user's text (the API has no system turn there).
+    Turns of the same role next to each other are joined, and cache markers past the API's limit
+    are dropped from the end.
+    """
+    system: list[dict] = []
+    turns: list[dict] = []
+    for m in messages:
+        role = str(m.get("role", "user"))
+        if role == "system" and not turns:
+            system.extend(_anthropic_parts(m.get("content"), role="system"))
+            continue
+        role = "assistant" if role == "assistant" else "user"
+        parts = _anthropic_parts(m.get("content"), role=role)
+        if not parts:
+            continue
+        if turns and turns[-1]["role"] == role:
+            turns[-1]["content"].extend(parts)
+        else:
+            turns.append({"role": role, "content": parts})
+    seen = 0
+    for block in [*system, *(b for t in turns for b in t["content"])]:
+        if "cache_control" in block:
+            seen += 1
+            if seen > ANTHROPIC_CACHE_MARKERS:
+                del block["cache_control"]
+    return system, turns
+
+
+def _anthropic_usage(usage: Any) -> dict:
+    """The Messages API's usage → the chat-completions shape format_usage reads."""
+    if usage is None:
+        return {}
+    fresh = int(getattr(usage, "input_tokens", 0) or 0)
+    read = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+    written = int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+    return {
+        "prompt_tokens": fresh + read + written,
+        "completion_tokens": int(getattr(usage, "output_tokens", 0) or 0),
+        "prompt_tokens_details": {"cached_tokens": read},
+    }
+
+
+class AnthropicProvider:
+    """Claude through the Messages API with the official SDK (`anthropic`), streamed."""
+
+    name = "anthropic"
+
+    def __init__(self, api_key: str):
+        if not api_key:
+            raise LLMError("Anthropic API key is missing. Enter it on the settings screen.")
+        try:
+            import anthropic
+        except ImportError as exc:  # an install from before the dependency was added
+            raise LLMError("The anthropic package is missing. Run: pip install -e .") from exc
+        self._sdk = anthropic
+        # Retries are ours (_with_retries), as for the other providers.
+        self._client = anthropic.Anthropic(api_key=api_key, max_retries=0, timeout=600)
+
+    @staticmethod
+    def sees_images(model: str) -> bool:
+        return True  # every current Claude model reads pictures
+
+    def _send(self, model: str, messages: list[dict[str, Any]], max_tokens: int, tools: list[dict] | None = None):
+        """One streamed request → the final message. Raises LLMError (retryable where it helps)."""
+        sdk = self._sdk
+        system, turns = _anthropic_request(messages)
+        if not turns:
+            raise LLMError("Nothing to send: no user message")
+        # No temperature: the current models take only their default sampling.
+        request: dict[str, Any] = {"model": model, "max_tokens": max(int(max_tokens or 0), ANTHROPIC_MIN_TOKENS), "messages": turns}
+        if system:
+            request["system"] = system
+        if tools:
+            request["tools"] = [
+                {"name": t["name"], "description": t["description"], "input_schema": t["parameters"]} for t in tools
+            ]
+        if model in ANTHROPIC_FALLBACK_MODELS:
+            request["betas"] = [ANTHROPIC_FALLBACK_BETA]
+            request["fallbacks"] = "default"
+        try:
+            with self._client.beta.messages.stream(**request) as stream:
+                message = stream.get_final_message()
+        except sdk.AuthenticationError as exc:
+            raise LLMError("Anthropic refused the API key (401). Check it on the settings screen.") from exc
+        except sdk.APIStatusError as exc:
+            status = int(getattr(exc, "status_code", 0) or 0)
+            text = str(getattr(exc, "message", "") or exc)
+            msg = f"Anthropic error ({status}): {text[:300]}"
+            if status in RETRY_STATUS or status >= 500:
+                raise _retryable(msg) from exc
+            if tools and _refuses_tools(status, text):
+                raise ToolsUnsupported(msg) from exc
+            if has_images(messages) and _refuses_images(status, text):
+                raise ImagesUnsupported(msg) from exc
+            raise LLMError(msg) from exc
+        except sdk.APIConnectionError as exc:  # also the timeout
+            raise _retryable(f"Anthropic request failed: {exc}") from exc
+        if getattr(message, "stop_reason", None) == "refusal":
+            raise LLMError("Claude declined this request (refusal).")
+        return message
+
+    @staticmethod
+    def _reply(message) -> tuple[str, list[dict]]:
+        texts: list[str] = []
+        calls: list[dict] = []
+        for block in getattr(message, "content", None) or []:
+            kind = getattr(block, "type", None)
+            if kind == "text":
+                texts.append(str(getattr(block, "text", "") or ""))
+            elif kind == "tool_use" and getattr(block, "name", None):
+                calls.append({"name": str(block.name), "arguments": _tool_arguments(getattr(block, "input", None))})
+        return "".join(texts).strip(), calls
+
+    def chat(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        **_: Any,
+    ) -> tuple[str, dict]:
+        def send():
+            message = self._send(model, messages, max_tokens)
+            text, _calls = self._reply(message)
+            if not text:
+                if getattr(message, "stop_reason", None) == "max_tokens":
+                    raise LLMError("Claude used up max_tokens before replying.")
+                raise _retryable("Empty LLM response")
+            return text, _anthropic_usage(getattr(message, "usage", None))
+
+        return _with_retries(send)
+
+    def chat_tools(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict],
+        temperature: float,
+        max_tokens: int,
+        **_: Any,
+    ) -> tuple[str, list[dict], dict]:
+        def send():
+            message = self._send(model, messages, max_tokens, tools=tools)
+            text, calls = self._reply(message)
+            if not text and not calls:
+                if getattr(message, "stop_reason", None) == "max_tokens":
+                    raise LLMError("Claude used up max_tokens before replying.")
+                raise _retryable("Empty LLM response")
+            return text, calls, _anthropic_usage(getattr(message, "usage", None))
+
+        return _with_retries(send)
+
+
 class MockProvider:
     """Offline provider for demos/tests. Returns deterministic placeholder text."""
 
@@ -817,6 +1014,8 @@ def make_provider(
         return OllamaProvider(
             base_url=base_url, num_ctx=num_ctx, keep_alive=keep_alive, think=think
         )
+    if kind == "anthropic":
+        return AnthropicProvider(api_key)
     if kind == "chatgpt":
         from sida import chatgpt_auth  # imports this module
 
@@ -824,7 +1023,7 @@ def make_provider(
     if kind == "mock":
         return MockProvider()
     raise LLMError(
-        f"Unknown provider '{kind}'. Use openrouter | openai | chatgpt | ollama | mock."
+        f"Unknown provider '{kind}'. Use openrouter | openai | anthropic | chatgpt | ollama | mock."
     )
 
 

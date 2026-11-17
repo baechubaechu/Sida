@@ -8,6 +8,7 @@ from sida.i18n import t
 from sida.providers import DEFAULT_OLLAMA_URL, make_provider
 
 DEFAULT_CHATGPT_MODEL = "gpt-6.1-sol"
+DEFAULT_ANTHROPIC_MODEL = "claude-opus-5-5"  # Claude API id (the user's own Anthropic key)
 
 
 def load_env(*, config: dict | None = None) -> str:
@@ -82,6 +83,8 @@ def resolve_conductor_runtime(config: dict) -> dict:
 
     if runtime["provider"] == "chatgpt":  # the signed-in ChatGPT plan has its own model ids
         runtime["model"] = str(conductor.get("chatgpt_model") or DEFAULT_CHATGPT_MODEL)
+    elif runtime["provider"] == "anthropic":  # Claude API ids, not OpenRouter's "anthropic/..."
+        runtime["model"] = str(conductor.get("anthropic_model") or DEFAULT_ANTHROPIC_MODEL)
 
     profile = resolve_local_profile(config)
     if profile:
@@ -126,6 +129,8 @@ def resolve_worker_runtime(config: dict) -> dict:
     }
     if runtime["provider"] == "chatgpt":  # the signed-in ChatGPT plan has its own model ids
         runtime["model"] = str(worker.get("chatgpt_model") or DEFAULT_CHATGPT_MODEL)
+    elif runtime["provider"] == "anthropic":  # Claude API ids, not OpenRouter's "anthropic/..."
+        runtime["model"] = str(worker.get("anthropic_model") or DEFAULT_ANTHROPIC_MODEL)
     profile = resolve_local_profile(config, for_worker=True)
     if profile and runtime["provider"] in {"ollama", "local"}:
         # Cloud-style ids (openai/...) are not valid Ollama tags — replace from profile.
@@ -141,11 +146,20 @@ def resolve_worker_runtime(config: dict) -> dict:
     return runtime
 
 
+def _provider_key(provider: str, api_key: str) -> str:
+    """The key a provider runs with: `api_key` is OpenRouter's; Anthropic's is read from .env."""
+    if provider == "anthropic":
+        from sida import settings
+
+        return settings.read_key("ANTHROPIC_API_KEY")
+    return api_key
+
+
 def conductor_provider(config: dict, api_key: str):
     rt = resolve_conductor_runtime(config)
     return make_provider(
         rt["provider"],
-        api_key=api_key,
+        api_key=_provider_key(rt["provider"], api_key),
         base_url=rt.get("base_url"),
         num_ctx=rt.get("num_ctx"),
         keep_alive=rt.get("keep_alive"),
@@ -157,7 +171,7 @@ def worker_provider(config: dict, api_key: str):
     rt = resolve_worker_runtime(config)
     return make_provider(
         rt["provider"],
-        api_key=api_key,
+        api_key=_provider_key(rt["provider"], api_key),
         base_url=rt.get("base_url"),
         num_ctx=rt.get("num_ctx"),
         keep_alive=rt.get("keep_alive"),

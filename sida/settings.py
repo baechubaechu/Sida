@@ -26,11 +26,13 @@ OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
 MODES = ("cloud", "local")
 MODE_PROVIDER = {"cloud": "openrouter", "local": "ollama"}
 WEB_PROVIDERS = ("openrouter", "ollama")
-# Either role can also run on the user's ChatGPT plan (docs/chatgpt-login.md); a run mode
-# never picks it, so it is chosen per role.
-CONDUCTOR_PROVIDERS = (*WEB_PROVIDERS, "chatgpt")
+# Either role can also run on the user's ChatGPT plan (docs/chatgpt-login.md) or the user's own
+# Anthropic API key; a run mode never picks them, so they are chosen per role.
+CONDUCTOR_PROVIDERS = (*WEB_PROVIDERS, "chatgpt", "anthropic")
 WORKER_PROVIDERS = CONDUCTOR_PROVIDERS
 STATE_MODES = ("ask", "auto", "off")
+# The Claude models offered on the settings screen (best first); another id can be typed.
+ANTHROPIC_MODELS = ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5")
 LOCAL_CONFIG_HEADER = (
     "# This machine only — not committed. Values here override config.yaml.\n"
     "# Change them from the settings screen or edit this file directly.\n"
@@ -40,6 +42,7 @@ LOCAL_CONFIG_HEADER = (
 KEYS: dict[str, dict[str, Any]] = {
     "openrouter": {"env": "OPENROUTER_API_KEY", "secret": True},
     "openai": {"env": "OPENAI_API_KEY", "secret": True},
+    "anthropic": {"env": "ANTHROPIC_API_KEY", "secret": True},
     "vworld": {"env": "VWORLD_API_KEY", "secret": True},
     "vworld_domain": {"env": "VWORLD_DOMAIN", "secret": False},
     "data_go_kr": {"env": "DATA_GO_KR_API_KEY", "secret": True},
@@ -207,19 +210,39 @@ def _check_key(url: str, key: str) -> tuple[bool, str]:
     return False, f"HTTP {response.status_code}: {response.text[:200]}"
 
 
+def _check_anthropic_key(key: str) -> tuple[bool, str]:
+    """Ask Anthropic whether it accepts the key (lists the models it may use). Returns (ok, detail)."""
+    try:
+        import anthropic
+    except ImportError:
+        return False, "the anthropic package is missing (pip install -e .)"
+    client = anthropic.Anthropic(api_key=key, max_retries=0, timeout=30)
+    try:
+        client.models.list(limit=1)
+    except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as exc:
+        return False, f"unauthorized ({exc.status_code})"
+    except anthropic.APIStatusError as exc:
+        return False, f"HTTP {exc.status_code}: {str(exc.message)[:200]}"
+    except anthropic.APIConnectionError as exc:
+        return False, str(exc)
+    return True, "authorized"
+
+
 def verify_key(key_id: str, value: str) -> tuple[bool, str] | None:
     """Check a model key against its service before saving; None for keys with no check."""
     if key_id == "openrouter":
         return _check_key(OPENROUTER_KEY_URL, value)
     if key_id == "openai":
         return _check_key(OPENAI_MODELS_URL, value)
+    if key_id == "anthropic":
+        return _check_anthropic_key(value)
     return None
 
 
 def set_key(key_id: str, value: str) -> dict:
     """
     Save one key to .env and to this process, so the running server uses it at once.
-    OpenRouter and OpenAI keys are checked first and not saved when the service rejects
+    OpenRouter, OpenAI and Anthropic keys are checked first and not saved when the service rejects
     them (ValueError). Government keys are saved as given.
     """
     if key_id not in KEYS:
@@ -290,12 +313,23 @@ def settings_view(config: dict) -> dict:
                 (config.get("worker") or {}).get("chatgpt_model") or runtime.DEFAULT_CHATGPT_MODEL
             ),
         },
+        "anthropic": {
+            "model": str(
+                (config.get("conductor") or {}).get("anthropic_model") or runtime.DEFAULT_ANTHROPIC_MODEL
+            ),
+            "worker_model": str(
+                (config.get("worker") or {}).get("anthropic_model") or runtime.DEFAULT_ANTHROPIC_MODEL
+            ),
+            "models": list(ANTHROPIC_MODELS),
+        },
         "warnings": {
             "openrouter_key_missing": runtime.needs_openrouter(config)
             and not values.get("OPENROUTER_API_KEY", "").strip(),
             "rag_key_missing": key_missing(rag),
             "chatgpt_signed_out": "chatgpt" in {conductor["provider"], worker["provider"]}
             and not chatgpt["signed_in"],
+            "anthropic_key_missing": "anthropic" in {conductor["provider"], worker["provider"]}
+            and not values.get("ANTHROPIC_API_KEY", "").strip(),
         },
         "options": {
             "modes": list(MODES),
@@ -340,6 +374,13 @@ def settings_patches(config: dict, changes: dict) -> list[tuple[str, str, Any]]:
             if not model or any(c.isspace() for c in model):
                 raise ValueError(f"{field} must be one model id, such as gpt-6.1-sol")
             patches.append((role, "chatgpt_model", model))
+    for field, role in (("anthropic_model", "conductor"), ("worker_anthropic_model", "worker")):
+        model = changes.get(field)
+        if model is not None:
+            model = str(model).strip()
+            if not model or any(c.isspace() for c in model) or "/" in model:
+                raise ValueError(f"{field} must be one Claude API model id, such as {runtime.DEFAULT_ANTHROPIC_MODEL}")
+            patches.append((role, "anthropic_model", model))
     for field, section, key in (
         ("rag_enabled", "rag", "enabled"),
         ("telemetry_enabled", "telemetry", "enabled"),
