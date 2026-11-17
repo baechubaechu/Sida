@@ -2635,14 +2635,19 @@ export function envelopeSchemePaper(scheme) {
 
 // What the 법규 볼륨 card shows: its figures, the rule lines (with their 원문) and a line per
 // reference scheme. Figures the server did not give are left out.
-const ENVELOPE_STATUS = { read: '확인', check: '확인 필요', none: '해당 없음' };
+const ENVELOPE_STATUS = { read: '확인', conditional: '조건 있음', check: '확인 필요', none: '해당 없음' };
 export function envelopeCard(envelope) {
   if (!envelope) return null;
   const figures = [];
   if (envelope.zone) figures.push(['용도지역', envelope.zone]);
   if (envelope.max_height_m !== null && envelope.max_height_m !== undefined) figures.push(['최고 높이', `${fmt(envelope.max_height_m, 1)}m`]);
   if (envelope.height_limit_m) figures.push(['높이 한도 (입력)', `${fmt(envelope.height_limit_m, 1)}m`]);
-  if (envelope.district_height_m) figures.push(['높이 한도 (고시)', `${fmt(envelope.district_height_m, 1)}m`]);
+  if (envelope.district_height_m) {
+    const relaxed = envelope.use_relaxed && envelope.height_district?.relaxed_m;
+    figures.push([relaxed ? '높이 한도 (고시 완화, 심의 필요)' : '높이 한도 (고시)', `${fmt(envelope.district_height_m, 1)}m`]);
+  }
+  // 높이 산정: rooftop stair and lift towers within this much are left out of the notice's height
+  if (envelope.rooftop_allowance_m) figures.push(['옥상 계단탑·승강기탑', `볼륨 위 ${fmt(envelope.rooftop_allowance_m, 1)}m까지`]);
   const uses = (envelope.uses || []).map((u) => ({ ...u, selected: u.key === envelope.use }));
   const use = uses.find((u) => u.selected);
   if (use) figures.push(['건물 용도', envelope.use_area_m2 ? `${use.label} · 바닥면적 ${m2(envelope.use_area_m2)}` : use.label]);

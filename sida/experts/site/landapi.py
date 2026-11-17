@@ -502,6 +502,24 @@ def land_characteristics(pnu: str, *, http_get: HttpGet | None = None) -> dict |
     }
 
 
+# 토지소유정보의 소유구분(posesnSeCodeNm) 가운데 국·공유지, 띄어쓰기를 빼고 비교. 2026-11-17 실제 호출로
+# 본 값: 세종로 1 "국유지", 태평로1가 31 "시 도유지", 통인동 100 "법인".
+PUBLIC_OWNERS = {"국유지", "시도유지", "군유지", "구유지", "국공유지"}
+
+
+def land_owner(pnu: str, *, http_get: HttpGet | None = None) -> dict | None:
+    """
+    The parcel's 소유구분 (VWorld 토지소유정보 getPossessionAttr), or None when it has no record:
+    {"kind": "국유지" | "시 도유지" | "법인" | "개인" | …, "public": True for 국·공유지}.
+    Only the kind of owner is kept, never who owns it.
+    """
+    rows = _ned_either_numbering("getPossessionAttr", "possessions", pnu, http_get)
+    kinds = sorted({str(r.get("posesnSeCodeNm") or "").strip() for r in rows} - {""})
+    if not kinds:
+        return None
+    return {"kind": ", ".join(kinds), "public": all(k.replace(" ", "") in PUBLIC_OWNERS for k in kinds)}
+
+
 # ---------------------------------------------------------------------------
 # Map: parcel boundary shapes, and the parcel at a clicked point
 # ---------------------------------------------------------------------------

@@ -156,6 +156,7 @@ export const pointerMethods = {
       case 'envelope-height': this.applyEnvelopeHeight(); break;
       case 'envelope-height-clear': this.applyEnvelopeHeight(true); break;
       case 'envelope-use': this.applyEnvelopeUse(); break;
+      case 'envelope-relaxed': this.toggleEnvelopeRelaxed(); break;
       case 'eye': this.toggleEye(); break;
       case 'model-panel': this.openModel(); this.drawControls(); break;
       case 'cut': this.cutFromBar(); break;
