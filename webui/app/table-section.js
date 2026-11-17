@@ -178,6 +178,25 @@ export const sectionMethods = {
     g.cuts.visible = on;
     if (g.sun) g.sun.castShadow = !on; // the shadow map is not cut: no shadows of what was taken away
   },
+  // 자르기 in the view bar: which section the 3D view is cut along (none, or one of the sections on
+  // the table). Without a section yet it says how to draw one.
+  cutControl() {
+    const sections = this.papers.filter((p) => p.kind === 'section' && p.line);
+    if (!sections.length) return '<button type="button" class="view-extra" data-ui="cut" title="3D 자르기 (명령: clip) — 단면선을 그으면 그 선으로 3D를 잘라 볼 수 있습니다">자르기</button>';
+    return `<label class="view-cut" title="3D 자르기 (명령: clip) — 단면선으로 3D를 잘라 봅니다. 화살표 쪽이 남습니다">자르기 <select data-ui="cut-pick" aria-label="3D를 자를 단면">
+        <option value="">끔</option>${sections.map((p) => `<option value="${escape(p.id)}" ${this.cutId === p.id ? 'selected' : ''}>${escape(p.title || 'A')}–${escape(p.title || 'A')}′</option>`).join('')}</select></label>`;
+  },
+  cutFromBar() {
+    this.say('자를 단면이 없습니다. 단면 도구(명령: section)로 평면에서 단면선을 먼저 그으세요.');
+  },
+  // The section to cut along ('' stops cutting). `name`: a section's name ("A"), as the clip command gives it.
+  setCut(id) {
+    if (!id) { if (this.cutId) this.toggleCut(this.cutId); return true; }
+    const paper = this.papers.find((p) => p.kind === 'section' && p.line && (p.id === id || String(p.title || 'A').toLowerCase() === String(id).toLowerCase()));
+    if (!paper) return false;
+    if (this.cutId !== paper.id) this.toggleCut(paper.id);
+    return true;
+  },
   // Cut the 3D view along a section (or stop cutting it).
   toggleCut(id) {
     this.cutId = this.cutId === id ? '' : id;
@@ -194,6 +213,7 @@ export const sectionMethods = {
       this.say('3D 자르기를 껐습니다.');
     }
     if (this.detailId) this.drawDetail();
+    this.drawControls(); // the view bar's 자르기 follows
     this.hooks.pdfPages?.(); // the 속성 panel's buttons follow
   },
 

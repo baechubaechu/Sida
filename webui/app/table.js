@@ -12,7 +12,7 @@
 import { icon } from './icons.js';
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { boardLayers, paperLayer, blockLayer, layerFlags, expandGroups, groupChange, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewMode, isoCorner, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS, changesPanel, savedCircles } from './board-model.js';
+import { boardLayers, paperLayer, blockLayer, layerFlags, expandGroups, groupChange, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewMode, isoCorner, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, changesPanel, savedCircles, toolbarGroups, toolbarFolded, toolGroupOf } from './board-model.js';
 import { typing, TOOLS, MODEL_TOOLS } from './table-shared.js';
 import { blocksMethods } from './table-blocks.js';
 import { aroundMethods } from './table-around.js';
@@ -39,6 +39,8 @@ export class DraftingTable {
     this.home = traceHome(this.bounds);
     this.view = { x: 0, y: 0, span: 160, tilt: 0, turn: 0 };
     this.tool = 'select';
+    this.toolLast = {}; // the tool last used in each group of the tool bar (its folded button shows it)
+    this.toolGroupOpen = ''; // the folded group whose menu is open
     this.selected = [];
     this.picked = []; // blocks (buildings) picked on their own: `paperId#index`
     this.active = '';
@@ -267,6 +269,11 @@ export class DraftingTable {
         this.travel(name);
         return '';
       case 'tray': this.trayOpen = !this.trayOpen; this.drawTray(); this.drawControls(); return '';
+      case 'around':
+        if (!this.site?.plan && !this.aroundOn) return '대지를 먼저 정해야 주변을 불러올 수 있습니다.';
+        this.toggleAround();
+        return '';
+      case 'base': this.openModel(); return '';
       case 'group': return this.groupSelection(true);
       case 'ungroup': return this.groupSelection(false);
       default: return '제도판에서 쓰는 명령이 아닙니다.';
@@ -354,6 +361,7 @@ export class DraftingTable {
     const h = this.root.clientHeight;
     if (!w || !h || (w === this.size?.w && h === this.size?.h)) return;
     this.size = { w, h };
+    if (toolbarFolded(w) !== this.ui.tools.classList.contains('is-folded')) this.drawControls();
     this.gl.renderer.setSize(w, h);
     this.gl.cssRenderer.setSize(w, h);
     this.gl.camera.aspect = w / h;
@@ -588,22 +596,33 @@ export class DraftingTable {
     const v = this.view;
     const masses = this.papers.filter((p) => p.kind === 'mass');
     // An icon each; the name, the command and how to use it show on hover (and are read out).
-    const toolButton = (t) => `<button type="button" class="tool" data-tool="${t.id}" aria-pressed="${this.tool === t.id}" aria-label="${t.label}" title="${t.label} (명령: ${t.cmd})${t.hint ? ` — ${t.hint}` : ''}">${icon(t.id)}</button>`;
-    this.ui.tools.innerHTML = `${TOOLS.filter((t) => !t.group).slice(0, 1).map(toolButton).join('')}
-      <span class="sep"></span>${TOOLS.filter((t) => t.group === 'model').map(toolButton).join('')}
-      <span class="sep"></span>${TOOLS.filter((t) => !t.group).slice(1).map(toolButton).join('')}
-      ${this.tool === 'person' ? this.personOptions() : ''}
-      <span class="sep"></span>
-      <button type="button" class="tool" data-ui="scheme-new" aria-label="매스안 만들기" title="숫자로 매스안 만들기">${icon('mass')}</button>
-      <button type="button" class="tool" data-ui="trace" aria-label="트레이싱지 덮기" title="트레이싱지 덮기 (명령: trace) — 대지 위에 덮고, 옆으로 끌어내면 떼어집니다">${icon('trace')}</button>
-      <button type="button" class="tool" data-ui="photo" aria-label="사진·PDF 올리기" title="사진·PDF 올리기 (명령: photo) — 사진이나 PDF 도면을 제도판에 끌어다 놓거나 붙여넣어도 됩니다">${icon('photo')}</button>
-      <span class="sep"></span>
-      <button type="button" class="tool" data-ui="around" aria-pressed="${this.aroundOn}" aria-label="${this.aroundBusy ? '주변 불러오는 중' : '주변 3D'}" ${this.site?.plan && !this.aroundBusy ? '' : 'disabled'} title="주변 3D — 대지 주변(옆에서 고른 범위·모양)의 지형과 건물을 3D로 보기 (공공 자료로 만든 참고용 모형)">${icon('around')}</button>
-      ${this.site?.plan ? this.rangeSelects() : ''}
-      ${this.aroundOn && this.around?.terrain ? `<label class="check">등고선 <select data-ui="contour-step" aria-label="등고선 간격">${CONTOUR_STEPS.map((s) => `<option value="${s}" ${s === this.contourStep ? 'selected' : ''}>${s}m</option>`).join('')}</select></label>` : ''}
+    // Four groups (매스, 재기, 올리기, 주변): in one bar on a wide table, folded to a button each
+    // on a narrower one (its menu names every tool with its command).
+    const items = Object.fromEntries(TOOLS.map((t) => [t.id, { attr: `data-tool="${t.id}"`, pressed: this.tool === t.id, label: t.label, cmd: t.cmd, hint: t.hint || '', icon: t.id }]));
+    Object.assign(items, {
+      'scheme-new': { attr: 'data-ui="scheme-new"', label: '매스안 만들기', cmd: 'mass', hint: '숫자로 매스안 만들기', icon: 'mass' },
+      trace: { attr: 'data-ui="trace"', label: '트레이싱지 덮기', cmd: 'trace', hint: '대지 위에 덮고, 옆으로 끌어내면 떼어집니다', icon: 'trace' },
+      photo: { attr: 'data-ui="photo"', label: '사진·PDF 올리기', cmd: 'photo', hint: '사진이나 PDF 도면을 제도판에 끌어다 놓거나 붙여넣어도 됩니다', icon: 'photo' },
+      around: { attr: 'data-ui="around"', pressed: this.aroundOn, off: !(this.site?.plan && !this.aroundBusy), label: this.aroundBusy ? '주변 불러오는 중' : '주변 3D', cmd: 'around',
+        hint: '대지 주변의 지형과 건물을 3D로 보기 (공공 자료로 만든 참고용 모형). 범위·모양·등고선은 레이어 패널의 주변 줄에서 정합니다', icon: 'around' },
+      'model-panel': { attr: 'data-ui="model-panel"', label: '모형 바닥', cmd: 'base', hint: '표현 계획자의 모형 탭: 모형 판 크기·축척을 정해 레이저 커팅 파일 받기', icon: 'base' },
+    });
+    const state = (it) => `${it.pressed === undefined ? '' : `aria-pressed="${Boolean(it.pressed)}"`} ${it.off ? 'disabled' : ''}`;
+    const tip = (it) => `${it.label} (명령: ${it.cmd})${it.hint ? ` — ${it.hint}` : ''}`;
+    const toolButton = (id) => { const it = items[id]; return `<button type="button" class="tool" ${it.attr} ${state(it)} aria-label="${it.label}" title="${tip(it)}">${icon(it.icon)}</button>`; };
+    const menuItem = (id) => { const it = items[id]; return `<button type="button" class="tool-item" role="menuitem" ${it.attr} ${state(it)} title="${tip(it)}">${icon(it.icon)}<span>${it.label}</span><kbd>${it.cmd}</kbd></button>`; };
+    const fold = toolbarFolded(this.root.clientWidth);
+    if (!fold) this.toolGroupOpen = '';
+    const groups = toolbarGroups(this.tool, this.toolLast).map((g) => (fold
+      ? `<span class="tool-fly"><button type="button" class="tool tool-fold" data-ui="tool-group" data-group="${g.id}" aria-haspopup="menu" aria-expanded="${this.toolGroupOpen === g.id}" aria-pressed="${g.active || (g.id === 'around' && this.aroundOn)}" aria-label="${g.label} 도구" title="${g.label}: ${g.items.map((id) => items[id].label).join(', ')}">${icon(items[g.shown].icon)}<i aria-hidden="true"></i></button>${this.toolGroupOpen === g.id
+        ? `<span class="tool-menu" role="menu" aria-label="${g.label}"><b>${g.label}</b>${g.items.map(menuItem).join('')}</span>` : ''}</span>`
+      : `<span class="tool-group" role="group" aria-label="${g.label}"><span class="tool-cap" aria-hidden="true">${g.label}</span>${g.items.map(toolButton).join('')}</span><span class="sep"></span>`)).join('');
+    this.ui.tools.classList.toggle('is-folded', fold);
+    this.ui.tools.innerHTML = `${toolButton('select')}
+      <span class="sep"></span>${groups}${fold ? '<span class="sep"></span>' : ''}
       <button type="button" class="tool" data-ui="delete" aria-label="삭제" ${this.selected.some((id) => this.papers.some((p) => p.id === id && p.kind !== 'site')) ? '' : 'disabled'} title="삭제 (Delete)">${icon('trash')}</button>
-      <span class="sep"></span>
-      <button type="button" class="tool tray-button" data-ui="tray" aria-pressed="${this.trayOpen}" aria-label="AI 섹션${this.tray.length ? ` ${this.tray.length}개` : ''}" title="AI 섹션 — 전문가 결과가 놓이는 곳">${icon('tray')}${this.tray.length ? `<b>${this.tray.length}</b>` : ''}</button>`;
+      <button type="button" class="tool tray-button" data-ui="tray" aria-pressed="${this.trayOpen}" aria-label="AI 섹션${this.tray.length ? ` ${this.tray.length}개` : ''}" title="AI 섹션 — 전문가 결과가 놓이는 곳">${icon('tray')}${this.tray.length ? `<b>${this.tray.length}</b>` : ''}</button>
+      ${this.tool === 'person' ? this.personOptions() : ''}`;
     this.ui.scheme.hidden = !masses.length;
     this.ui.scheme.innerHTML = masses.length ? `<div class="seg" role="group" aria-label="3D로 볼 매스안">
         ${masses.map((p) => `<button type="button" data-active="${escape(p.id)}" aria-pressed="${this.active === p.id}">${escape(paperName(p))}</button>`).join('')}</div>
@@ -615,6 +634,8 @@ export class DraftingTable {
         <button type="button" data-ui="eye" title="눈높이 (명령: eye) — 땅 위 한 점을 눌러 그 자리 사람 눈높이에서 매스 보기" aria-pressed="${Boolean(this.eye || this.eyePicking)}">눈높이</button></div>
       <div class="iso-corners" role="group" aria-label="아이소 방향" ${mode === 'iso' ? '' : 'hidden'}>
         ${[['nw', '북서'], ['ne', '북동'], ['sw', '남서'], ['se', '남동']].map(([id, label]) => `<button type="button" data-tilt="iso" data-corner="${id}" title="${label}쪽에서 보기" aria-pressed="${corner === id}">${label}</button>`).join('')}</div>
+      ${this.cutControl()}
+      ${this.hooks.vworld ? '<button type="button" class="view-extra" data-ui="vworld" title="브이월드 3D 지도에 매스안 세워 보기 (명령: vworld)">브이월드 3D</button>' : ''}
       <input type="range" min="0" max="${MAX_TILT}" value="${Math.round(v.tilt)}" aria-label="기울기 각도" title="기울이면 배치도가 3D가 됩니다" data-ui="tilt-range">
       <span class="num tilt-read">${Math.round(v.tilt)}°</span>
       <button type="button" class="compass" data-ui="north" title="${this.eye ? '북쪽 보기' : '북쪽을 위로'}"><span style="transform: rotate(${-(this.eye ? this.eye.yaw : v.turn)}deg)" aria-hidden="true">▲</span><small>N</small></button>`;
@@ -764,6 +785,8 @@ export class DraftingTable {
     this.snapEl.hidden = true;
     if (tool !== this.tool) this.clearMeasure(); // what was measured goes with the tool
     this.tool = tool;
+    if (toolGroupOf(tool)) this.toolLast = { ...this.toolLast, [toolGroupOf(tool)]: tool }; // its group's folded button shows it
+    this.toolGroupOpen = '';
     this.copyMode = copy; // the copy command: the move tool copies without Ctrl
     if (tool === 'pen' && folded(this.view.tilt)) {
       this.animateTo({ tilt: 0, turn: 0 });

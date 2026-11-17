@@ -23,6 +23,12 @@ export const pointerMethods = {
     // Alt held while resizing a paper must not open the browser's menu when it is let go.
     // A pin's card in 3D closes when anything else on the page is clicked (2026-11-09 지훈); the card
     // itself and the pins keep it (a pin opens its own). Turning the view (right or middle button) does not.
+    // A folded tool group's menu closes when anything else is pressed.
+    window.addEventListener('pointerdown', (e) => {
+      if (!this.toolGroupOpen || !this.root.isConnected || e.target.closest?.('.tool-fly')) return;
+      this.toolGroupOpen = '';
+      this.drawControls();
+    }, true);
     window.addEventListener('pointerdown', (e) => {
       if (!this.peekId || e.button !== 0 || !this.root.isConnected) return;
       if (e.target.closest?.('.peek, [data-pin]')) return;
@@ -45,11 +51,8 @@ export const pointerMethods = {
     root.addEventListener('click', (e) => this.onClick(e));
     root.addEventListener('input', (e) => this.onInput(e));
     root.addEventListener('change', (e) => {
+      if (e.target.dataset.ui === 'cut-pick') this.setCut(e.target.value);
       if (e.target.dataset.ui === 'ghost') { this.ghost = e.target.checked; this.drawMasses(); }
-      if (e.target.dataset.ui === 'contour-step') { this.contourStep = Number(e.target.value) || 1; this.drawAround(); }
-      if (e.target.dataset.ui === 'around-size') this.changeRange({ size: e.target.value });
-      if (e.target.dataset.ui === 'around-shape') this.changeRange({ shape: e.target.value });
-      if (e.target.dataset.ui === 'around-orient') this.changeRange({ orient: e.target.value });
       if (e.target === this.photoInput && this.photoInput.files.length) this.addPhotos([...this.photoInput.files]);
       if (e.target.dataset.detailTitle) this.saveTitle(e.target.dataset.detailTitle, e.target.value);
     });
@@ -106,6 +109,8 @@ export const pointerMethods = {
   onClick(e) {
     const t = e.target.closest('button, [data-open-expert]');
     if (!t) return;
+    if (t.dataset.ui === 'tool-group') { this.toolGroupOpen = this.toolGroupOpen === t.dataset.group ? '' : t.dataset.group; this.drawControls(); return; }
+    if (t.closest('.tool-menu')) this.toolGroupOpen = ''; // a tool picked from a folded group's menu: the menu closes (the cases below redraw)
     if (t.dataset.eye) { this.eyeAction(t.dataset.eye); return; }
     if (t.dataset.personKind) { this.personKind = t.dataset.personKind; this.drawPersonBar(); return; }
     if (t.dataset.person) { this.personAction(t.dataset.person); return; }
@@ -140,15 +145,16 @@ export const pointerMethods = {
       default: break;
     }
     switch (t.dataset.ui) {
-      case 'scheme-new': this.openForm(); break;
+      case 'scheme-new': this.openForm(); this.drawControls(); break;
       case 'undo': this.travel('undo'); break;
       case 'redo': this.travel('redo'); break;
-      case 'trace': this.layTracing(); break;
-      case 'photo': this.pickPhotos(); break;
+      case 'trace': this.layTracing(); this.drawControls(); break;
+      case 'photo': this.pickPhotos(); this.drawControls(); break;
       case 'around': this.toggleAround(); break;
       case 'eye': this.toggleEye(); break;
-      case 'model-panel': this.openModel(); break;
-      case 'model-stepped': this.toggleStepped(); break;
+      case 'model-panel': this.openModel(); this.drawControls(); break;
+      case 'cut': this.cutFromBar(); break;
+      case 'vworld': this.hooks.vworld?.(); break;
       case 'delete': this.removeSelected(); break;
       case 'tray': this.trayOpen = !this.trayOpen; this.drawTray(); this.drawControls(); break;
       case 'north': if (this.eye) this.moveEye({ yaw: 0 }); else this.animateTo({ turn: 0 }); break;
@@ -654,6 +660,7 @@ export const pointerMethods = {
   onKey(e) {
     if (typing(e.target) || e.target.closest?.('dialog')) return;
     const k = e.key.toLowerCase();
+    if (k === 'escape' && this.toolGroupOpen) { e.preventDefault(); this.toolGroupOpen = ''; this.drawControls(); return; }
     if ((this.eye || this.eyePicking) && !(e.metaKey || e.ctrlKey || e.altKey)) {
       const move = this.eye && eyeKey(e.key, e.shiftKey);
       if (move) { e.preventDefault(); this.stepEye(move); return; }

@@ -1168,10 +1168,19 @@ export function blocksOverlap(blocks) {
   return false;
 }
 
+// A ratio as a part of its cap for a gauge bar, as the Rhino panel and the diagrams draw it: the
+// track runs to GAUGE_RUN times the cap (the cap's mark stands at 1 / GAUGE_RUN of it), so a
+// ratio beyond that is cut there. null without a cap.
+export const GAUGE_RUN = 1.25;
+export function gaugePart(value, cap) {
+  if (value === null || value === undefined || !(cap > 0)) return null;
+  return Math.round(Math.min(Math.max(value / cap, 0), GAUGE_RUN) * 1000) / 1000;
+}
+
 const OVERLAP_NOTE = '겹친 동이 있습니다. 겹친 부분은 건축면적과 각 층 면적에 한 번만 셉니다.';
 
 // The band along the foot of the table while a scheme's blocks are picked or edited: its name and
-// either its ratios against the caps ({label, value, cap, over}) or, without the site's area, its
+// either its ratios against the caps ({label, value, cap, over, part}; `part` draws the bar) or, without the site's area, its
 // areas and why the ratios are missing. null without blocks.
 export function figuresBand(paper, site = null) {
   const blocks = paper?.blocks || [];
@@ -1179,8 +1188,8 @@ export function figuresBand(paper, site = null) {
   const f = massFigures(blocks, site);
   const items = f.coverage === null
     ? [{ label: '건축면적', value: m2(f.footprint) }, { label: '연면적', value: m2(f.gross) }, { label: '건폐율·용적률', value: '미확인 (대지면적 모름)' }]
-    : [{ label: '건폐율', value: pct(f.coverage), cap: f.bcr === null ? '' : `${f.bcrFrom} ${f.bcr}%`, over: over(f.coverage, f.bcr) },
-      { label: '용적률', value: pct(f.far), cap: f.farCap === null ? '' : `${f.farFrom} ${f.farCap}%`, over: over(f.far, f.farCap) }];
+    : [{ label: '건폐율', value: pct(f.coverage), cap: f.bcr === null ? '' : `${f.bcrFrom} ${f.bcr}%`, over: over(f.coverage, f.bcr), part: gaugePart(f.coverage, f.bcr) },
+      { label: '용적률', value: pct(f.far), cap: f.farCap === null ? '' : `${f.farFrom} ${f.farCap}%`, over: over(f.far, f.farCap), part: gaugePart(f.far, f.farCap) }];
   return { title: paperName(paper), items, overlap: blocksOverlap(blocks) };
 }
 
@@ -1640,6 +1649,31 @@ export function pickPhotoFiles(files) {
 // buildings and the contour lines the screen draws at an interval the designer picks.
 
 export const CONTOUR_STEPS = [1, 2, 5];
+
+// ------------------------------------------------------------------ the tool bar's groups
+// The table's tools in four groups (2026-11-17): on a wide table they stand in one bar under their
+// group's name, on a narrower one each group folds to one button that opens its tools. An item is
+// a tool's id (table-shared.js TOOLS) or a button's (scheme-new, trace, photo, around, model-panel).
+export const TOOL_GROUPS = [
+  { id: 'mass', label: '매스', items: ['rect', 'push', 'move', 'rotate', 'scale', 'erase', 'scheme-new'] },
+  { id: 'measure', label: '재기', items: ['tape', 'radius', 'section'] },
+  { id: 'lay', label: '올리기', items: ['note', 'pen', 'person', 'trace', 'photo'] },
+  { id: 'around', label: '주변', items: ['around', 'model-panel'] },
+];
+export const TOOLBAR_WIDE = 1260; // px of table the unfolded bar needs (beside the history buttons and the idea board)
+
+export const toolbarFolded = (width) => !(width >= TOOLBAR_WIDE);
+export const toolGroupOf = (item) => TOOL_GROUPS.find((g) => g.items.includes(item))?.id || '';
+
+// The groups as the folded bar shows them: `shown` is the item on the group's button (the tool in
+// hand when it is the group's, else the one last used there, else its first) and `active` says the
+// tool in hand is one of the group's.
+export function toolbarGroups(tool, last = {}) {
+  return TOOL_GROUPS.map((g) => {
+    const active = g.items.includes(tool);
+    return { ...g, active, shown: active ? tool : (g.items.includes(last[g.id]) ? last[g.id] : g.items[0]) };
+  });
+}
 export const GROUND_COLORS = { g: 0xd9d1bf, r: 0xb3b3b0, s: 0xe6e1d6, w: 0x9cc7d9 };
 export const GROUND_NAMES = { g: '대지', r: '도로', s: '인도', w: '수계' };
 

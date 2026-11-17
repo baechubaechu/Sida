@@ -42,6 +42,8 @@ const PATHS = {
   up: '<path d="M10 16V4M5 9l5-5 5 5"/>',
   down: '<path d="M10 4v12M5 11l5 5 5-5"/>',
   check: '<path d="m4.5 10.5 3.5 3.5 7.5-8"/>',
+  // A model's base: boards stacked in steps.
+  base: '<path d="M2.5 16.5h15v-3h-15zM5 13.5v-3h10v3M8 10.5v-3h5v3"/>',
   chevron: '<path d="m7.5 5 5 5-5 5"/>',
   group: '<rect x="3" y="3" width="14" height="14" rx="2" stroke-dasharray="2.5 2"/><rect x="6" y="6" width="4" height="4" rx=".5"/><rect x="10" y="10" width="4" height="4" rx=".5"/>',
   // An empty parcel: a dashed lot outline, for a project whose site is not chosen yet.

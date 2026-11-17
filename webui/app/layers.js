@@ -81,6 +81,22 @@ export function layerAction(action, button) {
   return true;
 }
 
+// The surroundings' settings under the 주변 row (view-dock.js aroundSettings): the table does the
+// work and asks for a redraw when it is done (board.js aroundChanged).
+export function aroundAction(action) {
+  if (!table) return;
+  if (action === 'around-toggle') table.toggleAround();
+  if (action === 'around-stepped') table.toggleStepped();
+  if (action === 'around-model') table.openModel();
+}
+
+app.addEventListener('change', (event) => {
+  const key = event.target.dataset?.aroundSet;
+  if (!key || !table) return;
+  if (key === 'contour') table.setContourStep(event.target.value);
+  else table.changeRange({ [key]: event.target.value });
+});
+
 // Renaming: double-click a name; Enter or leaving the field keeps it, Esc does not. What is typed
 // is kept in ui.layerRenameText, so a redraw meanwhile does not lose it.
 function focusRename() {

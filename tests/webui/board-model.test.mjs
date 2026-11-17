@@ -1208,8 +1208,8 @@ test('the band and tags while blocks are edited follow the same rule', async () 
   const band = figuresBand(mass, site);
   assert.equal(band.title, '안 A');
   assert.deepEqual(band.items, [
-    { label: '건폐율', value: '61.5%', cap: '법정 60%', over: true },
-    { label: '용적률', value: '244.5%', cap: '법정 250%', over: false },
+    { label: '건폐율', value: '61.5%', cap: '법정 60%', over: true, part: 1.025 },
+    { label: '용적률', value: '244.5%', cap: '법정 250%', over: false, part: 0.978 },
   ]);
   assert.equal(band.overlap, false);
   // Without caps: the ratios alone. Without the area: the areas and why.
@@ -1691,4 +1691,28 @@ test('radius circles go to the board and come back as the tool holds them', asyn
   assert.equal(history.past.length, 1);
   assert.deepEqual(undoStep(history).step, [{ op: 'circles', before: state.circles, after: [] }]);
   assert.equal(recordStep(createHistory(), [{ op: 'circles', before: state.circles, after: state.circles }]).past.length, 0);
+});
+
+test('the toolbar folds on a narrow table, and each folded group shows the tool in hand or the last one used there', async () => {
+  const m = await import('../../webui/app/board-model.js');
+  assert.equal(m.toolbarFolded(1000), true);
+  assert.equal(m.toolbarFolded(m.TOOLBAR_WIDE), false);
+  assert.equal(m.toolbarFolded(undefined), true);
+  assert.equal(m.toolGroupOf('radius'), 'measure');
+  assert.equal(m.toolGroupOf('select'), '');
+  const items = m.TOOL_GROUPS.flatMap((g) => g.items);
+  assert.equal(new Set(items).size, items.length); // a tool sits in one group only
+  const groups = m.toolbarGroups('radius', { mass: 'move', lay: 'nothing' });
+  assert.deepEqual(groups.map((g) => [g.id, g.active, g.shown]), [
+    ['mass', false, 'move'], ['measure', true, 'radius'], ['lay', false, 'note'], ['around', false, 'around'],
+  ]);
+});
+
+test('a gauge fills by the share of the limit used and stops at its end when far over', async () => {
+  const m = await import('../../webui/app/board-model.js');
+  assert.equal(m.gaugePart(30, 60), 0.5);
+  assert.equal(m.gaugePart(61.5, 60), 1.025);
+  assert.equal(m.gaugePart(300, 60), m.GAUGE_RUN);
+  assert.equal(m.gaugePart(30, null), null);
+  assert.equal(m.gaugePart(null, 60), null);
 });

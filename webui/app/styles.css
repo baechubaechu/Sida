@@ -487,6 +487,15 @@ button.layer-caret:hover { background: var(--surface); color: var(--text); }
 .layer-row.is-off .layer-label, .layer-row.is-off .layer-count { color: var(--muted); }
 .layer-rename { flex: 1; min-width: 0; min-height: 30px; padding: 0 8px; font: inherit; border: 1px solid var(--brand); border-radius: 6px; }
 .layer-count { color: var(--muted); font-size: 12px; }
+/* The surroundings' settings under the 주변 row. */
+.layer-settings { display: grid; gap: 6px; margin: 0 8px 6px 30px; padding: 10px 12px; border-radius: 8px; background: var(--surface-subtle); font-size: 13px; color: var(--muted); }
+.layer-settings label, .layer-settings-row { display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center; gap: 8px; }
+.layer-settings select { padding: 5px 8px; font-size: 13px; color: var(--text); }
+.layer-settings-row > :last-child { justify-self: start; }
+.layer-settings-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.layer-set-button { padding: 5px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); font-size: 12px; color: var(--text); }
+.layer-set-button[aria-pressed="true"] { background: var(--selected); border-color: var(--brand); color: var(--brand); font-weight: 700; }
+.layer-set-button:disabled { opacity: .5; }
 .layer-note { margin: 12px 16px 8px; }
 .layer-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; color: var(--brand); }
 .layer-mark.is-off { color: var(--muted); }
@@ -848,6 +857,17 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .ui-tools button[aria-pressed="true"] { background: var(--selected); color: var(--brand); font-weight: 700; }
 .ui-tools button:disabled { opacity: .35; }
 .ui-tools button b { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--ok); color: white; font-size: 11px; }
+/* The tool bar's groups: named in one bar on a wide table, folded to a button each on a narrower one. */
+.tool-group { display: inline-flex; align-items: center; gap: 2px; }
+.tool-cap { padding: 0 3px 0 5px; font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--muted); white-space: nowrap; }
+.tool-fly { position: relative; display: inline-flex; }
+.ui-tools .tool-fold { width: 40px; grid-template-columns: auto auto; gap: 1px; }
+.tool-fold i { width: 0; height: 0; border: 3px solid transparent; border-top-color: var(--muted); margin-top: 3px; }
+.tool-menu { position: absolute; left: 0; top: calc(100% + 8px); z-index: 6; display: grid; gap: 2px; min-width: 190px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 6px 20px rgb(0 0 0 / .12); }
+.tool-menu > b { padding: 2px 8px 4px; font-size: 11px; color: var(--muted); }
+.ui-tools .tool-item { display: grid; grid-template-columns: 20px 1fr auto; align-items: center; gap: 8px; padding: 7px 8px; text-align: left; font-size: 13px; color: var(--text); }
+.tool-item kbd { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+.ui-tools .person-options { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; flex-basis: 100%; }
 .ui-tools .sep { width: 1px; height: 24px; background: var(--line); margin: 0 2px; flex-shrink: 0; }
 .ui-scheme { left: 16px; top: 68px; gap: 10px; padding: 6px 10px 6px 6px; max-width: calc(100% - 110px); flex-wrap: wrap; }
 .ui-scheme[hidden] { display: none; }
@@ -855,8 +875,13 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .seg { display: inline-flex; flex-wrap: wrap; padding: 2px; border-radius: 8px; background: var(--surface-subtle); }
 .seg button { border-radius: 6px; padding: 7px 11px; font-size: 11px; color: var(--muted); }
 .seg button[aria-pressed="true"] { background: var(--surface); color: var(--brand); font-weight: 700; box-shadow: 0 1px 3px rgb(36 52 67 / .08); }
-.ui-view { right: 16px; bottom: 16px; gap: 8px; }
+.ui-view { right: 16px; bottom: 16px; gap: 8px; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 32px); }
+.ui-tilt { flex-wrap: wrap; }
 .ui-tilt { padding-right: 8px; border-right: 1px solid var(--line); }
+.view-extra, .view-cut { border-radius: 6px; padding: 7px 9px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.view-extra:hover { background: var(--surface-subtle); }
+.view-cut { display: inline-flex; align-items: center; gap: 4px; padding: 0 4px 0 9px; }
+.view-cut select { padding: 4px 6px; font-size: 11px; color: var(--text); }
 .ui-tilt input[type="range"] { width: 88px; accent-color: var(--brand); border: 0; }
 .tilt-read, .ui-zoom .scale { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* The iso view's four corners, laid out as on a map (north up); shown only in the iso view. */
@@ -880,6 +905,10 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .figure-band { left: 16px; bottom: 64px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin: 0; padding: 8px 12px; max-width: calc(100% - 32px);
   background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 3px 12px rgb(36 52 67 / .05); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
 .figure-band[hidden] { display: none; }
+.band-gauge { position: relative; display: block; width: 100%; min-width: 96px; height: 5px; margin-top: 4px; border-radius: 3px; background: var(--line); }
+.band-gauge i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--brand); }
+.band-gauge i.is-over { border-radius: 0 3px 3px 0; background: #c0392b; }
+.band-gauge u { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--text); }
 .figure-band .band-title { color: var(--text); font-weight: 700; overflow-wrap: anywhere; }
 .figure-band strong { color: var(--text); font-size: 13px; }
 .figure-band .is-over strong, .figure-band em { text-decoration: underline; text-underline-offset: 3px; }

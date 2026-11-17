@@ -41,7 +41,6 @@ function boardHead(name, site, agent) {
       ${selection ? `<div class="selection-bar ${picked.length ? 'has-selection' : ''}" aria-label="고른 종이">${selection}</div>` : '<span class="selection-bar" aria-hidden="true"></span>'}
       <div class="panel-toggles">
         ${unfold('right')}
-        ${site ? '' : `<button type="button" class="panel-toggle" data-action="vworld-3d" aria-pressed="${Boolean(ui.vworld)}" title="브이월드 3D 지도에 매스안 세워 보기 (vworld)">브이월드 3D</button>`}
         <details class="export-menu"><summary class="panel-toggle" title="CAD·라이노 파일로 내보내기 (export)" aria-busy="${Boolean(ui.exporting)}">${ui.exporting ? '<span class="spinner" aria-hidden="true"></span>내보내는 중…' : '내보내기'}</summary>
           <div class="export-options">${EXPORT_FORMATS.map((f) => `<button type="button" data-action="export-board" data-format="${f.key}" ${ui.exporting ? 'disabled' : ''}>${f.label}</button>`).join('')}
           <p class="muted">대지 경계·매스안·트레이싱 선이 레이어별로 들어갑니다. 이 PC에 지도 묶음이 있으면 대지 주변 지형·등고선·건물도 '대지 주변' 레이어로 들어갑니다. 단위 m, 원점은 대지 가운데.</p></div></details>
@@ -67,7 +66,7 @@ function workspaceView() {
   const page = site ? sitePage(name) : agent ? expertPage(name, agent) : '';
   const left = narrow || sideShown(layout, 'left');
   const right = Boolean(page) || narrow || sideShown(layout, 'right');
-  const options = { around: Boolean(table?.aroundOn), narrow };
+  const options = { around: Boolean(table?.aroundOn || table?.site?.plan), narrow }; // the 주변 row holds the surroundings' settings once the site is known
   const sideLabel = site ? '대지' : expert ? expert.name : DOCK_PANELS[narrowDock(ui.narrowSide).right.groups[0].active];
   const tabs = [['conductor', '대화'], ['board', '제도판'], ['side', sideLabel]];
   return `<main class="studio with-table ${site ? 'site-open' : agent ? 'expert-open' : ''} pane-${ui.pane} ${left ? 'left-open' : ''} ${right ? 'right-open' : ''}" id="main" tabindex="-1">

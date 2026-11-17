@@ -5,7 +5,7 @@
 // shows) and 전문가 (the experts), as in Rhino or CAD. On a narrow screen (≤900px) the tabs at the
 // bottom show one side at a time and the layout is fixed: 대화 alone, the rest in one group.
 
-import { boardLayers, foldedRows, groupProperties, layerRows, panelPapers, pickedBlocks, propertiesOf, selectedGroup } from './board-model.js';
+import { boardLayers, CONTOUR_STEPS, RANGE_ORIENTS, RANGE_SHAPES, RANGE_SIZES, foldedRows, groupProperties, layerRows, panelPapers, pickedBlocks, propertiesOf, selectedGroup } from './board-model.js';
 import { DOCK_PANELS, sideShown } from './dock-model.js';
 import { escapeHtml as escape, siteCard } from './model.js';
 import { icon } from './icons.js';
@@ -53,6 +53,23 @@ function propField(field, value) {
 // The 레이어 panel, as Rhino's: a row of tools (new layer, sublayer, delete, up, down) over a tree
 // of layers with the current mark, visibility, lock and colour (layers.js does the buttons).
 // Double-clicking a name renames it.
+// The surroundings' settings under the 주변 row (2026-11-17, moved here from the tool bar): on or
+// off, the range and its shape, the contour interval and the stepped ground of the model base.
+function aroundSettings() {
+  const s = table?.aroundSettings?.();
+  if (!s?.known) return '';
+  const off = s.busy ? 'disabled' : '';
+  const pick = (key, label, items, value, disabled = off) => `<label>${label}<select data-around-set="${key}" data-focus="around-${key}" aria-label="주변 ${label}" ${disabled}>${items.map((o) => `<option value="${o.key}" ${String(o.key) === String(value) ? 'selected' : ''}>${escape(o.label)}</option>`).join('')}</select></label>`;
+  return `<div class="layer-settings" role="group" aria-label="주변 3D 설정">
+      <div class="layer-settings-row"><span>주변 3D</span><button type="button" class="layer-set-button" data-action="around-toggle" aria-pressed="${s.on}" ${off}>${s.busy ? '불러오는 중…' : s.on ? '끄기' : '켜기'}</button></div>
+      ${pick('size', '범위', RANGE_SIZES, s.range.size)}
+      ${pick('shape', '모양', RANGE_SHAPES, s.range.shape)}
+      ${s.range.shape === 'rect' ? pick('orient', '방향', RANGE_ORIENTS, s.range.orient) : ''}
+      ${pick('contour', '등고선', CONTOUR_STEPS.map((m) => ({ key: m, label: `${m}m` })), s.contour, s.terrain ? '' : 'disabled')}
+      <div class="layer-settings-row"><span>모형 바닥</span><span class="layer-settings-buttons"><button type="button" class="layer-set-button" data-action="around-stepped" aria-pressed="${s.stepped}" ${off} title="저장한 모형 판 설정(축척 × 두께) 간격으로 계단식 지형 보기">계단식</button><button type="button" class="layer-set-button" data-action="around-model" title="표현 계획자의 모형 탭: 모형 판 크기·축척을 정해 레이저 커팅 파일 받기">모형 판</button></span></div>
+    </div>`;
+}
+
 function layersBody(around) {
   const rows = foldedRows(layerRows(ui.board, { around, aroundHidden: ui.aroundHidden, current: ui.currentLayer,
     aroundParts: table?.aroundParts?.() || [], aroundPartsHidden: table?.aroundPartsHidden || new Set() }), ui.layerFolded);
@@ -76,7 +93,7 @@ function layersBody(around) {
         <span role="gridcell">${mark(r, 'layer-eye', r.visible, 'eye', 'eyeOff', r.visible ? '숨기기' : '보이기')}</span>
         <span role="gridcell">${r.system ? '' : mark(r, 'layer-lock', !r.locked, 'unlock', 'lock', r.locked ? '잠금 풀기' : '잠그기')}</span>
         <span role="gridcell">${r.system ? '' : `<label class="layer-swatch ${r.color ? '' : 'is-empty'}" style="--swatch: ${escape(r.color || 'transparent')}" title="색 (매스가 이 색으로)"><input type="color" data-layer-color="${escape(r.id)}" value="${escape(r.color || '#9aa7b2')}" aria-label="${escape(r.name)} 색"></label>`}</span>
-      </div>`).join('')}
+      </div>${r.id === 'around' ? aroundSettings() : ''}`).join('')}
       <p class="side-note layer-note">숨기거나 잠근 레이어는 제도판에서만 가려지거나 고를 수 없습니다. 내보내기와 전문가 검토에는 그대로 들어갑니다. 고른 것을 다른 레이어로 옮기려면 속성의 "레이어" 값을 바꾸세요.</p>
     </div></div>`;
 }

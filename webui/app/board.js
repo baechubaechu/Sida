@@ -129,6 +129,10 @@ function tableHooks(name) {
     showProps: () => { ui.dock = reveal(ui.dock, 'props'); ui.narrowSide = 'props'; render(false); },
     // A PDF found to have several pages: the 속성 panel shows its page buttons.
     pdfPages: () => render(false),
+    // The surroundings were turned on or off or their settings changed: the 레이어 panel's 주변 row follows.
+    aroundChanged: () => render(false),
+    // 브이월드 3D from the view bar.
+    vworld: () => toggleVWorld(name),
     // A section's drawing as a file (SVG, PDF or DXF), drawn by the server like the table's files.
     sectionFile: (id, format, title) => downloadSection(name, id, format, title),
     // A paper carried toward the idea board, and papers dropped into it.
