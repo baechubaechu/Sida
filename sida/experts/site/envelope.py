@@ -15,11 +15,13 @@ What it applies, each by rule from the government's data and the statute or ordi
   (시행령 제86조②1), the point has no 정북 limit.
 - 건폐율 and 용적률: the site's figures as the site card has them (site_facts.limits: the
   ordinance's where it was read by rule, else the statutory caps).
+- 건축선, 대지 안의 공지 and 공동주택 채광 (setbacks.py, data/envelope_rules.yaml): by the roads and
+  parcels around the lot and the use the designer picks on the card.
+- A height the designer entered from a 고도지구's notice (site_envelope.json): the notice's height
+  is not in the government's data, so it is entered, not read.
 
-What it does not apply yet, and says so (lines with status "check"): 대지 안의 공지 (it depends on
-the use and floor area: 시행령 별표 2, the ordinance's table), 공동주택 채광 (제86조③), height
-districts, 건축선 후퇴, and the exceptions of 시행령 제86조②2·3 (지구단위계획구역 등의 20 m 도로,
-건축협정구역).
+What it does not apply yet: the exceptions of 시행령 제86조②2·3 (지구단위계획구역 등의 20 m 도로,
+건축협정구역); the 정북 limit is kept there, the stricter way.
 
 The 연속지적 parcels around the site come from VWorld and are used for this answer only, not kept
 (VWorld 이용약관 제19조, as context3d). The zones of the parcels met to the north (토지이용계획)
@@ -31,9 +33,11 @@ the envelope is worked out on a u, v grid so the schemes' blocks line up with th
 
 from __future__ import annotations
 
+import json
 import math
 import threading
 import time
+from pathlib import Path
 
 import numpy as np
 from shapely import box as boxes
@@ -44,7 +48,8 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from sida import board
-from sida.experts.site import landapi, site_facts, site_rules
+from sida.experts.site import landapi, setbacks, site_facts, site_rules
+from sida.storage import atomic_write_text
 
 MAX_CELLS = 40_000  # grid cells over the lot; the cell grows on a big lot
 MIN_STEP = 0.5  # m
@@ -502,8 +507,12 @@ def _line(id_: str, status: str, title: str, value: str, detail: str = "", quote
 
 
 def compute(plan: dict, facts: dict, rule: dict, parcels: list[dict] | None, zones_of, *, floor_height: float,
-            neighbours_error: str = "") -> dict:
-    """The envelope view of a site (the API's reply) from its plan, facts and the parcels around."""
+            neighbours_error: str = "", height_cap: float | None = None, use: str | None = None,
+            use_area: float | None = None) -> dict:
+    """The envelope view of a site (the API's reply) from its plan, facts and the parcels around.
+    `height_cap`: the height the designer entered from a 고도지구's notice (m), cutting the envelope;
+    `use`, `use_area`: the building's use (envelope_rules uses) and its floor area (㎡), for 대지 안의
+    공지 and 채광 (setbacks.py)."""
     rules_data = site_rules.load_rules()
     across = dict(rules_data["across_marks"])
     maybe = dict(rules_data["maybe_across_marks"])
@@ -513,7 +522,9 @@ def compute(plan: dict, facts: dict, rule: dict, parcels: list[dict] | None, zon
     ratio = ratios(facts)
     out = {"available": rule["applies"] is not None, "zone": rule["zone"], "floor_height": floor_height,
            "area_m2": area, **ratio, "frame": frame, "grid": None, "levels": [], "max_height_m": None,
-           "full_floor_area_m2": None, "schemes": [], "lines": []}
+           "full_floor_area_m2": None, "schemes": [], "lines": [],
+           "height_districts": site_rules.height_districts(facts), "height_limit_m": height_cap,
+           "uses": setbacks.uses(), "use": use, "use_area_m2": use_area, "building_line_area_m2": None, "roads": []}
     lines = out["lines"]
     if rule["applies"] is None:
         lines.append(_line("sunlight", "check", "법규 볼륨", "계산 안 함", rule["detail"]))
@@ -521,14 +532,32 @@ def compute(plan: dict, facts: dict, rule: dict, parcels: list[dict] | None, zon
     info = heights(lot, frame, rule, parcels or [], zones_of, across)
     h, grid = info["h"], info["grid"]
     u0, v0, step, nu, nv = grid
+    # 건축선, 대지 안의 공지, 공동주택 채광 (setbacks.py)
+    inside = ~np.isnan(h)
+    _u0, _v0, _step, _nu, _nv, x, y = frame_grid(lot, frame, step)
+    assumed = area * ratio["far"] / 100 if area and ratio["far"] else None
+    more = setbacks.work_out(lot, x, y, inside, zone=rule["zone"], municipality=facts["summary"].get("municipality") or "",
+                             parcels=parcels, use=use, floor_area=use_area, assumed_area=assumed,
+                             neighbours_error=neighbours_error)
+    cell_h = np.minimum(h[inside], more["cap"])
+    cell_h[more["open"]] = 0.0
+    h[inside] = cell_h
+    out["roads"] = more["roads"]
+    if more["removed_m2"]:
+        out["building_line_area_m2"] = more["removed_m2"]
+    if height_cap:
+        h = np.minimum(h, float(height_cap))  # nan (outside) stays nan
     finite = h[np.isfinite(h)]
-    if rule["applies"]:
+    limited = bool(rule["applies"] or height_cap or more["open"].any() or np.isfinite(more["cap"]).any())
+    if limited:
         top = float(finite.max()) if finite.size else 0.0
         out["max_height_m"] = round(top, 1) if finite.size and not np.isinf(h).any() else None
         floors = np.floor(np.nan_to_num(h, nan=0.0, posinf=MAX_FLOORS * floor_height) / floor_height).clip(0, MAX_FLOORS)
         if not np.isinf(h).any():
             out["full_floor_area_m2"] = round(float(floors.sum() * step * step), 1)
         shown = int(min(MAX_LEVELS, (top if finite.size else 0) // floor_height))
+        if np.isinf(h).any():  # open above: the ground floor shows where building may stand
+            shown = max(shown, 1)
         tall = np.nan_to_num(h, nan=-1.0, posinf=1e9)
         for k in range(1, shown + 1):
             rings = _cells_to_rings(tall >= k * floor_height, grid, frame)
@@ -547,9 +576,10 @@ def compute(plan: dict, facts: dict, rule: dict, parcels: list[dict] | None, zon
                 row.append(None if not part.size else (-1 if np.isinf(part).all() else round(float(part[np.isfinite(part)].min()), 2)))
             rows.append(row)
         out["grid"] = {"u0": round(u0, 3), "v0": round(v0, 3), "step": round(step * pool, 3), "h": rows,
-                       "note": "null: outside the lot; -1: no 정북 limit"}
+                       "note": "null: outside the lot; -1: no height limit"}
     if area and ratio["bcr"] and ratio["far"]:
-        out["schemes"] = schemes(h, grid, frame, floor_height, area, ratio["bcr"], ratio["far"])
+        net = area - (out["building_line_area_m2"] or 0.0)  # 시행령 제119조①1: the 건축선's cut is not site area
+        out["schemes"] = schemes(h, grid, frame, floor_height, net, ratio["bcr"], ratio["far"])
     # what went into it
     if rule["applies"]:
         lines.append(_line("sunlight", rule["status"], "정북일조", "적용", rule["detail"], rule["quote"], rule["source"]))
@@ -573,19 +603,21 @@ def compute(plan: dict, facts: dict, rule: dict, parcels: list[dict] | None, zon
                                "건축법 제61조① 단서, 시행령 제86조②1·⑥"))
     else:
         lines.append(_line("sunlight", "none", "정북일조", "해당 없음", rule["detail"], "", rule["source"]))
+    districts = out["height_districts"]
+    if height_cap:
+        lines.append(_line("height", "read", "높이 한도", f"{float(height_cap):g}m",
+                           f"{', '.join(districts) or '고도지구'}의 고시 높이로 볼륨을 자름", "", "사용자 입력"))
+    elif districts:
+        lines.append(_line("height", "check", "높이 한도", "입력 필요",
+                           f"{', '.join(districts)}: 높이는 지역마다 고시로 정함. 고시에서 최고 높이를 찾아 입력하면 볼륨을 자름"))
+    elif not rule["applies"]:
         lines.append(_line("height", "check", "높이", "열려 있음",
                            "높이 한도를 규칙으로 읽지 못해 위가 열려 있음, 용적률로만 층이 정해짐. 고도지구 등 지정 내용 확인"))
     if ratio["bcr"] and ratio["far"]:
         detail = f"건폐율 {ratio['bcr']:g}%({ratio['bcr_from']}), 용적률 {ratio['far']:g}%({ratio['far_from']})"
         lines.append(_line("ratios", "read", "건폐율·용적률", f"{ratio['bcr']:g}% · {ratio['far']:g}%",
                            detail + (" 대지면적 미확인이라 참고 매스는 만들지 않음" if not area else "")))
-    lines.append(_line("open_space", "check", "대지 안의 공지", "반영 안 함",
-                       "용도·규모에 따라 건축선·인접 대지경계선에서 0.5~6m(시행령 별표 2 범위에서 건축 조례). 용도를 정한 뒤 확인",
-                       "", "건축법 제58조, 시행령 제80조의2"))
-    if rule["applies"]:
-        lines.append(_line("daylight", "check", "공동주택 채광", "반영 안 함",
-                           "공동주택이면 창이 있는 벽에서 인접 대지경계선까지 거리의 2배 이하 높이 등(제86조③)", "",
-                           "건축법 시행령 제86조③"))
+    lines.extend(more["lines"])
     out["neighbours"] = {"error": neighbours_error, "crossed": sorted(info["crossed"])}
     return out
 
@@ -620,12 +652,65 @@ def envelope_for(project_dir, *, floor_height: float | None = None, http_get=Non
                 facts = {**facts, "building_ordinance": found}
     rule = sunlight_rule(facts)
     parcels, error = [], ""
-    if rule["applies"]:
+    if rule["applies"] is not None:  # the roads and neighbours count for every rule, not only 정북일조
         try:
             parcels = neighbours(plan, {p["pnu"] for p in facts["parcels"]}, http_get=http_get)
         except landapi.LandApiError as exc:
             error = exc.kind
     zone = zones[0] if zones else ""
     fh = floor_height or floor_height_for(zone)
+    settings = load_settings(project_dir)
     return compute(plan, facts, rule, parcels, lambda pnu: zone_of(pnu, http_get=http_get), floor_height=fh,
-                   neighbours_error=error)
+                   neighbours_error=error, height_cap=settings["height_limit_m"], use=settings["use"],
+                   use_area=settings["use_area_m2"])
+
+
+# ---------------------------------------------------------------------------
+# What the designer entered for the envelope, kept per project (site_envelope.json)
+# ---------------------------------------------------------------------------
+
+SETTINGS_FILE = "site_envelope.json"
+HEIGHT_LIMIT_RANGE = (1.0, 500.0)  # m: a 고도지구's notice height
+
+
+def load_settings(project_dir) -> dict:
+    """{"height_limit_m", "use", "use_area_m2"}: what the designer entered (None for what was not; an
+    unreadable or out-of-range value is left out)."""
+    try:
+        data = json.loads((Path(project_dir) / SETTINGS_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    out = {"height_limit_m": _number(data.get("height_limit_m"), HEIGHT_LIMIT_RANGE),
+           "use": data.get("use") if data.get("use") in setbacks.load_rules()["uses"] else None,
+           "use_area_m2": _number(data.get("use_area_m2"), setbacks.USE_AREA_RANGE)}
+    return out
+
+
+def _number(value, bounds: tuple[float, float]) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and bounds[0] <= value <= bounds[1]:
+        return float(value)
+    return None
+
+
+def save_settings(project_dir, changes: dict) -> dict:
+    """Set what the designer entered: `height_limit_m` (m within HEIGHT_LIMIT_RANGE), `use` (a key of
+    envelope_rules uses), `use_area_m2` (㎡ within setbacks.USE_AREA_RANGE); None clears one.
+    ValueError (naming the key) for a value out of range. Returns the settings as saved."""
+    settings = load_settings(project_dir)
+    for key, bounds in (("height_limit_m", HEIGHT_LIMIT_RANGE), ("use_area_m2", setbacks.USE_AREA_RANGE)):
+        if key in changes:
+            value = changes[key]
+            if value is not None:
+                value = float(value)
+                if not bounds[0] <= value <= bounds[1]:
+                    raise ValueError(key)
+                value = round(value, 2)
+            settings[key] = value
+    if "use" in changes:
+        if changes["use"] is not None and changes["use"] not in setbacks.load_rules()["uses"]:
+            raise ValueError("use")
+        settings["use"] = changes["use"]
+    atomic_write_text(Path(project_dir) / SETTINGS_FILE, json.dumps(settings, ensure_ascii=False, indent=1) + "\n")
+    return settings

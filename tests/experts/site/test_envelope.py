@@ -226,3 +226,45 @@ def test_an_ordinance_read_as_asking_less_than_the_law_is_not_used():
     rule = envelope.sunlight_rule(facts(building=loose))
     assert (rule["status"], rule["steps"]) == ("check", law["steps"])
     assert "법(제61조①)의 범위보다 짧게" in rule["detail"]
+
+
+def test_a_height_entered_for_a_height_district_cuts_the_envelope_and_its_schemes():
+    nb = [{"pnu": "2", "mark": "대", "rings": [north_of(18, 40, 18)]}]
+    f = facts(building=seoul_building())
+    f["summary"]["districts"] = [{"name": "최고고도지구", "relation": "포함"}]
+    free = envelope.compute(PLAN, f, envelope.sunlight_rule(f), nb, lambda pnu: "제2종일반주거지역", floor_height=3.0)
+    lines = {x["id"]: x for x in free["lines"]}
+    assert free["height_districts"] == ["최고고도지구"] and free["height_limit_m"] is None
+    assert (lines["height"]["status"], lines["height"]["value"]) == ("check", "입력 필요")
+    cut = envelope.compute(PLAN, f, envelope.sunlight_rule(f), nb, lambda pnu: "제2종일반주거지역", floor_height=3.0, height_cap=12)
+    lines = {x["id"]: x for x in cut["lines"]}
+    assert (lines["height"]["status"], lines["height"]["value"], lines["height"]["source"]) == ("read", "12m", "사용자 입력")
+    assert cut["max_height_m"] == 12 and cut["levels"][-1]["z"] <= 12
+    assert all(s["height_m"] <= 12 for s in cut["schemes"])
+    # a commercial site has no 정북 limit, but the entered height still gives it a top
+    c = facts("일반상업지역")
+    top = envelope.compute(PLAN, c, envelope.sunlight_rule(c), [], lambda pnu: None, floor_height=4.0, height_cap=30)
+    assert top["max_height_m"] == 30 and len(top["levels"]) == 7 and top["grid"]["h"][9][14] == 30
+    assert all(s["height_m"] <= 30 for s in top["schemes"])
+
+
+def test_the_entered_height_is_kept_per_project_and_checked(tmp_path):
+    none = {"height_limit_m": None, "use": None, "use_area_m2": None}
+    assert envelope.load_settings(tmp_path) == none
+    assert envelope.save_settings(tmp_path, {"height_limit_m": 45.567}) == {**none, "height_limit_m": 45.57}
+    assert envelope.load_settings(tmp_path)["height_limit_m"] == 45.57
+    with pytest.raises(ValueError, match="height_limit_m"):
+        envelope.save_settings(tmp_path, {"height_limit_m": 0})
+    assert envelope.save_settings(tmp_path, {}) == {**none, "height_limit_m": 45.57}  # nothing asked, nothing changed
+    assert envelope.save_settings(tmp_path, {"height_limit_m": None}) == none
+    # the use and its floor area (대지 안의 공지, 채광)
+    assert envelope.save_settings(tmp_path, {"use": "apartment", "use_area_m2": 1200}) == {**none, "use": "apartment", "use_area_m2": 1200.0}
+    with pytest.raises(ValueError, match="use"):
+        envelope.save_settings(tmp_path, {"use": "castle"})
+    with pytest.raises(ValueError, match="use_area_m2"):
+        envelope.save_settings(tmp_path, {"use_area_m2": -5})
+    assert envelope.save_settings(tmp_path, {"use": None})["use"] is None
+    (tmp_path / envelope.SETTINGS_FILE).write_text("{oops", encoding="utf-8")
+    assert envelope.load_settings(tmp_path) == none
+    (tmp_path / envelope.SETTINGS_FILE).write_text('{"use": "castle", "use_area_m2": true}', encoding="utf-8")
+    assert envelope.load_settings(tmp_path) == none

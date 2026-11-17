@@ -35,6 +35,12 @@ class SiteLookup(BaseModel):
     pnus: list[str]
 
 
+class EnvelopeSettings(BaseModel):
+    height_limit_m: float | None = None  # a 고도지구's notice height (m); null clears it
+    use: str | None = None  # the building's use (data/envelope_rules.yaml uses); null clears it
+    use_area_m2: float | None = None  # that use's floor area (㎡); null clears it
+
+
 class UseCheck(BaseModel):
     name: str
 
@@ -262,6 +268,24 @@ def _project_router(load_config, core) -> APIRouter:
             if str(exc) == "no_site":
                 raise HTTPException(status_code=404, detail=t("web_site_none")) from exc
             raise HTTPException(status_code=400, detail=t("web_site_envelope_no_plan")) from exc
+
+    @router.get("/envelope/settings")
+    def get_envelope_settings(name: str) -> dict:
+        """What the designer entered for the 법규 볼륨: {"height_limit_m"}."""
+        path = core(workspace.find_project, load_config(), name)
+        return envelope.load_settings(path)
+
+    @router.put("/envelope/settings")
+    def put_envelope_settings(name: str, body: EnvelopeSettings) -> dict:
+        """Keep what the designer entered for the 법규 볼륨 (`height_limit_m`: 1–500 m, `use`: a use key,
+        `use_area_m2`: its floor area; null clears one)."""
+        path = core(workspace.find_project, load_config(), name)
+        try:
+            return envelope.save_settings(path, body.model_dump(exclude_unset=True))
+        except ValueError as exc:
+            key = {"height_limit_m": "web_site_envelope_height", "use": "web_site_envelope_use",
+                   "use_area_m2": "web_site_envelope_use_area"}.get(str(exc), "web_site_envelope_height")
+            raise HTTPException(status_code=400, detail=t(key)) from exc
 
     @router.get("/ordinance")
     def get_ordinance(name: str) -> dict:

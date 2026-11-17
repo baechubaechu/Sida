@@ -1766,12 +1766,20 @@ test('the envelope card lists its figures, its lines with their state and a line
     lines: [{ id: 'sunlight', status: 'read', title: '정북일조', value: '적용', detail: 'd', quote: 'q', source: 's' }, { id: 'open_space', status: 'check', title: '대지 안의 공지', value: '확인' }],
     schemes: [{ name: '넓게 낮게', footprint_m2: 288.8, floor_area_m2: 1250.5, height_m: 15, blocks: [] }],
   });
-  assert.deepEqual(card.figures.map((f) => f[0]), ['용도지역', '정북일조 최고 높이', '건폐율', '용적률', '볼륨을 모두 채운 연면적', '층높이']);
+  assert.deepEqual(card.figures.map((f) => f[0]), ['용도지역', '최고 높이', '건폐율', '용적률', '볼륨을 모두 채운 연면적', '층높이']);
   assert.equal(card.figures[2][1], '60% (조례)');
   assert.deepEqual(card.lines.map((l) => l.label), ['확인', '확인 필요']);
   assert.equal(card.schemes[0].text, '건축면적 288.8㎡ · 연면적 1250.5㎡ · 높이 15.0m');
   const open = m.envelopeCard({ zone: '일반상업지역', max_height_m: null, floor_height: 4.2, lines: [], schemes: [] });
   assert.deepEqual(open.figures.map((f) => f[0]), ['용도지역', '층높이']);
+  const capped = m.envelopeCard({ zone: '일반상업지역', max_height_m: 28, height_limit_m: 28, floor_height: 4, lines: [], schemes: [] });
+  assert.deepEqual(capped.figures.map((f) => f.join(' ')), ['용도지역 일반상업지역', '최고 높이 28.0m', '높이 한도 (입력) 28.0m', '층높이 4.0m']);
+  // the use picked for 대지 안의 공지 and 채광, and the site area the 건축선 takes
+  const used = m.envelopeCard({ zone: '제2종일반주거지역', max_height_m: 20, floor_height: 3, lines: [], schemes: [],
+    uses: [{ key: 'apartment', label: '아파트' }, { key: 'other', label: '그 밖' }], use: 'apartment', use_area_m2: 1200, building_line_area_m2: 10 });
+  assert.deepEqual(used.figures.slice(2).map((f) => f.join(' ')), ['건물 용도 아파트 · 바닥면적 1200㎡', '건축선 후퇴 면적 10㎡', '층높이 3.0m']);
+  assert.deepEqual(used.uses.map((u) => u.selected), [true, false]);
+  assert.deepEqual(open.uses, []);
   assert.equal(m.envelopeCard(null), null);
   const paper = m.envelopeSchemePaper({ name: '남쪽 탑형', floor_height: 3, blocks: [{ u: 1, v: 2, w: 3, d: 4, floors: 5 }] });
   assert.deepEqual(paper, { kind: 'mass', title: '법규 볼륨 참고 · 남쪽 탑형', floor_height: 3, blocks: [{ u: 1, v: 2, w: 3, d: 4, floors: 5 }] });

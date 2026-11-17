@@ -652,9 +652,32 @@ def test_site_envelope_api_gives_the_legal_volume_and_reference_schemes(client, 
     # 일반공업지역: no 정북 limit, so no levels; the ratios come from the facts, the top is open
     assert body["zone"] == "일반공업지역" and body["floor_height"] == 3.5
     assert lines["sunlight"]["status"] == "none" and lines["height"]["status"] == "check"
-    assert body["levels"] == [] and body["grid"] is None and body["max_height_m"] is None
+    assert body["max_height_m"] is None
     assert all(len(s["blocks"]) >= 1 and s["floor_height"] == 3.5 for s in body["schemes"])
-    assert fake_vworld.calls[before:] == []  # neighbours are only looked at where the 정북 rule applies
+    # the parcels around are looked up for the roads and the 인접 대지경계선, 정북 or not
+    assert [c[1]["data"] for c in fake_vworld.calls[before:]] == ["LP_PA_CBND_BUBUN"]
+    assert lines["open_space"]["value"] == "용도 선택 필요" and "building_line" in lines
+    assert {u["key"] for u in body["uses"]} >= {"apartment", "factory"} and body["use"] is None
+
+    # a height entered for a 고도지구 is kept and gives the open commercial-like top a ceiling
+    settings = f"{url}/settings"
+    none = {"height_limit_m": None, "use": None, "use_area_m2": None}
+    assert client.get(settings).json() == none
+    assert client.put(settings, json={"height_limit_m": 0.5}).status_code == 400
+    assert client.put(settings, json={"height_limit_m": 21}).json() == {**none, "height_limit_m": 21.0}
+    body = client.get(url, params={"floor_height": 3.5}).json()
+    lines = {x["id"]: x for x in body["lines"]}
+    assert body["height_limit_m"] == 21.0 and body["max_height_m"] == 21.0 and len(body["levels"]) == 6
+    assert (lines["height"]["status"], lines["height"]["source"]) == ("read", "사용자 입력")
+    assert client.put(settings, json={"height_limit_m": None}).json() == none
+    # the use (and its floor area) for 대지 안의 공지 and 채광
+    assert client.put(settings, json={"use": "castle"}).status_code == 400
+    assert client.put(settings, json={"use_area_m2": 0}).status_code == 400
+    assert client.put(settings, json={"use": "factory", "use_area_m2": 800}).json() == {**none, "use": "factory", "use_area_m2": 800.0}
+    body = client.get(url).json()
+    lines = {x["id"]: x for x in body["lines"]}
+    assert body["use"] == "factory" and lines["open_space"]["value"] != "용도 선택 필요"
+    assert client.put("/api/projects/nope/site/envelope/settings", json={}).status_code == 404
 
     facts = site_facts.load_facts(project.path)
     facts["parcels"][0]["shape"] = None
