@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
+import sqlite3
 import time
 from pathlib import Path
 
@@ -73,12 +75,99 @@ def test_the_ground_comes_from_tiles_and_matches_solving_it(heights):
     assert {c["elev"] for c in from_tiles["contours"]} == {c["elev"] for c in solved["contours"]}
 
 
-def test_tiles_from_packs_that_changed_since_are_not_used(heights):
+def test_a_pack_copied_without_change_still_counts(heights):
     path = make(heights)
-    assert ground_tiles.current(path, heights)
     pack = heights / f"h{terrain_pack.SUFFIX}"
     later = time.time() + 10
-    os.utime(pack, (later, later))
+    os.utime(pack, (later, later))  # a new modification time, the same bytes
+    assert ground_tiles.current(path, heights)
+    frame = context3d.Frame({"lon": LON0, "lat": LAT0})
+    assert context3d.ground(frame, 100, folder=heights)["from_tiles"] is True
+
+
+FAR = 2700  # m east of the site: a few tiles away
+
+
+@pytest.fixture
+def two_packs(heights):
+    """The contours pack and a second one with one spot height FAR m east."""
+    conn = terrain_pack.create(heights / f"r{terrain_pack.SUFFIX}", {"name": "r", "source": "made up"})
+    terrain_pack.add_spot(conn, *lonlat(FAR, 0), 30.0)
+    conn.commit()
+    conn.close()
+    return heights
+
+
+def box_to(x_east: float):
+    west, south = lonlat(-150, -150)
+    east, north = lonlat(x_east, 150)
+    return west, south, east, north
+
+
+def test_a_changed_pack_drops_only_the_tiles_near_it(two_packs):
+    folder = two_packs
+    path = make(folder, box_to(FAR + 100))
+    every = ground_tiles.done(path)
+    far = tuple(int(v) for v in ground_tiles.tile_of(*lonlat(FAR, 0)))
+    conn = sqlite3.connect(folder / f"r{terrain_pack.SUFFIX}")
+    terrain_pack.add_spot(conn, *lonlat(FAR + 20, 0), 31.0)  # the pack changes where it is
+    conn.commit()
+    conn.close()
+    later = time.time() + 10
+    os.utime(folder / f"r{terrain_pack.SUFFIX}", (later, later))
+    assert not ground_tiles.current(path, folder)
+    frame = context3d.Frame({"lon": LON0, "lat": LAT0})
+    assert context3d.ground(frame, 100, folder=folder)["from_tiles"] is True  # far from the change
+    assert ground_tiles.heights(*lonlat(FAR, 0), folder=folder) is None  # near it: solved per site
+    log = []
+    load_script().build("t", folder, box_to(FAR + 100), workers=1, log=log.append)
+    dropped = int(log[0].split()[0])
+    assert far in ground_tiles.done(path) and 0 < dropped < len(every) / 2
+    assert log[1].startswith(f"{dropped} tiles to solve")
+    assert ground_tiles.current(path, folder)
+    assert float(ground_tiles.heights(*lonlat(FAR + 20, 0), folder=folder)) == pytest.approx(31.0, abs=0.5)
+
+
+def test_a_new_pack_drops_only_the_tiles_near_it_and_a_removed_one_too(heights):
+    path = make(heights, box_to(FAR + 100))
+    every = len(ground_tiles.done(path))
+    conn = terrain_pack.create(heights / f"r{terrain_pack.SUFFIX}", {"name": "r", "source": "made up"})
+    terrain_pack.add_spot(conn, *lonlat(FAR, 0), 30.0)
+    conn.commit()
+    conn.close()
+    frame = context3d.Frame({"lon": LON0, "lat": LAT0})
+    assert context3d.ground(frame, 100, folder=heights)["from_tiles"] is True
+    log = []
+    load_script().build("t", heights, box_to(FAR + 100), workers=1, log=log.append)
+    assert 0 < int(log[0].split()[0]) < every / 2
+    (heights / f"r{terrain_pack.SUFFIX}").unlink()
+    assert not ground_tiles.current(path, heights)
+    assert context3d.ground(frame, 100, folder=heights)["from_tiles"] is True
+
+
+def test_a_file_from_before_still_counts_and_is_carried_over(heights):
+    path = make(heights)
+    conn = sqlite3.connect(path)
+    conn.execute("DELETE FROM meta WHERE key = 'packs'")
+    conn.execute("INSERT INTO meta VALUES ('made_from', ?)", (json.dumps(ground_tiles._legacy_made_from(heights)),))
+    conn.commit()
+    conn.close()
+    assert ground_tiles.current(path, heights)
+    log = []
+    west, south = lonlat(-150, -150)
+    east, north = lonlat(150, 150)
+    load_script().build("t", heights, (west, south, east, north), workers=1, log=log.append)
+    assert log[0].startswith("0 tiles to solve")
+    assert "packs" in ground_tiles.info(path) and "made_from" not in ground_tiles.info(path)
+
+
+def test_a_file_from_before_whose_packs_changed_does_not_count(heights):
+    path = make(heights)
+    conn = sqlite3.connect(path)
+    conn.execute("DELETE FROM meta WHERE key = 'packs'")
+    conn.execute("INSERT INTO meta VALUES ('made_from', ?)", (json.dumps([["h.terrain.sqlite", 1, 1]]),))
+    conn.commit()
+    conn.close()
     assert not ground_tiles.current(path, heights)
     frame = context3d.Frame({"lon": LON0, "lat": LAT0})
     assert context3d.ground(frame, 100, folder=heights)["from_tiles"] is False
