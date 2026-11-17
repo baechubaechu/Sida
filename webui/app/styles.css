@@ -1520,6 +1520,8 @@ body.moving-float, body.moving-float * { cursor: grabbing !important; user-selec
 .envelope-lines p, .envelope-lines blockquote { margin: 4px 0 0; font-size: 12px; line-height: 1.5; }
 .envelope-lines blockquote { padding-left: 8px; border-left: 2px solid var(--line); color: var(--muted); white-space: pre-wrap; }
 .envelope-lines .source { color: var(--muted); }
+.rule-links { margin: 4px 0 0; font-size: 12px; line-height: 1.5; }
+.rule-links a { color: var(--brand); text-decoration: underline; text-underline-offset: 2px; }
 .envelope-state { display: inline-block; min-width: 4.5em; font-size: 11px; color: var(--muted); }
 .envelope-lines .is-check .envelope-state { color: #b54708; }
 .envelope-note { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.5; }
