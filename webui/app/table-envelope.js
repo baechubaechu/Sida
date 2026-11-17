@@ -6,7 +6,7 @@
 // Methods of DraftingTable (table.js adds them to its prototype).
 
 import * as THREE from './vendor/three.js';
-import { escapeHtml as escape } from './model.js';
+import { escapeHtml as escape, ruleLinks } from './model.js';
 import { envelopeCard, envelopeOver, envelopeSchemePaper, viewFor, freeSpot, PAPER_SIZE } from './board-model.js';
 
 export const envelopeMethods = {
@@ -131,7 +131,7 @@ export const envelopeMethods = {
       ${card.schemes.length ? `<div class="envelope-schemes"><b>참고 매스</b>${card.schemes.map((s) => `<div class="envelope-scheme"><span><strong>${escape(s.name)}</strong> <small>${escape(s.text)}</small></span>
         <button type="button" data-envelope-place="${s.index}" title="이 참고 매스를 새 매스안으로 제도판에 놓기">매스안으로 놓기</button></div>`).join('')}</div>` : ''}
       <ul class="envelope-lines">${card.lines.map((l) => `<li class="is-${escape(l.status)}"><details><summary><span class="envelope-state">${escape(l.label)}</span> <b>${escape(l.title)}</b> ${escape(l.value)}</summary>
-        ${l.detail ? `<p>${escape(l.detail)}</p>` : ''}${l.quote ? `<blockquote>${escape(l.quote)}</blockquote>` : ''}${l.source ? `<p class="source">${escape(l.source)}</p>` : ''}</details></li>`).join('')}</ul>
+        ${l.detail ? `<p>${escape(l.detail)}</p>` : ''}${l.quote ? `<blockquote>${escape(l.quote)}</blockquote>` : ''}${l.source ? `<p class="source">${escape(l.source)}</p>` : ''}${ruleLinks(l.links)}</details></li>`).join('')}</ul>
       <p class="envelope-note">공공 자료와 조문으로 계산한 참고용입니다. 카드에 "확인 필요"로 남은 항목은 반영하지 않았으니 설계에 앞서 확인하세요.</p>`;
   },
   // The height entered for a 고도지구 (from the card's field; null clears it): kept for the project,

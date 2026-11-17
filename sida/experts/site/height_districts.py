@@ -43,6 +43,7 @@ from shapely.geometry import shape as to_shape
 
 from sida import board
 from sida.config import ROOT
+from sida.experts.site import eum
 
 TABLE_PATH = ROOT / "data" / "height_districts.yaml"
 LAYER = "LT_C_UQ123"
@@ -165,7 +166,8 @@ def pick(pieces: list[dict], facts: dict) -> dict:
     table = load_table()["notices"]
     seen = sorted({_id(p) for p in pieces})
     out = {"status": "none", "notice": None, "verified": None, "district": "", "zone": None, "matched_by": "",
-           "kept_as": [], "drawn_as": "", "candidates": [], "notices_seen": [f"{y}-{n}" for y, n in seen]}
+           "kept_as": [], "drawn_as": "", "candidates": [], "notices_seen": [f"{y}-{n}" for y, n in seen],
+           "pnus": [str(p.get("pnu") or "") for p in facts.get("parcels") or []]}
     if not pieces:
         return out
     site = _site_places(facts)
@@ -225,6 +227,16 @@ def rooftop_allowance(notice_name: str | None) -> float | None:
 
 def line(found: dict, *, entered: float | None, use_relaxed: bool = False,
          public_land: bool | None = None) -> tuple[dict | None, float | None]:
+    """The card's height line (_height_line) with links to 토지이음 where the designer reads the
+    height or the notice (eum.py): the parcel's 토지이용계획 and the notice search."""
+    out, height = _height_line(found, entered=entered, use_relaxed=use_relaxed, public_land=public_land)
+    if out is not None and not entered and found["status"] != "error":
+        out["links"] = eum.height_links(found.get("pnus") or [], found.get("notices_seen") or [])
+    return out, height
+
+
+def _height_line(found: dict, *, entered: float | None, use_relaxed: bool = False,
+                 public_land: bool | None = None) -> tuple[dict | None, float | None]:
     """The card's height line for what pick() found and the height it cuts the envelope to (or
     None): (line, height). `entered`: the height the designer typed, which wins. `use_relaxed`: the
     designer looks at the relaxed height (완화, needs the committee's review). `public_land`: whether

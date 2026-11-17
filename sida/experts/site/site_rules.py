@@ -24,7 +24,7 @@ from functools import lru_cache
 import yaml
 
 from sida.config import ROOT
-from sida.experts.site import site_facts
+from sida.experts.site import eum, site_facts
 
 RULES_PATH = ROOT / "data" / "site_rules.yaml"
 WORDS = {"bcr": "건폐율", "far": "용적률"}
@@ -128,7 +128,10 @@ def card(facts: dict | None) -> list[dict]:
     rules = load_rules()
     heights = _named(facts, rules["height_words"], set())
     if heights:
-        lines.append(_line("height", "conditional", "높이", ", ".join(heights), "이 지역·지구가 높이를 따로 정함, 지정 내용과 원문 확인"))
+        height = _line("height", "conditional", "높이", ", ".join(heights), "이 지역·지구가 높이를 따로 정함, 지정 내용과 원문 확인")
+        # 토지이음의 이 필지 토지이용계획: 지역·지구 목록이 고도지구의 높이를 함께 적음("고도지구(28m이하)")
+        page = eum.land_use_page((facts.get("parcels") or [{}])[0].get("pnu", ""))
+        lines.append({**height, "links": [page] if page else []})
     sunlight = sunlight_line(facts)
     if sunlight:
         lines.append(sunlight)

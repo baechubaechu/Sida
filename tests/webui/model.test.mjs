@@ -845,3 +845,14 @@ test('siteRuleRows: each line of 이 대지에 걸리는 것 says how sure it is
   assert.equal(rows[3].value, '미확인');
   assert.deepEqual(siteRuleRows(undefined), []);
 });
+
+test('ruleLinks: a rule line links to 토지이음 in a new tab, only by https', async () => {
+  const { ruleLinks, safeLinks } = await import('../../webui/app/model.js');
+  const url = 'https://www.eum.go.kr/web/ar/lu/luLandDet.jsp?pnu=1130510400101000001&mode=search';
+  const rows = siteRuleRows([{ id: 'height', status: 'conditional', title: '높이', value: '고도지구', links: [{ label: '토지이음 토지이용계획(이 필지)', url }, { label: 'bad', url: 'javascript:alert(1)' }, null] }]);
+  assert.deepEqual(rows[0].links, [{ label: '토지이음 토지이용계획(이 필지)', url }]);
+  const html = ruleLinks(rows[0].links);
+  assert.match(html, /^<p class="rule-links"><a href="https:\/\/www\.eum\.go\.kr\/web\/ar\/lu\/luLandDet\.jsp\?pnu=1130510400101000001&amp;mode=search" target="_blank" rel="noopener noreferrer">토지이음 토지이용계획\(이 필지\)<\/a><\/p>$/);
+  assert.equal(ruleLinks([]), '');
+  assert.deepEqual(safeLinks(undefined), []);
+});
