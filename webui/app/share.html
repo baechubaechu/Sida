@@ -32,15 +32,18 @@
           <dl class="figures" id="figures"></dl>
         </div>
         <div class="scene" id="scene" aria-label="대지와 매스안 3D. 끌어서 돌리고, 휠로 확대하고, 오른쪽 버튼이나 Shift로 끌어 옮깁니다.">
+          <iframe class="scene-around" id="around" title="대지 주변 건물 (브이월드 3D)" hidden></iframe>
           <div class="scene-pins" id="pins"></div>
           <p class="scene-hint" id="hint" role="status" hidden></p>
           <div class="scene-tools">
             <button type="button" id="place" aria-pressed="false" hidden><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 21s-6-5.3-6-11a6 6 0 0 1 12 0c0 5.7-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/></svg>댓글 놓기</button>
+            <button type="button" id="around-toggle" aria-pressed="false" hidden><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 21h18M5 21V10l4-2v13M9 21V5l6-2v18M15 21V9l4 2v10"/></svg>주변 건물</button>
             <button type="button" id="home">처음 보기로</button>
           </div>
           <div class="scene-legend" aria-hidden="true">
             <span><i class="sw mass"></i>매스안</span>
-            <span><i class="sw lot"></i>대지</span>
+            <span class="model-only"><i class="sw lot"></i>대지</span>
+            <span class="around-only">주변: 브이월드 3D(국토교통부), 한 색으로</span>
           </div>
         </div>
       </main>

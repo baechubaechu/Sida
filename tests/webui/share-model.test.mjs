@@ -6,7 +6,7 @@ import {
   paperCounts, leftOutLine, sizeLabel, keptUntil, usageView, shareStatus, uploadLabel, commentThreads,
   unreadComments, targetLabel, targetPaper, conductorQuestion, commentProblem, commentTime, viewerSchemes,
   figureRows, schemeBoxes, localRings, siteRows, commentSpot, prismTriangles, orbitCamera, startDistance,
-  MAX_NAME, MAX_TEXT, EARTH_RADIUS,
+  MAX_NAME, MAX_TEXT, EARTH_RADIUS, outerRings, aroundScene, AROUND_LOOK,
 } from '../../webui/app/share-model.js';
 
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
@@ -165,4 +165,22 @@ test('the start distance fits the site and the tallest scheme', () => {
   assert.ok(near(startDistance({ min_x: 0, max_x: 100, min_y: 0, max_y: 50 }), 220));
   assert.ok(near(startDistance({ min_x: 0, max_x: 10, min_y: 0, max_y: 10 }, 100), 240));
   assert.equal(startDistance({ min_x: 0, max_x: 1e5, min_y: 0, max_y: 0 }), 4000);
+});
+
+test('the surroundings get the site middle, the scheme as lon/lat prisms and the parcel rings', () => {
+  const snapshot = { board: { papers: [{ id: 'm1', kind: 'mass', floor_height: 3, blocks: [{ u: 0, v: 0, w: 20, d: 10, floors: 5 }] }] },
+    site: { plan: { origin: { lon: 127, lat: 37.5 }, frame: { x: 0, y: 0, angle: 0 } } } };
+  const parcels = [{ pnu: '1', shape: { type: 'Polygon', coordinates: [[[127, 37.5], [127.001, 37.5], [127.001, 37.501]], [[0, 0]]] } }];
+  const scene = aroundScene(snapshot, 'm1', parcels);
+  assert.deepEqual(scene.center, { lon: 127, lat: 37.5 });
+  assert.equal(scene.polygons.length, 1);
+  assert.equal(scene.polygons[0].height, 15);
+  const [lon, lat] = scene.polygons[0].ring[0];
+  assert.ok(lon < 127 && lat < 37.5 && 127 - lon < 0.0002); // the block's south-west corner, 10 m and 5 m off
+  assert.deepEqual(scene.rings, [[[127, 37.5], [127.001, 37.5], [127.001, 37.501]]]); // outer rings only
+  assert.deepEqual(aroundScene(snapshot, 'nope').polygons, []);
+  assert.equal(aroundScene({ board: {} }, 'm1'), null);
+  assert.equal(outerRings({ type: 'MultiPolygon', coordinates: [[[[1, 2]]], [[[3, 4]]]] }).length, 2);
+  assert.deepEqual(outerRings(null), []);
+  assert.deepEqual(AROUND_LOOK, { white: true, plain: true, noNames: true });
 });

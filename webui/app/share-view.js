@@ -8,15 +8,16 @@ import * as THREE from './vendor/three.js';
 import { escapeHtml as escape, siteRuleRows } from './model.js';
 import {
   viewerSchemes, figureRows, schemeBoxes, localRings, siteRows, commentThreads, commentProblem, commentTime,
-  targetLabel, targetPaper, prismTriangles, orbitCamera, startDistance, commentSpot, keptUntil,
+  targetLabel, targetPaper, prismTriangles, orbitCamera, startDistance, commentSpot, keptUntil, aroundScene, AROUND_LOOK,
 } from './share-model.js';
+import { vworldFrame } from './board-model.js';
 
 const link = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || '');
 const base = `/s/${encodeURIComponent(link)}`;
 const $ = (id) => document.getElementById(id);
 
 const state = {
-  info: null, version: 0, snapshot: null, comments: [], parcels: [],
+  info: null, version: 0, snapshot: null, comments: [], parcels: [], parcelShapes: [], around: false,
   scheme: '', placing: false, spot: null, tab: 'comments', sending: false,
   view: { x: 0, y: 0, z: 0, turn: 30, tilt: 55, dist: 150 }, home: null,
 };
@@ -232,6 +233,71 @@ function placePins() {
   if ($('pins').innerHTML !== out) $('pins').innerHTML = out;
 }
 
+// ------------------------------------------------------------------ the surroundings
+
+// VWorld's 3D map around the site, in one colour, with the scheme on it: the app's own 3D page
+// (vworld3d-frame.js), served by this server with its 3D key at /s/<link>/around and driven by
+// the same messages as on the table (vworld-view.js). The buildings standing on the site now are
+// found on the map and hidden once per visit (VWorld's data is not kept, here or on the server).
+// Comments are placed on the model view, not here.
+const around = { loaded: false, key: '', calls: new Map(), next: 1, hidden: null };
+const TAG = 'vworld3d';
+
+function askAround(method, ...args) {
+  const frame = $('around');
+  if (!around.loaded || !frame.contentWindow) return Promise.resolve(null);
+  const id = around.next++;
+  return new Promise((resolve) => {
+    around.calls.set(id, resolve);
+    frame.contentWindow.postMessage({ sida: TAG, id, method, args }, location.origin);
+  });
+}
+
+function onAroundMessage(e) {
+  const m = e.data;
+  if (e.source !== $('around').contentWindow || e.origin !== location.origin || m?.sida !== TAG) return;
+  if (m.event === 'pick') { if (m.id) askAround('unpick'); return; } // nothing to pick here
+  const done = around.calls.get(m.id);
+  if (!done) return;
+  around.calls.delete(m.id);
+  done(m.error ? null : m.result);
+}
+
+async function showAround(on) {
+  state.around = on;
+  $('around-toggle').setAttribute('aria-pressed', String(on));
+  $('scene').classList.toggle('around', on);
+  $('around').hidden = !on;
+  if (on) setPlacing(false);
+  if (state.info) drawHead();
+  if (!on) { hint(''); draw(); return; }
+  const scene = aroundScene(state.snapshot, state.scheme, state.parcelShapes);
+  const frame = scene && vworldFrame({ page: `${base}/around` }, scene.center, location.origin);
+  if (!frame) { hint('대지 위치가 없어 주변 건물을 보여 줄 수 없습니다.'); return; }
+  hint('브이월드 3D 지도를 여는 중…');
+  if (around.key !== frame.key) {
+    around.key = frame.key;
+    around.loaded = false;
+    for (const done of around.calls.values()) done(null);
+    around.calls.clear();
+    const loaded = new Promise((resolve) => $('around').addEventListener('load', resolve, { once: true }));
+    $('around').src = frame.src;
+    await loaded;
+    around.loaded = true;
+  }
+  const ok = await askAround('show', { center: scene.center, polygons: scene.polygons, hidden: around.hidden || [], appearance: AROUND_LOOK });
+  if (!state.around) return;
+  if (!ok) { hint((await askAround('failed')) || '브이월드 3D 지도를 열지 못했습니다.'); return; }
+  if (around.hidden === null && scene.rings.length) { // the buildings on the site now, once per visit
+    hint('대지 위의 지금 건물을 숨기는 중…');
+    around.hidden = (await askAround('findSite', scene.rings, scene.center)) || [];
+    if (around.hidden.length) await askAround('setHidden', around.hidden);
+  }
+  if (!state.around) return;
+  hint('주변 건물은 브이월드 3D를 한 색으로 보여 줍니다. 댓글은 "주변 건물"을 끄고 놓습니다.');
+  setTimeout(() => { if (state.around) hint(''); }, 5000);
+}
+
 // ------------------------------------------------------------------ the page
 
 function hint(text) {
@@ -257,7 +323,8 @@ function drawHead() {
   select.innerHTML = info.versions.slice().reverse().map((v) => `<option value="${v.number}" ${v.number === state.version ? 'selected' : ''}>${v.number}번째 판 · ${escape(commentTime(v.created))}</option>`).join('');
   select.disabled = info.versions.length < 2;
   $('mode-chip').textContent = info.can_comment ? (info.comments_open ? '보기와 댓글' : '보기 전용 · 댓글 닫힘') : '보기 전용';
-  $('place').hidden = !(info.can_comment && info.comments_open);
+  $('place').hidden = state.around || !(info.can_comment && info.comments_open);
+  $('around-toggle').hidden = !(info.around && state.snapshot?.site?.plan?.origin);
 }
 
 function drawSchemes() {
@@ -372,8 +439,9 @@ async function loadParcels() {
   if (!origin) return;
   try {
     const got = await get('/parcels');
-    state.parcels = got.parcels.flatMap((p) => localRings(p.shape, origin));
-  } catch { state.parcels = []; }
+    state.parcelShapes = got.parcels || [];
+    state.parcels = state.parcelShapes.flatMap((p) => localRings(p.shape, origin));
+  } catch { state.parcels = []; state.parcelShapes = []; }
   drawLots();
   draw();
 }
@@ -422,14 +490,18 @@ function wire() {
     drawSchemes();
     drawMasses();
     drawForm();
+    if (state.around) askAround('setMasses', aroundScene(state.snapshot, state.scheme)?.polygons || []);
   });
   $('version').addEventListener('change', async (e) => {
     state.spot = null;
     await loadVersion(Number(e.target.value));
     await loadParcels();
+    if (state.around) await showAround(true);
   });
   $('place').addEventListener('click', () => { replyTo = ''; setPlacing(!state.placing); drawForm(); });
-  $('home').addEventListener('click', goHome);
+  $('home').addEventListener('click', () => (state.around ? showAround(true) : goHome()));
+  $('around-toggle').addEventListener('click', () => showAround(!state.around));
+  window.addEventListener('message', onAroundMessage);
   for (const tab of ['comments', 'site', 'papers']) $(`tab-${tab}`).addEventListener('click', () => showTab(tab));
   $('comment-form').addEventListener('submit', send);
   $('who').addEventListener('input', () => { $('form-error').textContent = ''; });
