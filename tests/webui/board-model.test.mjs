@@ -1780,6 +1780,8 @@ test('the envelope card lists its figures, its lines with their state and a line
   assert.deepEqual(used.figures.slice(2).map((f) => f.join(' ')), ['건물 용도 아파트 · 바닥면적 1200㎡', '건축선 후퇴 면적 10㎡', '층높이 3.0m']);
   assert.deepEqual(used.uses.map((u) => u.selected), [true, false]);
   assert.deepEqual(open.uses, []);
+  const notice = m.envelopeCard({ zone: '제2종일반주거지역', max_height_m: 32, district_height_m: 32, floor_height: 3, lines: [], schemes: [] });
+  assert.deepEqual(notice.figures.map((f) => f.join(' ')), ['용도지역 제2종일반주거지역', '최고 높이 32.0m', '높이 한도 (고시) 32.0m', '층높이 3.0m']);
   assert.equal(m.envelopeCard(null), null);
   const paper = m.envelopeSchemePaper({ name: '남쪽 탑형', floor_height: 3, blocks: [{ u: 1, v: 2, w: 3, d: 4, floors: 5 }] });
   assert.deepEqual(paper, { kind: 'mass', title: '법규 볼륨 참고 · 남쪽 탑형', floor_height: 3, blocks: [{ u: 1, v: 2, w: 3, d: 4, floors: 5 }] });

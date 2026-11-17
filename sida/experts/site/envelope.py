@@ -17,8 +17,9 @@ What it applies, each by rule from the government's data and the statute or ordi
   ordinance's where it was read by rule, else the statutory caps).
 - 건축선, 대지 안의 공지 and 공동주택 채광 (setbacks.py, data/envelope_rules.yaml): by the roads and
   parcels around the lot and the use the designer picks on the card.
-- A height the designer entered from a 고도지구's notice (site_envelope.json): the notice's height
-  is not in the government's data, so it is entered, not read.
+- A 고도지구's height: from the notice's table copied into data/height_districts.yaml, matched
+  to the VWorld piece under the site (height_districts.py), or as the designer entered it
+  (site_envelope.json), which wins.
 
 What it does not apply yet: the exceptions of 시행령 제86조②2·3 (지구단위계획구역 등의 20 m 도로,
 건축협정구역); the 정북 limit is kept there, the stricter way.
@@ -48,7 +49,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from sida import board
-from sida.experts.site import landapi, setbacks, site_facts, site_rules
+from sida.experts.site import height_districts, landapi, setbacks, site_facts, site_rules
 from sida.storage import atomic_write_text
 
 MAX_CELLS = 40_000  # grid cells over the lot; the cell grows on a big lot
@@ -508,11 +509,12 @@ def _line(id_: str, status: str, title: str, value: str, detail: str = "", quote
 
 def compute(plan: dict, facts: dict, rule: dict, parcels: list[dict] | None, zones_of, *, floor_height: float,
             neighbours_error: str = "", height_cap: float | None = None, use: str | None = None,
-            use_area: float | None = None) -> dict:
+            use_area: float | None = None, district: dict | None = None) -> dict:
     """The envelope view of a site (the API's reply) from its plan, facts and the parcels around.
     `height_cap`: the height the designer entered from a 고도지구's notice (m), cutting the envelope;
     `use`, `use_area`: the building's use (envelope_rules uses) and its floor area (㎡), for 대지 안의
-    공지 and 채광 (setbacks.py)."""
+    공지 and 채광 (setbacks.py); `district`: what height_districts.pick found for the site's 고도지구
+    (its height cuts the envelope when the notice's table is verified and nothing was entered)."""
     rules_data = site_rules.load_rules()
     across = dict(rules_data["across_marks"])
     maybe = dict(rules_data["maybe_across_marks"])
@@ -524,8 +526,19 @@ def compute(plan: dict, facts: dict, rule: dict, parcels: list[dict] | None, zon
            "area_m2": area, **ratio, "frame": frame, "grid": None, "levels": [], "max_height_m": None,
            "full_floor_area_m2": None, "schemes": [], "lines": [],
            "height_districts": site_rules.height_districts(facts), "height_limit_m": height_cap,
-           "uses": setbacks.uses(), "use": use, "use_area_m2": use_area, "building_line_area_m2": None, "roads": []}
+           "uses": setbacks.uses(), "use": use, "use_area_m2": use_area, "building_line_area_m2": None, "roads": [],
+           "district_height_m": None, "height_district": None}
     lines = out["lines"]
+    found = district or {"status": "none"}
+    height_line, from_notice = (height_districts.line(found, entered=height_cap)
+                                if height_cap or found["status"] != "none" else (None, None))
+    if found["status"] != "none":
+        zone = found.get("zone") or {}
+        out["height_district"] = {"status": found["status"], "notice": found.get("notice"), "district": found.get("district"),
+                                  "number": zone.get("number"), "limit": zone.get("limit"), "verified": found.get("verified")}
+    if not height_cap and from_notice:
+        out["district_height_m"] = from_notice
+    height_cap = height_cap or from_notice
     if rule["applies"] is None:
         lines.append(_line("sunlight", "check", "법규 볼륨", "계산 안 함", rule["detail"]))
         return out
@@ -604,9 +617,8 @@ def compute(plan: dict, facts: dict, rule: dict, parcels: list[dict] | None, zon
     else:
         lines.append(_line("sunlight", "none", "정북일조", "해당 없음", rule["detail"], "", rule["source"]))
     districts = out["height_districts"]
-    if height_cap:
-        lines.append(_line("height", "read", "높이 한도", f"{float(height_cap):g}m",
-                           f"{', '.join(districts) or '고도지구'}의 고시 높이로 볼륨을 자름", "", "사용자 입력"))
+    if height_line:
+        lines.append(height_line)
     elif districts:
         lines.append(_line("height", "check", "높이 한도", "입력 필요",
                            f"{', '.join(districts)}: 높이는 지역마다 고시로 정함. 고시에서 최고 높이를 찾아 입력하면 볼륨을 자름"))
@@ -660,9 +672,26 @@ def envelope_for(project_dir, *, floor_height: float | None = None, http_get=Non
     zone = zones[0] if zones else ""
     fh = floor_height or floor_height_for(zone)
     settings = load_settings(project_dir)
+    district = None
+    if any("고도지구" in name for name in site_rules.height_districts(facts)):
+        district = district_at(plan, facts, http_get=http_get)
     return compute(plan, facts, rule, parcels, lambda pnu: zone_of(pnu, http_get=http_get), floor_height=fh,
                    neighbours_error=error, height_cap=settings["height_limit_m"], use=settings["use"],
-                   use_area=settings["use_area_m2"])
+                   use_area=settings["use_area_m2"], district=district)
+
+
+def district_at(plan: dict, facts: dict, *, http_get=None) -> dict:
+    """What the 고도지구 pieces under the site's middle say (height_districts.pick). A failed lookup
+    is a "check" with no figure."""
+    lot = unary_union([Polygon(r) for p in plan["parcels"] for r in p["rings"] if len(r) >= 3]).buffer(0)
+    point = lot.representative_point()
+    _to_local, east, north = _lonlat_to_local(plan["origin"])
+    lon, lat = plan["origin"]["lon"] + point.x / east, plan["origin"]["lat"] + point.y / north
+    try:
+        pieces = landapi.districts_at(height_districts.LAYER, lon, lat, http_get=http_get)
+    except (landapi.LandApiError, ValueError):
+        return {"status": "error", "notice": None}
+    return height_districts.pick(pieces, facts)
 
 
 # ---------------------------------------------------------------------------

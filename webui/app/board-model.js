@@ -2642,6 +2642,7 @@ export function envelopeCard(envelope) {
   if (envelope.zone) figures.push(['용도지역', envelope.zone]);
   if (envelope.max_height_m !== null && envelope.max_height_m !== undefined) figures.push(['최고 높이', `${fmt(envelope.max_height_m, 1)}m`]);
   if (envelope.height_limit_m) figures.push(['높이 한도 (입력)', `${fmt(envelope.height_limit_m, 1)}m`]);
+  if (envelope.district_height_m) figures.push(['높이 한도 (고시)', `${fmt(envelope.district_height_m, 1)}m`]);
   const uses = (envelope.uses || []).map((u) => ({ ...u, selected: u.key === envelope.use }));
   const use = uses.find((u) => u.selected);
   if (use) figures.push(['건물 용도', envelope.use_area_m2 ? `${use.label} · 바닥면적 ${m2(envelope.use_area_m2)}` : use.label]);

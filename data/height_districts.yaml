@@ -1,0 +1,79 @@
+# 고도지구 높이 (sida/experts/site/height_districts.py): the heights a 고도지구 notice sets, by zone.
+# The government's data names the notice of each 고도지구 piece (VWorld LT_C_UQ123: dyear, dnum) but
+# not its height, which is only in the notice's own tables. Those tables are copied here once and
+# checked by a person; the app reads only this file (2026-11-17 지훈 "할때마다 읽어오는건 안돼").
+# A notice whose `verified` is null is shown but does not cut the envelope.
+#
+# Zone fields: number (도면표시번호), limit (원문 그대로), max_m (m), base: ground(지표면, 높이 산정은 height_rule) | road
+# (도로면 기준, road_offset_m) | sea(해발), relaxed_m (비고의 완화: 위원회 심의를 거쳐야 하므로 자동 적용
+# 하지 않음), area_m2 (조서의 면적, VWorld 조각과 짝짓는 데 씀), location (조서의 위치).
+
+notices:
+  - notice: 서울특별시 고시 제2024-317호
+    notice_date: 2024-06-27
+    region: 서울특별시
+    # 토지이음 고시정보 seq=590707, 첨부 "서울특별시_제2024-317호_고시.pdf" 1~8쪽(글자 층이 없어 쪽 그림을
+    # 읽어 옮김). 검산: 지구별 면적 합계가 사유서의 변경 후 면적과 모두 일치(남산 2,809,828 / 북한산
+    # 2,352,498 / 구기·평창 431,559 / 경복궁 996,121 ㎡). 기정 행만 있는 구역(남산 7~14, 경복궁 1)은
+    # 합계에 들어가므로 계속 유효.
+    vworld: {layer: LT_C_UQ123, dyear: "2024", dnum: "0317"}
+    verified: null
+    height_rule: >-
+      지표면으로부터 건물 최상단까지의 높이[단, 지표면 산정방법은 건축법령을 따르되, 건물 옥상돌출부,
+      옥상돌출물 및 필로티는 높이에 포함하며, 옥상에 설치되는 높이 3m 이내의 승강기탑·계단탑 및
+      난간벽(투시형 또는 그 벽면적의 2분의1 이상이 공간으로 되고 높이 1.5m 미만인 것에 한정)은 제외]
+    districts:
+      남산 주변:
+        total_m2: 2809828
+        zones:
+          - {number: 1,  location: 용산구 소월로 일대, limit: 도로면 이하, base: road, road_offset_m: 0, area_m2: 135000}
+          - {number: 2,  location: "중구 남창동, 회현동1가 일대", limit: 도로면 이하, base: road, road_offset_m: 0, area_m2: 14400}
+          - {number: 3,  location: 중구 신당동 일대, limit: 도로면 +4m이하, base: road, road_offset_m: 4, area_m2: 22500}
+          - {number: 4,  location: "용산구 용산동2가31, 5-1488 일대", limit: 12m이하 (완화시 20m이하), max_m: 12, relaxed_m: 20, base: ground, area_m2: 188886}
+          - {number: 20, location: "중구 회현동1가 146-1, 신당동 432-24, 용산구 이태원동 193-6, 한남동 741-20 일대", limit: 16m이하 (완화시 20m이하), max_m: 16, relaxed_m: 20, base: ground, area_m2: 340666}
+          - {number: 15, location: "중구 남산동2가 49-49, 예장동 1-1, 용산구 후암동 402-3 일대", limit: 20m이하, max_m: 20, base: ground, area_m2: 343461}
+          - {number: 5,  location: 용산구 후암동 443-1일대, limit: 20m이하 (완화시 28m이하), max_m: 20, relaxed_m: 28, base: ground, area_m2: 53311}
+          - {number: 21, location: "중구 회현동1가 164, 신당동 432-1979, 432-1632 일대, 용산구 이태원동 204-3, 한남동 일대", limit: 24m이하 (완화시 28m이하), max_m: 24, relaxed_m: 28, base: ground, area_m2: 282589}
+          - {number: 16, location: "중구 회현동1가 143-4, 남산동2가 32-3, 필동2가 85-1, 신당동 432-106 일대, 용산구 후암동 244-79, 이태원동 729, 한남동 일대", limit: 28m이하, max_m: 28, base: ground, area_m2: 1021831}
+          - {number: 17, location: 중구 신당동 355-7 일대, limit: 32m이하, max_m: 32, base: ground, area_m2: 19109}
+          - {number: 18, location: 중구 신당동 369-7 일대, limit: 40m이하, max_m: 40, base: ground, area_m2: 14673}
+          - {number: 19, location: 중구 회현동1가 86-3 일대, limit: 36m이하, max_m: 36, base: ground, area_m2: 23724}
+          - {number: 6,  location: "용산구 한남동 810, 4-13 일대", limit: 18m이하, max_m: 18, base: ground, area_m2: 49630, note: "지반고를 6m범위 내에서 건축심의를 받아 낮출 수 있음"}
+          # 아래는 기정 행만 있음(변경 없음, 면적 합계로 유효 확인)
+          - {number: 7,  location: 용산구 한남동 810 일대, limit: 30m이하, max_m: 30, base: ground, area_m2: 29224, note: "지반고를 6m범위 내에서 건축심의를 받아 낮출 수 있음"}
+          - {number: 8,  location: 용산구 한남동 810 일대, limit: 36m이하, max_m: 36, base: ground, area_m2: 15074, note: "지반고를 6m범위 내에서 건축심의를 받아 낮출 수 있음"}
+          - {number: 9,  location: 용산구 한남동 829 일대, limit: 18m이하, max_m: 18, base: ground, area_m2: 36020}
+          - {number: 10, location: 용산구 한남동 829 일대, limit: 30m이하, max_m: 30, base: ground, area_m2: 27080}
+          - {number: 11, location: "용산구 이태원동 57-35, 56-13, 124-7, 136-6, 한남동 736-42, 685-2일대", limit: 20m이하, max_m: 20, base: ground, area_m2: 120800}
+          - {number: 12, location: "용산구 이태원동 123-15, 127-7, 141-11 일대", limit: 28m이하, max_m: 28, base: ground, area_m2: 19496}
+          - {number: 13, location: "용산구 이태원동 57-1, 72-16, 132-8, 한남동 737-57 일대", limit: 15m이하, max_m: 15, base: ground, area_m2: 51113}
+          - {number: 14, location: 용산구 이태원동 137-23 일대, limit: 23m이하, max_m: 23, base: ground, area_m2: 1241}
+      북한산 주변:
+        total_m2: 2352498
+        zones:
+          - {number: 1, location: "강북구 우이동, 인수동, 수유1동, 삼양동 일대 / 도봉구 도봉1동, 방학2·3동, 쌍문1동 일대", limit: 20m 이하 (완화시 28m이하), max_m: 20, relaxed_m: 28, base: ground, area_m2: 248450, note: "사유서: 제1종일반주거지역"}
+          - {number: 2, location: "강북구 우이동, 인수동, 수유1동, 삼양동 일대 / 도봉구 도봉1동, 방학2·3동, 쌍문1동 일대", limit: 28m 이하, max_m: 28, base: ground, area_m2: 2104048, note: "사유서: 제2종일반주거지역(7층)이상"}
+      구기·평창:
+        total_m2: 431559
+        zones:
+          - {number: null, location: "종로구 평창동, 구기동, 신영동, 부암동, 홍지동 일대", limit: 24m 이하 (완화시 28m이하), max_m: 24, relaxed_m: 28, base: ground, area_m2: 431559}
+      경복궁 주변:
+        total_m2: 996121
+        zones:
+          - {number: 1, location: "종로구 효자, 창성, 통의, 적선동 일대", limit: "15m이하 (단, 국·공유지는 12m이하로 함)", max_m: 15, base: ground, area_m2: 10080, note: "국·공유지는 12m"}  # 기정 행만 있음
+          - {number: 2, location: "종로구 중학, 사간, 송현, 안국, 재, 소격, 화, 가회, 팔판, 삼청동 일대", limit: 16m이하, max_m: 16, base: ground, area_m2: 430655}
+          - {number: 3, location: "종로구 적선, 통의, 창성, 효자, 궁정동 일대", limit: 18m이하, max_m: 18, base: ground, area_m2: 141667}
+          - {number: 4, location: "종로구 청운, 누상, 누하, 필운, 옥인, 궁정, 통인, 신교, 사직동 일대", limit: 20m이하, max_m: 20, base: ground, area_m2: 332972}
+          - {number: 5, location: "종로구 통의, 누하, 필운, 체부, 옥인, 창성, 통인동 일대", limit: 24m이하, max_m: 24, base: ground, area_m2: 80747}
+      배봉산 주변:
+        total_m2: 50150
+        zones:
+          - {number: null, location: 동대문구 휘경동 43번지 일대, limit: "조망선 높이 이하 (해발 44.0~62.6m)", base: sea, max_m: null, area_m2: 50150, note: "조망점과 봉우리 7부능선(산 정상 해발 높이의 70%) 지점을 연결하는 선(서울특별시 고시 제2023-253호 참조), 위치마다 높이가 달라 숫자 하나로 못 씀"}
+    abolished:  # 이 고시로 폐지
+      - {district: 오류, location: 구로구 온수동 100-64 일대, was: "20m이하 (단, 아파트형공장에 한하여 30m이하)", area_m2: 94130}
+      - {district: 서초동 법원단지 주변, location: 서초구 서초동 1702일대, was: 28m이하, area_m2: 113700}
+    relaxation:  # 고도지구 완화기준(변경), 원문 요약. 앱이 자동 적용하지 않음
+      terrain: "북한산·남산·구기평창: 대상지가 인접대지보다 낮은 지역, 도시계획위원회 심의 등을 거쳐 12·16m지역 → 최대 20m, 20·24m지역 → 최대 28m"
+      redevelopment: "북한산·남산·구기평창: 정비사업 등 경관관리 가이드라인 준수, 위원회 심의(자문) 거쳐 최대 45m 범위 등 내 완화(가이드라인은 시장이 별도로 정함)"
+      remodeling: "북한산·남산·구기평창: 높이 초과 아파트 주택법 리모델링 시 완화 가능"
+      hotel: "남산: 지정 이전 건축으로 높이 초과된 관광숙박시설(호텔업) 기존 높이까지 완화"
