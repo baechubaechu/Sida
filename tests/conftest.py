@@ -71,7 +71,8 @@ def land_fixture(name: str):
 
 @pytest.fixture
 def fake_ordinance(monkeypatch):
-    """Serve recorded law.go.kr ordinance responses (군포시, 서울특별시, 고성군); records calls."""
+    """Serve recorded law.go.kr ordinance responses (군포시, 서울특별시, 고성군, and 서울특별시 건축 조례
+    trimmed to two articles and four annex entries); records calls."""
     calls: list[dict] = []
     overrides: dict[str, object] = {}
     searches = {"군포시": "gunpo", "서울특별시": "seoul", "고성군": "goseong"}
@@ -90,9 +91,11 @@ def fake_ordinance(monkeypatch):
             if isinstance(value, Exception):
                 raise value
             return value
-        if op == "body":
-            return (LAW_FIXTURES / f"ordin_body_gunpo_{params['MST']}.json").read_text(encoding="utf-8")
+        if op == "body":  # ordin_body_<place>_<MST>.json
+            return next(LAW_FIXTURES.glob(f"ordin_body_*_{params['MST']}.json")).read_text(encoding="utf-8")
         name = searches.get(params["query"].split()[0])
+        if name is not None and "건축 조례" in params["query"]:  # the 건축 조례 search, recorded on its own
+            name = f"{name}_building" if (LAW_FIXTURES / f"ordin_search_{name}_building.json").exists() else None
         if name is None:
             return '{"OrdinSearch": {"totalCnt": "0", "resultCode": "00"}}'
         return (LAW_FIXTURES / f"ordin_search_{name}.json").read_text(encoding="utf-8")

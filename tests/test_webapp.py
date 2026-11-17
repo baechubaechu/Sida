@@ -635,6 +635,33 @@ def test_site_api_reports_bad_requests_and_government_api_failures(client, proje
     assert site_facts.load_facts(project.path) is None  # nothing was saved by any failed request
 
 
+def test_site_envelope_api_gives_the_legal_volume_and_reference_schemes(client, project, fake_vworld):
+    from sida.experts.site import landapi, site_facts
+
+    url = f"/api/projects/{project.name}/site/envelope"
+    assert client.get(url).status_code == 404  # no site looked up yet
+    assert client.get("/api/projects/nope/site/envelope").status_code == 404
+    parcel = landapi.search_parcels("경기도 군포시 금정동 689")[:1]
+    site_facts.save_facts(project.path, site_facts.build_facts("금정동 689-14", parcel))
+    assert client.get(url, params={"floor_height": 1}).status_code == 400
+    assert client.get(url, params={"floor_height": 11}).status_code == 400
+
+    before = len(fake_vworld.calls)
+    body = client.get(url, params={"floor_height": 3.5}).json()
+    lines = {x["id"]: x for x in body["lines"]}
+    # 일반공업지역: no 정북 limit, so no levels; the ratios come from the facts, the top is open
+    assert body["zone"] == "일반공업지역" and body["floor_height"] == 3.5
+    assert lines["sunlight"]["status"] == "none" and lines["height"]["status"] == "check"
+    assert body["levels"] == [] and body["grid"] is None and body["max_height_m"] is None
+    assert all(len(s["blocks"]) >= 1 and s["floor_height"] == 3.5 for s in body["schemes"])
+    assert fake_vworld.calls[before:] == []  # neighbours are only looked at where the 정북 rule applies
+
+    facts = site_facts.load_facts(project.path)
+    facts["parcels"][0]["shape"] = None
+    site_facts.save_facts(project.path, facts)
+    assert client.get(url).status_code == 400  # no boundary to work in
+
+
 def test_site_context_api_gives_the_surroundings_in_the_table_frame(client, project, fake_vworld, tmp_path):
     from sida import board
     from sida.experts.site import context3d, landapi, site_facts, terrain_pack

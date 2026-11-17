@@ -8,7 +8,15 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from sida import board, telemetry, workspace
-from sida.experts.site import context3d, context_range, datago, landapi, ledger_sync, site_facts
+from sida.experts.site import (
+    context3d,
+    context_range,
+    datago,
+    envelope,
+    landapi,
+    ledger_sync,
+    site_facts,
+)
 from sida.i18n import t
 from sida.project import load_project
 
@@ -239,6 +247,21 @@ def _project_router(load_config, core) -> APIRouter:
                                       str(body.get("orient") or context3d.DEFAULT_ORIENT))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=t("web_site_context_range")) from exc
+
+    @router.get("/envelope")
+    def get_envelope(name: str, floor_height: float | None = None) -> dict:
+        """The 법규 볼륨 of the site and two reference schemes in it (envelope.py). `floor_height`
+        (m, 2–10) is the floor height the floors are counted in; by default 3 m in a 주거지역,
+        else the drafting table's."""
+        path = core(workspace.find_project, load_config(), name)
+        if floor_height is not None and not 2 <= floor_height <= 10:
+            raise HTTPException(status_code=400, detail=t("web_site_envelope_floor"))
+        try:
+            return core(envelope.envelope_for, path, floor_height=floor_height)
+        except LookupError as exc:
+            if str(exc) == "no_site":
+                raise HTTPException(status_code=404, detail=t("web_site_none")) from exc
+            raise HTTPException(status_code=400, detail=t("web_site_envelope_no_plan")) from exc
 
     @router.get("/ordinance")
     def get_ordinance(name: str) -> dict:

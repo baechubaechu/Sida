@@ -93,6 +93,8 @@ function tableHooks(name) {
     // range {size, shape, orient}: as asked; none: the project's saved range.
     context: (range) => api(`${projectApi(name)}/site/context${range ? `?${rangeQuery(range)}` : ''}`),
     range: () => api(`${projectApi(name)}/site/context/range`),
+    // 법규 볼륨: the envelope and reference schemes of the site, GET .../site/envelope (envelope.py).
+    envelope: () => api(`${projectApi(name)}/site/envelope`),
     saveRange: (range) => api(`${projectApi(name)}/site/context/range`, { method: 'PUT', body: range }),
     // The view the table was last seen from, kept for the project (a reload opens on it).
     saveView: (v) => api(`${projectApi(name)}/board/view`, { method: 'PUT', body: v }).catch(() => {}),

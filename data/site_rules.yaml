@@ -2,23 +2,35 @@
 # Each rule quotes its statute. When a statute changes, compare the text with the 원문 and update
 # `verified` (the date it was compared). Nothing here is a figure for a particular site.
 
-# 정북 방향 일조 (건축법 제61조제1항, 시행령 제86조제1항): which 용도지역 it applies in.
+# 정북 방향 일조 (건축법 제61조제1항; 시행령 제86조제1항은 2026-11-10 삭제): which 용도지역 it
+# applies in, and the law's own distances.
 north_sunlight:
-  law: 건축법 시행령 제86조제1항
+  law: 건축법 제61조제1항
   zones:
     - 제1종전용주거지역
     - 제2종전용주거지역
     - 제1종일반주거지역
     - 제2종일반주거지역
     - 제3종일반주거지역
-  summary: 정북 쪽 인접 대지경계선에서 높이 10m 이하 부분은 1.5m 이상, 10m 넘는 부분은 그 높이의 1/2 이상 띄움(이 범위에서 건축 조례가 정함)
+  summary: 정북 쪽 인접 대지경계선에서 높이 10m 이하 부분은 1.5m, 10~17m 부분은 5m, 17m 넘는 부분은 그 높이의 1/2 이상 띄움(이 범위에서 건축 조례가 정함)
   text: >-
-    전용주거지역이나 일반주거지역에서 건축물을 건축하는 경우에는 법 제61조제1항에 따라 건축물의
-    각 부분을 정북(正北) 방향으로의 인접 대지경계선으로부터 다음 각 호의 범위에서 건축조례로 정하는
-    거리 이상을 띄어 건축하여야 한다. 1. 높이 10미터 이하인 부분: 인접 대지경계선으로부터
-    1.5미터 이상 2. 높이 10미터를 초과하는 부분: 인접 대지경계선으로부터 해당 건축물 각 부분
-    높이의 2분의 1 이상
-  # 제1항 마지막 개정 2023.9.12(9m → 10m). 대조한 판: 대통령령 제36746호(공포·시행 2026-10-06)
+    전용주거지역과 일반주거지역 안에서 건축하는 건축물은 일조 등의 확보를 위하여 정북방향(正北方向)의
+    인접 대지경계선으로부터 다음 각 호의 구분에 따른 범위에서 해당 지방자치단체의 조례로 정하는 거리
+    이상을 띄어 건축하여야 한다. 다만, 건축물의 정북방향의 인접 대지가 전용주거지역이나 일반주거지역이
+    아닌 용도지역에 해당하는 경우 등 대통령령으로 정하는 경우에는 그러하지 아니하다.
+    1. 높이 10미터 이하인 부분: 인접 대지경계선으로부터 1.5미터 이상
+    2. 높이 10미터 초과 17미터 이하인 부분: 인접 대지경계선으로부터 5미터 이상
+    3. 높이 17미터를 초과하는 부분: 인접 대지경계선으로부터 해당 건축물 각 부분 높이의 2분의 1 이상
+  # The law's distances as `steps` [distance m, up to height m] and `half_above` (a part above that
+  # height stands half its height away): the least an ordinance may ask, used when the 건축 조례 is
+  # not read (법규 볼륨, sida/experts/site/envelope.py), and the floor an ordinance read by rule
+  # must not go under.
+  steps: [[1.5, 10], [5, 17]]
+  half_above: 17
+  # 대조한 판: 건축법 법률 제21880호(공포 2026-08-11, 제61조① 시행 2026-11-12, 부칙 제4조: 그 뒤
+  # 건축허가 신청·건축신고분부터), 건축법 시행령 대통령령 제36817호(2026-11-10, 제86조① 삭제,
+  # ②가 법 제61조① 단서의 경우: 1. 북쪽 이웃이 전용·일반주거지역이 아님 2. 지구단위계획구역 등
+  # 20m 도로 3. 건축협정구역). law.go.kr 현행 원문.
   verified: 2026-11-17
 
 # 지역·지구 names (토지이용계획) that bring a height limit of their own. A district whose name
@@ -29,3 +41,10 @@ height_words: [고도, 대공방어, 비행안전, 비행장, 경관지구, 가�
 # base figures. Listed on the "따로 정한 계획" line to be checked; a name already on the
 # height line is not repeated.
 plan_words: [지구단위계획, 정비구역, 재정비촉진, 특별계획, 경관관리, 개발제한, 도시개발구역, 택지개발]
+
+# 법규 볼륨 (sida/experts/site/envelope.py): the 지목 of a parcel to the north across which the
+# 정북 distance is measured to its far side (건축법 시행령 제86조⑥1: 공원, 도로, 철도, 하천, 광장,
+# 공공공지, 녹지, 유수지 …), and those that may be such ground but are not named there (measured
+# at the near side and flagged). Keys are the 지목's one-letter mark on the 연속지적 map.
+across_marks: {도: 도로, 철: 철도용지, 천: 하천, 공: 공원}
+maybe_across_marks: {구: 구거, 유: 유지, 제: 제방}

@@ -53,6 +53,30 @@ test('changing site drops old 3D data and ignores late responses', async () => {
   setSite(129);
   assert.ok(!t.aroundOn && !t.around);
 });
+test('changing site drops the old 법규 볼륨 and ignores a late reply for the old site', async () => {
+  const {DraftingTable} = await import('../../webui/app/table.js');
+  const t = Object.create(DraftingTable.prototype);
+  Object.assign(t, {selected:[], picked:[], root:{clientWidth:0}, view:{span:100, tilt:30}});
+  for (const method of ['drawSite','drawMasses','syncPapers','drawTray','drawControls','fit','invalidate','drawAround','animateTo','say']) t[method] = () => {};
+  const setSite = lon => t.setBoard({site:{plan:{origin:{lon,lat:37},parcels:[],bounds:{min_x:-10,min_y:-10,max_x:10,max_y:10}}}});
+  let finish;
+  t.hooks = {envelope: () => new Promise(resolve => { finish = resolve; })};
+  setSite(127);
+  const first = t.toggleEnvelope();
+  assert.ok(t.envelopeBusy);
+  setSite(128);
+  finish({zone:'old', levels:[], lines:[], schemes:[]});
+  await first;
+  assert.ok(!t.envelope && !t.envelopeOn);
+  t.hooks.envelope = async () => ({zone:'new', levels:[], lines:[], schemes:[]});
+  await t.toggleEnvelope();
+  assert.equal(t.envelope.zone, 'new');
+  assert.ok(t.envelopeOn);
+  await t.toggleEnvelope(); // off again, kept for the next time
+  assert.ok(!t.envelopeOn && t.envelope);
+  setSite(129);
+  assert.ok(!t.envelopeOn && !t.envelope);
+});
 const SITE = { plan: { bounds: { min_x: -30, min_y: -50, max_x: 30, max_y: 50 }, frame: { x: 5, y: -10, angle: Math.PI / 2 } } };
 
 test('tape snaps to endpoints before edges, and leaves distant geometry alone', () => {
@@ -1715,4 +1739,40 @@ test('a gauge fills by the share of the limit used and stops at its end when far
   assert.equal(m.gaugePart(300, 60), m.GAUGE_RUN);
   assert.equal(m.gaugePart(30, null), null);
   assert.equal(m.gaugePart(null, 60), null);
+});
+
+test('a block taller than the envelope over the cells under it is marked, with how far it passes', async () => {
+  const m = await import('../../webui/app/board-model.js');
+  // a 6 × 4 m grid of 1 m cells: 10 m along the north row, 20 m elsewhere, one cell outside, one free
+  const h = [[20, 20, 20, 20, 20, -1], [20, 20, 20, 20, 20, 20], [20, 20, 20, 20, 20, 20], [10, 10, 10, 10, 10, null]];
+  const envelope = { grid: { u0: -3, v0: -2, step: 1, h } };
+  const paper = { floor_height: 3, blocks: [
+    { u: -1, v: -0.5, w: 4, d: 3, floors: 6 }, // 18 m on the 20 m cells only: fits
+    { u: -1, v: 0, w: 4, d: 4, floors: 4 }, // 12 m reaching the 10 m row
+    { u: 2, v: 1.5, w: 1, d: 1, floors: 9 }, // on the outside cell only: nothing to check
+    { u: -1, v: -0.5, w: 4, d: 3, floors: 7 }, // 21 m on 20 m cells
+  ] };
+  assert.deepEqual(m.envelopeOver(envelope, paper), [{ index: 1, over: 2, allowed: 10 }, { index: 3, over: 1, allowed: 20 }]);
+  // turned 90°: a 4 × 2 block stands 2 wide along u and 4 deep along v, into the north row
+  assert.deepEqual(m.envelopeOver(envelope, { floor_height: 3, blocks: [{ u: 0, v: -1, w: 2, d: 2, floors: 4, a: 0 }, { u: 0, v: 0, w: 4, d: 2, floors: 4, a: 90 }] }),
+    [{ index: 1, over: 2, allowed: 10 }]);
+  assert.deepEqual(m.envelopeOver({ grid: null }, paper), []);
+});
+
+test('the envelope card lists its figures, its lines with their state and a line per reference scheme', async () => {
+  const m = await import('../../webui/app/board-model.js');
+  const card = m.envelopeCard({
+    zone: '제2종일반주거지역', max_height_m: 36.8, bcr: 60, far: 200, bcr_from: '조례', far_from: '조례', full_floor_area_m2: 2928.8, floor_height: 3,
+    lines: [{ id: 'sunlight', status: 'read', title: '정북일조', value: '적용', detail: 'd', quote: 'q', source: 's' }, { id: 'open_space', status: 'check', title: '대지 안의 공지', value: '확인' }],
+    schemes: [{ name: '넓게 낮게', footprint_m2: 288.8, floor_area_m2: 1250.5, height_m: 15, blocks: [] }],
+  });
+  assert.deepEqual(card.figures.map((f) => f[0]), ['용도지역', '정북일조 최고 높이', '건폐율', '용적률', '볼륨을 모두 채운 연면적', '층높이']);
+  assert.equal(card.figures[2][1], '60% (조례)');
+  assert.deepEqual(card.lines.map((l) => l.label), ['확인', '확인 필요']);
+  assert.equal(card.schemes[0].text, '건축면적 288.8㎡ · 연면적 1250.5㎡ · 높이 15.0m');
+  const open = m.envelopeCard({ zone: '일반상업지역', max_height_m: null, floor_height: 4.2, lines: [], schemes: [] });
+  assert.deepEqual(open.figures.map((f) => f[0]), ['용도지역', '층높이']);
+  assert.equal(m.envelopeCard(null), null);
+  const paper = m.envelopeSchemePaper({ name: '남쪽 탑형', floor_height: 3, blocks: [{ u: 1, v: 2, w: 3, d: 4, floors: 5 }] });
+  assert.deepEqual(paper, { kind: 'mass', title: '법규 볼륨 참고 · 남쪽 탑형', floor_height: 3, blocks: [{ u: 1, v: 2, w: 3, d: 4, floors: 5 }] });
 });

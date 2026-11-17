@@ -76,7 +76,7 @@ def test_the_card_on_a_residential_site_without_an_ordinance():
     assert (lines["far"]["status"], lines["far"]["value"]) == ("check", "법정 상한 250%")
     assert "도시·군계획 조례를 찾지 못함" in lines["far"]["detail"]
     assert (lines["sunlight"]["status"], lines["sunlight"]["value"]) == ("read", "적용")
-    assert lines["sunlight"]["source"] == "건축법 시행령 제86조제1항" and "1.5미터" in lines["sunlight"]["quote"]
+    assert lines["sunlight"]["source"] == "건축법 제61조제1항" and "17미터 이하인 부분: 인접 대지경계선으로부터 5미터" in lines["sunlight"]["quote"]
     assert "height" not in lines and "plan" not in lines
 
 
@@ -84,7 +84,7 @@ def test_the_sunlight_line_says_when_its_statute_text_is_not_yet_compared(monkey
     f = facts("제2종일반주거지역", ordinance=False)
     rules = site_rules.load_rules()
     assert rules["north_sunlight"]["verified"] and "원문 대조 전" not in site_rules.sunlight_line(f)["detail"]
-    assert site_rules.sunlight_line(f)["quote"].startswith("전용주거지역이나 일반주거지역에서 건축물을")
+    assert site_rules.sunlight_line(f)["quote"].startswith("전용주거지역과 일반주거지역 안에서 건축하는 건축물은")
     pending = {**rules, "north_sunlight": {**rules["north_sunlight"], "verified": None}}
     monkeypatch.setattr(site_rules, "load_rules", lambda: pending)
     assert site_rules.sunlight_line(f)["detail"].endswith("(조문 원문 대조 전)")

@@ -48,6 +48,7 @@ export const COMMANDS = [
   { name: 'eye', aliases: ['walk'], label: '눈높이 보기: 땅 위 한 점을 눌러 그 자리 사람 눈높이(1.6m)에서 매스 보기', group: 'view' },
   { name: 'vworld', aliases: ['vw'], label: '브이월드 3D 지도에 매스안 세워 보기 (건물을 누르면 숨김)', group: 'view' },
   { name: 'around', aliases: ['context'], label: '주변 3D 켜고 끄기 (주변 건물·도로·지형, 설정은 레이어 패널의 주변)', group: 'view' },
+  { name: 'envelope', aliases: ['legal', 'volume'], label: '법규 볼륨 켜고 끄기: 정북일조·건폐율·용적률로 지을 수 있는 볼륨과 참고 매스', group: 'view' },
   { name: 'clip', aliases: ['cut'], label: '3D 자르기: 단면선으로 3D를 잘라 보기 (다시 하면 끔)', group: 'view' },
   { name: 'base', aliases: ['modelbase'], label: '모형 바닥: 레이저 커팅 대지 모형 판 열기', group: 'panel' },
   { name: 'deck', aliases: ['slides', 'ppt'], label: '발표 자료 열기 (발표 편집자의 발표자료 탭)', group: 'panel' },

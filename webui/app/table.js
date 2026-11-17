@@ -23,6 +23,7 @@ import { eyeMethods } from './table-eye.js';
 import { measureMethods } from './table-measure.js';
 import { peopleMethods } from './table-people.js';
 import { sectionMethods } from './table-section.js';
+import { envelopeMethods } from './table-envelope.js';
 
 export class DraftingTable {
   // hooks: { add(paper), update(id, changes), remove(id), place(id, placement), discard(id),
@@ -83,6 +84,10 @@ export class DraftingTable {
     this.eye = null; // 눈높이 보기: {x, y, yaw, pitch, fov, back} while standing in the street (table-eye.js)
     this.eyePicking = false; // the 눈높이 button waits for the point to stand on
     this.eyeBefore = false; // at eye level: the building on the site (true) or the masses (false)
+    this.envelope = null; // 법규 볼륨 (GET .../site/envelope), fetched when first shown (table-envelope.js)
+    this.envelopeOn = false;
+    this.envelopeBusy = false;
+    this.envelopeRequest = null;
     this.people = []; // 사람 배치: scale figures stood about the site (table-people.js)
     this.personPicked = ''; // the person picked (their id)
     this.personKind = 'stand'; // what the 사람 tool stands next
@@ -112,6 +117,7 @@ export class DraftingTable {
       <p class="table-ui figure-band" role="status" aria-label="매스안 건폐율·용적률" hidden></p>
       <div class="block-tags" aria-hidden="true"></div>
       <p class="table-ui around-legend" aria-label="주변 3D 범례" hidden></p>
+      <section class="table-ui envelope-card" aria-label="법규 볼륨" hidden></section>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
       <section class="table-ui peek" aria-label="종이 내용" hidden></section>
       <section class="table-ui scheme-form" aria-label="매스안 입력" hidden></section>
@@ -136,6 +142,7 @@ export class DraftingTable {
       tags: this.root.querySelector('.block-tags'),
       eye: this.root.querySelector('.eye-bar'),
       aroundLegend: this.root.querySelector('.around-legend'),
+      envelope: this.root.querySelector('.envelope-card'),
       tray: this.root.querySelector('.tray'),
       form: this.root.querySelector('.scheme-form'),
       peek: this.root.querySelector('.peek'),
@@ -176,6 +183,7 @@ export class DraftingTable {
       this.aroundOn = false;
       this.around = null;
       this.drawAround();
+      this.forgetEnvelope();
     }
     this.figures = view.figures || {};
     this.tray = view.tray || [];
@@ -273,6 +281,10 @@ export class DraftingTable {
         if (!this.site?.plan && !this.aroundOn) return '대지를 먼저 정해야 주변을 불러올 수 있습니다.';
         this.toggleAround();
         return '';
+      case 'envelope':
+        if (!this.site?.plan && !this.envelopeOn) return '대지를 먼저 정해야 법규 볼륨을 계산할 수 있습니다.';
+        this.toggleEnvelope();
+        return '';
       case 'base': this.openModel(); return '';
       case 'group': return this.groupSelection(true);
       case 'ungroup': return this.groupSelection(false);
@@ -349,8 +361,9 @@ export class DraftingTable {
     const around = new THREE.Group(); // the site's surroundings: ground, nearby buildings, contours
     const people = new THREE.Group(); // the scale figures standing up (3D), in plan metres
     const peopleMarks = new THREE.Group(); // the same people as circles in plan
-    scene.add(lot, masses, traces, draft, around, people, peopleMarks);
-    this.gl = { renderer, cssRenderer, scene, cssScene, camera, sun, desk, grid, catcher, horizon, lot, masses, traces, draft, around, people, peopleMarks, labels: [], objects: new Map(), raycaster: new THREE.Raycaster() };
+    const envelope = new THREE.Group(); // 법규 볼륨: the room the rules leave, see-through
+    scene.add(lot, masses, traces, draft, around, people, peopleMarks, envelope);
+    this.gl = { renderer, cssRenderer, scene, cssScene, camera, sun, desk, grid, catcher, horizon, lot, masses, traces, draft, around, people, peopleMarks, envelope, labels: [], objects: new Map(), raycaster: new THREE.Raycaster() };
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(this.root);
   }
@@ -389,7 +402,7 @@ export class DraftingTable {
 
   render() {
     if (!this.gl || !this.root.isConnected || !this.root.clientWidth) return;
-    const { renderer, cssRenderer, scene, cssScene, camera, desk, grid, catcher, horizon, lot, masses, traces, around, people, peopleMarks, labels, objects } = this.gl;
+    const { renderer, cssRenderer, scene, cssScene, camera, desk, grid, catcher, horizon, lot, masses, traces, around, people, peopleMarks, envelope, labels, objects } = this.gl;
     const v = this.view;
     const eye = this.eye; // at eye level: the camera stands in the street and everything stands up
     if (eye) this.aimEye(camera, eye);
@@ -397,6 +410,8 @@ export class DraftingTable {
     scene.background.set(eye ? this.colors.sky : this.colors.table);
     const rise = eye ? 1 : riseFor(v.tilt);
     masses.scale.z = rise;
+    envelope.scale.z = rise;
+    envelope.visible = this.envelopeOn && !(eye && this.eyeBefore);
     masses.visible = !(eye && this.eyeBefore); // 지금 건물: the street as it is, without the masses
     // People stand up with the masses; while the table lies near flat they are circles in plan.
     people.scale.z = rise;
@@ -605,6 +620,8 @@ export class DraftingTable {
       photo: { attr: 'data-ui="photo"', label: '사진·PDF 올리기', cmd: 'photo', hint: '사진이나 PDF 도면을 제도판에 끌어다 놓거나 붙여넣어도 됩니다', icon: 'photo' },
       around: { attr: 'data-ui="around"', pressed: this.aroundOn, off: !(this.site?.plan && !this.aroundBusy), label: this.aroundBusy ? '주변 불러오는 중' : '주변 3D', cmd: 'around',
         hint: '대지 주변의 지형과 건물을 3D로 보기 (공공 자료로 만든 참고용 모형). 범위·모양·등고선은 레이어 패널의 주변 줄에서 정합니다', icon: 'around' },
+      envelope: { attr: 'data-ui="envelope"', pressed: this.envelopeOn, off: !(this.site?.plan && !this.envelopeBusy), label: this.envelopeBusy ? '법규 볼륨 계산 중' : '법규 볼륨', cmd: 'envelope',
+        hint: '정북일조·건폐율·용적률로 대지에 지을 수 있는 볼륨과 참고 매스 보기 (공공 자료와 조문으로 계산한 참고용)', icon: 'envelope' },
       'model-panel': { attr: 'data-ui="model-panel"', label: '모형 바닥', cmd: 'base', hint: '표현 계획자의 모형 탭: 모형 판 크기·축척을 정해 레이저 커팅 파일 받기', icon: 'base' },
     });
     const state = (it) => `${it.pressed === undefined ? '' : `aria-pressed="${Boolean(it.pressed)}"`} ${it.off ? 'disabled' : ''}`;
@@ -804,4 +821,4 @@ export class DraftingTable {
   }
 }
 
-Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods, eyeMethods, measureMethods, peopleMethods, sectionMethods);
+Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods, eyeMethods, measureMethods, peopleMethods, sectionMethods, envelopeMethods);

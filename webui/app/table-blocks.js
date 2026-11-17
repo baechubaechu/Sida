@@ -436,7 +436,9 @@ export const blocksMethods = {
     g.masses.rotation.z = frame.angle;
     const ink = new THREE.Color(this.colors.ink);
     const pick = new THREE.Color(this.colors.pick);
+    const lot = new THREE.Color(this.colors.lot);
     const build = (paper, faint, tint) => {
+      const over = faint ? new Set() : this.envelopeOverSet(paper); // above the 법규 볼륨 (while it is shown)
       for (const [index, b] of (paper.blocks || []).entries()) {
         const layer = blockLayer(paper, b, this.layers);
         if (!tint && this.layerFlags.hidden.has(layer)) continue; // the block's own layer is off
@@ -457,7 +459,7 @@ export const blocksMethods = {
           g.masses.add(box);
         }
         const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geom),
-          new THREE.LineBasicMaterial({ color: picked ? pick : tint || ink, transparent: faint && !picked, opacity: faint && !picked ? (tint ? 0.9 : 0.35) : 1 }));
+          new THREE.LineBasicMaterial({ color: picked ? pick : over.has(index) ? lot : tint || ink, transparent: faint && !picked, opacity: faint && !picked ? (tint ? 0.9 : 0.35) : 1 }));
         edges.position.set(b.u, b.v, base + h / 2 + 0.05);
         edges.rotation.z = ((b.a || 0) * Math.PI) / 180;
         edges.userData = own;
@@ -465,7 +467,7 @@ export const blocksMethods = {
         if (!faint) {
           const tag = document.createElement('div');
           tag.className = 'floor-tag';
-          tag.textContent = `${b.floors}F`;
+          tag.textContent = over.has(index) ? `${b.floors}F 볼륨 넘음` : `${b.floors}F`;
           const obj = new THREE.CSS3DObject(tag);
           const [cx, cy] = blockCorners(frame, { ...b, w: 0, d: 0 })[0];
           obj.position.set(cx, cy, base + 0.2);
@@ -481,6 +483,7 @@ export const blocksMethods = {
     const preview = this.tray.find((p) => p.id === this.preview);
     if (preview) build(preview, true, new THREE.Color(this.colors.ghost));
     this.drawFigures(active);
+    if (this.envelopeOn) this.drawEnvelopeCard(); // its line on the scheme standing in 3D
     this.drawPeople(); // a person on a roof follows its floors
     this.drawSections(); // a section's drawing and the 3D cut follow the masses
     this.invalidate();

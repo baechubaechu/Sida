@@ -8,7 +8,7 @@ The site card puts these above the full facts, in this order:
    allows on this site's area (area × ratio). Several 용도지역: one line saying so.
 3. 높이: the site's 지역·지구 whose names bring a height limit of their own (data/site_rules.yaml
    height_words), named as the government names them.
-4. 정북일조: whether 건축법 시행령 제86조제1항 applies, by the 용도지역's name.
+4. 정북일조: whether 건축법 제61조제1항 applies, by the 용도지역's name.
 5. 따로 정한 계획: areas whose own plan may override the base figures (plan_words), to check.
 
 Every line says how sure it is (`status`): "read" (read by rule), "conditional" (holds, with a
