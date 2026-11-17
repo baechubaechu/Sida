@@ -1,4 +1,4 @@
-"""LLM providers (OpenRouter, OpenAI, Anthropic, ChatGPT plan, Ollama, mock) behind one `chat()` call."""
+"""LLM providers (OpenRouter, OpenAI, Anthropic, Google Gemini, ChatGPT plan, Ollama, mock) behind one `chat()` call."""
 
 from __future__ import annotations
 
@@ -954,6 +954,191 @@ class AnthropicProvider:
         return _with_retries(send)
 
 
+# ---------------------------------------------------------------------------
+# Google Gemini (Gemini API, the user's own API key)
+# ---------------------------------------------------------------------------
+# Plain REST like the other key providers (Google's SDK no longer runs on Python 3.10). The
+# Google AI plans (AI Pro, Ultra) cannot be used here: Google offers third-party apps no sign-in
+# that spends them, only a Gemini API key.
+
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta"
+GEMINI_MIN_TOKENS = 16000  # thinking counts against the output limit, as for Claude
+# JSON Schema words the Gemini API's function schemas do not take (they answer 400).
+_GEMINI_SCHEMA_DROP = {"additionalProperties", "$schema", "$id", "$defs", "definitions", "examples", "default"}
+
+
+def _gemini_schema(schema: Any) -> Any:
+    if isinstance(schema, dict):
+        return {k: _gemini_schema(v) for k, v in schema.items() if k not in _GEMINI_SCHEMA_DROP}
+    if isinstance(schema, list):
+        return [_gemini_schema(v) for v in schema]
+    return schema
+
+
+def _gemini_parts(content: Any, *, role: str) -> list[dict]:
+    parts = []
+    for block in _anthropic_parts(content, role=role):  # the same reading of text and pictures
+        if block["type"] == "text":
+            parts.append({"text": block["text"]})
+        else:
+            parts.append({"inlineData": {"mimeType": block["source"]["media_type"], "data": block["source"]["data"]}})
+    return parts
+
+
+def _gemini_request(messages: list[dict[str, Any]]) -> tuple[list[dict], list[dict]]:
+    """Sida's messages → (system parts, contents) for generateContent; cache markers are not needed
+    (Gemini caches repeated prompt starts by itself)."""
+    system: list[dict] = []
+    contents: list[dict] = []
+    for m in messages:
+        role = str(m.get("role", "user"))
+        if role == "system" and not contents:
+            system.extend(_gemini_parts(m.get("content"), role="system"))
+            continue
+        role = "model" if role == "assistant" else "user"
+        parts = _gemini_parts(m.get("content"), role="assistant" if role == "model" else "user")
+        if not parts:
+            continue
+        if contents and contents[-1]["role"] == role:
+            contents[-1]["parts"].extend(parts)
+        else:
+            contents.append({"role": role, "parts": parts})
+    return system, contents
+
+
+def _gemini_usage(meta: Any) -> dict:
+    if not isinstance(meta, dict):
+        return {}
+    return {
+        "prompt_tokens": int(meta.get("promptTokenCount") or 0),
+        "completion_tokens": int(meta.get("candidatesTokenCount") or 0) + int(meta.get("thoughtsTokenCount") or 0),
+        "prompt_tokens_details": {"cached_tokens": int(meta.get("cachedContentTokenCount") or 0)},
+    }
+
+
+class GeminiProvider:
+    """Gemini through the Gemini API (generateContent) with the user's API key."""
+
+    name = "google"
+
+    def __init__(self, api_key: str, *, base_url: str | None = None):
+        if not api_key:
+            raise LLMError("Gemini API key is missing. Enter it on the settings screen.")
+        self.api_key = api_key
+        self.base_url = (base_url or GEMINI_URL).rstrip("/")
+
+    @staticmethod
+    def sees_images(model: str) -> bool:
+        return True  # Gemini models read pictures; one that does not refuses (ImagesUnsupported)
+
+    def _send(self, model: str, messages: list[dict[str, Any]], max_tokens: int, tools: list[dict] | None = None) -> dict:
+        system, contents = _gemini_request(messages)
+        if not contents:
+            raise LLMError("Nothing to send: no user message")
+        # No temperature: Google asks to leave it at the default for its current models.
+        body: dict[str, Any] = {
+            "contents": contents,
+            "generationConfig": {"maxOutputTokens": max(int(max_tokens or 0), GEMINI_MIN_TOKENS)},
+        }
+        if system:
+            body["systemInstruction"] = {"parts": system}
+        if tools:
+            body["tools"] = [{"functionDeclarations": [
+                {"name": t["name"], "description": t["description"], "parameters": _gemini_schema(t["parameters"])}
+                for t in tools
+            ]}]
+        model_id = model[len("models/"):] if model.startswith("models/") else model
+        url = f"{self.base_url}/models/{model_id}:generateContent"
+        headers = {"x-goog-api-key": self.api_key, "Content-Type": "application/json"}
+        try:
+            response = requests.post(url, headers=headers, json=body, timeout=600)
+        except requests.Timeout as exc:
+            raise _retryable(f"Gemini timeout: {exc}") from exc
+        except requests.RequestException as exc:
+            raise _retryable(f"Gemini request failed: {exc}") from exc
+        if response.status_code != 200:
+            text = response.text
+            message = f"Gemini error ({response.status_code}): {text[:300]}"
+            if response.status_code in RETRY_STATUS:
+                raise _retryable(message)
+            if "API key" in text or "API_KEY" in text:
+                raise LLMError(f"Google refused the Gemini API key ({response.status_code}). Check it on the settings screen.")
+            if tools and _refuses_tools(response.status_code, text):
+                raise ToolsUnsupported(message)
+            if has_images(messages) and _refuses_images(response.status_code, text):
+                raise ImagesUnsupported(message)
+            raise LLMError(message)
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise LLMError(f"Unexpected Gemini response: {exc}") from exc
+        blocked = (data.get("promptFeedback") or {}).get("blockReason")
+        if blocked:
+            raise LLMError(f"Gemini declined this request ({blocked}).")
+        return data
+
+    @staticmethod
+    def _reply(data: dict) -> tuple[str, list[dict], str]:
+        """(text, calls, finish reason) of the first candidate; thought parts are left out."""
+        candidates = data.get("candidates") or []
+        if not candidates:
+            return "", [], ""
+        first = candidates[0] if isinstance(candidates[0], dict) else {}
+        texts, calls = [], []
+        for part in (first.get("content") or {}).get("parts") or []:
+            if not isinstance(part, dict) or part.get("thought"):
+                continue
+            if part.get("text"):
+                texts.append(str(part["text"]))
+            call = part.get("functionCall")
+            if isinstance(call, dict) and call.get("name"):
+                calls.append({"name": str(call["name"]), "arguments": _tool_arguments(call.get("args"))})
+        return "".join(texts).strip(), calls, str(first.get("finishReason") or "")
+
+    @staticmethod
+    def _empty(reason: str) -> LLMError:
+        if reason == "MAX_TOKENS":
+            return LLMError("Gemini used up maxOutputTokens before replying.")
+        if reason and reason not in {"STOP", "FINISH_REASON_UNSPECIFIED"}:
+            return LLMError(f"Gemini stopped without a reply ({reason}).")
+        return _retryable("Empty LLM response")
+
+    def chat(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        **_: Any,
+    ) -> tuple[str, dict]:
+        def send():
+            data = self._send(model, messages, max_tokens)
+            text, _calls, reason = self._reply(data)
+            if not text:
+                raise self._empty(reason)
+            return text, _gemini_usage(data.get("usageMetadata"))
+
+        return _with_retries(send)
+
+    def chat_tools(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict],
+        temperature: float,
+        max_tokens: int,
+        **_: Any,
+    ) -> tuple[str, list[dict], dict]:
+        def send():
+            data = self._send(model, messages, max_tokens, tools=tools)
+            text, calls, reason = self._reply(data)
+            if not text and not calls:
+                raise self._empty(reason)
+            return text, calls, _gemini_usage(data.get("usageMetadata"))
+
+        return _with_retries(send)
+
+
 class MockProvider:
     """Offline provider for demos/tests. Returns deterministic placeholder text."""
 
@@ -1016,6 +1201,8 @@ def make_provider(
         )
     if kind == "anthropic":
         return AnthropicProvider(api_key)
+    if kind in {"google", "gemini"}:
+        return GeminiProvider(api_key)
     if kind == "chatgpt":
         from sida import chatgpt_auth  # imports this module
 
@@ -1023,7 +1210,7 @@ def make_provider(
     if kind == "mock":
         return MockProvider()
     raise LLMError(
-        f"Unknown provider '{kind}'. Use openrouter | openai | anthropic | chatgpt | ollama | mock."
+        f"Unknown provider '{kind}'. Use openrouter | openai | anthropic | google | chatgpt | ollama | mock."
     )
 
 

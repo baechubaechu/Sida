@@ -577,3 +577,95 @@ def test_claude_image_refusal_is_images_unsupported(monkeypatch):
     picture = providers.image_part(b"x")
     with pytest.raises(providers.ImagesUnsupported):
         provider.chat("claude-x", [{"role": "user", "content": [{"type": "text", "text": "a"}, picture]}], 0, 100)
+
+
+# ---------------------------------------------------------------------------
+# Google Gemini (Gemini API key, REST)
+# ---------------------------------------------------------------------------
+
+
+class FakeResponse:
+    def __init__(self, status=200, body=None):
+        self.status_code = status
+        self.body = body or {}
+        self.text = json.dumps(self.body)
+
+    def json(self):
+        return self.body
+
+
+def gemini(monkeypatch, *replies):
+    calls = []
+    queue = list(replies)
+
+    def post(url, headers=None, json=None, timeout=None):
+        calls.append({"url": url, "headers": headers, "json": json})
+        return queue.pop(0) if len(queue) > 1 else queue[0]
+
+    monkeypatch.setattr(providers.requests, "post", post)
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    return make_provider("google", api_key="AIza-test"), calls
+
+
+def _gemini_reply(*parts, finish="STOP"):
+    return FakeResponse(body={
+        "candidates": [{"content": {"role": "model", "parts": list(parts)}, "finishReason": finish}],
+        "usageMetadata": {"promptTokenCount": 120, "candidatesTokenCount": 7, "thoughtsTokenCount": 30,
+                          "cachedContentTokenCount": 100},
+    })
+
+
+def test_make_provider_google_needs_a_key():
+    assert make_provider("google", api_key="AIza-x").name == "google"
+    with pytest.raises(LLMError, match="Gemini API key"):
+        make_provider("google", api_key="")
+
+
+def test_gemini_request_shape_and_reply(monkeypatch):
+    provider, calls = gemini(monkeypatch, _gemini_reply({"text": "thinking…", "thought": True}, {"text": " hi "}))
+    text, usage = provider.chat("gemini-4-hydrogen", SYSTEM_CACHED, 0.2, 2000)
+    assert text == "hi"  # thought parts are left out
+    sent = calls[0]
+    assert sent["url"].endswith("/models/gemini-4-hydrogen:generateContent")
+    assert sent["headers"]["x-goog-api-key"] == "AIza-test"
+    body = sent["json"]
+    assert body["systemInstruction"] == {"parts": [{"text": "rules"}]}
+    assert [c["role"] for c in body["contents"]] == ["user", "model", "user"]
+    assert body["contents"][0]["parts"] == [{"text": "brief"}, {"text": "state"}]
+    assert "temperature" not in body["generationConfig"]
+    assert body["generationConfig"]["maxOutputTokens"] == providers.GEMINI_MIN_TOKENS
+    assert usage == {"prompt_tokens": 120, "completion_tokens": 37, "prompt_tokens_details": {"cached_tokens": 100}}
+
+
+def test_gemini_pictures_and_tools(monkeypatch):
+    reply = _gemini_reply({"text": "Asking."}, {"functionCall": {"name": "run_expert", "args": {"expert": "site_analyst"}}})
+    provider, calls = gemini(monkeypatch, reply)
+    picture = providers.image_part(b"png", "image/png")
+    tools = [{"name": "run_expert", "description": "Run one expert", "parameters": {
+        "type": "object", "properties": {"expert": {"type": "string"}}, "additionalProperties": False}}]
+    text, found, _ = provider.chat_tools("gemini-4-hydrogen", [{"role": "user", "content": [{"type": "text", "text": "go"}, picture]}],
+                                         tools, 0.2, 100)
+    body = calls[0]["json"]
+    assert body["contents"][0]["parts"][1] == {"inlineData": {"mimeType": "image/png", "data": picture["data"]}}
+    declared = body["tools"][0]["functionDeclarations"][0]
+    assert declared["parameters"] == {"type": "object", "properties": {"expert": {"type": "string"}}}  # no additionalProperties
+    assert text == "Asking." and found == [{"name": "run_expert", "arguments": {"expert": "site_analyst"}}]
+
+
+def test_gemini_blocked_cut_and_errors(monkeypatch):
+    provider, _ = gemini(monkeypatch, FakeResponse(body={"promptFeedback": {"blockReason": "SAFETY"}}))
+    with pytest.raises(LLMError, match="declined"):
+        provider.chat("gemini-4-hydrogen", [{"role": "user", "content": "x"}], 0, 100)
+
+    provider, _ = gemini(monkeypatch, _gemini_reply(finish="MAX_TOKENS"))
+    with pytest.raises(LLMError, match="maxOutputTokens"):
+        provider.chat("gemini-4-hydrogen", [{"role": "user", "content": "x"}], 0, 100)
+
+    provider, calls = gemini(monkeypatch, FakeResponse(503, {"error": "busy"}), _gemini_reply({"text": "ok"}))
+    assert provider.chat("gemini-4-hydrogen", [{"role": "user", "content": "x"}], 0, 100)[0] == "ok"
+    assert len(calls) == 2
+
+    provider, calls = gemini(monkeypatch, FakeResponse(400, {"error": {"message": "API key not valid. Please pass a valid API key."}}))
+    with pytest.raises(LLMError, match="refused the Gemini API key"):
+        provider.chat("gemini-4-hydrogen", [{"role": "user", "content": "x"}], 0, 100)
+    assert len(calls) == 1

@@ -16,6 +16,7 @@
 | `GET /api/settings` | | 지금 설정(아래) |
 | `PUT /api/settings` | 바꿀 항목만 담은 객체 | 저장한 뒤의 설정(`GET`과 같은 모양) |
 | `PUT /api/settings/keys/{key}` | `{value}` | `{key, env, set, hint, verified}` |
+| `GET /api/settings/models/{provider}` | - | `{provider, models: [{id, name}], live: true}`. `anthropic`·`google`만. 이 PC에 저장된 키로 그 회사의 모델 목록을 지금 읽어 오므로, 새로 나온 모델도 앱 업데이트 없이 보입니다. 키가 없거나 거절·연결 실패면 `502`, 다른 이름이면 `404` |
 | `GET /api/settings/relay-key` | | Sida 키 요청 상태(아래 "Sida 키 받기"). 기다리는 요청이 있으면 Sida 자료 서버에 승인됐는지 묻고, 승인됐으면 키를 받아 저장합니다 |
 | `POST /api/settings/relay-key` | `{name, contact}` | Sida 자료 서버에 키를 요청합니다. 상태(`pending`) |
 | `DELETE /api/settings/relay-key` | | 이 PC의 기다리는 요청을 잊습니다. `{state: "none"}` |
@@ -33,10 +34,10 @@
 | `gpu` | 감지한 GPU `{name, vram_gb, recommended_profile}`. NVIDIA가 아니거나 없으면 `null`. `recommended_profile`이 `null`이면 클라우드를 권합니다 |
 | `keys` | 키마다 `{env, set, hint}`. `vworld_domain`과 `relay_url`은 비밀값이 아니라 `hint` 대신 `value`가 옵니다 |
 | `relay` | `{url, default_url}`. 지금 쓰는 Sida 자료 서버 주소(`relay_url`을 안 넣었으면 팀 서버 `default_url`)와 팀 서버 주소 |
-| `warnings` | `openrouter_key_missing`(클라우드를 쓰는데 OpenRouter 키 없음), `rag_key_missing`(법령 검색을 켰는데 법제처 인증값 없음), `chatgpt_signed_out`(Conductor나 전문가가 ChatGPT 구독인데 로그인 안 됨), `anthropic_key_missing`(Conductor나 전문가가 Anthropic인데 키 없음) |
+| `warnings` | `openrouter_key_missing`(클라우드를 쓰는데 OpenRouter 키 없음), `rag_key_missing`(법령 검색을 켰는데 법제처 인증값 없음), `chatgpt_signed_out`(Conductor나 전문가가 ChatGPT 구독인데 로그인 안 됨), `anthropic_key_missing`, `google_key_missing`(Conductor나 전문가가 Anthropic·Gemini인데 키 없음) |
 | `chatgpt` | ChatGPT 구독 로그인 상태와 Conductor·전문가 모델 `{signed_in, email, plan_usage, registered, model, worker_model}`. [chatgpt-login.md](chatgpt-login.md) |
-| `anthropic` | Anthropic(Claude API 키)으로 돌릴 때의 모델 `{model, worker_model, models}`. `models`는 화면에 보일 추천 목록(좋은 것 먼저)이고 다른 id도 저장할 수 있습니다 |
-| `options` | 화면의 선택지: `modes`, `providers`, `conductor_providers`, `worker_providers`(역할별, `chatgpt`·`anthropic` 포함), `local_profiles`, `state_update` |
+| `anthropic`, `google` | Anthropic(Claude)·Google Gemini API 키로 돌릴 때의 모델 `{model, worker_model, models}`. `models`는 그 회사 목록을 못 받을 때 쓰는 기본 몇 개(좋은 것 먼저)입니다. 실제 목록은 아래 `GET /api/settings/models/{provider}` |
+| `options` | 화면의 선택지: `modes`, `providers`, `conductor_providers`, `worker_providers`(역할별, `chatgpt`·`anthropic`·`google` 포함), `local_profiles`, `state_update` |
 
 ### `PUT /api/settings`에 넣을 수 있는 항목
 
@@ -46,9 +47,9 @@
 |---|---|
 | `mode` | `cloud` 또는 `local`. Conductor와 워커를 함께 바꿉니다 |
 | `local_profile` | `options.local_profiles` 중 하나 |
-| `conductor_provider`, `worker_provider` | `openrouter` 또는 `ollama`. 한 역할만 바꿉니다(고급 설정). `mode`와 같이 주면 `mode`를 먼저 적용합니다. 둘 다 `chatgpt`(ChatGPT 구독), `anthropic`(Anthropic API 키)도 됩니다 |
+| `conductor_provider`, `worker_provider` | `openrouter` 또는 `ollama`. 한 역할만 바꿉니다(고급 설정). `mode`와 같이 주면 `mode`를 먼저 적용합니다. 둘 다 `chatgpt`(ChatGPT 구독), `anthropic`(Anthropic API 키), `google`(Gemini API 키)도 됩니다 |
 | `chatgpt_model`, `worker_chatgpt_model` | Conductor, 전문가가 ChatGPT 구독에서 쓸 모델. [chatgpt-login.md](chatgpt-login.md) |
-| `anthropic_model`, `worker_anthropic_model` | Conductor, 전문가가 Anthropic에서 쓸 Claude API 모델 id(예: `claude-opus-5-5`, 기본값). 빈칸·띄어쓰기·OpenRouter 모양(`anthropic/…`)이면 `400` |
+| `anthropic_model`, `worker_anthropic_model`, `google_model`, `worker_google_model` | Conductor, 전문가가 Anthropic·Gemini에서 쓸 그 회사의 모델 id(기본 `claude-opus-5-5`, `gemini-4-hydrogen`). 빈칸·띄어쓰기·OpenRouter 모양(`anthropic/…`)이면 `400` |
 | `rag_enabled` | `true` 또는 `false` |
 | `state_update` | `ask`, `auto`, `off` |
 
@@ -60,6 +61,7 @@
 |---|---|---|
 | `openrouter` | `OPENROUTER_API_KEY` | 클라우드 모드의 모델 |
 | `openai` | `OPENAI_API_KEY` | Rhino 모델링 |
+| `google` | `GEMINI_API_KEY` | Conductor·전문가를 Google Gemini로 돌릴 때. 저장 전에 Gemini API에 확인하고, 거절되면 `400`. 무료 키는 입력이 구글 서비스 개선에 쓰일 수 있습니다. Google AI Pro·Ultra 구독은 외부 앱에 열려 있지 않아 연결하지 않음 |
 | `anthropic` | `ANTHROPIC_API_KEY` | Conductor·전문가를 Anthropic(Claude)으로 돌릴 때. 저장 전에 Anthropic에 확인하고, 거절되면 `400`. 쓴 만큼 그 키의 계정에 청구됩니다(Claude 구독은 약관상 연결하지 않음) |
 | `vworld` | `VWORLD_API_KEY` | 대지 조회, 지도 |
 | `vworld_domain` | `VWORLD_DOMAIN` | 브이월드 키를 받을 때 등록한 주소(보통 `http://localhost:8765`) |
@@ -68,7 +70,7 @@
 | `relay_url` | `SIDA_RELAY_URL` | Sida 자료 서버 주소. 비워 두면 팀 서버(`relay.default_url`)입니다. 위 세 정부 키 중 이 PC에 없는 것은 이 서버를 거쳐 부릅니다(`relay/README.md`). `https://`만 받고(이 PC 시험용 `http://localhost`는 예외), 아니면 `400` |
 | `relay_token` | `SIDA_RELAY_TOKEN` | Sida 키(`sida_…`, 사람마다 하나). 아래 "Sida 키 받기"로 받거나 팀이 준 것을 넣습니다. 키가 있어야 서버를 거칩니다. 모양이 다르면 `400` |
 
-- OpenRouter, OpenAI, Anthropic 키는 저장하기 전에 그 서비스에 확인합니다. 거부되면 `400`이고 저장하지 않습니다. 확인한 키는 응답의 `verified`가 `true`입니다.
+- OpenRouter, OpenAI, Anthropic, Gemini 키는 저장하기 전에 그 서비스에 확인합니다. 거부되면 `400`이고 저장하지 않습니다. 확인한 키는 응답의 `verified`가 `true`입니다.
 - 정부 키(브이월드, 공공데이터포털, 법제처)는 확인하지 않고 그대로 저장합니다(`verified: false`). 키가 틀리면 대지 조회나 법령 검색에서 오류 안내가 나옵니다.
 - 빈 값이나 여러 줄은 `400`, 표에 없는 `{key}`는 `404`입니다.
 - 키 칸은 비워 두고 `hint`(예: `…5678`)만 자리 표시로 보여 주세요. 새로 입력했을 때만 보내면 됩니다.

@@ -177,3 +177,50 @@ def test_an_anthropic_role_gets_the_anthropic_key_not_openrouters(env_keys, monk
     cfg = {"conductor": {"provider": "anthropic"}, "worker": {"provider": "openrouter"}}
     assert runtime.conductor_provider(cfg, "sk-or-openrouter")._client.api_key == "sk-ant-for-claude"
     assert runtime.worker_provider(cfg, "sk-or-openrouter").api_key == "sk-or-openrouter"
+
+
+def test_gemini_key_and_model_are_saved_per_role(client, env_keys, monkeypatch):
+    monkeypatch.setattr(settings, "_check_google_key", lambda key: (True, "authorized"))
+    assert client.put("/api/settings/keys/google", json={"value": "AIza-rightrightright"}).json()["verified"] is True
+    body = client.put("/api/settings", json={"conductor_provider": "google", "google_model": "gemini-3.8-flash"}).json()
+    assert body["conductor"] == {"provider": "google", "model": "gemini-3.8-flash"}
+    assert body["google"]["worker_model"] == "gemini-4-hydrogen"
+    assert body["warnings"]["google_key_missing"] is False
+    assert "google" in body["options"]["worker_providers"]
+
+
+def test_model_list_is_read_from_the_service(client, env_keys, monkeypatch):
+    assert client.get("/api/settings/models/google").status_code == 502  # no key yet
+    assert client.get("/api/settings/models/openrouter").status_code == 404
+    monkeypatch.setenv("GEMINI_API_KEY", "AIza-x")
+
+    class Reply:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"models": [
+                {"name": "models/gemini-9-preview", "displayName": "Gemini 9 Preview", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-5-pro", "displayName": "Gemini 5 Pro", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-embedding-2", "supportedGenerationMethods": ["embedContent"]},
+                {"name": "models/gemini-5-flash-tts", "supportedGenerationMethods": ["generateContent"]},
+            ]}
+
+    monkeypatch.setattr(settings.requests, "get", lambda *a, **kw: Reply())
+    body = client.get("/api/settings/models/google").json()
+    # A model released after this build shows up; speech and embedding models do not; previews last.
+    assert [m["id"] for m in body["models"]] == ["gemini-5-pro", "gemini-9-preview"]
+
+
+def test_anthropic_model_list_keeps_claude_models(env_keys, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-x")
+
+    class Models:
+        @staticmethod
+        def list(limit):
+            return [type("M", (), {"id": "claude-opus-6", "display_name": "Claude Opus 6"})()]
+
+    import anthropic
+
+    monkeypatch.setattr(anthropic, "Anthropic", lambda **kw: type("C", (), {"models": Models})())
+    assert settings.model_list("anthropic")["models"] == [{"id": "claude-opus-6", "name": "Claude Opus 6"}]
