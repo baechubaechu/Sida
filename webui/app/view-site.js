@@ -1,6 +1,6 @@
 // The site page: facts, ordinance, planned uses and the find tab (HTML strings).
 
-import { escapeHtml as escape, expertStatus, projectPath as projectUrl, expertPath, dateTime, sitePath, siteHeadline, areaText, zoneScope, missingText, SITE_PART_LABELS, UNKNOWN, restrictionGroups, buildingLine, chosenDong, ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions, siteRuleRows } from './model.js';
+import { escapeHtml as escape, expertStatus, projectPath as projectUrl, expertPath, dateTime, sitePath, siteHeadline, areaText, zoneScope, missingText, SITE_PART_LABELS, UNKNOWN, restrictionGroups, buildingLine, chosenDong, ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions, siteRuleRows, ruleLinks } from './model.js';
 import { REGION_LABELS, REGION_LEVELS, currentRoute, expertById, jobRunning, ui } from './state.js';
 
 // ------------------------------------------------------------------ site page
@@ -69,7 +69,7 @@ function rulesBlock(site) {
       ? `<details class="law-text"><summary>원문${r.source ? ` · ${escape(r.source)}` : ''}</summary><pre>${escape(r.quote)}</pre></details>`
       : (r.source ? `<span class="muted small-text">${escape(r.source)}</span>` : '');
     return `<li class="site-rule"><div><span class="status-badge ${r.tone}">${escape(r.badge)}</span><strong>${escape(r.title)}</strong> <span class="rule-value">${escape(r.value)}</span></div>`
-      + `${r.detail ? `<div class="muted small-text">${escape(r.detail)}</div>` : ''}${quote}</li>`;
+      + `${r.detail ? `<div class="muted small-text">${escape(r.detail)}</div>` : ''}${quote}${ruleLinks(r.links)}</li>`;
   });
   return siteSection('이 대지에 걸리는 것', `<ul class="site-rules">${items.join('')}</ul>
     <p class="muted small-text">정부 자료와 조례 원문을 규칙으로 읽은 결과입니다. 지구단위계획처럼 자료에 없는 계획은 따로 확인하세요.</p>`, 'site-rules-card');

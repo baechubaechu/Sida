@@ -49,7 +49,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from sida import board
-from sida.experts.site import height_districts, landapi, setbacks, site_facts, site_rules
+from sida.experts.site import eum, height_districts, landapi, setbacks, site_facts, site_rules
 from sida.storage import atomic_write_text
 
 MAX_CELLS = 40_000  # grid cells over the lot; the cell grows on a big lot
@@ -622,11 +622,15 @@ def compute(plan: dict, facts: dict, rule: dict, parcels: list[dict] | None, zon
     else:
         lines.append(_line("sunlight", "none", "정북일조", "해당 없음", rule["detail"], "", rule["source"]))
     districts = out["height_districts"]
+    pnus = [str(p.get("pnu") or "") for p in facts.get("parcels") or []]
     if height_line:
+        if found["status"] == "error" and height_line.get("source") != "사용자 입력":
+            height_line["links"] = eum.height_links(pnus, [])
         lines.append(height_line)
     elif districts:
-        lines.append(_line("height", "check", "높이 한도", "입력 필요",
-                           f"{', '.join(districts)}: 높이는 지역마다 고시로 정함. 고시에서 최고 높이를 찾아 입력하면 볼륨을 자름"))
+        lines.append({**_line("height", "check", "높이 한도", "입력 필요",
+                              f"{', '.join(districts)}: 높이는 지역마다 고시로 정함. 고시에서 최고 높이를 찾아 입력하면 볼륨을 자름"),
+                      "links": eum.height_links(pnus, [])})
     elif not rule["applies"]:
         lines.append(_line("height", "check", "높이", "열려 있음",
                            "높이 한도를 규칙으로 읽지 못해 위가 열려 있음, 용적률로만 층이 정해짐. 고도지구 등 지정 내용 확인"))
