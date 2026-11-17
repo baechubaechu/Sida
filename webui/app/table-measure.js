@@ -2,18 +2,35 @@
 // The first click sets the start (the radius tool's centre), the line or circle then follows the
 // pointer with its length, and the second click keeps it. Both snap like the tape always has
 // (tapePoint). The radius command also draws circles about the site's middle ("radius 250 500").
-// What is measured is only shown, never saved; Esc while measuring drops the open one, and Esc
-// again or another tool clears the rest.
+// The tape's line is only shown. The circles are kept with the board (hooks.saveCircles, PUT
+// .../board/circles; 2026-11-17 지훈) and can be undone: they stay when another tool is taken up
+// and when the project is opened again. Esc while measuring drops the open one, and Esc again
+// takes the tape's line and every circle away.
 // Methods of DraftingTable (table.js adds them to its prototype). The steps are board-model.js's.
 
 import * as THREE from './vendor/three.js';
-import { emptyMeasure, measureClick, measureLength, siteCircles, circlePoints, riseFor } from './board-model.js';
+import { emptyMeasure, measureClick, measureLength, siteCircles, circlePoints, riseFor, savedCircles, shownCircles } from './board-model.js';
 import { distanceLabel } from './model.js';
 
 export const measureMethods = {
   measureState() {
     if (!this.measure) this.measure = emptyMeasure();
     return this.measure;
+  },
+  // The circles the board keeps (setBoard), unless one is being drawn or they are as shown.
+  setCircleList(saved) {
+    const next = shownCircles(saved);
+    const now = this.measure?.circles || [];
+    if (this.measure?.start || JSON.stringify(savedCircles(next)) === JSON.stringify(savedCircles(now))) return;
+    this.measure = { ...this.measureState(), circles: next };
+    this.drawMeasure();
+  },
+  // The circles changed by the designer's hand: kept for undo and saved.
+  keepCircles(before) {
+    const after = this.measure?.circles || [];
+    if (JSON.stringify(savedCircles(before)) === JSON.stringify(savedCircles(after))) return;
+    this.record([{ op: 'circles', before, after }]);
+    this.hooks.saveCircles?.(savedCircles(after));
   },
   // The group the lines and circles are drawn in, and the labels laid over the scene.
   measureParts() {
@@ -37,8 +54,10 @@ export const measureMethods = {
     const p = this.tapePoint(e);
     if (!p) { this.say('땅이나 매스 위를 찍어 주세요.'); return; }
     const kind = this.tool;
+    const before = this.measureState().circles;
     const out = measureClick(this.measureState(), kind, p);
     this.measure = out.state;
+    this.keepCircles(before);
     if (!out.made && out.state.start === p) {
       this.say(kind === 'radius' ? '중심을 찍었습니다. 끝점을 찍으면 원이 생깁니다. Esc는 취소합니다.' : '첫 점을 찍었습니다. 두 번째 점을 찍으세요. Esc는 취소합니다.');
       this.measurePreview = p;
@@ -47,7 +66,7 @@ export const measureMethods = {
     } else {
       this.measurePreview = null;
       this.say(kind === 'radius'
-        ? `반경 ${distanceLabel(out.made.r)} 원을 남겼습니다. 다시 찍으면 하나 더 그립니다. Esc는 모두 지웁니다.`
+        ? `반경 ${distanceLabel(out.made.r)} 원을 남겼습니다(프로젝트에 저장). 다시 찍으면 하나 더 그립니다. Esc는 모두 지웁니다.`
         : `거리 ${distanceLabel(out.made.length)}`);
     }
     this.drawMeasure();
@@ -71,15 +90,18 @@ export const measureMethods = {
       this.measurePreview = null;
       this.say('그리던 것을 취소했습니다. Esc를 한 번 더 누르면 모두 지웁니다.');
     } else if (m?.circles.length || m?.line) {
+      const before = m.circles;
       this.measure = null;
-      this.say('재기 표시를 지웠습니다.');
+      this.keepCircles(before);
+      this.say(before.length ? '재기 표시와 반경 원을 지웠습니다. Ctrl+Z로 되돌립니다.' : '재기 표시를 지웠습니다.');
     } else return false;
     this.drawMeasure();
     return true;
   },
+  // Another tool: the open line or circle and the tape's line go, the kept circles stay.
   clearMeasure() {
     if (!this.measure) return;
-    this.measure = null;
+    this.measure = this.measure.circles.length ? { ...emptyMeasure(), circles: this.measure.circles } : null;
     this.measurePreview = null;
     this.drawMeasure();
   },
@@ -89,12 +111,14 @@ export const measureMethods = {
     if (!radii?.length) return;
     if (this.tool !== 'radius') this.setTool('radius');
     const centre = this.home; // the middle of the site's bounds
+    const before = this.measureState().circles;
     this.measure = siteCircles(this.measureState(), centre, radii);
+    this.keepCircles(before);
     this.measurePreview = null;
     this.drawMeasure();
     const span = 2.4 * Math.max(...radii);
     this.animateTo({ x: centre.x, y: centre.y, span: Math.max(this.view.span, span) });
-    this.say(`대지 가운데에서 반경 ${radii.map(distanceLabel).join(' · ')} 원을 그렸습니다. Esc는 모두 지웁니다.`);
+    this.say(`대지 가운데에서 반경 ${radii.map(distanceLabel).join(' · ')} 원을 그렸습니다(프로젝트에 저장). Esc는 모두 지웁니다.`);
   },
 
   // Draw what is measured: kept circles (with their radius line), the kept tape line, and the
@@ -137,6 +161,7 @@ export const measureMethods = {
 
   // The labels over the scene ("반경 250 m", "12.4 m"), where the camera sees their points.
   placeMeasure() {
+    if (this.gl && !this.gl.measure && this.measure?.circles.length) this.drawMeasure(); // circles the board kept, read before the scene was up
     const parts = this.gl?.measure;
     if (!parts) return;
     const rise = this.eye ? 1 : riseFor(this.view.tilt);

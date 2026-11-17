@@ -3,9 +3,17 @@
 import { sitePath, needsSiteFirst, deckFileUrl, downloadName, DECK_FORMATS } from './model.js';
 import { api, expertUrl, projectApi } from './api.js';
 import { saveBlob, takePicked } from './board.js';
-import { loadExpert, loadSession, refreshProject, start } from './jobs.js';
+import { deckScheme, loadExpert, loadSession, refreshProject, start } from './jobs.js';
 import { render } from './render.js';
 import { activeChat, currentRoute, draftFor, drafts, jobRunning, toast, ui } from './state.js';
+
+// Another massing scheme for the deck (the 매스안 choice on the 발표자료 tab): the deck is read again.
+export async function pickDeckScheme(id) {
+  const { name, agent } = currentRoute;
+  ui.deckScheme = { project: name, id };
+  await loadExpert(name, agent);
+  render(false);
+}
 
 // The deck as a file (the presentation editor's 발표자료 tab): made by the server when asked, then
 // saved under the name the server gives it.
@@ -16,7 +24,7 @@ export async function downloadDeck(format) {
   ui.deckMaking = format;
   render(false);
   try {
-    const response = await fetch(deckFileUrl(name, format));
+    const response = await fetch(deckFileUrl(name, format, deckScheme(name)));
     if (!response.ok) {
       let detail = '';
       try { detail = (await response.json()).detail; } catch { /* not JSON */ }

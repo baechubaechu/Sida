@@ -4,7 +4,8 @@
 `to_pptx` and `to_pdf` draw those same pages, so the two files agree. In PowerPoint everything
 stays editable: a slide's title is its title, sentences are text boxes with real bullets, the
 figures are a table, and a diagram is one group of shapes (the page rhino/diagram_svg.layout
-sets, the same one the SVG is written from). A capture is the PNG Rhino made.
+sets, the same one the SVG is written from), and so is a section drawing from the drafting table
+(table.section_page). A capture is the PNG Rhino made; a photo from the table is its file.
 
 Nothing here writes a sentence or computes a number: the words are the editor's, the pictures
 and figures are Sida's. The look is plain on purpose (white page, ink, one hairline), so a
@@ -22,7 +23,9 @@ import struct
 import zipfile
 from pathlib import Path
 
+from sida import board, board_section
 from sida.experts.presentation import slides as deck_slides
+from sida.experts.presentation import table
 from sida.experts.rhino import diagram_svg, diagrams
 from sida.experts.rhino import snapshot as snap
 from sida.experts.rhino.diagrams import text_width
@@ -91,6 +94,20 @@ def png_size(path: Path) -> tuple[int, int] | None:
     return (width, height) if width and height else None
 
 
+def picture_size(path: Path) -> tuple[int, int] | None:
+    """A PNG's or JPEG's width and height (None when it cannot be read as one)."""
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(path) as image:
+            if image.format not in ("PNG", "JPEG"):
+                return None
+            width, height = image.size
+    except (OSError, UnidentifiedImageError, ValueError):
+        return None
+    return (width, height) if width and height else None
+
+
 def _inside(box, width: float, height: float) -> tuple[float, float, float, float]:
     """A width x height picture as large as the box lets it be, centred in it: (x, y, w, h)."""
     x, y, w, h = box
@@ -122,16 +139,48 @@ def _empty(box, figure: dict) -> dict:
     return {"type": "empty", "x": x, "y": y, "w": w, "h": h, "paras": [figure["title"], figure["why"] or "만들 수 없습니다."]}
 
 
+def diagram_of(kind: str, mats: dict, project_path: Path) -> dict:
+    """One diagram of the deck's model (the Rhino snapshot, else the scheme on the table, drawn plain). Raises ValueError."""
+    item = mats["items"].get(f"diagram:{kind}")
+    if item is None:
+        raise ValueError("kind must be one of " + ", ".join(diagrams.KINDS))
+    if not item["ready"]:
+        raise ValueError(item["why"])
+    ctx = diagrams.context(project_path) if kind == "site" else mats["context"]  # only the site plan draws the buildings around
+    drawing = diagrams.drawing(kind, mats["model"], ctx)
+    return table.plain(drawing) if mats["source"] == "table" else drawing
+
+
+def _section(figure: dict, mats: dict, project_path: Path) -> dict | None:
+    """A section on the table as a drawing, cut through the deck's scheme (None when it cannot be cut now)."""
+    try:
+        return table.section_drawing(project_path, figure["paper"], (mats["scheme"] or {}).get("id"))
+    except (board.PaperNotFound, ValueError, KeyError):
+        return None
+
+
 def _figure(figure: dict, box, mats: dict, project_path: Path, drawn: dict) -> list[dict]:
-    """The elements that fill a figure's box: the diagram with its words, the capture, the table, or an empty place that says why."""
-    if not figure["ready"] or mats["snapshot"] is None:
+    """The elements that fill a figure's box: the diagram with its words, the capture, section or photo, the table, or an empty place that says why."""
+    if not figure["ready"]:
         return [_empty(box, figure)]
     x, y, w, h = box
-    if figure["kind"] == "diagram":
-        kind = figure["key"].split(":", 1)[1]
+    if figure["kind"] == "section":
+        if figure["key"] not in drawn:
+            drawing = _section(figure, mats, project_path)
+            drawn[figure["key"]] = None if drawing is None else (table.section_page(drawing), {"legend": [], "caption": []})
+        if drawn[figure["key"]] is None:
+            return [_empty(box, {**figure, "why": "단면을 그릴 수 없습니다."})]
+    if figure["kind"] == "photo":
+        file = board.photo_dir(project_path) / str(mats["items"].get(figure["key"], {}).get("file") or "-")
+        size = picture_size(file)
+        if size is None:
+            return [_empty(box, {**figure, "why": "사진 파일을 읽을 수 없습니다."})]
+        px, py, pw, ph = _inside(box, *size)
+        return [{"type": "picture", "x": px, "y": py, "w": pw, "h": ph, "path": str(file)}]
+    if figure["kind"] in ("diagram", "section"):
+        kind = figure["key"] if figure["kind"] == "section" else figure["key"].split(":", 1)[1]
         if kind not in drawn:
-            ctx = diagrams.context(project_path) if kind == "site" else mats["context"]  # only the site plan draws the buildings around
-            drawing = diagrams.drawing(kind, mats["snapshot"], ctx)
+            drawing = diagram_of(kind, mats, project_path)
             # The drawing alone: the slide has a title of its own, and sets the legend at a size that reads on a slide.
             drawn[kind] = (diagram_svg.layout(drawing, words=False), diagram_svg.words(drawing))
         page, said = drawn[kind]
@@ -676,7 +725,8 @@ def file_stem(title: str) -> str:
 def bundle(project_path: Path, deck: dict, mats: dict, made: list[dict]) -> bytes:
     """
     Everything at once, as a zip: the PowerPoint file and the PDF, every diagram that can be drawn
-    (SVG), every capture of the snapshot (PNG) and the figures as a table (CSV that Excel opens).
+    (SVG), every capture of the snapshot (PNG), the sections (SVG) and photos on the table, and
+    the figures as a table (CSV that Excel opens).
     """
     path = Path(project_path)
     stem = file_stem(deck["title"])
@@ -685,15 +735,35 @@ def bundle(project_path: Path, deck: dict, mats: dict, made: list[dict]) -> byte
         archive.writestr(f"{stem}.pptx", to_pptx(made, deck["title"]))
         archive.writestr(f"{stem}.pdf", to_pdf(made, deck["title"]))
         saved = mats["snapshot"]
-        if saved is not None:
-            for item in mats["items"].values():
-                if not item["ready"]:
+        named: set[str] = set()
+
+        def name(folder: str, title: str, ext: str) -> str:
+            """A file name in the zip that no other file has (two photos may share a title)."""
+            stem = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", title).strip() or "그림"
+            at, count = f"{folder}/{stem}.{ext}", 1
+            while at in named:
+                count += 1
+                at = f"{folder}/{stem} {count}.{ext}"
+            named.add(at)
+            return at
+
+        for item in mats["items"].values():
+            if not item["ready"]:
+                continue
+            if item["kind"] == "diagram":
+                archive.writestr(name("다이어그램", item["title"], "svg"),
+                                 diagram_svg.to_svg(diagram_of(item["key"].split(":", 1)[1], mats, path)))
+            elif item["kind"] == "section":
+                drawing = _section(item, mats, path)
+                if drawing is not None:
+                    archive.writestr(name("단면", item["title"], "svg"), board_section.to_svg(drawing))
+            elif item["kind"] == "photo":
+                try:
+                    archive.write(board.photo_dir(path) / item["file"], name("사진", item["title"], item["file"].rsplit(".", 1)[1]))
+                except OSError:
                     continue
-                if item["kind"] == "diagram":
-                    kind = item["key"].split(":", 1)[1]
-                    ctx = diagrams.context(path) if kind == "site" else mats["context"]
-                    archive.writestr(f"다이어그램/{item['title']}.svg", diagram_svg.to_svg(diagrams.drawing(kind, saved, ctx)))
-            for view in saved["views"]:
+        if mats["source"] is not None:
+            for view in saved["views"] if saved is not None else []:
                 try:
                     archive.write(snap.view_file(path, saved["id"], view["file"]), f"라이노 뷰/{view['file']}")
                 except (snap.SnapshotNotFound, ValueError, OSError):
@@ -707,16 +777,17 @@ def bundle(project_path: Path, deck: dict, mats: dict, made: list[dict]) -> byte
     return out.getvalue()
 
 
-def make(project_path: Path, document: str | None, fmt: str) -> tuple[bytes, str]:
+def make(project_path: Path, document: str | None, fmt: str, scheme_id: str | None = None) -> tuple[bytes, str]:
     """
     The deck of the project as it stands, as one file: (bytes, file name). `document` is the
     presentation editor's document (None when it has not run: the deck is then the default one).
-    Raises ValueError for an unknown format.
+    `scheme_id` picks the massing scheme on the table the deck shows when there is no Rhino
+    snapshot (the first one otherwise). Raises ValueError for an unknown format or scheme.
     """
     if fmt not in FORMATS:
         raise ValueError("format must be one of " + ", ".join(FORMATS))
     path = Path(project_path)
-    mats = deck_slides.materials(path)
+    mats = deck_slides.materials(path, scheme_id)
     deck = deck_slides.deck(path, document, mats)
     made = pages(deck, mats, path)
     if fmt == "pptx":

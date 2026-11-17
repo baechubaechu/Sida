@@ -528,7 +528,7 @@ def test_site_api_searches_looks_up_merged_parcels_and_reads_back(client, projec
     url = f"/api/projects/{project.name}/site"
     assert client.get(url).json() == {
         "available": False, "query": "", "fetched_at": "", "parcels": [], "summary": None,
-        "restrictions": [], "uses": [], "lines": [],
+        "restrictions": [], "uses": [], "lines": [], "limits": [],
     }
 
     found = client.post(f"{url}/parcels", json={"query": "  경기도 군포시 금정동 689 "}).json()
@@ -1450,6 +1450,52 @@ def test_presentation_api_shows_the_deck_and_makes_its_files_from_the_editors_li
     assert client.get("/api/projects/no-such-project/presentation").status_code == 404
 
 
+def test_presentation_api_makes_a_deck_of_the_drafting_table_without_rhino(client, project, monkeypatch):
+    import io
+    import zipfile
+
+    from sida.experts.presentation import deck
+    from tests.experts.presentation.test_slides import tiny_png
+
+    monkeypatch.setattr(deck, "font_files", lambda: [])
+    at = f"/api/projects/{project.name}/presentation"
+    base = f"/api/projects/{project.name}/board"
+    assert client.get(f"{at}/diagram/floors").status_code == 404  # neither Rhino work nor a scheme yet
+    for scheme_id, title, floors in (("mass-a", "A안", 5), ("mass-b", "B안", 2)):
+        r = client.post(f"{base}/papers", json={"kind": "mass", "id": scheme_id, "title": title, "floor_height": 4,
+                                                "blocks": [{"u": 0, "v": 0, "w": 20, "d": 10, "floors": floors}]})
+        assert r.status_code == 201, r.text
+    assert client.post(f"{base}/papers", json={"kind": "section", "id": "sec-a", "title": "A", "line": [[-40, 0], [40, 0]]}).status_code == 201
+    photo = client.post(f"{base}/photos", files={"file": ("scene.png", tiny_png(16, 9), "image/png")}, data={"title": "눈높이 장면"})
+    assert photo.status_code == 201, photo.text
+    photo_id = photo.json()["paper"]["id"]
+
+    shown = client.get(at).json()
+    assert shown["snapshot"] is None and shown["model"] == {"source": "table", "scheme": {"id": "mass-a", "name": "A안"}}
+    assert shown["schemes"] == [{"id": "mass-a", "name": "A안"}, {"id": "mass-b", "name": "B안"}]
+    assert ["연면적", "1,000.0㎡"] in shown["figure_rows"]
+    keys = [s["figure"]["key"] for s in shown["slides"][1:]]
+    assert keys == ["figures", "diagram:floors", "diagram:stack", "diagram:site", "diagram:limits", "section:sec-a", f"photo:{photo_id}"]
+    assert shown["slides"][-1]["figure"]["paper"] == photo_id and shown["slides"][-2]["figure"]["paper"] == "sec-a"
+    other = client.get(at, params={"scheme": "mass-b"}).json()
+    assert other["model"]["scheme"]["name"] == "B안" and ["연면적", "400.0㎡"] in other["figure_rows"]
+    assert client.get(at, params={"scheme": "mass-x"}).status_code == 400
+
+    svg = client.get(f"{at}/diagram/floors", params={"scheme": "mass-b"})
+    assert svg.status_code == 200 and svg.headers["content-type"].startswith("image/svg+xml") and svg.content.startswith(b"<svg")
+    assert "기타 용도" not in svg.text  # a scheme has no uses to name
+    assert client.get(f"{at}/diagram/program").status_code == 400 and client.get(f"{at}/diagram/nothing").status_code == 400
+
+    bundle = client.get(f"{at}/file", params={"format": "zip", "scheme": "mass-b"})
+    assert bundle.status_code == 200, bundle.text
+    with zipfile.ZipFile(io.BytesIO(bundle.content)) as archive:
+        names = set(archive.namelist())
+        assert {"다이어그램/층별 분해.svg", "단면/단면 A–A′.svg", "사진/눈높이 장면.png", "수치.csv"} <= names
+        assert '연면적,400.0㎡' in archive.read("수치.csv").decode("utf-8-sig")
+    assert client.get(f"{at}/file", params={"format": "pdf"}).content.startswith(b"%PDF-")
+    assert client.get(f"{at}/file", params={"scheme": "mass-x"}).status_code == 400
+
+
 def test_rhino_live_api_carries_the_document_to_the_panel_and_the_panels_asks_to_the_plugin(client, project):
     import json as _json
 
@@ -1843,6 +1889,16 @@ def test_delete_talk_is_blocked_during_running_project_job(client, project):
     response = client.delete(f"/api/projects/{project.name}/talks/01")
     assert response.status_code == 409
     assert client.get(f"/api/projects/{project.name}/talks/01").status_code == 200
+
+
+def test_radius_circles_are_kept_per_project(client, project):
+    url = f"/api/projects/{project.name}/board/circles"
+    body = client.put(url, json={"circles": [{"x": 0, "y": 0, "r": 500}]}).json()
+    assert body["circles"] == [{"x": 0.0, "y": 0.0, "z": 0.0, "r": 500.0, "bx": 0.0, "by": 500.0}]
+    assert client.get(f"/api/projects/{project.name}/board").json()["circles"] == body["circles"]
+    assert client.put(url, json={"circles": [{"x": 0, "y": 0, "r": 0}]}).status_code == 400
+    assert client.put(url, json={}).status_code == 400
+    assert client.put(url, json={"circles": []}).json()["circles"] == []
 
 
 def test_people_stood_about_the_site_are_kept_per_project(client, project):

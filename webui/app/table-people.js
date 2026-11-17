@@ -115,6 +115,8 @@ export const peopleMethods = {
       mark.userData.person = p.id;
       peopleMarks.add(mark);
     }
+    // the sections show the people standing by their lines
+    for (const paper of this.papers) if (paper.kind === 'section' && paper.line) this.drawPaper(paper);
     this.invalidate();
   },
   // The person under the pointer (as the screen now shows them), or ''.

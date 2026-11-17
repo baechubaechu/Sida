@@ -67,7 +67,7 @@ function continueCard(project) {
   const card = entry?.card;
   const noSite = siteSlot(entry) === 'none';
   const label = escape(projectLabel(project));
-  const caps = card && card.bcr !== null ? ` · 법정 건폐율 ${card.bcr}% · 용적률 ${card.far}% 이하` : '';
+  const caps = card && card.bcr !== null ? ` · ${card.bcrFrom} 건폐율 ${card.bcr}% · ${card.farFrom === card.bcrFrom ? '' : `${card.farFrom} `}용적률 ${card.far}% 이하` : '';
   const facts = card ? `<p class="continue-facts">대지 ${escape(card.area)}${caps}</p>`
     : noSite ? '<p class="continue-facts muted">아직 대지를 정하지 않았어요.</p>' : '';
   const site = noSite ? `<a class="secondary" href="${sitePath(project.name, 'find')}">대지 정하기</a>` : '';

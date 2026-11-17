@@ -107,6 +107,10 @@ def create_router(load_config, core) -> APIRouter:
     def set_people(name: str, body: dict) -> dict:
         return call(board.set_people, call(project, name), body.get("people"))
 
+    @router.put("/circles")
+    def set_circles(name: str, body: dict) -> dict:
+        return call(board.set_circles, call(project, name), body.get("circles"))
+
     # The view the table was last seen from, so a reload opens on it.
     @router.put("/view")
     def set_view(name: str, body: dict) -> dict:

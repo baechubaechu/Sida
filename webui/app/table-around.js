@@ -4,17 +4,12 @@
 
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { viewFor, blockCorners, RANGE_SIZES, RANGE_SHAPES, RANGE_ORIENTS, DEFAULT_RANGE, parseRange, OUTSIDE, terrainFaces, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, paintTriangles, PAINT_COLORS, treeTriangles, TREE_COLORS } from './board-model.js';
+import { viewFor, blockCorners, DEFAULT_RANGE, parseRange, OUTSIDE, terrainFaces, GROUND_COLORS, aroundLegend, contourLines, aroundNote, isEstimate, massBase, paintTriangles, PAINT_COLORS, treeTriangles, TREE_COLORS } from './board-model.js';
 
 export const aroundMethods = {
   // ------------------------------------------------------------------ the site's surroundings
 
-  // 모형 바닥: the representation planner's 모형 tab (the model board panel and its advice);
-  // 계단식: the ground stepped as the kept board settings would cut it.
-  modelMenu() {
-    return `<button type="button" data-ui="model-panel" title="표현 계획자의 모형 탭: 모형 판 크기·축척을 정해 레이저 커팅 파일 받기">모형 바닥</button>
-      <button type="button" data-ui="model-stepped" aria-pressed="${this.steppedOn}" title="저장한 모형 판 설정(축척 × 두께) 간격으로 계단식 지형 보기">계단식</button>`;
-  },
+  // 계단식 (in the 레이어 panel's 주변 settings): the ground stepped as the kept board settings would cut it.
   async toggleStepped() {
     let interval = this.stepInterval || 1.5;
     try {
@@ -29,7 +24,7 @@ export const aroundMethods = {
     if (this.steppedOn && this.stepInterval === interval) { // asked again: the smooth ground
       this.steppedOn = false;
       this.drawAround();
-      this.drawControls();
+      this.drawControls(); this.hooks.aroundChanged?.();
       return false;
     }
     if (!this.aroundOn) await this.toggleAround();
@@ -47,18 +42,20 @@ export const aroundMethods = {
       this.say(error.message);
     }
     this.drawAround();
-    this.drawControls();
+    this.drawControls(); this.hooks.aroundChanged?.();
   },
   // 범위, 모양 and (for a rectangle) 방향 for the surroundings, beside the 주변 3D button.
-  rangeSelects() {
+  // What the 레이어 panel shows under its 주변 row (view-dock.js): whether the surroundings are on
+  // and their settings as they stand. The range is read once from the project when first asked.
+  aroundSettings() {
     this.readRange();
-    const r = this.aroundRange || DEFAULT_RANGE;
-    const off = this.aroundBusy ? 'disabled' : '';
-    const pick = (ui, label, items, value) => `<label class="check">${label} <select data-ui="${ui}" aria-label="주변 ${label}" ${off}>${items.map((s) => `<option value="${s.key}" ${s.key === value ? 'selected' : ''}>${s.label}</option>`).join('')}</select></label>`;
-    return `${pick('around-size', '범위', RANGE_SIZES, r.size)}
-      ${pick('around-shape', '모양', RANGE_SHAPES, r.shape)}
-      ${r.shape === 'rect' ? pick('around-orient', '방향', RANGE_ORIENTS, r.orient) : ''}
-      ${this.modelMenu()}`;
+    return { known: Boolean(this.site?.plan), on: this.aroundOn, busy: this.aroundBusy, range: this.aroundRange || DEFAULT_RANGE,
+      contour: this.contourStep, terrain: Boolean(this.aroundOn && this.around?.terrain), stepped: this.steppedOn };
+  },
+  setContourStep(step) {
+    this.contourStep = Number(step) || 1;
+    this.drawAround();
+    this.hooks.aroundChanged?.();
   },
   // A new range (size, shape, orient): kept for the project, and the surroundings made again if shown.
   async changeRange(change) {
@@ -76,7 +73,7 @@ export const aroundMethods = {
     this.stepped = null;
     this.steppedOn = false;
     if (shown) await this.toggleAround();
-    else this.drawControls();
+    else this.drawControls(); this.hooks.aroundChanged?.();
     if (shown && stepped) await this.loadStepped();
   },
   // The project's range, read once (for the selects before the surroundings are fetched).
@@ -88,7 +85,7 @@ export const aroundMethods = {
       if (!this.aroundRange) this.aroundRange = parseRange(range);
       this.aroundWanted = range?.shown === true;
       if (Array.isArray(range?.hidden_parts)) this.setAroundParts(range.hidden_parts, { save: false });
-      this.drawControls();
+      this.drawControls(); this.hooks.aroundChanged?.();
       this.restoreAround();
     } catch { /* the defaults stay */ }
   },
@@ -107,7 +104,7 @@ export const aroundMethods = {
       this.aroundOn = false;
       this.aroundWanted = false;
       this.hooks.saveShown?.(false);
-      this.drawAround(); this.drawMasses(); this.drawControls();
+      this.drawAround(); this.drawMasses(); this.drawControls(); this.hooks.aroundChanged?.();
       return;
     }
     if (!this.site?.plan) { this.say('먼저 대지를 조회하세요. 대지 경계가 있어야 주변을 놓을 수 있습니다.'); return; }
@@ -115,7 +112,7 @@ export const aroundMethods = {
       const request = Symbol();
       this.aroundRequest = request;
       this.aroundBusy = true;
-      this.drawControls();
+      this.drawControls(); this.hooks.aroundChanged?.();
       try {
         const context = await this.hooks.context(this.aroundRange);
         if (request !== this.aroundRequest) return;
@@ -133,7 +130,7 @@ export const aroundMethods = {
     if (this.aroundOn && !restore) this.hooks.saveShown?.(true);
     this.drawAround();
     this.drawMasses();
-    this.drawControls();
+    this.drawControls(); this.hooks.aroundChanged?.();
     // Lean the table and step back so the whole neighbourhood is in view around the site (not
     // when they come back after a reload: the view stays as it opens).
     if (this.aroundOn && !restore) {

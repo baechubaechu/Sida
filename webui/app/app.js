@@ -7,14 +7,14 @@ import { projectPath as projectUrl, keepNewDraft, untitledName } from './model.j
 import { COMPARE_QUESTION } from './board-model.js';
 import { talkMenu } from './talk-panel-model.js';
 import { api, expertUrl, projectApi } from './api.js';
-import { applyModelRecommendation, askAbout, closeTable, editProperty, downloadBoard, hideVWorld, loadBoard, openTable, placeTable, table, takePicked, toggleVWorld, unpick } from './board.js';
+import { applyModelRecommendation, askAbout, closeTable, editProperty, downloadBoard, hideVWorld, loadBoard, openTable, placeTable, table, takePicked, unpick } from './board.js';
 import { commandKey, focusCommandLine, runCommandLine } from './commands.js';
-import { decideProposal, downloadDeck, newChat, runExpert, send, sendFeedback } from './experts.js';
+import { decideProposal, downloadDeck, pickDeckScheme, newChat, runExpert, send, sendFeedback } from './experts.js';
 import { addTypedIdea, ideaAction, placeIdeaFloat, saveIdea } from './ideas.js';
 import { clearExpert, loadExpert, loadOrdinance, loadProjectSites, loadProjects, loadSession, loadSite, resetTracking, start, track } from './jobs.js';
 import { syncPanelWidths } from './panels.js';
 import { dockAction, followSelection, loadDock } from './dock.js';
-import { layerAction } from './layers.js';
+import { aroundAction, layerAction } from './layers.js';
 import { askDelete, createSample, keepProjectList, openProjectInfo } from './projects.js';
 import { render } from './render.js';
 import { checkRelayKey, loadSettings, openSettings } from './settings.js';
@@ -206,7 +206,6 @@ app.addEventListener('click', (event) => {
   const { name, agent } = currentRoute;
   if (action === 'settings') openSettings(button.dataset.target, button);
   if (action === 'export-board') { button.closest('details')?.removeAttribute('open'); downloadBoard(name, button.dataset.format); }
-  if (action === 'vworld-3d') toggleVWorld(name);
   if (action === 'sample') createSample();
   if (action === 'delete-project') askDelete(button.dataset.project);
   if (action === 'project-info') openProjectInfo(button.dataset.project);
@@ -217,6 +216,7 @@ app.addEventListener('click', (event) => {
   if (action.startsWith('dock-')) dockAction(action, button);
   if (action === 'inspect-paper') table?.inspect(button.dataset.id);
   if (action.startsWith('layer-')) layerAction(action, button);
+  if (action.startsWith('around-')) aroundAction(action);
   if (action === 'clear-selection') { ui.selected = []; followSelection(false); table?.setSelected([]); render(false); }
   if (action === 'select-masses') table?.selectMasses();
   if (action === 'ungroup') table?.command('ungroup');
@@ -329,6 +329,7 @@ app.addEventListener('change', (event) => {
   if (pick) togglePick(pick, event.target.checked);
   if (lot === 'mountain') ui.find.mountain = event.target.checked;
   if (event.target.id === 'idea-new-link') ui.ideaLinkNew = event.target.checked;
+  if (event.target.id === 'deck-scheme') pickDeckScheme(event.target.value);
   if (event.target.dataset?.rhinoView !== undefined) setRhinoView(event.target.checked);
   const { ordDetailed } = event.target.dataset || {};
   if (ordDetailed) setOrdinanceOption(currentRoute.name, ordDetailed, { detailed: event.target.checked });

@@ -412,12 +412,35 @@ def candidates_for_pnus(pnus: list[str], *, http_get=None) -> list[dict]:
     return found
 
 
+def limits(facts: dict | None) -> list[dict]:
+    """
+    The coverage and FAR limits of the site's zones, as the facts have them: the statutory ones
+    and, where the ordinance article was read by rule, the ordinance's value (else None). []
+    without a site. Nothing is computed here.
+    """
+    if not facts:
+        return []
+    values = (facts.get("ordinance") or {}).get("values") or {}
+    out = []
+    for zone in (facts.get("summary") or {}).get("zoning") or []:
+        read = values.get(zone["zone"]) or {}
+        out.append({
+            "zone": zone["zone"],
+            "bcr_max": zone.get("bcr_max"),
+            "far_min": zone.get("far_min"),
+            "far_max": zone.get("far_max"),
+            "ordinance_bcr": (read.get("bcr") or {}).get("value"),
+            "ordinance_far": (read.get("far") or {}).get("value"),
+        })
+    return out
+
+
 def site_view(facts: dict | None) -> dict:
     """Saved site facts arranged for a screen: parcels, zoning with statutory limits, flags."""
     if not facts:
         return {
             "available": False, "query": "", "fetched_at": "", "parcels": [], "summary": None,
-            "restrictions": [], "uses": [], "lines": [],
+            "restrictions": [], "uses": [], "lines": [], "limits": [],
         }
     parcels = []
     for p in facts["parcels"]:
@@ -446,6 +469,7 @@ def site_view(facts: dict | None) -> dict:
         "restrictions": facts.get("restrictions") or [],
         "uses": facts.get("uses") or [],
         "lines": describe(facts).replace("\n- ", "\n").removeprefix("- ").split("\n"),
+        "limits": limits(facts),
     }
 
 

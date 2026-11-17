@@ -1,6 +1,6 @@
 // The command line's behaviour: Enter, Esc, Tab, up/down, and what each command does.
 
-import { visibleExperts, projectPath as projectUrl, sitePath, EXPORT_FORMATS } from './model.js';
+import { visibleExperts, projectPath as projectUrl, sitePath, expertPath, EXPORT_FORMATS, SLIDES_EXPERT } from './model.js';
 import { COMMANDS, suggest, pickOption, addHistory, remember, readRadii } from './command-model.js';
 import { talkPanel } from './talk-panel-model.js';
 import { reveal, setSideOpen, sideShown } from './dock-model.js';
@@ -96,7 +96,7 @@ function cancelCommand() {
 }
 
 const TABLE_COMMANDS = new Set(['plan', 'persp', 'iso', 'zoom', 'north', 'select', 'note', 'pen', 'trace', 'mass', 'photo', 'delete', 'undo', 'redo', 'tray',
-  'rect', 'pushpull', 'move', 'copy', 'rotate', 'scale', 'eraser', 'dist', 'radius', 'eye', 'people', 'group', 'ungroup', 'section']);
+  'rect', 'pushpull', 'move', 'copy', 'rotate', 'scale', 'eraser', 'dist', 'radius', 'eye', 'people', 'group', 'ungroup', 'section', 'around', 'base']);
 
 function runCommand(name, command) {
   if (!command) return;
@@ -168,6 +168,32 @@ function runCommand(name, command) {
       toggleVWorld(name);
       say(ui.vworld ? 'vworld — 제도판으로 돌아갑니다.' : 'vworld — 브이월드 3D 지도에 매스안을 세웁니다. 건물을 누르면 숨겨집니다.');
       break;
+    case 'deck':
+      location.hash = expertPath(name, SLIDES_EXPERT, 'slides');
+      say('deck — 발표 자료를 엽니다.');
+      break;
+    case 'clip': {
+      if (!table) { say('clip: 제도판을 아직 불러오지 못했습니다.', 'warn'); break; }
+      const sections = table.papers.filter((p) => p.kind === 'section' && p.line);
+      const label = (p) => `${p.title || 'A'}–${p.title || 'A'}′`;
+      ui.pane = 'board';
+      if (table.cutId) {
+        table.setCut('');
+        say('clip — 3D 자르기를 껐습니다.');
+      } else if (!sections.length) {
+        say('clip: 자를 단면이 없습니다. section 명령으로 평면에서 단면선을 먼저 그으세요.', 'warn');
+      } else if (sections.length === 1) {
+        table.setCut(sections[0].id);
+        say(`clip — 단면 ${label(sections[0])}에서 3D를 잘라 봅니다. 다시 하면 끕니다.`);
+      } else {
+        c.prompt = {
+          text: '어느 단면에서 자를까요?',
+          options: sections.map((p) => ({ key: p.id, label: label(p) })),
+          answer: (option) => { table.setCut(option.key); },
+        };
+      }
+      break;
+    }
     case 'settings':
       openSettings();
       break;

@@ -100,6 +100,9 @@ export function clearExpert() {
   ui.deckError = '';
 }
 
+// The massing scheme picked for this project's deck ('' = the first on the table).
+export const deckScheme = (name) => (ui.deckScheme.project === name ? ui.deckScheme.id : '');
+
 // What the expert page's open tab needs: the result, the list of earlier results, and the
 // open analysis chat or earlier result.
 export async function loadExpert(name, agent) {
@@ -114,7 +117,7 @@ export async function loadExpert(name, agent) {
     expert?.done ? api(base) : Promise.reject(new ApiError(404, '')),
     api(`${base}/versions`),
     tab === 'versions' && version ? api(`${base}/versions/${encodeURIComponent(version)}`) : skip,
-    tab === 'slides' && agent === SLIDES_EXPERT ? api(deckUrl(name)) : skip,
+    tab === 'slides' && agent === SLIDES_EXPERT ? api(deckUrl(name, deckScheme(name))) : skip,
   ]);
   if (chat.status === 'fulfilled') ui.chat = chat.value;
   else ui.chatMissing = chat.reason?.status === 404;
@@ -124,7 +127,10 @@ export async function loadExpert(name, agent) {
   if (old.status === 'fulfilled') ui.version = old.value;
   else ui.versionMissing = old.reason?.status === 404;
   if (deck.status === 'fulfilled') ui.deck = deck.value;
-  else ui.deckError = deck.reason?.message || '발표자료를 불러오지 못했습니다.';
+  else if (deck.reason?.status === 400 && deckScheme(name)) { // the picked scheme is no longer on the table: back to the first
+    ui.deckScheme = { project: '', id: '' };
+    try { ui.deck = await api(deckUrl(name)); } catch (error) { ui.deckError = error.message || '발표자료를 불러오지 못했습니다.'; }
+  } else ui.deckError = deck.reason?.message || '발표자료를 불러오지 못했습니다.';
 }
 
 export async function refreshProject() {

@@ -47,6 +47,10 @@ export const COMMANDS = [
   { name: 'export', aliases: ['exp'], label: '내보내기: CAD(DXF)·라이노(3dm) 파일로', group: 'panel' },
   { name: 'eye', aliases: ['walk'], label: '눈높이 보기: 땅 위 한 점을 눌러 그 자리 사람 눈높이(1.6m)에서 매스 보기', group: 'view' },
   { name: 'vworld', aliases: ['vw'], label: '브이월드 3D 지도에 매스안 세워 보기 (건물을 누르면 숨김)', group: 'view' },
+  { name: 'around', aliases: ['context'], label: '주변 3D 켜고 끄기 (주변 건물·도로·지형, 설정은 레이어 패널의 주변)', group: 'view' },
+  { name: 'clip', aliases: ['cut'], label: '3D 자르기: 단면선으로 3D를 잘라 보기 (다시 하면 끔)', group: 'view' },
+  { name: 'base', aliases: ['modelbase'], label: '모형 바닥: 레이저 커팅 대지 모형 판 열기', group: 'panel' },
+  { name: 'deck', aliases: ['slides', 'ppt'], label: '발표 자료 열기 (발표 편집자의 발표자료 탭)', group: 'panel' },
   { name: 'settings', aliases: ['options'], label: '설정 열기', group: 'panel' },
   { name: 'help', aliases: ['?'], label: '명령 목록 보기', group: 'panel' },
 ];

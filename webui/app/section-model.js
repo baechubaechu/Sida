@@ -12,6 +12,12 @@
 // - A block stands on the lowest ground under it and rises its floors × the floor height; a
 //   building around runs from the bottom of its foundation to its roof. The building standing on
 //   the site now is left out: the scheme takes its place.
+// - The scale figures stood about the site (사람 배치) show in a section too (2026-11-17 지훈): each
+//   one within the line's length that stands on the looked-at side no further than `depth` (at
+//   least PEOPLE_REACH, so a section that shows only its cut still has the people beside it), or
+//   up to PEOPLE_BEHIND on the near side. They stand on the ground there, or on the roof of the
+//   block under them, and one behind a cut solid or a nearer solid that rises above their feet
+//   is not drawn.
 
 import { blockCorners, massBase, isEstimate, OUTSIDE } from './board-model.js';
 
@@ -21,6 +27,12 @@ export const SECTION_SCALES = [100, 200, 300, 500, 600, 1000, 1200, 2000, 2500, 
 export const SECTION_DEFAULTS = { depth: 60, scale: 500, flip: false };
 export const SECTION_DEPTHS = [0, 30, 60, 120, 1000]; // the depth menu: 0 is only what the line cuts
 export const MIN_SECTION_LENGTH = 2; // metres: a shorter drag draws no section
+export const PEOPLE_REACH = 3; // metres beyond the line people always show (however small the depth)
+export const PEOPLE_BEHIND = 1.5; // metres on the near side of the line they still show
+export const PERSON_HEIGHTS = { stand: 1.7, walk: 1.7, child: 1.1 };
+// A standing figure's outline for a height of 1 (x across, y up from the feet), and its head.
+export const PERSON_OUTLINE = [[-0.09, 0], [-0.02, 0], [0, 0.45], [0.02, 0], [0.09, 0], [0.11, 0.78], [-0.11, 0.78]];
+export const PERSON_HEAD = { y: 0.89, r: 0.08 };
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1];
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
@@ -116,7 +128,31 @@ export function sectionProfile(line, terrain, length, d) {
 }
 
 // The section: {length, mirror, profile, cut, beyond (far first)}; solids are {outline, base, top, kind, …}.
-export function sectionCut(line, solids, terrain, { flip = false, depth = SECTION_DEFAULTS.depth, from = 0, to = null } = {}) {
+// The people a section shows: [{s, z, h, dist}] far first (see the rule at the top). `solids` are
+// those of the cut (roofs to stand on), `cut` and `beyond` its result (what hides them).
+export function sectionPeople(line, people, solids, terrain, { flip = false, depth = SECTION_DEFAULTS.depth, cut = [], beyond = [] } = {}) {
+  const f = sectionFrame(line, flip);
+  if (!f || !people?.length) return [];
+  const far = Math.max(depth, PEOPLE_REACH);
+  const out = [];
+  for (const person of people) {
+    const rel = sub([person.x, person.y], line[0]);
+    const s = dot(rel, f.d), dist = dot(rel, f.n);
+    if (s < 0 || s > f.length || dist < -PEOPLE_BEHIND || dist > far) continue;
+    let z = groundHeight(terrain, person.x, person.y) ?? 0;
+    if (person.roof) {
+      const roofs = solids.filter((x) => x.kind === 'mass' && inside(person.x, person.y, x.outline)).map((x) => x.top);
+      if (roofs.length) z = Math.max(...roofs);
+    }
+    const hidden = cut.some((c) => s >= c.a && s <= c.b && z < c.top - 1e-6 && dist > 0)
+      || beyond.some((c) => c.dist < dist && s >= c.a && s <= c.b && z < c.top - 1e-6);
+    if (hidden) continue;
+    out.push({ s: r3(s), z: r3(z), h: PERSON_HEIGHTS[person.kind] || PERSON_HEIGHTS.stand, dist: r3(dist) });
+  }
+  return out.sort((a, b) => b.dist - a.dist);
+}
+
+export function sectionCut(line, solids, terrain, { flip = false, depth = SECTION_DEFAULTS.depth, from = 0, to = null, people = [] } = {}) {
   const f = sectionFrame(line, flip);
   if (!f) return null;
   const { d, n } = f;
@@ -140,7 +176,7 @@ export function sectionCut(line, solids, terrain, { flip = false, depth = SECTIO
   beyond.sort((x, y) => y.dist - x.dist);
   const profileLine = [p0, [p0[0] + d[0] * (s1 - s0), p0[1] + d[1] * (s1 - s0)]];
   const profile = sectionProfile(profileLine, terrain, s1 - s0, d).map((run) => run.map(([s, z]) => [r3(s + s0), z]));
-  return { length: r3(length), mirror: f.mirror, profile, cut, beyond };
+  return { length: r3(length), mirror: f.mirror, profile, cut, beyond, people: sectionPeople(line, people, solids, terrain, { flip, depth, cut, beyond }) };
 }
 
 // What the section cuts on the table: the blocks of the scheme shown in 3D (standing on the ground
@@ -174,6 +210,7 @@ export function sectionFigures(result) {
   if (zs.length) rows.push(`지형 높이차 ${f1(Math.max(...zs) - Math.min(...zs))}m`);
   if (masses.length) rows.push(`자른 매스 ${masses.map((c) => `${f1(c.top - c.base)}m`).join(', ')}`);
   if (buildings.length) rows.push(`자른 주변 건물 ${buildings.length}동`);
+  if (result.people?.length) rows.push(`사람 ${result.people.length}명`);
   return rows;
 }
 
@@ -187,7 +224,7 @@ export function sectionSvg(result, { name = 'A', floors = true, heights = true }
   const { length, mirror } = result;
   const u = (s) => (mirror ? length - s : s);
   const zs = result.profile.flat().map(([, z]) => z);
-  const tops = [...result.cut, ...result.beyond].map((c) => c.top);
+  const tops = [...result.cut, ...result.beyond].map((c) => c.top).concat((result.people || []).map((p) => p.z + p.h));
   const bases = result.cut.map((c) => c.base);
   const low = Math.min(0, ...zs, ...bases) - 4;
   const high = Math.max(0, ...zs, ...tops) + 3;
@@ -219,6 +256,10 @@ export function sectionSvg(result, { name = 'A', floors = true, heights = true }
     } else {
       out.push(rect(c, `sec-building${c.estimate ? ' is-estimate' : ''}`));
     }
+  }
+  for (const p of result.people || []) {
+    const pts = PERSON_OUTLINE.map(([x, y]) => `${n2(X(p.s) + x * p.h)},${n2(Y(p.z + y * p.h))}`);
+    out.push(`<polygon class="sec-person" points="${pts.join(' ')}"/><circle class="sec-person" cx="${n2(X(p.s))}" cy="${n2(Y(p.z + PERSON_HEAD.y * p.h))}" r="${n2(PERSON_HEAD.r * p.h)}"/>`);
   }
   const size = Math.max(1.6, height * 0.05, width * 0.03); // the marks stay readable on a long, low section
   if (heights) {

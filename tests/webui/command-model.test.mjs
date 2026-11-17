@@ -119,3 +119,14 @@ test('radius is a command, and its answer reads radii in m or km', () => {
   assert.equal(readRadii('0.5'), null); // under 1 m
   assert.equal(readRadii('30km'), null); // over 20 km
 });
+
+test('around, clip, base and deck are commands for what only had a button', () => {
+  assert.equal(readLine('around').command.name, 'around');
+  assert.equal(readLine('clip').command.name, 'clip');
+  assert.equal(readLine('CUT').command.name, 'clip');
+  assert.equal(readLine('base').command.name, 'base');
+  assert.equal(readLine('deck').command.name, 'deck');
+  assert.equal(readLine('ppt').command.name, 'deck');
+  assert.equal(findCommand('around').command.group, 'view');
+  assert.deepEqual(readLine('deck 만들어 줘'), { kind: 'ask', text: 'deck 만들어 줘' });
+});

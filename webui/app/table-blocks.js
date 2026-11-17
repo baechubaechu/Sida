@@ -4,9 +4,16 @@
 
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { blockLayer, expandGroups, PX, PAPER_SIZE, riseFor, groundFor, scaleSpan, isOverlaid, blockCorners, freeSpot, folded, foldedInPlan, paperName, readScheme, schemeRows, parseBlockKey, fmt, GUMBALL_PX, GUMBALL_SCALE_PX, editBlocks, blocksCenter, blockKey, pickedBlocks, toFrame, MAX_BLOCKS, numericPushBlock, numericScaleBlocks, snapTape, massIds, changedFields, figuresBand, blockTag, gumballTurn, fromFrame, snapPivot, gumballNumberField, numericGumball, GUMBALL_RING_PX } from './board-model.js';
+import { blockLayer, expandGroups, PX, PAPER_SIZE, riseFor, groundFor, scaleSpan, isOverlaid, blockCorners, freeSpot, folded, foldedInPlan, paperName, readScheme, schemeRows, parseBlockKey, fmt, GUMBALL_PX, GUMBALL_SCALE_PX, editBlocks, blocksCenter, blockKey, pickedBlocks, toFrame, MAX_BLOCKS, numericPushBlock, numericScaleBlocks, snapTape, massIds, changedFields, figuresBand, blockTag, GAUGE_RUN, gumballTurn, fromFrame, snapPivot, gumballNumberField, numericGumball, GUMBALL_RING_PX } from './board-model.js';
 
 const MAX_TAGS = 12; // picked blocks that get a tag; more would cover the table
+
+// A ratio against its cap as a bar (the same reading as the Rhino panel's gauge): the track runs
+// to GAUGE_RUN times the cap, the mark is the cap, and what lies beyond it is painted as over.
+function bandGauge(part) {
+  const pct = (v) => `${Math.round((v / GAUGE_RUN) * 1000) / 10}%`;
+  return `<span class="band-gauge" aria-hidden="true"><i style="width: ${pct(Math.min(part, 1))}"></i>${part > 1 ? `<i class="is-over" style="left: ${pct(1)}; width: ${pct(part - 1)}"></i>` : ''}<u style="left: ${pct(1)}"></u></span>`;
+}
 
 export const blocksMethods = {
   // The picked blocks, grouped by scheme, of the schemes that stand on the site.
@@ -498,7 +505,7 @@ export const blocksMethods = {
     const info = picked ? figuresBand(active, site) : null;
     band.hidden = !info;
     this.root.classList.toggle('has-band', Boolean(info));
-    band.innerHTML = info ? `<b class="band-title">${escape(info.title)}</b>${info.items.map((item) => `<span class="band-item${item.over ? ' is-over' : ''}">${escape(item.label)} <strong>${escape(item.value)}</strong>${item.cap ? ` / ${escape(item.cap)}` : ''}${item.over ? ' <em>초과</em>' : ''}</span>`).join('')}${info.overlap ? '<span class="band-note">겹친 동 있음 · 실제보다 크게 나옴</span>' : ''}` : '';
+    band.innerHTML = info ? `<b class="band-title">${escape(info.title)}</b>${info.items.map((item) => `<span class="band-item${item.over ? ' is-over' : ''}">${escape(item.label)} <strong>${escape(item.value)}</strong>${item.cap ? ` / ${escape(item.cap)}` : ''}${item.over ? ' <em>초과</em>' : ''}${item.part === null || item.part === undefined ? '' : bandGauge(item.part)}</span>`).join('')}${info.overlap ? '<span class="band-note">겹친 동 있음 · 겹친 부분은 한 번만 셈</span>' : ''}` : '';
     const frame = this.site?.plan?.frame || { x: 0, y: 0, angle: 0 };
     this.tagSpots = [];
     for (const { paper, indices } of this.pickedGroups()) {

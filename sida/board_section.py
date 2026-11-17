@@ -48,6 +48,12 @@ MARGIN_MM = 12.0
 TEXT_MM = 2.5  # the height of the drawing's labels on paper
 TITLE_MM = 3.5
 BELOW_M = 6.0  # how far the ground's cut goes below the lowest ground on the line
+# The scale figures in a section (section-model.js sectionPeople, the same rule).
+PEOPLE_REACH = 3.0  # metres beyond the line people always show (however small the depth)
+PEOPLE_BEHIND = 1.5  # metres on the near side of the line they still show
+PERSON_HEIGHTS = {"stand": 1.7, "walk": 1.7, "child": 1.1}
+PERSON_OUTLINE = ((-0.09, 0.0), (-0.02, 0.0), (0.0, 0.45), (0.02, 0.0), (0.09, 0.0), (0.11, 0.78), (-0.11, 0.78))
+PERSON_HEAD = (0.89, 0.08)  # the head's middle (up from the feet) and radius, for a height of 1
 PT_PER_MM = 72 / 25.4
 INK = (32, 38, 45)
 GROUND = (138, 146, 155)
@@ -57,6 +63,7 @@ BEYOND = (120, 128, 136)
 DXF_LAYERS = {
     "ground": ("단면-지형", 8, GROUND), "mass": ("단면-매스", 7, INK), "floors": ("단면-층선", 9, (200, 200, 200)),
     "building": ("단면-주변", 8, NEAR), "beyond": ("단면-뒤쪽", 9, BEYOND), "notes": ("단면-표기", 7, INK),
+    "people": ("단면-사람", 7, INK),
 }
 
 
@@ -147,9 +154,42 @@ def profile(line, ground: dict | None, length: float, d) -> list[list[list[float
     return [r for r in runs if len(r) >= 2]
 
 
-def cut(line, solids: list[dict], ground: dict | None, *, flip: bool = False, depth: float = board.DEFAULT_SECTION_DEPTH) -> dict:
+def people_in(line, people: list[dict], solids: list[dict], ground: dict | None, *, flip: bool = False,
+              depth: float = board.DEFAULT_SECTION_DEPTH, cut_: list[dict] | None = None, beyond: list[dict] | None = None) -> list[dict]:
     """
-    The section along `line`: {length, mirror, profile, cut, beyond}. `solids` are
+    The scale figures a section shows, far first: [{s, z, h, dist}]. Each one within the line's
+    length that stands on the looked-at side no further than `depth` (at least PEOPLE_REACH), or
+    up to PEOPLE_BEHIND on the near side; on the ground there (0 where it is not known) or on the
+    roof of the block under them; left out behind a cut solid or a nearer one that rises above
+    their feet.
+    """
+    f = line_frame(line, flip)
+    d, n, length = f["d"], f["n"], f["length"]
+    far = max(depth, PEOPLE_REACH)
+    out = []
+    for person in people or []:
+        rx, ry = person["x"] - line[0][0], person["y"] - line[0][1]
+        s, dist = rx * d[0] + ry * d[1], rx * n[0] + ry * n[1]
+        if s < 0 or s > length or dist < -PEOPLE_BEHIND or dist > far:
+            continue
+        z = ground_height(ground, person["x"], person["y"]) or 0.0
+        if person.get("roof"):
+            roofs = [x["top"] for x in solids if x["kind"] == "mass" and _inside(person["x"], person["y"], x["outline"])]
+            if roofs:
+                z = max(roofs)
+        hidden = any(c["a"] <= s <= c["b"] and z < c["top"] - 1e-6 and dist > 0 for c in cut_ or []) or any(
+            c["dist"] < dist and c["a"] <= s <= c["b"] and z < c["top"] - 1e-6 for c in beyond or [])
+        if hidden:
+            continue
+        out.append({"s": round(s, 3), "z": round(z, 3), "h": PERSON_HEIGHTS.get(person.get("kind"), PERSON_HEIGHTS["stand"]),
+                    "dist": round(dist, 3)})
+    return sorted(out, key=lambda p: -p["dist"])
+
+
+def cut(line, solids: list[dict], ground: dict | None, *, flip: bool = False, depth: float = board.DEFAULT_SECTION_DEPTH,
+        people: list[dict] | None = None) -> dict:
+    """
+    The section along `line`: {length, mirror, profile, cut, beyond, people}. `solids` are
     {outline, base, top, kind ("mass" or "building"), ...}; each cut or seen one comes back with
     its stretch of the line [a, b] (metres from A) and its other fields. `beyond` is far first.
     """
@@ -172,7 +212,8 @@ def cut(line, solids: list[dict], ground: dict | None, *, flip: bool = False, de
             out_beyond.append({**solid, "a": round(a, 3), "b": round(b, 3), "dist": round(min(dist), 3)})
     out_beyond.sort(key=lambda x: -x["dist"])
     return {"length": round(length, 3), "mirror": f["mirror"], "profile": profile(line, ground, length, d),
-            "cut": out_cut, "beyond": out_beyond}
+            "cut": out_cut, "beyond": out_beyond,
+            "people": people_in(line, people or [], solids, ground, flip=flip, depth=depth, cut_=out_cut, beyond=out_beyond)}
 
 
 def summary(result: dict) -> dict:
@@ -188,6 +229,7 @@ def summary(result: dict) -> dict:
         "ground_high": round(max(zs), 2) if zs else None,
         "mass_tops": [round(c["top"], 2) for c in masses],
         "buildings_cut": len(buildings),
+        "people": len(result.get("people") or []),
         "tallest_building_top": round(tall["top"], 2) if tall else None,
     }
 
@@ -245,7 +287,8 @@ def section_of(project_path: Path, paper_id: str, *, active: str | None = None, 
             continue
         solids.append({"kind": "building", "outline": b["outline"], "base": b["base"], "top": round(b["base"] + b["height"], 3),
                        "estimate": bool(b.get("estimate"))})
-    result = cut(paper["line"], solids, ground, flip=bool(paper.get("flip")), depth=float(paper.get("depth", board.DEFAULT_SECTION_DEPTH)))
+    result = cut(paper["line"], solids, ground, flip=bool(paper.get("flip")), depth=float(paper.get("depth", board.DEFAULT_SECTION_DEPTH)),
+                 people=saved.get("people") or [])
     return {"paper": paper, "scheme": board.paper_name(scheme) if scheme else "", "result": result,
             "ground_known": ground is not None}
 
@@ -309,8 +352,9 @@ def section_drawing(found: dict) -> dict:
     """
     The section laid out in its own metres: x along the drawing from its left end, y the height
     (0 = the ground at the site's middle). {width, low, high, scale, fills: [{part, points}],
-    lines: [{part, points, dashed}], texts: [{at, text, plain, size, anchor}]} — `plain` is the
-    same text in Latin letters for the PDF, whose fonts have no Hangul.
+    lines: [{part, points, dashed}], texts: [{at, text, plain, size, anchor, role}]} — `plain` is
+    the same text in Latin letters for the PDF, whose fonts have no Hangul; `role` is "title" for
+    the drawing's own title line (a slide that has a title of its own leaves it out).
     """
     paper, result = found["paper"], found["result"]
     length, mirror = result["length"], result["mirror"]
@@ -320,16 +364,16 @@ def section_drawing(found: dict) -> dict:
     runs = [[[u(s), z] for s, z in run] for run in result["profile"]]
     runs = [sorted(r) for r in runs]
     zs = [z for r in runs for _, z in r]
-    tops = [c["top"] for c in result["cut"] + result["beyond"]]
+    tops = [c["top"] for c in result["cut"] + result["beyond"]] + [p["z"] + p["h"] for p in result.get("people") or []]
     bases = [c["base"] for c in result["cut"]]
     low = min([0.0, *zs, *bases]) - BELOW_M
     high = max([0.0, *zs, *tops]) + 4.0
     fills, lines, texts = [], [], []
     m_per_mm = scale / 1000
 
-    def text(at, words, plain=None, size=TEXT_MM, anchor="start"):
+    def text(at, words, plain=None, size=TEXT_MM, anchor="start", role=""):
         texts.append({"at": [round(at[0], 3), round(at[1], 3)], "text": words, "plain": plain if plain is not None else words,
-                      "size": size, "anchor": anchor})
+                      "size": size, "anchor": anchor, "role": role})
 
     def box(c):
         a, b = sorted((u(c["a"]), u(c["b"])))
@@ -361,6 +405,13 @@ def section_drawing(found: dict) -> dict:
             if c.get("estimate"):
                 lines.append({"part": "building", "points": [*rect, rect[0]], "dashed": True})
                 text([(a + b) / 2, c["top"] + 1.2 * m_per_mm], "추정", "est.", TEXT_MM * 0.8, "middle")
+    for person in result.get("people") or []:  # outlines, feet on the ground or a roof
+        x, z, h = u(person["s"]), person["z"], person["h"]
+        body = [[x + px * h, z + py * h] for px, py in PERSON_OUTLINE]
+        lines.append({"part": "people", "points": [*body, body[0]], "dashed": False})
+        cy, r = z + PERSON_HEAD[0] * h, PERSON_HEAD[1] * h
+        head = [[x + r * math.cos(k * math.pi / 6), cy + r * math.sin(k * math.pi / 6)] for k in range(13)]
+        lines.append({"part": "people", "points": head, "dashed": False})
     # ±0, the masses' heights, A and A′, the scale bar and the title
     lines.append({"part": "notes", "points": [[-3 * m_per_mm, 0.0], [length + 3 * m_per_mm, 0.0]], "dashed": True})
     text([-4 * m_per_mm, -0.8 * m_per_mm], "±0", "+-0", TEXT_MM, "end")
@@ -385,7 +436,7 @@ def section_drawing(found: dict) -> dict:
         lines.append({"part": "notes", "points": [[x, under - m_per_mm], [x, under + m_per_mm]], "dashed": False})
     text([bx + bar + 2 * m_per_mm, under - 0.8 * m_per_mm], f"{bar:g}m", f"{bar:g}m")
     title = f"단면 {name}–{name}′ · 1:{scale}" + (f" · {found['scheme']}" if found.get("scheme") else "")
-    text([0.0, high + 3 * m_per_mm], title, f"SECTION {name}-{name}'  1:{scale}", TITLE_MM)
+    text([0.0, high + 3 * m_per_mm], title, f"SECTION {name}-{name}'  1:{scale}", TITLE_MM, role="title")
     if not found.get("ground_known"):
         text([0.0, high + 0.5 * m_per_mm], "지형 미확인: 주변 3D를 만들면 지형과 주변 건물이 들어갑니다", "Ground unknown", TEXT_MM)
     return {"width": length, "low": low, "high": high + 3 * m_per_mm + TITLE_MM * m_per_mm, "scale": scale,
@@ -397,7 +448,7 @@ def section_drawing(found: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 FILL_RGB = {"ground": GROUND, "mass": INK, "building": NEAR}
-LINE_RGB = {"ground": INK, "floors": (255, 255, 255), "building": INK, "beyond": BEYOND, "notes": INK}
+LINE_RGB = {"ground": INK, "floors": (255, 255, 255), "building": INK, "beyond": BEYOND, "notes": INK, "people": INK}
 
 
 def _hex(rgb) -> str:

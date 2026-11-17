@@ -8,12 +8,16 @@ The editor ends its document with one fenced JSON block:
       {"layout": "text", "title": "…", "bullets": ["…"], "notes": "…"},
       {"layout": "figure", "title": "…", "figure": "diagram:program", "caption": "…", "bullets": ["…"]}]}
 
-`figure` names a material by key: `diagram:<kind>` (a diagram Sida draws of the newest Rhino
-snapshot, sida/experts/rhino/diagrams.py), `view:<kind>` (a capture of that snapshot: persp, plan,
-…) or `figures` (the table of figures). The editor never supplies a picture or a number; a key
+`figure` names a material by key: `diagram:<kind>` (a diagram Sida draws by rule,
+sida/experts/rhino/diagrams.py), `view:<kind>` (a capture of the newest Rhino snapshot: persp,
+plan, …), `figures` (the table of figures), `section:<paper id>` (a section drawing on the
+drafting table) or `photo:<paper id>` (a photo on the table: a site photo, a sketch, a scene kept
+from the eye-level view). The figures and the diagrams come from the newest Rhino snapshot when
+there is one, else from a massing scheme on the drafting table (table.py), so a designer who
+does not use Rhino still gets a deck. The editor never supplies a picture or a number; a key
 that names nothing is kept as an empty place and said in the deck's notes. Without the block
 (the editor not run yet, or an older document) the deck is a default one made by rule: a title,
-the figures, every diagram that can be drawn and every capture, with no sentences.
+the figures, every diagram that can be drawn, every capture, section and photo, with no sentences.
 """
 
 from __future__ import annotations
@@ -22,6 +26,8 @@ import json
 import re
 from pathlib import Path
 
+from sida import board
+from sida.experts.presentation import table
 from sida.experts.rhino import diagrams
 from sida.experts.rhino import snapshot as snap
 from sida.project import section_body
@@ -37,6 +43,7 @@ VIEW_WORDS = {"persp": "투시", "axo": "축측", "eye": "눈높이", "plan": "�
 VIEW_ORDER = ("persp", "axo", "eye", "plan", "elevation", "section")
 FIGURES_KEY = "figures"
 FIGURES_TITLE = "수치"
+NOTHING_YET = "라이노 작업도 제도판 매스안도 아직 없습니다. 제도판에 매스안을 그리거나 라이노에서 Sida로 보내면 채워집니다."
 _FENCE = re.compile(r"```\s*json\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 
 
@@ -98,34 +105,50 @@ def clean(raw: list) -> tuple[list[dict], list[str]]:
     return slides, notes
 
 
-def materials(project_path: Path) -> dict:
+def materials(project_path: Path, scheme_id: str | None = None) -> dict:
     """
-    What can fill a slide right now, from the newest Rhino snapshot: {snapshot, figures, limits,
-    context, items: {key: {key, kind, title, ready, why}}}. Every diagram kind is listed (one that
-    cannot be drawn says why); without a snapshot nothing is ready.
+    What can fill a slide right now: {source, snapshot, model, scheme, schemes, figures, limits,
+    context, items: {key: {key, kind, title, ready, why}}}. `source` says where the figures and
+    the diagrams come from: "rhino" (the newest snapshot; `snapshot` is it), "table" (a massing
+    scheme on the drafting table: `scheme_id`, else the first; `scheme` is {id, name}) or None
+    (neither yet: nothing of them is ready). `model` is what the diagrams are drawn of, of a
+    snapshot's shape either way. Every diagram kind is listed (one that cannot be drawn says
+    why). The sections and photos on the table are listed whatever the source. Raises ValueError
+    for a `scheme_id` that is not a scheme on the table.
     """
     path = Path(project_path)
     saved = snap.latest_snapshot(path)
+    on_table = board.load_board(path)
+    scheme = table.pick_scheme(on_table, scheme_id)
+    listed = [{"id": p["id"], "name": board.paper_name(p)} for p in table.schemes(on_table)]
+    chosen = None if scheme is None else {"id": scheme["id"], "name": board.paper_name(scheme)}
     items: dict[str, dict] = {}
-    if saved is None:
-        why = "라이노 작업이 아직 없습니다. 라이노에서 Sida로 보내면 채워집니다."
+    if saved is None and scheme is None:
         for kind, about in diagrams.KINDS.items():
-            items[f"diagram:{kind}"] = {"key": f"diagram:{kind}", "kind": "diagram", "title": about["title"], "ready": False, "why": why}
-        items[FIGURES_KEY] = {"key": FIGURES_KEY, "kind": "figures", "title": FIGURES_TITLE, "ready": False, "why": why}
-        return {"snapshot": None, "figures": None, "limits": [], "context": None, "items": items}
+            items[f"diagram:{kind}"] = {"key": f"diagram:{kind}", "kind": "diagram", "title": about["title"], "ready": False, "why": NOTHING_YET}
+        items[FIGURES_KEY] = {"key": FIGURES_KEY, "kind": "figures", "title": FIGURES_TITLE, "ready": False, "why": NOTHING_YET}
+        items.update(table.extras(path, on_table))
+        return {"source": None, "snapshot": None, "model": None, "scheme": None, "schemes": listed, "figures": None, "limits": [],
+                "context": None, "items": items}
+    source = "rhino" if saved is not None else "table"
+    model = saved if saved is not None else table.scheme_model(scheme, table.frame_of(path))
     ctx = diagrams.context(path, around=False)  # the buildings around are fetched only when the site plan is drawn (deck.py)
-    fig = snap.figures(saved, ctx["site_area"])
-    for state in diagrams.available(saved, ctx):
+    fig = snap.figures(model, ctx["site_area"])
+    for state in diagrams.available(model, ctx):
         key = f"diagram:{state['kind']}"
         items[key] = {"key": key, "kind": "diagram", "title": state["title"], "ready": state["ready"], "why": state["reason"]}
-    for view in sorted(saved["views"], key=lambda v: VIEW_ORDER.index(v["kind"]) if v["kind"] in VIEW_ORDER else len(VIEW_ORDER)):
+    if source == "table":
+        items["diagram:program"].update(ready=False, why=table.NO_USES)
+    for view in sorted(model["views"], key=lambda v: VIEW_ORDER.index(v["kind"]) if v["kind"] in VIEW_ORDER else len(VIEW_ORDER)):
         key = f"view:{view['kind']}"
         if key not in items:  # the first capture of a kind stands for it
             items[key] = {"key": key, "kind": "view", "title": f"라이노 {VIEW_WORDS.get(view['kind'], view['kind'])} 뷰", "ready": True,
                           "why": "", "file": view["file"]}
     items[FIGURES_KEY] = {"key": FIGURES_KEY, "kind": "figures", "title": FIGURES_TITLE, "ready": bool(fig["objects"]),
                           "why": "" if fig["objects"] else diagrams.NOT_READY["no_bodies"]}
-    return {"snapshot": saved, "figures": fig, "limits": ctx["limits"], "context": ctx, "items": items}
+    items.update(table.extras(path, on_table))
+    return {"source": source, "snapshot": saved, "model": model, "scheme": chosen, "schemes": listed, "figures": fig,
+            "limits": ctx["limits"], "context": ctx, "items": items}
 
 
 def figure_rows(fig: dict, limits: list[dict]) -> list[tuple[str, str]]:
@@ -150,7 +173,7 @@ def figure_rows(fig: dict, limits: list[dict]) -> list[tuple[str, str]]:
 
 
 def default_slides(title: str, mats: dict) -> list[dict]:
-    """A deck by rule, without sentences: the title, the figures, each diagram that can be drawn, each capture."""
+    """A deck by rule, without sentences: the title, the figures, each diagram that can be drawn, each capture, section and photo."""
     def slide(layout, heading, figure=""):
         return {"layout": layout, "title": heading, "subtitle": "", "bullets": [], "caption": "", "notes": "", "figure": figure}
 
@@ -159,6 +182,8 @@ def default_slides(title: str, mats: dict) -> list[dict]:
     slides += [slide("figure", item["title"], item["key"]) for item in ready if item["kind"] == "figures"]
     slides += [slide("figure", item["title"], item["key"]) for item in ready if item["kind"] == "diagram"]
     slides += [slide("figure", item["title"], item["key"]) for item in ready if item["kind"] == "view"]
+    slides += [slide("figure", item["title"], item["key"]) for item in ready if item["kind"] == "section"]
+    slides += [slide("figure", item["title"], item["key"]) for item in ready if item["kind"] == "photo"]
     return slides
 
 
@@ -175,8 +200,10 @@ def project_title(project_path: Path) -> str:
 def deck(project_path: Path, document: str | None, mats: dict | None = None) -> dict:
     """
     The deck to show and to make files of: {source: "editor" | "default", title, slides, notes,
-    snapshot}. Each slide's `figure` is None or the material it names ({key, kind, title, ready,
-    why}); a key that names nothing known is kept unready, so the slide keeps its place.
+    snapshot, model}. Each slide's `figure` is None or the material it names ({key, kind, title,
+    ready, why}); a key that names nothing known is kept unready, so the slide keeps its place.
+    `model` says where the figures and diagrams come from: {source: "rhino" | "table" | None,
+    scheme: {id, name} | None}.
     """
     path = Path(project_path)
     mats = materials(path) if mats is None else mats
@@ -194,25 +221,33 @@ def deck(project_path: Path, document: str | None, mats: dict | None = None) -> 
         found = mats["items"].get(key)
         if found is None:
             found = {"key": key, "kind": key.split(":", 1)[0] if ":" in key else key, "title": key, "ready": False,
-                     "why": "이 이름의 그림이 없습니다." if mats["snapshot"] is not None else "라이노 작업이 아직 없습니다. 라이노에서 Sida로 보내면 채워집니다."}
-        slide["figure"] = {k: found[k] for k in ("key", "kind", "title", "ready", "why")}
+                     "why": "이 이름의 그림이 없습니다." if mats["source"] is not None else NOTHING_YET}
+        slide["figure"] = {k: found[k] for k in ("key", "kind", "title", "ready", "why", "paper") if k in found}
         if not found["ready"]:
             notes.append(f"{number}번 슬라이드의 그림({found['title']})은 비어 있습니다. {found['why']}")
     saved = mats["snapshot"]
     return {"source": source, "title": title, "slides": slides, "notes": notes,
+            "model": {"source": mats["source"], "scheme": mats["scheme"]},
             "snapshot": None if saved is None else {"id": saved["id"], "taken_at": saved["taken_at"], "file": saved["rhino"]["file"]}}
 
 
 def prompt_text(mats: dict) -> str:
     """What the presentation editor may put on slides, by key (the figures as lines, for its sentences)."""
-    lines = ["## Slide Materials (made by Sida from the designer's Rhino model; refer to them by key, never describe numbers of your own)", ""]
-    if mats["snapshot"] is None:
-        lines.append("No Rhino snapshot has been sent yet, so there are no pictures or figures to place. "
-                     "List text slides only and say in the document that the model has not been sent.")
+    made_of = {"rhino": "the designer's Rhino model", "table": "the designer's massing scheme on the drafting table"}.get(mats["source"])
+    lines = [f"## Slide Materials (made by Sida from {made_of or 'the drafting table'}; refer to them by key, never describe numbers of your own)", ""]
+    extra = [item for item in mats["items"].values() if item["kind"] in ("section", "photo")]
+    if mats["source"] is None:
+        lines.append("There is no Rhino snapshot and no massing scheme on the drafting table yet, so there are no figures or diagrams to place."
+                     + (" Only the materials below can be placed; say in the document that the model is missing." if extra else
+                        " List text slides only and say in the document that the model is missing."))
+        lines += [f"- `{item['key']}`: {item['title']}" + ("" if item["ready"] else f" (cannot be made now: {item['why']})") for item in extra]
         return "\n".join(lines)
     for item in mats["items"].values():
         state = "" if item["ready"] else f" (cannot be made now: {item['why']})"
         lines.append(f"- `{item['key']}`: {item['title']}{state}")
+    if extra:
+        lines += ["", "A `section:` key is a section drawing and a `photo:` key a picture the designer put on the drafting table "
+                      "(you cannot see them: place them by their titles, do not describe what they show)."]
     limits = diagrams.limit_lines(mats["limits"])
     if limits:
         lines += ["", "The limits the ratios are set against (as the site facts have them):"] + [f"- {line}" for line in limits]

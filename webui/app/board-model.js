@@ -600,8 +600,9 @@ export function snapTape(pointer, segments, project, radius = 10) {
 // Both take two clicks (2026-11-10 지훈, no drag): the first sets the start (the radius tool's
 // centre), the pointer then shows the line or circle, and the second click sets the end. A circle
 // lies flat and measures across the ground (x, y); the tape measures straight (x, y, z).
-// What is measured is shown, never saved: the tape keeps its last line, the radius tool up to
-// MAX_CIRCLES circles, until Esc or another tool.
+// The tape's line is only shown (its last one, until Esc or another tool). The radius tool's
+// circles, up to MAX_CIRCLES, are kept with the board (savedCircles, PUT .../board/circles) so a
+// distance studied once is there the next time; Esc takes them all away.
 export const MAX_CIRCLES = 10;
 export const emptyMeasure = () => ({ start: null, circles: [], line: null });
 
@@ -630,6 +631,14 @@ export function siteCircles(state, centre, radii) {
   const circles = radii.map((r) => ({ c: { x: centre.x, y: centre.y, z: 0 }, r, b: { x: centre.x, y: centre.y + r, z: 0 } }));
   return { ...state, start: null, circles: [...state.circles, ...circles].slice(-MAX_CIRCLES) };
 }
+
+// The circles as the board keeps them ({x, y, z, r, bx, by}), and back as the tool holds them.
+export const savedCircles = (circles) => (circles || []).map((k) => ({
+  x: cm2(k.c.x), y: cm2(k.c.y), z: cm2(k.c.z || 0), r: cm2(k.r), bx: cm2(k.b.x), by: cm2(k.b.y),
+}));
+export const shownCircles = (saved) => (saved || []).filter((k) => k && k.r > 0).slice(-MAX_CIRCLES).map((k) => ({
+  c: { x: k.x, y: k.y, z: k.z || 0 }, r: k.r, b: { x: k.bx ?? k.x, y: k.by ?? k.y + k.r, z: k.z || 0 },
+}));
 
 // n points round a circle of radius r about c, at c's height.
 export function circlePoints(c, r, n = 96) {
@@ -1026,13 +1035,83 @@ const m2 = (v) => `${Math.round(v * 10) / 10}㎡`;
 
 // ------------------------------------------------------------------ figures of blocks
 
-// What blocks add up to, by the same rule as the server's mass_figures (sida/board.py): a
-// footprint is width × depth, a floor area footprint × floors, and both are set against the
-// site's area from government data (`site`: siteCard(); none, or no area: no ratios). Overlaps
-// between blocks are not taken out. `bcr` and `far` are the zone's statutory caps (%), or null.
+// The area a set of convex shapes (corner lists, counter-clockwise) covers together, the shared
+// parts counted once. Each edge is cut where the other shapes' edges cross it, and only the
+// pieces on the outside of the whole are added up (Green's theorem). Where two shapes share a
+// stretch of edge running the same way, the earlier shape's piece counts; running opposite ways
+// (two blocks side by side) both count and cancel.
+export function unionArea(shapes) {
+  const EPS = 1e-9;
+  const edges = (poly) => poly.map((p, i) => [p, poly[(i + 1) % poly.length]]);
+  // -1 outside, 1 strictly inside, 0 on the edge `k` of the shape (returned as {on: k})
+  const where = (poly, [x, y]) => {
+    let on = -1;
+    for (const [k, [p, q]] of edges(poly).entries()) {
+      const cross = (q[0] - p[0]) * (y - p[1]) - (q[1] - p[1]) * (x - p[0]);
+      const len = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
+      if (cross < -1e-7 * len) return { side: -1 };
+      if (cross <= 1e-7 * len) on = k;
+    }
+    return on < 0 ? { side: 1 } : { side: 0, on };
+  };
+  let twice = 0;
+  shapes.forEach((poly, i) => {
+    for (const [p, q] of edges(poly)) {
+      const dx = q[0] - p[0], dy = q[1] - p[1];
+      const cuts = [0, 1];
+      shapes.forEach((other, j) => {
+        if (j === i) return;
+        for (const [a, b] of edges(other)) {
+          const ex = b[0] - a[0], ey = b[1] - a[1];
+          const den = dx * ey - dy * ex;
+          if (Math.abs(den) < EPS) { // parallel: the other edge's ends, where they lie along this one
+            for (const c of [a, b]) {
+              const t = ((c[0] - p[0]) * dx + (c[1] - p[1]) * dy) / (dx * dx + dy * dy || 1);
+              if (t > EPS && t < 1 - EPS) cuts.push(t);
+            }
+            continue;
+          }
+          const t = ((a[0] - p[0]) * ey - (a[1] - p[1]) * ex) / den;
+          const u = ((a[0] - p[0]) * dy - (a[1] - p[1]) * dx) / den;
+          if (t > EPS && t < 1 - EPS && u > -EPS && u < 1 + EPS) cuts.push(t);
+        }
+      });
+      cuts.sort((m, n) => m - n);
+      for (let k = 0; k + 1 < cuts.length; k++) {
+        const t0 = cuts[k], t1 = cuts[k + 1];
+        if (t1 - t0 < EPS) continue;
+        const mid = [p[0] + dx * (t0 + t1) / 2, p[1] + dy * (t0 + t1) / 2];
+        const covered = shapes.some((other, j) => {
+          if (j === i) return false;
+          const at = where(other, mid);
+          if (at.side !== 0) return at.side > 0;
+          const [a, b] = edges(other)[at.on];
+          return j < i && (b[0] - a[0]) * dx + (b[1] - a[1]) * dy > 0; // the same stretch, the same way
+        });
+        if (covered) continue;
+        const x0 = p[0] + dx * t0, y0 = p[1] + dy * t0, x1 = p[0] + dx * t1, y1 = p[1] + dy * t1;
+        twice += x0 * y1 - x1 * y0;
+      }
+    }
+  });
+  return Math.abs(twice) / 2;
+}
+
+// What blocks add up to, by the same rule as the server's mass_figures (sida/board.py
+// blocks_areas): the building area is what the blocks cover together and the floor area what
+// they cover on each floor, so where blocks overlap (a tower drawn through its podium) the
+// shared part is counted once. Both are set against the site's area from government data
+// (`site`: siteCard(); none, or no area: no ratios). `bcr` and `far` are the caps to hold them
+// against (%; the ordinance's where it was read by rule, else the statutory ones), or null, and
+// `capFrom` says which ('조례' | '법정').
 export function massFigures(blocks, site = null) {
-  const footprint = blocks.reduce((sum, b) => sum + b.w * b.d, 0);
-  const gross = blocks.reduce((sum, b) => sum + b.w * b.d * b.floors, 0);
+  const shapes = blocks.map((b) => ({ poly: blockCorners(null, { ...b, u: b.u || 0, v: b.v || 0 }), floors: b.floors }));
+  const footprint = unionArea(shapes.map((s) => s.poly));
+  let gross = 0, below = 0;
+  for (const level of [...new Set(shapes.map((s) => s.floors))].sort((m, n) => m - n)) {
+    gross += unionArea(shapes.filter((s) => s.floors >= level).map((s) => s.poly)) * (level - below);
+    below = level;
+  }
   const area = site?.areaM2 > 0 ? site.areaM2 : null;
   const cap = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
   return {
@@ -1041,6 +1120,8 @@ export function massFigures(blocks, site = null) {
     far: area ? (gross / area) * 100 : null,
     bcr: area ? cap(site.bcr) : null,
     farCap: area ? cap(site.far) : null,
+    bcrFrom: site?.bcrFrom || '법정',
+    farFrom: site?.farFrom || '법정',
   };
 }
 
@@ -1048,9 +1129,9 @@ const pct = (v) => `${Math.round(v * 10) / 10}%`;
 const over = (value, cap) => cap !== null && value > cap + 1e-9;
 
 // A ratio with its statutory cap: "50% (법정 80% 이하)", "85% (법정 80% 초과)", or "50%".
-function ratioText(value, cap) {
+function ratioText(value, cap, from = '법정') {
   if (cap === null) return pct(value);
-  return `${pct(value)} (법정 ${cap}% ${over(value, cap) ? '초과' : '이하'})`;
+  return `${pct(value)} (${from} ${cap}% ${over(value, cap) ? '초과' : '이하'})`;
 }
 
 // How much floor is left under a cap (or past it): "48㎡ 남음", "6㎡ 넘음".
@@ -1062,14 +1143,14 @@ function roomText(used, capPct, area) {
 // The scheme's ratios against the caps, as rows of the 속성 panel; [] without the site's area.
 function schemeRatioRows(f, prefix = '') {
   if (f.coverage === null) return [];
-  const rows = [[`${prefix}건폐율`, ratioText(f.coverage, f.bcr)], [`${prefix}용적률`, ratioText(f.far, f.farCap)]];
+  const rows = [[`${prefix}건폐율`, ratioText(f.coverage, f.bcr, f.bcrFrom)], [`${prefix}용적률`, ratioText(f.far, f.farCap, f.farFrom)]];
   if (f.bcr !== null) rows.push(['건폐율 여유', roomText(f.footprint, f.bcr, f.area)]);
   if (f.farCap !== null) rows.push(['용적률 여유', roomText(f.gross, f.farCap, f.area)]);
   return rows;
 }
 
-// Whether two of the blocks overlap (more than touching): their figures then count the shared
-// part twice. Separating axes of the two rectangles, in the site's frame.
+// Whether two of the blocks overlap (more than touching): the figures count the shared part
+// once, and the panel says so. Separating axes of the two rectangles, in the site's frame.
 export function blocksOverlap(blocks) {
   const shapes = blocks.map((b) => blockCorners(null, { ...b, u: b.u || 0, v: b.v || 0 }));
   const apart = (a, b) => [a, b].some((poly) => poly.some((p, i) => {
@@ -1087,10 +1168,19 @@ export function blocksOverlap(blocks) {
   return false;
 }
 
-const OVERLAP_NOTE = '겹친 동이 있어 겹친 부분이 두 번 더해졌습니다. 실제 면적보다 크게 나옵니다.';
+// A ratio as a part of its cap for a gauge bar, as the Rhino panel and the diagrams draw it: the
+// track runs to GAUGE_RUN times the cap (the cap's mark stands at 1 / GAUGE_RUN of it), so a
+// ratio beyond that is cut there. null without a cap.
+export const GAUGE_RUN = 1.25;
+export function gaugePart(value, cap) {
+  if (value === null || value === undefined || !(cap > 0)) return null;
+  return Math.round(Math.min(Math.max(value / cap, 0), GAUGE_RUN) * 1000) / 1000;
+}
+
+const OVERLAP_NOTE = '겹친 동이 있습니다. 겹친 부분은 건축면적과 각 층 면적에 한 번만 셉니다.';
 
 // The band along the foot of the table while a scheme's blocks are picked or edited: its name and
-// either its ratios against the caps ({label, value, cap, over}) or, without the site's area, its
+// either its ratios against the caps ({label, value, cap, over, part}; `part` draws the bar) or, without the site's area, its
 // areas and why the ratios are missing. null without blocks.
 export function figuresBand(paper, site = null) {
   const blocks = paper?.blocks || [];
@@ -1098,8 +1188,8 @@ export function figuresBand(paper, site = null) {
   const f = massFigures(blocks, site);
   const items = f.coverage === null
     ? [{ label: '건축면적', value: m2(f.footprint) }, { label: '연면적', value: m2(f.gross) }, { label: '건폐율·용적률', value: '미확인 (대지면적 모름)' }]
-    : [{ label: '건폐율', value: pct(f.coverage), cap: f.bcr === null ? '' : `법정 ${f.bcr}%`, over: over(f.coverage, f.bcr) },
-      { label: '용적률', value: pct(f.far), cap: f.farCap === null ? '' : `법정 ${f.farCap}%`, over: over(f.far, f.farCap) }];
+    : [{ label: '건폐율', value: pct(f.coverage), cap: f.bcr === null ? '' : `${f.bcrFrom} ${f.bcr}%`, over: over(f.coverage, f.bcr), part: gaugePart(f.coverage, f.bcr) },
+      { label: '용적률', value: pct(f.far), cap: f.farCap === null ? '' : `${f.farFrom} ${f.farCap}%`, over: over(f.far, f.farCap), part: gaugePart(f.far, f.farCap) }];
   return { title: paperName(paper), items, overlap: blocksOverlap(blocks) };
 }
 
@@ -1114,8 +1204,8 @@ export function blockTag(paper, index, site = null) {
 // picked on their own (`blocks`: pickedBlocks()): {title, rows: [[label, value, field?]], note}.
 // A row with a `field` ({key, type: 'text' | 'number', min, max, step, unit}) can be changed in
 // the panel (propertyChange). A mass scheme's figures come from its blocks on the board
-// (footprints added up, overlaps not taken out), set against the site's area and the zone's
-// statutory caps when they are known (`site`: siteCard() of the saved site). Several papers: how
+// (what they cover together, massFigures), set against the site's area and the zone's
+// caps when they are known (`site`: siteCard() of the saved site). Several papers: how
 // many of each kind.
 export const PROPERTY_FIELDS = {
   title: { key: 'title', type: 'text', max: 120 },
@@ -1159,7 +1249,7 @@ export function propertiesOf(papers, site = null, blocks = [], layers = DEFAULT_
       ['건축면적', m2(f.footprint)], ['연면적', m2(f.gross)], ...schemeRatioRows(f));
     note = blocksOverlap(blocks)
       ? `${OVERLAP_NOTE} 동 하나를 누르면 그 동의 층수·크기와 건폐율 몫을 봅니다.`
-      : '제도판의 동을 더한 값입니다. 동끼리 겹친 부분은 빼지 않습니다. 동 하나를 누르면 그 동의 층수·크기와 건폐율 몫을 봅니다.';
+      : '제도판의 동이 덮는 넓이입니다. 동 하나를 누르면 그 동의 층수·크기와 건폐율 몫을 봅니다.';
   } else if (p.kind === 'section') {
     const [[x0, y0], [x1, y1]] = p.line || [[0, 0], [0, 0]];
     rows.push(['길이', `${round1(Math.hypot(x1 - x0, y1 - y0))}m`], ['뒤쪽 깊이', p.depth ?? 60, PROPERTY_FIELDS.depth], ['축척 (1:n)', p.scale ?? 500, PROPERTY_FIELDS.scale]);
@@ -1406,7 +1496,7 @@ export function changedFields(before, after) {
 
 function worthKeeping(edit) {
   if (edit.op === 'update') return Object.keys(edit.after || {}).length > 0 && !same(edit.before, edit.after);
-  if (edit.op === 'people') return !same(edit.before, edit.after);
+  if (edit.op === 'people' || edit.op === 'circles') return !same(edit.before, edit.after);
   return UNDOABLE_KINDS.includes(edit.paper?.kind);
 }
 
@@ -1419,7 +1509,7 @@ export function recordStep(history, edits) {
 export function invertStep(step) {
   return [...step].reverse().map((e) => {
     if (e.op === 'update') return { op: 'update', id: e.id, before: e.after, after: e.before };
-    if (e.op === 'people') return { op: 'people', before: e.after, after: e.before };
+    if (e.op === 'people' || e.op === 'circles') return { op: e.op, before: e.after, after: e.before };
     return { op: e.op === 'add' ? 'remove' : 'add', paper: e.paper };
   });
 }
@@ -1559,6 +1649,31 @@ export function pickPhotoFiles(files) {
 // buildings and the contour lines the screen draws at an interval the designer picks.
 
 export const CONTOUR_STEPS = [1, 2, 5];
+
+// ------------------------------------------------------------------ the tool bar's groups
+// The table's tools in four groups (2026-11-17): on a wide table they stand in one bar under their
+// group's name, on a narrower one each group folds to one button that opens its tools. An item is
+// a tool's id (table-shared.js TOOLS) or a button's (scheme-new, trace, photo, around, model-panel).
+export const TOOL_GROUPS = [
+  { id: 'mass', label: '매스', items: ['rect', 'push', 'move', 'rotate', 'scale', 'erase', 'scheme-new'] },
+  { id: 'measure', label: '재기', items: ['tape', 'radius', 'section'] },
+  { id: 'lay', label: '올리기', items: ['note', 'pen', 'person', 'trace', 'photo'] },
+  { id: 'around', label: '주변', items: ['around', 'model-panel'] },
+];
+export const TOOLBAR_WIDE = 1260; // px of table the unfolded bar needs (beside the history buttons and the idea board)
+
+export const toolbarFolded = (width) => !(width >= TOOLBAR_WIDE);
+export const toolGroupOf = (item) => TOOL_GROUPS.find((g) => g.items.includes(item))?.id || '';
+
+// The groups as the folded bar shows them: `shown` is the item on the group's button (the tool in
+// hand when it is the group's, else the one last used there, else its first) and `active` says the
+// tool in hand is one of the group's.
+export function toolbarGroups(tool, last = {}) {
+  return TOOL_GROUPS.map((g) => {
+    const active = g.items.includes(tool);
+    return { ...g, active, shown: active ? tool : (g.items.includes(last[g.id]) ? last[g.id] : g.items[0]) };
+  });
+}
 export const GROUND_COLORS = { g: 0xd9d1bf, r: 0xb3b3b0, s: 0xe6e1d6, w: 0x9cc7d9 };
 export const GROUND_NAMES = { g: '대지', r: '도로', s: '인도', w: '수계' };
 

@@ -310,7 +310,7 @@ def gpt_major_version(model: str) -> int | None:
 
 
 class OpenAIProvider:
-    """Official OpenAI Chat Completions API (used by Rhino modeling mode)."""
+    """Official OpenAI Chat Completions API."""
 
     name = "openai"
 

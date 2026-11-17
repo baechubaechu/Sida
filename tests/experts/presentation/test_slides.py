@@ -83,7 +83,7 @@ def test_materials_are_the_newest_snapshots_diagrams_captures_and_figures_each_r
     empty = slides.materials(project)
     assert empty["snapshot"] is None and empty["figures"] is None and not any(item["ready"] for item in empty["items"].values())
     assert set(empty["items"]) == {"diagram:program", "diagram:floors", "diagram:stack", "diagram:site", "diagram:limits", "figures"}
-    assert "라이노에서 Sida로 보내면" in empty["items"]["figures"]["why"]
+    assert "라이노에서 Sida로 보내면" in empty["items"]["figures"]["why"] and empty["source"] is None
 
     saved = send(project)
     mats = slides.materials(project)
@@ -161,7 +161,7 @@ def test_the_presentation_editor_is_told_the_keys_it_may_place_and_no_other_expe
 
     assert hooks.prompt_blocks(run_for("design_critic")) == []
     (block,) = hooks.prompt_blocks(run_for("presentation_editor"))
-    assert block.slot == FACTS and block.text.startswith("## Slide Materials") and "No Rhino snapshot has been sent yet" in block.text
+    assert block.slot == FACTS and block.text.startswith("## Slide Materials") and "no Rhino snapshot and no massing scheme" in block.text
 
     send(project, **masses_only())
     (block,) = hooks.prompt_blocks(run_for("presentation_editor"))
