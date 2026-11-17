@@ -81,16 +81,16 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
 
 앱이 주변 건물 높이에 쓰는 건축물대장 표제부 묶음을 이 서버가 매달 만들어 둡니다(설명은 `docs/site-context.md` "건축물대장 묶음"). 건축HUB 대용량 파일은 로그인 없이 받는 공개 자료(이용허락범위 제한 없음)이고 좌표가 없어 이 서버에 두어도 됩니다.
 
-- `relay/ledger/ledger_pull.py`를 `ledger` 계정이 매일 04:30쯤(`ledger-pull.timer`) 돌립니다. 새 달이 없으면 목록 한 장만 받고 끝납니다. 새 달이면 zip(약 650MB)을 `/var/tmp/sida-ledger`에 받아 묶음을 만들고 gzip으로 `/opt/sida-kr/ledger/`에 둔 뒤 zip을 지웁니다. 잠깐 1GB쯤의 여유가 필요합니다.
-- 중계 컨테이너는 `/opt/sida-kr/ledger`를 `/ledger`로 읽기만 합니다(`SIDA_LEDGER_DIR`).
+- `relay/ledger/ledger_pull.py`를 `ledger` 계정이 매일 04:30쯤(`ledger-pull.timer`) 돌립니다. 새 달이 없으면 목록 한 장만 받고 끝납니다. 새 달이면 zip(약 650MB)을 `/opt/sida-kr/data/ledger-work`에 받아 묶음을 만들고 gzip으로 `/opt/sida-kr/data/ledger/`에 둔 뒤 zip을 지웁니다. 잠깐 1GB쯤의 여유가 필요합니다. 두 폴더 모두 추가 스토리지(sida-store, `/opt/sida-kr/data`)에 있고, 그 디스크가 붙어 있지 않으면 서비스가 돌지 않습니다(`RequiresMountsFor`).
+- 중계 컨테이너는 `/opt/sida-kr/data/ledger`를 `/ledger`로 읽기만 합니다(`SIDA_LEDGER_DIR`).
 - 기록 보기: `journalctl -u ledger-pull.service -n 20`. 바로 돌리기: `systemctl start ledger-pull.service`. 지역 추가: 서비스의 `--region 이름=시군구앞자리`(예: `gyeonggi=41`)를 더합니다.
 
 ### 처음 설치 (서버)
 
-1. 계정과 폴더: `useradd -r -m -d /var/lib/sida-ledger -s /usr/sbin/nologin ledger`, `mkdir -p /opt/sida-kr/ledger /var/tmp/sida-ledger && chown ledger:ledger /opt/sida-kr/ledger /var/tmp/sida-ledger && chmod 755 /opt/sida-kr/ledger`.
+1. 계정과 폴더: `useradd -r -m -d /var/lib/sida-ledger -s /usr/sbin/nologin ledger`, `mkdir -p /opt/sida-kr/data/ledger /opt/sida-kr/data/ledger-work && chown ledger:ledger /opt/sida-kr/data/ledger /opt/sida-kr/data/ledger-work && chmod 755 /opt/sida-kr/data/ledger`.
 2. 코드: `relay/ledger/ledger_pull.py`를 `/opt/sida-kr/ledger-sync/`에, 묶음 코드를 그 아래 `src/`에 같은 경로로 복사합니다(`sida/__init__.py`, `sida/experts/__init__.py`, `sida/experts/site/__init__.py`, `sida/experts/site/ledger_pack.py`, `sida/experts/site/terrain_pack.py`; 모두 표준 라이브러리만 씀). 묶음 형식(`ledger_pack.py`)이 바뀌면 다시 복사합니다. root 소유, 644.
 3. `ledger-pull.service`, `ledger-pull.timer`를 `/etc/systemd/system/`에 복사하고 `systemctl daemon-reload && systemctl enable --now ledger-pull.timer`. 첫 묶음은 `systemctl start ledger-pull.service`로 바로 만듭니다.
-4. `compose.yaml`의 `relay`에 `volumes: - ./ledger:/ledger:ro`를 더하고, 이미지를 다시 만들어 켭니다(`docker compose up -d --build relay`).
+4. `compose.yaml`의 `relay`에 `volumes: - ./data/ledger:/ledger:ro`를 더하고, 이미지를 다시 만들어 켭니다(`docker compose up -d --build relay`).
 5. 확인: `curl -H "Authorization: Bearer sida_…" https://sida-kr.duckdns.org/relay/ledger/manifest.json`.
 
 ## 앱에서 이 서버로 안 되는 것

@@ -17,7 +17,7 @@ has a new month:
 5. Gzip each pack next to the manifest, then write the manifest (atomically) and remove the files
    it no longer lists. The zip and the work files are removed whatever happened.
 
-    python3 ledger_pull.py --out /opt/sida-kr/ledger --work /var/tmp/sida-ledger --region seoul=11
+    python3 ledger_pull.py --out /opt/sida-kr/data/ledger --work /opt/sida-kr/data/ledger-work --region seoul=11
 
 The ledger_pack module is taken from the repository when run there, else from src/ next to this
 file (a copy made at install, relay/README.md).
