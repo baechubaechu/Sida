@@ -31,8 +31,10 @@ local_profiles:
 
 # Cheap always-on conversational model
 conductor:
-  # openrouter (default) | chatgpt | ollama | mock — ollama uses local_profiles[local_profile]
+  # openrouter (default) | chatgpt | anthropic | google | ollama | mock — ollama uses local_profiles[local_profile]
   # chatgpt = the user's own ChatGPT plan (Go/Plus/Pro), signed in on the settings screen
+  # anthropic = the user's own Anthropic API key (ANTHROPIC_API_KEY), model from anthropic_model
+  # google = the user's own Gemini API key (GEMINI_API_KEY), model from google_model
   provider: openrouter
   local_profile: local      # local (8GB, 7B) | local_plus (12GB+, qwen3.5:9b)
   base_url: http://127.0.0.1:11434   # Ollama server (native /api/chat)
@@ -48,6 +50,11 @@ conductor:
   # Model when provider=chatgpt: a slug from GET /api/settings/chatgpt/models.
   # That route ignores temperature and max_tokens.
   chatgpt_model: gpt-6.1-sol
+  # Model when provider=anthropic: a Claude API id. That route sends no temperature and asks for at
+  # least 16000 tokens (the model's thinking counts against them).
+  anthropic_model: claude-opus-5-5
+  # Model when provider=google: a Gemini API id (no temperature, at least 16000 output tokens).
+  google_model: gemini-4-hydrogen
   temperature: 0.4
   max_tokens: 2000
   prompt: agents/00_conductor.md
@@ -55,7 +62,7 @@ conductor:
   # When a reply has no ```action``` block, ask the model once more (JSON-only)
   # to extract the intended action. auto = local providers only | always | off
   action_recovery: auto
-  # Call experts through the provider's function tools (OpenRouter, ChatGPT, Ollama).
+  # Call experts through the provider's function tools (OpenRouter, ChatGPT, Anthropic, Gemini, Ollama).
   # auto = use them when the provider and model accept tools, else the action block | off
   tool_calls: auto
   # Experts the Conductor may run one after another for one designer message.
@@ -82,7 +89,7 @@ state_update:
   temperature: 0.2
 
 worker:
-  provider: openrouter          # openrouter | ollama | mock
+  provider: openrouter          # openrouter | chatgpt | anthropic | google | ollama | mock
   # model / num_ctx come from local_profiles[conductor.local_profile] when provider=ollama
   temperature: 0.3
   max_tokens: 2500

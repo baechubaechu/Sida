@@ -278,7 +278,7 @@ def test_models_need_a_sign_in(client):
 
 def test_settings_let_the_conductor_use_chatgpt(client, openai):
     body = client.get("/api/settings").json()
-    assert body["options"]["conductor_providers"] == ["openrouter", "ollama", "chatgpt"]
+    assert body["options"]["conductor_providers"] == ["openrouter", "ollama", "chatgpt", "anthropic", "google"]
     assert body["chatgpt"]["signed_in"] is False and body["chatgpt"]["model"] == "gpt-6.1-sol"
     r = client.put(
         "/api/settings", json={"conductor_provider": "chatgpt", "chatgpt_model": "gpt-6.1-mini"}
@@ -294,7 +294,7 @@ def test_settings_let_the_conductor_use_chatgpt(client, openai):
 
 def test_experts_can_run_on_chatgpt_with_their_own_model(client, openai):
     body = client.get("/api/settings").json()
-    assert body["options"]["worker_providers"] == ["openrouter", "ollama", "chatgpt"]
+    assert body["options"]["worker_providers"] == ["openrouter", "ollama", "chatgpt", "anthropic", "google"]
     assert body["chatgpt"]["worker_model"] == "gpt-6.1-sol"
     r = client.put(
         "/api/settings", json={"worker_provider": "chatgpt", "worker_chatgpt_model": "gpt-6-luna"}

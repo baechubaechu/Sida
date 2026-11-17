@@ -19,6 +19,10 @@ class SettingsChange(BaseModel):
     worker_provider: str | None = None
     chatgpt_model: str | None = None
     worker_chatgpt_model: str | None = None
+    anthropic_model: str | None = None
+    worker_anthropic_model: str | None = None
+    google_model: str | None = None
+    worker_google_model: str | None = None
     rag_enabled: bool | None = None
     state_update: str | None = None
     telemetry_enabled: bool | None = None
@@ -59,6 +63,14 @@ def create_router(load_config, core) -> APIRouter:
     def put_settings(body: SettingsChange) -> dict:
         call(settings.update_settings, load_config(), body.model_dump(exclude_none=True))
         return call(settings.settings_view, load_config())
+
+    @router.get("/models/{provider}")
+    def get_models(provider: str) -> dict:
+        """The models this PC's Anthropic or Gemini key may use, read from the service now."""
+        try:
+            return call(settings.model_list, provider)
+        except settings.ModelListError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     @router.put("/keys/{key_id}")
     def put_key(key_id: str, body: KeyValue) -> dict:

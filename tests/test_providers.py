@@ -416,3 +416,256 @@ def test_ollama_asks_the_models_card_whether_it_sees_pictures_once(monkeypatch):
 
     monkeypatch.setattr(providers.requests, "post", down)
     assert providers.OllamaProvider().sees_images("llava") is False
+
+
+# ---------------------------------------------------------------------------
+# Anthropic (Claude API key, official SDK, streamed)
+# ---------------------------------------------------------------------------
+
+
+class _Obj:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+def _claude_message(*blocks, stop="end_turn", usage=None):
+    usage = usage or _Obj(input_tokens=10, output_tokens=5, cache_read_input_tokens=100, cache_creation_input_tokens=20)
+    return _Obj(content=list(blocks), stop_reason=stop, usage=usage)
+
+
+class FakeClaude:
+    """Stands in for anthropic.Anthropic: records each request, answers from a queue (an exception is raised)."""
+
+    def __init__(self, *replies):
+        self.requests = []
+        self.replies = list(replies)
+        self.beta = _Obj(messages=_Obj(stream=self._stream))
+
+    def _stream(self, **request):
+        self.requests.append(request)
+        reply = self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
+        if isinstance(reply, Exception):
+            raise reply
+        return _Stream(reply)
+
+
+class _Stream:
+    def __init__(self, reply):
+        self.reply = reply
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def get_final_message(self):
+        return self.reply
+
+
+def claude(monkeypatch, *replies):
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    provider = make_provider("anthropic", api_key="sk-ant-test")
+    fake = FakeClaude(*replies)
+    provider._client = fake
+    return provider, fake
+
+
+def _status_error(status, text="bad"):
+    import anthropic
+    import httpx2
+
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx2.Response(status, request=request, json={"error": {"message": text}})
+    cls = {401: anthropic.AuthenticationError, 400: anthropic.BadRequestError, 429: anthropic.RateLimitError}.get(
+        status, anthropic.APIStatusError
+    )
+    return cls(text, response=response, body={"error": {"message": text}})
+
+
+SYSTEM_CACHED = [
+    {"role": "system", "content": [{"type": "text", "text": "rules", "cache_control": {"type": "ephemeral", "ttl": "1h"}}]},
+    {"role": "user", "content": [
+        {"type": "text", "text": "brief", "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": "state", "cache_control": {"type": "ephemeral"}},
+    ]},
+    {"role": "assistant", "content": "earlier answer"},
+    {"role": "user", "content": "now this"},
+]
+
+
+def test_make_provider_anthropic_needs_a_key():
+    assert make_provider("anthropic", api_key="sk-ant-x").name == "anthropic"
+    with pytest.raises(LLMError, match="Anthropic API key"):
+        make_provider("anthropic", api_key="")
+
+
+def test_claude_request_moves_system_out_keeps_cache_marks_and_sends_no_temperature(monkeypatch):
+    provider, fake = claude(monkeypatch, _claude_message(_Obj(type="thinking"), _Obj(type="text", text=" hi ")))
+    text, usage = provider.chat("claude-opus-5-5", SYSTEM_CACHED, 0.2, 2000)
+    assert text == "hi"
+    req = fake.requests[0]
+    assert req["system"] == [{"type": "text", "text": "rules", "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
+    assert [m["role"] for m in req["messages"]] == ["user", "assistant", "user"]
+    assert req["messages"][0]["content"][1]["cache_control"] == {"type": "ephemeral"}
+    assert "temperature" not in req
+    assert req["max_tokens"] == providers.ANTHROPIC_MIN_TOKENS  # room for the model's thinking
+    # Refusals are re-run server-side on the model Anthropic picks for that kind of refusal.
+    assert req["fallbacks"] == "default" and req["betas"] == [providers.ANTHROPIC_FALLBACK_BETA]
+    assert usage == {"prompt_tokens": 130, "completion_tokens": 5, "prompt_tokens_details": {"cached_tokens": 100}}
+
+
+def test_claude_request_drops_cache_marks_past_four_and_joins_same_role_turns(monkeypatch):
+    provider, fake = claude(monkeypatch, _claude_message(_Obj(type="text", text="ok")))
+    marked = {"type": "text", "text": "x", "cache_control": {"type": "ephemeral"}}
+    messages = [
+        {"role": "system", "content": [dict(marked), dict(marked)]},
+        {"role": "user", "content": [dict(marked), dict(marked), dict(marked)]},
+        {"role": "system", "content": "late note"},
+    ]
+    provider.chat("claude-haiku-5-5", messages, 0, 100)
+    req = fake.requests[0]
+    blocks = [*req["system"], *(b for m in req["messages"] for b in m["content"])]
+    assert sum("cache_control" in b for b in blocks) == 4
+    assert len(req["messages"]) == 1 and req["messages"][0]["content"][-1] == {"type": "text", "text": "late note"}
+    assert "fallbacks" not in req and "betas" not in req  # no server-side fallback for this model
+
+
+def test_claude_pictures_go_as_base64_images(monkeypatch):
+    provider, fake = claude(monkeypatch, _claude_message(_Obj(type="text", text="I see it")))
+    picture = providers.image_part(b"png-bytes", "image/png")
+    provider.chat("claude-opus-5-5", [{"role": "user", "content": [{"type": "text", "text": "look"}, picture]}], 0, 100)
+    part = fake.requests[0]["messages"][0]["content"][1]
+    assert part == {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": picture["data"]}}
+    assert providers.sees_images(provider, "claude-opus-5-5")
+
+
+def test_claude_tools_are_sent_as_input_schema_and_calls_come_back(monkeypatch):
+    reply = _claude_message(
+        _Obj(type="text", text="Asking the site analyst."),
+        _Obj(type="tool_use", name="run_expert", input={"expert": "site_analyst"}),
+        stop="tool_use",
+    )
+    provider, fake = claude(monkeypatch, reply)
+    tools = [{"name": "run_expert", "description": "Run one expert", "parameters": {"type": "object"}}]
+    text, calls, _ = provider.chat_tools("claude-opus-5-5", [{"role": "user", "content": "go"}], tools, 0.2, 100)
+    assert fake.requests[0]["tools"] == [{"name": "run_expert", "description": "Run one expert", "input_schema": {"type": "object"}}]
+    assert "tool_choice" not in fake.requests[0]
+    assert text == "Asking the site analyst."
+    assert calls == [{"name": "run_expert", "arguments": {"expert": "site_analyst"}}]
+
+
+def test_claude_refusal_is_an_error_not_an_empty_reply(monkeypatch):
+    provider, _ = claude(monkeypatch, _claude_message(stop="refusal"))
+    with pytest.raises(LLMError, match="declined"):
+        provider.chat("claude-opus-5-5", [{"role": "user", "content": "x"}], 0, 100)
+
+
+def test_claude_errors_retry_on_busy_and_stop_on_a_bad_key(monkeypatch):
+    provider, fake = claude(monkeypatch, _status_error(529, "overloaded"), _claude_message(_Obj(type="text", text="ok")))
+    assert provider.chat("claude-opus-5-5", [{"role": "user", "content": "x"}], 0, 100)[0] == "ok"
+    assert len(fake.requests) == 2
+
+    provider, fake = claude(monkeypatch, _status_error(401, "invalid x-api-key"))
+    with pytest.raises(LLMError, match="refused the API key"):
+        provider.chat("claude-opus-5-5", [{"role": "user", "content": "x"}], 0, 100)
+    assert len(fake.requests) == 1
+
+
+def test_claude_image_refusal_is_images_unsupported(monkeypatch):
+    provider, _ = claude(monkeypatch, _status_error(400, "This model does not support image input"))
+    picture = providers.image_part(b"x")
+    with pytest.raises(providers.ImagesUnsupported):
+        provider.chat("claude-x", [{"role": "user", "content": [{"type": "text", "text": "a"}, picture]}], 0, 100)
+
+
+# ---------------------------------------------------------------------------
+# Google Gemini (Gemini API key, REST)
+# ---------------------------------------------------------------------------
+
+
+class FakeResponse:
+    def __init__(self, status=200, body=None):
+        self.status_code = status
+        self.body = body or {}
+        self.text = json.dumps(self.body)
+
+    def json(self):
+        return self.body
+
+
+def gemini(monkeypatch, *replies):
+    calls = []
+    queue = list(replies)
+
+    def post(url, headers=None, json=None, timeout=None):
+        calls.append({"url": url, "headers": headers, "json": json})
+        return queue.pop(0) if len(queue) > 1 else queue[0]
+
+    monkeypatch.setattr(providers.requests, "post", post)
+    monkeypatch.setattr(time, "sleep", lambda *_: None)
+    return make_provider("google", api_key="AIza-test"), calls
+
+
+def _gemini_reply(*parts, finish="STOP"):
+    return FakeResponse(body={
+        "candidates": [{"content": {"role": "model", "parts": list(parts)}, "finishReason": finish}],
+        "usageMetadata": {"promptTokenCount": 120, "candidatesTokenCount": 7, "thoughtsTokenCount": 30,
+                          "cachedContentTokenCount": 100},
+    })
+
+
+def test_make_provider_google_needs_a_key():
+    assert make_provider("google", api_key="AIza-x").name == "google"
+    with pytest.raises(LLMError, match="Gemini API key"):
+        make_provider("google", api_key="")
+
+
+def test_gemini_request_shape_and_reply(monkeypatch):
+    provider, calls = gemini(monkeypatch, _gemini_reply({"text": "thinking…", "thought": True}, {"text": " hi "}))
+    text, usage = provider.chat("gemini-4-hydrogen", SYSTEM_CACHED, 0.2, 2000)
+    assert text == "hi"  # thought parts are left out
+    sent = calls[0]
+    assert sent["url"].endswith("/models/gemini-4-hydrogen:generateContent")
+    assert sent["headers"]["x-goog-api-key"] == "AIza-test"
+    body = sent["json"]
+    assert body["systemInstruction"] == {"parts": [{"text": "rules"}]}
+    assert [c["role"] for c in body["contents"]] == ["user", "model", "user"]
+    assert body["contents"][0]["parts"] == [{"text": "brief"}, {"text": "state"}]
+    assert "temperature" not in body["generationConfig"]
+    assert body["generationConfig"]["maxOutputTokens"] == providers.GEMINI_MIN_TOKENS
+    assert usage == {"prompt_tokens": 120, "completion_tokens": 37, "prompt_tokens_details": {"cached_tokens": 100}}
+
+
+def test_gemini_pictures_and_tools(monkeypatch):
+    reply = _gemini_reply({"text": "Asking."}, {"functionCall": {"name": "run_expert", "args": {"expert": "site_analyst"}}})
+    provider, calls = gemini(monkeypatch, reply)
+    picture = providers.image_part(b"png", "image/png")
+    tools = [{"name": "run_expert", "description": "Run one expert", "parameters": {
+        "type": "object", "properties": {"expert": {"type": "string"}}, "additionalProperties": False}}]
+    text, found, _ = provider.chat_tools("gemini-4-hydrogen", [{"role": "user", "content": [{"type": "text", "text": "go"}, picture]}],
+                                         tools, 0.2, 100)
+    body = calls[0]["json"]
+    assert body["contents"][0]["parts"][1] == {"inlineData": {"mimeType": "image/png", "data": picture["data"]}}
+    declared = body["tools"][0]["functionDeclarations"][0]
+    assert declared["parameters"] == {"type": "object", "properties": {"expert": {"type": "string"}}}  # no additionalProperties
+    assert text == "Asking." and found == [{"name": "run_expert", "arguments": {"expert": "site_analyst"}}]
+
+
+def test_gemini_blocked_cut_and_errors(monkeypatch):
+    provider, _ = gemini(monkeypatch, FakeResponse(body={"promptFeedback": {"blockReason": "SAFETY"}}))
+    with pytest.raises(LLMError, match="declined"):
+        provider.chat("gemini-4-hydrogen", [{"role": "user", "content": "x"}], 0, 100)
+
+    provider, _ = gemini(monkeypatch, _gemini_reply(finish="MAX_TOKENS"))
+    with pytest.raises(LLMError, match="maxOutputTokens"):
+        provider.chat("gemini-4-hydrogen", [{"role": "user", "content": "x"}], 0, 100)
+
+    provider, calls = gemini(monkeypatch, FakeResponse(503, {"error": "busy"}), _gemini_reply({"text": "ok"}))
+    assert provider.chat("gemini-4-hydrogen", [{"role": "user", "content": "x"}], 0, 100)[0] == "ok"
+    assert len(calls) == 2
+
+    provider, calls = gemini(monkeypatch, FakeResponse(400, {"error": {"message": "API key not valid. Please pass a valid API key."}}))
+    with pytest.raises(LLMError, match="refused the Gemini API key"):
+        provider.chat("gemini-4-hydrogen", [{"role": "user", "content": "x"}], 0, 100)
+    assert len(calls) == 1

@@ -23,14 +23,23 @@ from sida.experts.regulation.rag import key_missing, rag_settings
 ENV_PATH = ROOT / ".env"
 OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
 OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta"
 MODES = ("cloud", "local")
 MODE_PROVIDER = {"cloud": "openrouter", "local": "ollama"}
 WEB_PROVIDERS = ("openrouter", "ollama")
-# Either role can also run on the user's ChatGPT plan (docs/chatgpt-login.md); a run mode
-# never picks it, so it is chosen per role.
-CONDUCTOR_PROVIDERS = (*WEB_PROVIDERS, "chatgpt")
+# Either role can also run on the user's ChatGPT plan (docs/chatgpt-login.md) or the user's own
+# Anthropic or Gemini API key; a run mode never picks them, so they are chosen per role.
+CONDUCTOR_PROVIDERS = (*WEB_PROVIDERS, "chatgpt", "anthropic", "google")
 WORKER_PROVIDERS = CONDUCTOR_PROVIDERS
 STATE_MODES = ("ask", "auto", "off")
+# The models offered on the settings screen for a key provider (best first) when the service's own
+# list cannot be read (GET /api/settings/models/{provider} reads it, so new models show up there).
+KEY_MODELS = {
+    "anthropic": ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"),
+    "google": ("gemini-4-hydrogen", "gemini-4-carbon", "gemini-3.8-flash", "gemini-3.5-flash-lite"),
+}
+# Gemini models that cannot hold a conversation (pictures, speech, embeddings, live audio).
+_GEMINI_NOT_CHAT = ("embedding", "tts", "image", "live", "audio", "aqa")
 LOCAL_CONFIG_HEADER = (
     "# This machine only — not committed. Values here override config.yaml.\n"
     "# Change them from the settings screen or edit this file directly.\n"
@@ -40,6 +49,8 @@ LOCAL_CONFIG_HEADER = (
 KEYS: dict[str, dict[str, Any]] = {
     "openrouter": {"env": "OPENROUTER_API_KEY", "secret": True},
     "openai": {"env": "OPENAI_API_KEY", "secret": True},
+    "anthropic": {"env": "ANTHROPIC_API_KEY", "secret": True},
+    "google": {"env": "GEMINI_API_KEY", "secret": True},
     "vworld": {"env": "VWORLD_API_KEY", "secret": True},
     "vworld_domain": {"env": "VWORLD_DOMAIN", "secret": False},
     "data_go_kr": {"env": "DATA_GO_KR_API_KEY", "secret": True},
@@ -207,19 +218,105 @@ def _check_key(url: str, key: str) -> tuple[bool, str]:
     return False, f"HTTP {response.status_code}: {response.text[:200]}"
 
 
+def _check_anthropic_key(key: str) -> tuple[bool, str]:
+    """Ask Anthropic whether it accepts the key (lists the models it may use). Returns (ok, detail)."""
+    try:
+        import anthropic
+    except ImportError:
+        return False, "the anthropic package is missing (pip install -e .)"
+    client = anthropic.Anthropic(api_key=key, max_retries=0, timeout=30)
+    try:
+        client.models.list(limit=1)
+    except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as exc:
+        return False, f"unauthorized ({exc.status_code})"
+    except anthropic.APIStatusError as exc:
+        return False, f"HTTP {exc.status_code}: {str(exc.message)[:200]}"
+    except anthropic.APIConnectionError as exc:
+        return False, str(exc)
+    return True, "authorized"
+
+
+def _check_google_key(key: str) -> tuple[bool, str]:
+    """Ask the Gemini API whether it accepts the key (lists one model). Returns (ok, detail)."""
+    try:
+        response = requests.get(f"{GEMINI_URL}/models", params={"pageSize": 1},
+                                headers={"x-goog-api-key": key}, timeout=30)
+    except requests.RequestException as exc:
+        return False, str(exc)
+    if response.status_code == 200:
+        return True, "authorized"
+    if response.status_code in {400, 401, 403}:
+        return False, f"unauthorized ({response.status_code})"
+    return False, f"HTTP {response.status_code}: {response.text[:200]}"
+
+
 def verify_key(key_id: str, value: str) -> tuple[bool, str] | None:
     """Check a model key against its service before saving; None for keys with no check."""
     if key_id == "openrouter":
         return _check_key(OPENROUTER_KEY_URL, value)
     if key_id == "openai":
         return _check_key(OPENAI_MODELS_URL, value)
+    if key_id == "anthropic":
+        return _check_anthropic_key(value)
+    if key_id == "google":
+        return _check_google_key(value)
     return None
+
+
+class ModelListError(RuntimeError):
+    """The service's model list could not be read (no key, key refused, network)."""
+
+
+def _anthropic_models(key: str) -> list[dict]:
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=key, max_retries=0, timeout=30)
+    try:
+        return [{"id": m.id, "name": getattr(m, "display_name", "") or m.id}
+                for m in client.models.list(limit=100) if str(m.id).startswith("claude-")]
+    except anthropic.APIError as exc:
+        raise ModelListError(f"Anthropic: {exc}") from exc
+
+
+def _google_models(key: str) -> list[dict]:
+    try:
+        response = requests.get(f"{GEMINI_URL}/models", params={"pageSize": 1000},
+                                headers={"x-goog-api-key": key}, timeout=30)
+    except requests.RequestException as exc:
+        raise ModelListError(f"Gemini: {exc}") from exc
+    if response.status_code != 200:
+        raise ModelListError(f"Gemini: HTTP {response.status_code}")
+    out, later = [], []
+    for m in (response.json() or {}).get("models") or []:
+        model_id = str(m.get("name") or "").removeprefix("models/")
+        if not model_id.startswith("gemini") or "generateContent" not in (m.get("supportedGenerationMethods") or []):
+            continue
+        if any(word in model_id for word in _GEMINI_NOT_CHAT):
+            continue
+        row = {"id": model_id, "name": str(m.get("displayName") or model_id)}
+        (later if ("preview" in model_id or "exp" in model_id) else out).append(row)
+    return out + later  # previews after the stable ones
+
+
+def model_list(provider: str) -> dict:
+    """
+    The models this PC's key may use, read from the service now, so models released later show
+    up without an update: {"provider", "models": [{"id", "name"}], "live": True}. Raises
+    LookupError for a provider without a key of its own, ModelListError when it cannot be read.
+    """
+    if provider not in runtime.KEY_PROVIDERS:
+        raise LookupError(provider)
+    key = read_key(runtime.KEY_PROVIDERS[provider]["env"])
+    if not key:
+        raise ModelListError(f"{provider}: no API key saved")
+    models = _anthropic_models(key) if provider == "anthropic" else _google_models(key)
+    return {"provider": provider, "models": models, "live": True}
 
 
 def set_key(key_id: str, value: str) -> dict:
     """
     Save one key to .env and to this process, so the running server uses it at once.
-    OpenRouter and OpenAI keys are checked first and not saved when the service rejects
+    OpenRouter, OpenAI and Anthropic keys are checked first and not saved when the service rejects
     them (ValueError). Government keys are saved as given.
     """
     if key_id not in KEYS:
@@ -290,12 +387,25 @@ def settings_view(config: dict) -> dict:
                 (config.get("worker") or {}).get("chatgpt_model") or runtime.DEFAULT_CHATGPT_MODEL
             ),
         },
+        **{
+            provider: {
+                "model": str((config.get("conductor") or {}).get(spec["model_key"]) or spec["default"]),
+                "worker_model": str((config.get("worker") or {}).get(spec["model_key"]) or spec["default"]),
+                "models": list(KEY_MODELS[provider]),
+            }
+            for provider, spec in runtime.KEY_PROVIDERS.items()
+        },
         "warnings": {
             "openrouter_key_missing": runtime.needs_openrouter(config)
             and not values.get("OPENROUTER_API_KEY", "").strip(),
             "rag_key_missing": key_missing(rag),
             "chatgpt_signed_out": "chatgpt" in {conductor["provider"], worker["provider"]}
             and not chatgpt["signed_in"],
+            **{
+                f"{provider}_key_missing": provider in {conductor["provider"], worker["provider"]}
+                and not values.get(spec["env"], "").strip()
+                for provider, spec in runtime.KEY_PROVIDERS.items()
+            },
         },
         "options": {
             "modes": list(MODES),
@@ -340,6 +450,15 @@ def settings_patches(config: dict, changes: dict) -> list[tuple[str, str, Any]]:
             if not model or any(c.isspace() for c in model):
                 raise ValueError(f"{field} must be one model id, such as gpt-6.1-sol")
             patches.append((role, "chatgpt_model", model))
+    for spec in runtime.KEY_PROVIDERS.values():
+        key = spec["model_key"]
+        for field, role in ((key, "conductor"), (f"worker_{key}", "worker")):
+            model = changes.get(field)
+            if model is not None:
+                model = str(model).strip()
+                if not model or any(c.isspace() for c in model) or "/" in model:
+                    raise ValueError(f"{field} must be one model id of that service, such as {spec['default']}")
+                patches.append((role, key, model))
     for field, section, key in (
         ("rag_enabled", "rag", "enabled"),
         ("telemetry_enabled", "telemetry", "enabled"),

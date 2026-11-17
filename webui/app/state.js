@@ -63,7 +63,7 @@ export const ui = {
   // `layersSaving`: layer saves still on their way.
   // `layerFolded`: layers whose sublayers are folded away in the panel (this visit).
   layerPick: '', layerRename: '', layerRenameText: '', currentLayer: '', aroundHidden: false, layersSaving: 0, layerFolded: new Set(),
-  settings: null, settingsDraft: null, settingsError: '', settingsAdvancedOpen: false, chatgptModels: null, chatgptNote: '',
+  settings: null, settingsDraft: null, settingsError: '', settingsAdvancedOpen: false, chatgptModels: null, chatgptNote: '', keyModels: null,
   // The papers selected on the table, the buildings picked on their own (paperId#index), and a
   // value the 속성 panel refused ({key, text}).
   board: null, selected: [], picked: [], propError: null, 

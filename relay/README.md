@@ -81,17 +81,21 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
 
 앱이 주변 건물 높이에 쓰는 건축물대장 표제부 묶음을 이 서버가 매달 만들어 둡니다(설명은 `docs/site-context.md` "건축물대장 묶음"). 건축HUB 대용량 파일은 로그인 없이 받는 공개 자료(이용허락범위 제한 없음)이고 좌표가 없어 이 서버에 두어도 됩니다.
 
-- `relay/ledger/ledger_pull.py`를 `ledger` 계정이 매일 04:30쯤(`ledger-pull.timer`) 돌립니다. 새 달이 없으면 목록 한 장만 받고 끝납니다. 새 달이면 zip(약 650MB)을 `/var/tmp/sida-ledger`에 받아 묶음을 만들고 gzip으로 `/opt/sida-kr/ledger/`에 둔 뒤 zip을 지웁니다. 잠깐 1GB쯤의 여유가 필요합니다.
-- 중계 컨테이너는 `/opt/sida-kr/ledger`를 `/ledger`로 읽기만 합니다(`SIDA_LEDGER_DIR`).
+- `relay/ledger/ledger_pull.py`를 `ledger` 계정이 매일 04:30쯤(`ledger-pull.timer`) 돌립니다. 새 달이 없으면 목록 한 장만 받고 끝납니다. 새 달이면 zip(약 650MB)을 `/opt/sida-kr/data/ledger-work`에 받아 묶음을 만들고 gzip으로 `/opt/sida-kr/data/ledger/`에 둔 뒤 zip을 지웁니다. 잠깐 1GB쯤의 여유가 필요합니다. 두 폴더 모두 추가 스토리지(sida-store, `/opt/sida-kr/data`)에 있고, 그 디스크가 붙어 있지 않으면 서비스가 돌지 않습니다(`RequiresMountsFor`).
+- 중계 컨테이너는 `/opt/sida-kr/data/ledger`를 `/ledger`로 읽기만 합니다(`SIDA_LEDGER_DIR`).
 - 기록 보기: `journalctl -u ledger-pull.service -n 20`. 바로 돌리기: `systemctl start ledger-pull.service`. 지역 추가: 서비스의 `--region 이름=시군구앞자리`(예: `gyeonggi=41`)를 더합니다.
 
 ### 처음 설치 (서버)
 
-1. 계정과 폴더: `useradd -r -m -d /var/lib/sida-ledger -s /usr/sbin/nologin ledger`, `mkdir -p /opt/sida-kr/ledger /var/tmp/sida-ledger && chown ledger:ledger /opt/sida-kr/ledger /var/tmp/sida-ledger && chmod 755 /opt/sida-kr/ledger`.
+1. 계정과 폴더: `useradd -r -m -d /var/lib/sida-ledger -s /usr/sbin/nologin ledger`, `mkdir -p /opt/sida-kr/data/ledger /opt/sida-kr/data/ledger-work && chown ledger:ledger /opt/sida-kr/data/ledger /opt/sida-kr/data/ledger-work && chmod 755 /opt/sida-kr/data/ledger`.
 2. 코드: `relay/ledger/ledger_pull.py`를 `/opt/sida-kr/ledger-sync/`에, 묶음 코드를 그 아래 `src/`에 같은 경로로 복사합니다(`sida/__init__.py`, `sida/experts/__init__.py`, `sida/experts/site/__init__.py`, `sida/experts/site/ledger_pack.py`, `sida/experts/site/terrain_pack.py`; 모두 표준 라이브러리만 씀). 묶음 형식(`ledger_pack.py`)이 바뀌면 다시 복사합니다. root 소유, 644.
 3. `ledger-pull.service`, `ledger-pull.timer`를 `/etc/systemd/system/`에 복사하고 `systemctl daemon-reload && systemctl enable --now ledger-pull.timer`. 첫 묶음은 `systemctl start ledger-pull.service`로 바로 만듭니다.
-4. `compose.yaml`의 `relay`에 `volumes: - ./ledger:/ledger:ro`를 더하고, 이미지를 다시 만들어 켭니다(`docker compose up -d --build relay`).
+4. `compose.yaml`의 `relay`에 `volumes: - ./data/ledger:/ledger:ro`를 더하고, 이미지를 다시 만들어 켭니다(`docker compose up -d --build relay`).
 5. 확인: `curl -H "Authorization: Bearer sida_…" https://sida-kr.duckdns.org/relay/ledger/manifest.json`.
+
+### 대지 하나의 대장 찾기
+
+묶음이 없는 PC는 묶음을 통째로 받지 않고, 대지 주변 필지의 표제부만 묻습니다(`POST /relay/ledger/lookup`, `{"pnus": [...]}` 최대 2,000개 → `{"rows": {pnu: [...]}, "month"}`). 서버는 `/ledger`의 압축 안 푼 `*.ledger.sqlite`에서 찾습니다(`ledger_pull`이 gzip 옆에 남김). 하루 한도에 함께 셉니다.
 
 ## 공유 (보기 링크와 댓글)
 
@@ -154,6 +158,14 @@ zip 안의 `snapshot.json`은 4MB, 사진 한 장은 3MB, 요청 본문은 한 �
 
 백업은 `/opt/sida-kr/data/shares`의 `shares.db`와 `files/`입니다. 보관 기한이 30일이라 꼭 필요하지는 않습니다.
 
+## 대지 주변 지형 (`POST /relay/terrain/ground`)
+
+묶음이 없는 PC는 대지 하나의 주변 지형만 받습니다(`{"lon", "lat", "radius"}`, 반경 최대 1,500m = 한 변 3km). 답은 **대지 가운데를 (0, 0)으로 한 미터 좌표와 대지 바닥 기준 상대 높이**뿐입니다. 경위도와 해발 높이는 내보내지 않습니다(국토지리정보원 보안관리규정 [별표 1]: 좌표와 1:5,000 등고선·표고값을 인터넷에 함께 표시 금지. 이 방식이 괜찮은지는 국토지리정보원에 문의 중). 높이는 미리 계산한 지형 칸에서 읽기만 하고, 칸이 범위를 다 덮지 않으면 높이 없이(평지) 영역·차선·건물만 보냅니다. 한 번에 하나만 만듭니다.
+
+1. 지형 묶음(`*.terrain.sqlite`)과 지형 칸(`*.ground.sqlite`)을 `/opt/sida-kr/data/terrain/`에 둡니다(지훈 PC `~/Sida/context_data`에서 복사, 국외 서버에는 두지 않음).
+2. `compose.yaml`의 `relay`에 `- ./data/terrain:/terrain:ro`를 더하고, `mem_limit`을 `512m`으로 올립니다(넓은 범위는 메모리를 씁니다).
+3. 이미지를 다시 만듭니다. 이미지에는 앱의 `sida/` 코드가 들어갑니다(아래 설치 2번).
+
 ## 앱에서 이 서버로 안 되는 것
 
 - 법제처 별표 파일 내려받기는 원래 키가 필요 없어 계속 직접 받습니다.
@@ -163,7 +175,7 @@ zip 안의 `snapshot.json`은 4MB, 사진 한 장은 3MB, 요청 본문은 한 �
 `/opt/sida-kr`에 이미 `caddy`가 있다는 전제입니다(`compose.yaml`, `Caddyfile`).
 
 1. 서버용 정부 키를 받습니다. 브이월드는 **이 서버 주소**(`https://sida-kr.duckdns.org`)로 키를 받아야 합니다(개발키는 6개월, 운영키는 심사). 공공데이터포털·법제처도 서버용으로 따로 받는 것을 권합니다.
-2. 이 폴더의 `Dockerfile`, `requirements.txt`, `__init__.py`, `app.py`, `tokens.py`, `shares.py`, `admin.py`와 `static/` 폴더를 서버의 `/opt/sida-kr/relay/`에 복사합니다(예: `git archive origin/main relay | ssh 서버 "tar -x -C /tmp"`).
+2. 이 폴더의 `Dockerfile`, `requirements.txt`, `__init__.py`, `app.py`, `tokens.py`, `shares.py`, `admin.py`와 `static/` 폴더를 서버의 `/opt/sida-kr/relay/`에, 저장소의 `sida/` 폴더를 `/opt/sida-kr/relay/sida/`에 복사합니다(지형·대장 찾기가 앱 코드를 그대로 씀). 예: `git archive origin/main relay sida | ssh 서버 "rm -rf /tmp/r && mkdir /tmp/r && tar -x -C /tmp/r"` 뒤 서버에서 `rsync -a /tmp/r/relay/ /opt/sida-kr/relay/ && rsync -a --delete /tmp/r/sida/ /opt/sida-kr/relay/sida/`.
 3. `/opt/sida-kr/relay.env`를 만듭니다(권한 600, 저장소에 넣지 않음).
 
    ```
@@ -184,7 +196,7 @@ zip 안의 `snapshot.json`은 4MB, 사진 한 장은 3MB, 요청 본문은 한 �
        env_file: relay.env
        volumes:
          - relay-data:/data
-       mem_limit: 192m
+       mem_limit: 512m
        restart: unless-stopped
    volumes:
      relay-data:

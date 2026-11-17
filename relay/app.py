@@ -26,12 +26,19 @@ back as it came (status, content type, body).
   is then in the viewer's browser, as with any web map, so it is a key of its own with only the
   3D map on it (VWORLD_3D_API_KEY; no 3D page without it), and only the Sida app's own pages may
   frame the page.
+- Sites without packs on their PC ask for just what one site needs: the 건축물대장 rows of its
+  parcels (POST /relay/ledger/lookup, from the monthly packs) and the ground around it (POST
+  /relay/terrain/ground, from the terrain packs and ground tiles in SIDA_TERRAIN_DIR). The ground
+  goes out in metres from the site's middle with heights relative to the ground there, never with
+  lon/lat or heights above sea level (context3d.shared_ground; 국토지리정보원 보안관리규정 [별표 1]),
+  and is only read from tiles made ahead of time, never solved here.
 
 Run: uvicorn relay.app:from_env --factory (see relay/README.md).
 """
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import re
@@ -49,6 +56,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from relay.shares import LimitReached, Limits, ShareError, ShareStore
 from relay.tokens import MAX_CONTACT, Token, TokenStore
+from sida.experts.site import context3d, ledger_pack, terrain_pack
 
 VWORLD_URL = "https://api.vworld.kr"
 DATAGO_URL = "https://apis.data.go.kr/1613000"
@@ -81,6 +89,15 @@ _LAW_TARGETS = {"aiSearch", "ordin"}
 # 건축물대장 packs made on this server each month (relay/ledger/ledger_pull.py), for the apps to download.
 LEDGER_MANIFEST = "manifest.json"
 _LEDGER_FILE = re.compile(r"^[a-z0-9_-]{1,40}-\d{4}-\d{2}\.ledger\.sqlite\.gz$")
+# 건축물대장 rows by PNU from those packs (unpacked next to the gzips), for one site at a time.
+MAX_LOOKUP_PNUS = 2000
+_PNU = re.compile(r"^\d{19}$")
+# The ground around one site from the terrain packs and ground tiles (/opt/sida-kr/data/terrain):
+# local metres and heights relative to the site only (context3d.shared_ground), at most a 3 km side.
+MAX_GROUND_RADIUS = 1500.0
+GROUND_AT_ONCE = 1  # ground answers made at the same time (the server has little memory)
+GROUND_WAIT = 20  # s an answer waits for its turn before "busy"
+KOREA = {"lon": (124.0, 132.0), "lat": (33.0, 39.0)}
 
 # Shares (공유, relay/shares.py): the viewer page and the files it loads, from the app's own screen
 # files (webui/app, mounted on the server at SIDA_VIEWER_DIR). Only these are served.
@@ -195,6 +212,20 @@ class ClaimBody(BaseModel):
     claim: str = Field(min_length=1, max_length=100)
 
 
+class LedgerLookupBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pnus: list[str] = Field(min_length=1, max_length=MAX_LOOKUP_PNUS)
+
+
+class GroundBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    lon: float = Field(ge=KOREA["lon"][0], le=KOREA["lon"][1])
+    lat: float = Field(ge=KOREA["lat"][0], le=KOREA["lat"][1])
+    radius: float = Field(ge=50, le=MAX_GROUND_RADIUS)
+
+
 def _client_params(request: Request) -> dict[str, str]:
     items = list(request.query_params.multi_items())
     if len(items) > MAX_PARAMS or any(len(v) > MAX_PARAM_CHARS for _k, v in items):
@@ -227,6 +258,7 @@ class ResolveBody(BaseModel):
 def create_app(
     keys: Keys, store: TokenStore, *, fetch: Fetch | None = None, clock: Callable[[], float] = time.monotonic,
     ledger_dir: Path | None = None, shares: ShareStore | None = None, viewer_dir: Path | None = None,
+    terrain_dir: Path | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Sida relay", docs_url=None, redoc_url=None, openapi_url=None)
     get = fetch or _fetch
@@ -237,6 +269,7 @@ def create_app(
     comments_per_minute = MinuteLimit(COMMENTS_PER_MINUTE, clock)
     parcels_per_minute = MinuteLimit(PARCELS_PER_MINUTE, clock)
     around_per_minute = MinuteLimit(AROUND_PER_MINUTE, clock)
+    ground_turns = threading.BoundedSemaphore(GROUND_AT_ONCE)
 
     def address(request: Request) -> str:
         # Behind Caddy the sender is the first X-Forwarded-For address.
@@ -644,6 +677,39 @@ def create_app(
             raise refused(exc) from exc
         return public(comment, 201)
 
+    @app.post("/relay/ledger/lookup")
+    def ledger_lookup(body: LedgerLookupBody, request: Request) -> Response:
+        if not all(_PNU.match(p) for p in body.pnus):
+            raise HTTPException(status_code=400, detail="a PNU is 19 digits")
+        token = access_key(request, image=False)
+        if not ledger_dir or not ledger_pack.packs(ledger_dir):
+            raise HTTPException(status_code=503, detail="건축물대장 packs are not set up on the relay")
+
+        def look() -> Response:
+            rows, meta = ledger_pack.lookup(body.pnus, ledger_dir)
+            return private({"rows": rows, "month": (meta or {}).get("month", "")})
+
+        return counted(token, "ledger", look)
+
+    @app.post("/relay/terrain/ground")
+    def terrain_ground(body: GroundBody, request: Request) -> Response:
+        token = access_key(request, image=False)
+        if not terrain_dir or not terrain_pack.packs(terrain_dir):
+            raise HTTPException(status_code=503, detail="terrain packs are not set up on the relay")
+
+        def make() -> Response:
+            if not ground_turns.acquire(timeout=GROUND_WAIT):
+                raise HTTPException(status_code=503, detail="busy, try again")
+            try:
+                shared = context3d.shared_ground(body.lon, body.lat, body.radius, folder=terrain_dir)
+            finally:
+                ground_turns.release()
+            packed = gzip.compress(json.dumps(shared, separators=(",", ":")).encode(), 6)
+            return Response(content=packed, media_type="application/json",
+                            headers={"Content-Encoding": "gzip", "Cache-Control": "no-store"})
+
+        return counted(token, "terrain", make)
+
     return app
 
 
@@ -653,4 +719,5 @@ def from_env() -> FastAPI:
     return create_app(Keys.from_env(), TokenStore(os.environ.get("SIDA_RELAY_DB", "/data/relay.db")),
                       ledger_dir=Path(os.environ.get("SIDA_LEDGER_DIR", "/ledger")),
                       shares=ShareStore(share_dir, limits=Limits.from_env()) if share_dir else None,
-                      viewer_dir=Path(viewer_dir) if viewer_dir else None)
+                      viewer_dir=Path(viewer_dir) if viewer_dir else None,
+                      terrain_dir=Path(os.environ.get("SIDA_TERRAIN_DIR", "/terrain")))

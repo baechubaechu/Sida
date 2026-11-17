@@ -114,14 +114,33 @@ def test_without_an_access_key_nothing_is_asked(tmp_path):
 
 
 def test_the_check_runs_at_most_once_a_day_in_the_background(tmp_path, server, monkeypatch):
+    files, _ = server
     folder = tmp_path / "context_data"
+    publish(files, *made_pack(tmp_path, "2026-08"), "2026-08")
+    ledger_sync.update(folder, now=lambda: 0.0)
+    files.clear()
     started = []
     monkeypatch.setattr(ledger_sync.threading, "Thread",
                         lambda target, **kw: type("T", (), {"start": lambda self: started.append(target)})())
-    assert ledger_sync.check_soon(folder, now=lambda: 0.0)
+    assert ledger_sync.check_soon(folder, now=lambda: 2 * ledger_sync.CHECK_EVERY)
     started.pop()()  # run it here; nothing published → a network error, kept
     assert ledger_sync.status(folder)["error"] == "network" and not ledger_sync.status(folder)["running"]
-    assert not ledger_sync.check_soon(folder, now=lambda: ledger_sync.CHECK_EVERY - 1)
-    assert ledger_sync.check_soon(folder, now=lambda: ledger_sync.CHECK_EVERY - 1, force=True)
+    assert not ledger_sync.check_soon(folder, now=lambda: 3 * ledger_sync.CHECK_EVERY - 1)
+    assert ledger_sync.check_soon(folder, now=lambda: 3 * ledger_sync.CHECK_EVERY - 1, force=True)
     started.pop()()
-    assert ledger_sync.check_soon(folder, now=lambda: 2 * ledger_sync.CHECK_EVERY)
+    assert ledger_sync.check_soon(folder, now=lambda: 4 * ledger_sync.CHECK_EVERY)
+    started.pop()()
+
+
+def test_the_daily_check_only_keeps_packs_this_pc_has_current(tmp_path, server, monkeypatch):
+    files, _ = server
+    folder = tmp_path / "context_data"
+    publish(files, *made_pack(tmp_path, "2026-09"), "2026-09")
+    started = []
+    monkeypatch.setattr(ledger_sync.threading, "Thread",
+                        lambda target, **kw: type("T", (), {"start": lambda self: started.append(target)})())
+    assert not ledger_sync.check_soon(folder, now=lambda: 0.0)  # no pack here: nothing downloaded
+    assert ledger_sync.update(folder, new=False)["updated"] == []
+    assert ledger_sync.check_soon(folder, now=lambda: 0.0, force=True)  # the designer asked
+    started.pop()()
+    assert [p["month"] for p in ledger_sync.local_packs(folder)] == ["2026-09"]
