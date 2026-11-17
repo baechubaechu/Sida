@@ -48,6 +48,7 @@
 | `engine.py` | 화면과 무관한 세션 코어: `Session` 상태, Conductor 턴, 전문가 실행, 상태 반영. 값을 돌려주고 이벤트로 알리며 출력하지 않음 |
 | `conductor.py` / `conductor_context.py` | Conductor 메시지 조립·동작 해석·LLM 호출 / Conductor에게 보내는 프롬프트·최근 기록·전문가 결과 |
 | `talks.py` | 한 프로젝트 안의 여러 Conductor 대화 |
+| `views.py` | 질문과 함께 Conductor에 보내는 그림(라이노 뷰): 프로젝트에 보관, 기록에 표시, 최근 그림만 다시 보냄 |
 | `worker.py` | 전문가 하나 실행: 읽을 결과, 프롬프트, 로컬 컨텍스트 예산, 머리말 확인, 저장 |
 | `session_api.py` / `session_jobs.py` / `expert_chat.py` | 웹 세션: Conductor 대화, 백그라운드 전문가 실행, 전문가별 채팅([`session-api.md`](session-api.md)) |
 | `board.py` / `board_api.py` / `board_export.py` | 제도판: `board.json`의 종이, 고른 종이를 AI에게 보내기, DXF·3dm 내보내기([`board-api.md`](board-api.md)) |

@@ -19,11 +19,12 @@
 |---|---|---|
 | `GET /session` | | `{messages, talks, job, experts, proposal}` |
 | `POST /session/opening` | 본문 없음 | `202 {job}`. Conductor의 첫 인사. 화면을 열었을 때 `messages`가 비어 있으면 부르세요 |
-| `POST /session/messages` | `{text, context?}` | `202 {job}`. `context`는 제도판에서 고른 종이 id 목록([board-api.md](board-api.md)) |
+| `POST /session/messages` | `{text, context?, views?}` | `202 {job}`. `context`는 제도판에서 고른 종이 id 목록([board-api.md](board-api.md)). `views: true`이면 영역이 만든 그림(지금은 라이노의 활성 뷰, [rhino-api.md](rhino-api.md))이 질문과 함께 Conductor 모델에 갑니다(아래 "그림과 함께 보낸 메시지") |
 | `GET /talks` | | `{talks}`. Conductor 대화(talk) 목록. 각 항목은 `{id, title, messages, updated_at}`이고 오래된 것부터. `01`은 위의 `messages` 대화이고 늘 있음. `title`은 첫 질문(아직 없으면 `""`) |
 | `POST /talks` | 본문 없음 | `201 {talk}`. 빈 대화를 새로 만듦(`02`, `03`, …). 명령창에서 질문할 때마다 하나씩 만들어 팝업으로 엶 |
 | `GET /talks/{talk_id}` | | `{talk, messages, job}`. 그 대화의 기록(`messages` 모양은 아래와 같음). 없는 대화는 `404` |
-| `POST /talks/{talk_id}/messages` | `{text, context?}` | `202 {job}`. 그 대화에서 Conductor에게 메시지. `talks/01/messages`는 `POST /session/messages`와 같음. 없는 대화는 `404` |
+| `POST /talks/{talk_id}/messages` | `{text, context?, views?}` | `202 {job}`. 그 대화에서 Conductor에게 메시지. `talks/01/messages`는 `POST /session/messages`와 같음. 없는 대화는 `404` |
+| `GET /talk-views/{file}` | | 질문과 함께 간 그림 파일(PNG 또는 JPEG). `file`은 메시지의 `views[].file`. 없는 그림은 `404` |
 | `POST /session/experts/{agent}/run` | 본문 없음, 또는 `{revision, context}` | `202 {job}`. 설계자가 전문가를 직접 실행. Conductor를 부르지 않음. `revision`을 주면 전문가가 지금 결과를 그 요청대로 고쳐 씀("Request revision") |
 | `GET /experts/{agent}/chats` | | `{agent, name, chat, chats}`. 전문가의 분석 채팅 목록. `chats`는 `{id, messages, preview, updated_at}`이고 오래된 것부터 |
 | `POST /experts/{agent}/chats` | 본문 없음 | `201 {chat}`. 빈 분석 채팅을 새로 만듦. `chat`이 `false`인 전문가는 `400` |
@@ -37,7 +38,7 @@
 
 `GET /session`의 각 항목:
 
-- `messages`: 대화 기록. `{role, text}`이고 `role`은 `user`, `conductor`, `system`입니다. 제도판 종이를 함께 보낸 `user` 메시지에는 `context: [{id, name}]`가 더 있습니다. `system`에는 `event`와 `agent`(전문가 id), `name`(화면용 이름)이 더 있습니다.
+- `messages`: 대화 기록. `{role, text}`이고 `role`은 `user`, `conductor`, `system`입니다. 제도판 종이를 함께 보낸 `user` 메시지에는 `context: [{id, name}]`가 더 있습니다. 그림과 함께 보낸 `user` 메시지에는 `views: [{file, about, facts, at}]`가 더 있습니다(`about`은 그림이 무엇인지 모델에 알려 준 영어 한 줄, `facts`는 그때 모델에 알려 준 수치 글, `at`은 보낸 시각). `system`에는 `event`와 `agent`(전문가 id), `name`(화면용 이름)이 더 있습니다.
   - `event: "module_completed"`: 전문가 실행이 끝난 자리. 대화 안에 분석 카드(Figma "Spatial Review Card")를 그리고 "View analysis"로 `GET /modules/{agent}`를 엽니다. `text`는 모델에게 보낸 내부 메모라 화면에 보이지 않습니다.
   - `event: "run_requested"`: 설계자가 직접 실행을 누른 자리.
   - `event: "read"`: Conductor가 결과 문서를 읽은 자리. 작은 안내 줄 정도면 됩니다.
@@ -69,7 +70,13 @@
 | `run_skipped` | `agent, reason, limit` (`no_site`이면 `address`도) | **알림**: Conductor가 실행하려던 전문가를 실행하지 않음. `reason`은 `limit`(한 번에 실행하는 수를 채움), `state_pending`(설계 상태 반영안 검토가 먼저), `held`(보류 전문가라 다른 전문가 다음에 이어서 실행하지 않음), `no_site`(대지를 저장하기 전에 Conductor가 대지 분석가를 부름. `address`는 Conductor가 대화에서 넘긴 대지 주소, 없으면 `""`) |
 | `notice` | `message` | 경고 줄(법령 검색 실패, 로컬 모델 준비 등) |
 | `tray_added` | `paper` | **알림**: AI가 만든 종이(Conductor의 매스안·메모·수정안, 전문가 결과)가 제도판의 AI 섹션에 놓임. 제도판 화면이 `GET .../board`를 다시 부르면 `tray`에 있음([board-api.md](board-api.md)) |
+| `views_shown` | `files` | 그림이 질문과 함께 갔음. 작은 안내 줄 |
+| `views_unseen` | `reason` | **알림**: `views: true`였지만 그림 없이 글만 갔음. `reason`은 `model`(Conductor 모델이 그림을 볼 수 없음. 보내 보고 거절당한 경우도 같은 이벤트) 또는 `none`(그림을 만들지 못함) |
 | `tray_failed` | `reason` | Conductor가 만든 종이가 거부됨(`limit`이면 한 메시지에 3장을 넘김). Conductor가 이유를 받고 다시 하거나 설계자에게 말함 |
+
+## 그림과 함께 보낸 메시지
+
+`views: true`인 Conductor 메시지는 영역 hook `conductor_views`가 만든 그림을 함께 보냅니다(`sida/views.py`, 지금은 라이노 영역만). 그림은 프로젝트의 `talk_views/<시각>.png`에, 그 옆 `.json`에 무엇인지와 그때의 수치가 남습니다. 기록에는 질문 글 끝에 `[pictures shown] 파일` 줄로 남고, 한 대화에서 가장 최근에 그림을 보낸 질문의 그림만 다음 질문들에 다시 갑니다. 대화를 지우면 그 대화의 그림도 지웁니다. 모델에는 그림에서 수치를 읽지 말라는 지시가 같이 가고, 수치는 늘 글로 갑니다. 그림을 못 보는 모델에는 보내지 않습니다(연결마다 `sida/providers.py`의 `sees_images`: OpenRouter·OpenAI·ChatGPT 구독은 보냄, Ollama는 모델 카드에 vision이 있을 때만, 거절당하면 그 뒤로는 안 보냄). 전문가 채팅과 전문가 실행에는 그림이 가지 않습니다. 사용 기록(telemetry)에는 그림도 이 이벤트도 가지 않습니다.
 
 ## 전문가 자동 호출
 

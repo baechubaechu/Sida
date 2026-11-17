@@ -96,6 +96,16 @@ def test_job_observer_times_experts_without_text(on):
     assert "sk-123" not in sent and "brief text" not in sent
 
 
+def test_a_picture_sent_with_a_question_leaves_nothing_in_the_usage_record(on):
+    observer = telemetry.JobObserver(on, "message", None)
+    observer.event("views_shown", {"files": ["20261117-101502-000001-0.png"]})
+    observer.event("views_unseen", {"reason": "model"})
+    observer.finished(None)
+    sent = json.dumps(telemetry.queued(), ensure_ascii=False)
+    assert [record["kind"] for record in telemetry.queued()] == ["job"]  # the job itself only, as for any message
+    assert "views" not in sent and "20261117" not in sent and ".png" not in sent
+
+
 def test_flush_sends_batches_and_empties_the_queue(on, server, monkeypatch):
     monkeypatch.setattr(telemetry, "BATCH_SIZE", 2)
     for i in range(3):
