@@ -103,6 +103,40 @@ def test_an_interrupted_run_carries_on(heights):
     assert log[0].startswith(f"0 tiles to solve ({len(first)} already done)")
 
 
-def test_a_tile_without_heights_near_it_is_not_made(heights):
+def test_a_tile_without_heights_near_it_is_not_made_and_not_solved_again(heights):
     far = ground_tiles.tile_of(129.0, 35.0)
     assert context3d.make_tile(int(far[0]), int(far[1]), folder=heights) is None
+    west, south = lonlat(-150, -150)
+    east, north = lonlat(150, 150)
+    box = (west, south, east + 0.03, north)  # three tiles east of the heights: nothing to solve from
+    log = []
+    path = load_script().build("t", heights, box, workers=1, log=log.append)
+    solved = {(ix, iy) for ix, iy in ground_tiles.done(path)}
+    assert len(solved) == len(ground_tiles.tiles_in_box(*box)) and "0 tiles" not in log[0]
+    log.clear()
+    load_script().build("t", heights, box, workers=1, log=log.append)
+    assert log[0].startswith(f"0 tiles to solve ({len(solved)} already done)")
+
+
+def test_the_pool_is_handed_a_few_tiles_at_a_time_not_the_whole_region(monkeypatch):
+    from concurrent.futures import Future
+
+    script = load_script()
+    monkeypatch.setattr(script.context3d, "make_tile", lambda ix, iy, folder: (ix, iy))
+    got, most = [], [0]
+
+    class Pool:
+        submitted = 0
+
+        def submit(self, fn, *args, **kwargs):
+            self.submitted += 1
+            most[0] = max(most[0], self.submitted - len(got))  # handed out and not yet back
+            future = Future()
+            future.set_result(fn(*args, **kwargs))
+            return future
+
+    todo = [(i, 0) for i in range(50)]
+    for key, tile in script.solved(Pool(), todo, Path("."), ahead=6):
+        assert key == tile
+        got.append(tile)
+    assert sorted(got) == todo and most[0] <= 6

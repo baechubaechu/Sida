@@ -154,10 +154,19 @@ def add(conn: sqlite3.Connection, tile: dict) -> None:
     )
 
 
+def mark_empty(conn: sqlite3.Connection, ix: int, iy: int) -> None:
+    """A tile with no heights to solve from (outside the packs), so a carried-on run skips it."""
+    conn.execute("CREATE TABLE IF NOT EXISTS empty (ix INTEGER NOT NULL, iy INTEGER NOT NULL, PRIMARY KEY (ix, iy))")
+    conn.execute("INSERT OR IGNORE INTO empty VALUES (?, ?)", (ix, iy))
+
+
 def done(path: Path) -> set[tuple[int, int]]:
-    """The tiles already in a file (to carry on an interrupted run)."""
+    """The tiles already in a file, solved or empty (to carry on an interrupted run)."""
     with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as conn:
-        return {(ix, iy) for ix, iy in conn.execute("SELECT ix, iy FROM tiles")}
+        out = {(ix, iy) for ix, iy in conn.execute("SELECT ix, iy FROM tiles")}
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'empty'").fetchone():
+            out |= {(ix, iy) for ix, iy in conn.execute("SELECT ix, iy FROM empty")}
+        return out
 
 
 # ---------------------------------------------------------------------------
