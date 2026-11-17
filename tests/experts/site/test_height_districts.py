@@ -13,25 +13,36 @@ from sida.experts.site import envelope, height_districts, landapi, site_facts
 LAT, LON = 37.556, 127.010
 
 
-def piece(area_m2, dyear="2024", dnum="0317", lon=LON, lat=LAT, sigg="중구"):
+def piece(area_m2, dyear="2024", dnum="0317", lon=LON, lat=LAT, sigg="중구", sido="서울특별시"):
     """A square 고도지구 piece of `area_m2` around (lon, lat), as VWorld LT_C_UQ123 gives it."""
     side = math.sqrt(area_m2) / 2
     dx = side / (6378137.0 * math.pi / 180 * math.cos(math.radians(lat)))
     dy = side / (6378137.0 * math.pi / 180)
     ring = [[lon - dx, lat - dy], [lon + dx, lat - dy], [lon + dx, lat + dy], [lon - dx, lat + dy], [lon - dx, lat - dy]]
-    return {"properties": {"uname": "고도지구", "dyear": dyear, "dnum": dnum, "sido_name": "서울특별시", "sigg_name": sigg},
+    return {"properties": {"uname": "고도지구", "dyear": dyear, "dnum": dnum, "sido_name": sido, "sigg_name": sigg},
             "shape": {"type": "Polygon", "coordinates": [ring]}}
 
 
-def facts(address="서울특별시 중구 신당동 355-7"):
-    return {"parcels": [{"pnu": "1", "address": address}]}
+def facts(address="서울특별시 중구 신당동 355-7", zone=None, pnu="1"):
+    out = {"parcels": [{"pnu": pnu, "address": address}]}
+    if zone:
+        out["summary"] = {"zoning": [{"zone": zone}]}
+    return out
 
 
 @pytest.fixture
 def verified(monkeypatch):
-    """The table as if a person had checked it against the notice."""
+    """The table as a person checked it against the notice (2026-11-17 지훈)."""
     table = copy.deepcopy(height_districts.load_table())
-    table["notices"][0]["verified"] = "2026-11-17"
+    assert table["notices"][0]["verified"]  # the file itself is checked
+    monkeypatch.setattr(height_districts, "load_table", lambda: table)
+
+
+@pytest.fixture
+def unverified(monkeypatch):
+    """The table as if no person had checked it yet."""
+    table = copy.deepcopy(height_districts.load_table())
+    table["notices"][0]["verified"] = None
     monkeypatch.setattr(height_districts, "load_table", lambda: table)
 
 
@@ -83,10 +94,20 @@ def test_the_line_gives_a_height_only_from_a_checked_table_and_one_ground_figure
     assert (line["status"], line["value"], height) == ("check", "도로면 +4m이하", None)
     relaxed = height_districts.pick([piece(53311, sigg="용산구")], facts())  # 남산 5번: 20m, 완화시 28m
     line, height = height_districts.line(relaxed, entered=None)
-    assert height == 20 and "완화시 28m는 위원회 심의가 필요해 쓰지 않음" in line["detail"]
+    assert height == 20 and "완화시 28m는 위원회 심의가 필요해 기본 높이로 자름" in line["detail"]
+    # the designer looks at the relaxed height: cut to it, said to need the committee's review
+    line, height = height_districts.line(relaxed, entered=None, use_relaxed=True)
+    assert (line["status"], line["value"], height) == ("conditional", "28m (완화)", 28.0)
+    assert "도시계획위원회 심의" in line["detail"] and "기본 20m" in line["detail"]
+    # a zone with no relaxed height ignores the switch
+    assert height_districts.line(matched, entered=None, use_relaxed=True)[1] == 32.0
+    # 높이 산정 (the notice's 비고): rooftop towers and see-through railings within 3m are left out
+    assert "옥상 승강기탑·계단탑·투시형 난간은 3m 이내면 높이에 넣지 않음" in line["detail"]
+    assert height_districts.rooftop_allowance("서울특별시 고시 제2024-317호") == 3.0
+    assert height_districts.rooftop_allowance(None) is None
 
 
-def test_a_table_not_yet_checked_shows_the_height_but_does_not_cut():
+def test_a_table_not_yet_checked_shows_the_height_but_does_not_cut(unverified):
     line, height = height_districts.line(height_districts.pick([piece(19004)], facts()), entered=None)
     assert (line["status"], line["value"], height) == ("check", "32m (대조 전)", None)
     assert height_districts.line({"status": "error"}, entered=None)[0]["value"] == "입력 필요"
@@ -113,6 +134,7 @@ def test_the_envelope_is_cut_to_the_notices_height_where_the_site_lies_in_a_heig
     lines = {x["id"]: x for x in out["lines"]}
     assert out["district_height_m"] == 32 and out["max_height_m"] == 32 and out["height_limit_m"] is None
     assert out["height_district"]["limit"] == "32m이하" and lines["height"]["value"] == "32m"
+    assert out["rooftop_allowance_m"] == 3.0 and out["use_relaxed"] is False
     assert all(s["height_m"] <= 32 for s in out["schemes"])
     # what the designer enters wins
     out = envelope.compute(PLAN, f, envelope.sunlight_rule(f), [], lambda pnu: None, floor_height=4.0, district=district, height_cap=20)
@@ -149,3 +171,92 @@ def test_two_zones_of_like_area_are_told_apart_by_the_sites_jibun_or_left_as_can
     assert unsure["status"] == "candidates" and sorted(c["number"] for c in unsure["candidates"]) == [6, 13]
     line, height = height_districts.line(unsure, entered=None)
     assert (line["value"], height) == ("미확인", None) and "남산 주변 6번 구역(18m이하)" in line["detail"]
+
+
+def test_an_unchanged_zone_drawn_under_its_older_notice_number_is_found_among_the_kept_zones():
+    # 2026-11-17 실제 대지: 이태원동 137-23 (남산 14번, 23m) lies on a 2019-0362 piece, 한남동 810 on 0000-0000
+    by_area = height_districts.pick([piece(1241, "2019", "0362", sigg="용산구")], facts("서울특별시 용산구 이태원동 1"))
+    assert (by_area["status"], by_area["zone"]["number"], by_area["matched_by"]) == ("matched", 14, "area")
+    assert by_area["kept_as"] == ["2019-0362"] and by_area["notice"] == "서울특별시 고시 제2024-317호"
+    by_place = height_districts.pick([piece(90000, "0000", "0000", sigg="용산구")], facts("서울특별시 용산구 이태원동 137-23"))
+    assert (by_place["status"], by_place["zone"]["max_m"], by_place["matched_by"]) == ("matched", 23, "location")
+    line, _height = height_districts.line(by_place, entered=None)
+    assert "예전 고시 번호(0000-0000)로 그려져 있으나 이 고시에서 바뀌지 않은 구역" in line["detail"]
+    two = height_districts.pick([piece(90000, "0000", "0000", sigg="용산구")], facts("서울특별시 용산구 한남동 810"))
+    assert two["status"] == "candidates" and sorted(c["number"] for c in two["candidates"]) == [7, 8]  # 30m, 36m
+    # a zone the notice changed is not taken from an old piece, nor a notice of another region
+    assert height_districts.pick([piece(19004, "2019", "0362")], facts())["status"] == "unknown_notice"
+    other = piece(1241, "2019", "0362", sigg="용산구", sido="부산광역시")
+    assert height_districts.pick([other], facts("서울특별시 용산구 이태원동 1"))["status"] == "unknown_notice"
+
+
+def test_zones_split_by_zoning_are_told_apart_by_the_sites_zoning():
+    huge = piece(900000, sigg="강북구")  # no zone's area: 북한산 주변 1번(1종, 20m) or 2번(2종 이상, 28m)
+    first = height_districts.pick([huge], facts("서울특별시 강북구 우이동 100-1", "제1종일반주거지역"))
+    assert (first["status"], first["zone"]["number"], first["zone"]["max_m"], first["matched_by"]) == ("matched", 1, 20, "zoning")
+    second = height_districts.pick([huge], facts("서울특별시 강북구 우이동 100-1", "제2종일반주거지역"))
+    assert (second["zone"]["number"], second["zone"]["max_m"]) == (2, 28)
+    line, _h = height_districts.line(second, entered=None)
+    assert "대지의 용도지역이 고시 표의 구역과 맞음" in line["detail"]
+    unknown = height_districts.pick([huge], facts("서울특별시 강북구 우이동 100-1"))
+    assert unknown["status"] == "candidates" and sorted(c["number"] for c in unknown["candidates"]) == [1, 2]
+    # an area match for the other 용도지역 is not taken
+    wrong = height_districts.pick([piece(248450, sigg="강북구")], facts("서울특별시 강북구 우이동 100-1", "제2종일반주거지역"))
+    assert wrong["status"] == "candidates"
+
+
+def test_a_notices_shortened_dong_names_still_give_the_candidates():
+    # 2026-11-17 실제 대지: 창성동 117-1 lies on a 2024-0317 piece that matches no zone's area
+    assert height_districts._names_dong("종로구 효자, 창성, 통의, 적선동 일대", "종로구", "창성동")
+    assert height_districts._names_dong("강북구 우이동, 인수동, 수유1동, 삼양동 일대", "강북구", "수유동")
+    assert not height_districts._names_dong("종로구 효자, 창성, 통의, 적선동 일대", "중구", "창성동")
+    assert not height_districts._names_dong("종로구 효자, 창성, 통의, 적선동 일대", "종로구", "청운동")
+    found = height_districts.pick([piece(900000, sigg="종로구")], facts("서울특별시 종로구 창성동 117-1"))
+    assert found["status"] == "candidates"
+    assert sorted((c["district"], c["number"]) for c in found["candidates"]) == [("경복궁 주변", 1), ("경복궁 주변", 3), ("경복궁 주변", 5)]
+
+
+def test_public_land_takes_its_own_height_and_unknown_ownership_gives_none():
+    found = height_districts.pick([piece(10080, sigg="종로구")], facts("서울특별시 종로구 창성동 117"))
+    assert (found["district"], found["zone"]["number"]) == ("경복궁 주변", 1)
+    public, h = height_districts.line(found, entered=None, public_land=True)
+    assert (public["value"], h) == ("12m", 12.0) and "국·공유지(토지소유정보)라 12m" in public["detail"]
+    private, h = height_districts.line(found, entered=None, public_land=False)
+    assert (private["value"], h) == ("15m", 15.0) and "국·공유지가 아님" in private["detail"]
+    unsure, h = height_districts.line(found, entered=None, public_land=None)
+    assert (unsure["status"], unsure["value"], h) == ("check", "15m 또는 12m", None)
+
+
+def test_the_sites_ownership_comes_from_the_land_register(fake_vworld, monkeypatch):
+    assert landapi.land_owner("1111011900100010000") == {"kind": "국유지", "public": True}  # 세종로 1
+    assert landapi.land_owner("1114010300100310000") == {"kind": "시 도유지", "public": True}  # 태평로1가 31
+    assert landapi.land_owner("1111010800101000000") == {"kind": "법인", "public": False}  # 통인동 100
+    assert landapi.land_owner("9999999999999999999") is None
+    state = facts(pnu="1111011900100010000")
+    assert envelope.public_land_of(state) is True
+    mixed = {"parcels": state["parcels"] + [{"pnu": "1111010800101000000", "address": "x"}]}
+    assert envelope.public_land_of(mixed) is None
+    assert envelope.public_land_of(facts(pnu="9999999999999999999")) is None
+    # district_at asks only for a zone with a height of its own on 국·공유지
+    from tests.experts.site.test_envelope import PLAN
+
+    monkeypatch.setattr(landapi, "districts_at", lambda *a, **k: [piece(10080, sigg="종로구")])
+    gyeongbok = envelope.district_at(PLAN, facts("서울특별시 종로구 창성동 117", pnu="1111011900100010000"))
+    assert gyeongbok["public_land"] is True
+    monkeypatch.setattr(landapi, "districts_at", lambda *a, **k: [piece(19004)])
+    assert "public_land" not in envelope.district_at(PLAN, facts())
+
+
+def test_pieces_under_a_number_the_table_aliases_are_matched_to_that_notices_named_districts_only():
+    # 2026-11-18 실제 조회: 우이동 100-1 (제2종일반주거지역(7층이하)) lies on a 2023-1986 piece; 토지이음 shows 28m
+    piece_1986 = piece(258762, "2023", "1986", sigg="강북구")
+    found = height_districts.pick([piece_1986], facts("서울특별시 강북구 우이동 100-1", "제2종일반주거지역"))
+    assert (found["status"], found["district"], found["zone"]["number"], found["zone"]["max_m"]) == ("matched", "북한산 주변", 2, 28)
+    assert (found["drawn_as"], found["kept_as"], found["matched_by"]) == ("alias", ["2023-1986"], "zoning")
+    line, height = height_districts.line(found, entered=None)
+    assert height == 28.0 and "브이월드 조각 번호(2023-1986)는 이 고시의 북한산 주변 구역으로 봄" in line["detail"]
+    first = height_districts.pick([piece_1986], facts("서울특별시 강북구 우이동 100-1", "제1종일반주거지역"))
+    assert (first["zone"]["number"], first["zone"]["max_m"]) == (1, 20)
+    # the alias names 북한산 주변 only: a 2023-1986 piece elsewhere is never another district's zone
+    elsewhere = height_districts.pick([piece(19109, "2023", "1986")], facts())
+    assert elsewhere["status"] == "candidates" and not elsewhere["candidates"]

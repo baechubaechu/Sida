@@ -39,6 +39,7 @@ class EnvelopeSettings(BaseModel):
     height_limit_m: float | None = None  # a 고도지구's notice height (m); null clears it
     use: str | None = None  # the building's use (data/envelope_rules.yaml uses); null clears it
     use_area_m2: float | None = None  # that use's floor area (㎡); null clears it
+    use_relaxed: bool | None = None  # look at a 고도지구's relaxed height (완화, needs the committee's review)
 
 
 class UseCheck(BaseModel):
@@ -271,14 +272,14 @@ def _project_router(load_config, core) -> APIRouter:
 
     @router.get("/envelope/settings")
     def get_envelope_settings(name: str) -> dict:
-        """What the designer entered for the 법규 볼륨: {"height_limit_m"}."""
+        """What the designer entered for the 법규 볼륨: {"height_limit_m", "use", "use_area_m2", "use_relaxed"}."""
         path = core(workspace.find_project, load_config(), name)
         return envelope.load_settings(path)
 
     @router.put("/envelope/settings")
     def put_envelope_settings(name: str, body: EnvelopeSettings) -> dict:
         """Keep what the designer entered for the 법규 볼륨 (`height_limit_m`: 1–500 m, `use`: a use key,
-        `use_area_m2`: its floor area; null clears one)."""
+        `use_area_m2`: its floor area; null clears one; `use_relaxed`: look at a 고도지구's relaxed height)."""
         path = core(workspace.find_project, load_config(), name)
         try:
             return envelope.save_settings(path, body.model_dump(exclude_unset=True))

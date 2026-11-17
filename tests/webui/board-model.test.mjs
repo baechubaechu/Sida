@@ -1782,6 +1782,11 @@ test('the envelope card lists its figures, its lines with their state and a line
   assert.deepEqual(open.uses, []);
   const notice = m.envelopeCard({ zone: '제2종일반주거지역', max_height_m: 32, district_height_m: 32, floor_height: 3, lines: [], schemes: [] });
   assert.deepEqual(notice.figures.map((f) => f.join(' ')), ['용도지역 제2종일반주거지역', '최고 높이 32.0m', '높이 한도 (고시) 32.0m', '층높이 3.0m']);
+  // the notice's 비고: rooftop towers within 3m, and the relaxed height the designer looks at
+  const relaxed = m.envelopeCard({ zone: '제1종일반주거지역', max_height_m: 28, district_height_m: 28, rooftop_allowance_m: 3, floor_height: 3,
+    use_relaxed: true, height_district: { relaxed_m: 28 }, lines: [{ id: 'height', status: 'conditional', title: '높이 한도', value: '28m (완화)' }], schemes: [] });
+  assert.deepEqual(relaxed.figures.slice(2).map((f) => f.join(' ')), ['높이 한도 (고시 완화, 심의 필요) 28.0m', '옥상 계단탑·승강기탑 볼륨 위 3.0m까지', '층높이 3.0m']);
+  assert.deepEqual(relaxed.lines.map((l) => l.label), ['조건 있음']);
   assert.equal(m.envelopeCard(null), null);
   const paper = m.envelopeSchemePaper({ name: '남쪽 탑형', floor_height: 3, blocks: [{ u: 1, v: 2, w: 3, d: 4, floors: 5 }] });
   assert.deepEqual(paper, { kind: 'mass', title: '법규 볼륨 참고 · 남쪽 탑형', floor_height: 3, blocks: [{ u: 1, v: 2, w: 3, d: 4, floors: 5 }] });
