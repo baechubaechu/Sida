@@ -80,6 +80,16 @@ def test_the_card_on_a_residential_site_without_an_ordinance():
     assert "height" not in lines and "plan" not in lines
 
 
+def test_the_sunlight_line_says_when_its_statute_text_is_not_yet_compared(monkeypatch):
+    f = facts("제2종일반주거지역", ordinance=False)
+    rules = site_rules.load_rules()
+    assert rules["north_sunlight"]["verified"] and "원문 대조 전" not in site_rules.sunlight_line(f)["detail"]
+    assert site_rules.sunlight_line(f)["quote"].startswith("전용주거지역이나 일반주거지역에서 건축물을")
+    pending = {**rules, "north_sunlight": {**rules["north_sunlight"], "verified": None}}
+    monkeypatch.setattr(site_rules, "load_rules", lambda: pending)
+    assert site_rules.sunlight_line(f)["detail"].endswith("(조문 원문 대조 전)")
+
+
 def test_the_card_with_an_unread_or_unconditioned_figure():
     unread = {"value": None, "quote": "일반상업지역: 가. 800퍼센트 나. 600퍼센트", "conditional": True, "label": "제48조"}
     far = {x["id"]: x for x in site_rules.card(facts(far=unread))}["far"]
