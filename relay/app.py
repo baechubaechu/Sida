@@ -47,6 +47,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from relay.shares import LimitReached, Limits, ShareError, ShareStore
 from relay.tokens import MAX_CONTACT, Token, TokenStore
 
 VWORLD_URL = "https://api.vworld.kr"
@@ -80,6 +81,22 @@ _LAW_TARGETS = {"aiSearch", "ordin"}
 # 건축물대장 packs made on this server each month (relay/ledger/ledger_pull.py), for the apps to download.
 LEDGER_MANIFEST = "manifest.json"
 _LEDGER_FILE = re.compile(r"^[a-z0-9_-]{1,40}-\d{4}-\d{2}\.ledger\.sqlite\.gz$")
+
+# Shares (공유, relay/shares.py): the viewer page and the files it loads, from the app's own screen
+# files (webui/app, mounted on the server at SIDA_VIEWER_DIR). Only these are served.
+VIEWER_PAGE = "share.html"
+VIEWER_FILES = {
+    "share.html", "share-view.js", "share-model.js", "share.css", "board-model.js", "model.js", "icons.js",
+    "vendor/three.js",
+}
+COMMENTS_PER_MINUTE = 6  # new comments per link and sending address per minute
+PARCELS_PER_MINUTE = 30  # parcel boundaries asked of VWorld per link per minute (a page asks once)
+UPLOAD_SLACK = 1024 * 1024  # a request body may be this much over a share's limit before it is read
+# The viewer's page: its own files and the share's data only, never another site's.
+VIEWER_CSP = (
+    "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
+    "script-src 'self'; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+)
 
 # The app's VWorld 3D page and its script (copies of webui/app/, kept identical by a test).
 STATIC = Path(__file__).parent / "static"
@@ -193,9 +210,22 @@ def _mask(answer: Upstream, secrets: list[str]) -> Upstream:
     return Upstream(answer.status, answer.content_type, body)
 
 
+class ShareChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    comments_open: bool | None = None
+    new_links: bool = False
+
+
+class ResolveBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resolved: bool
+
+
 def create_app(
     keys: Keys, store: TokenStore, *, fetch: Fetch | None = None, clock: Callable[[], float] = time.monotonic,
-    ledger_dir: Path | None = None,
+    ledger_dir: Path | None = None, shares: ShareStore | None = None, viewer_dir: Path | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Sida relay", docs_url=None, redoc_url=None, openapi_url=None)
     get = fetch or _fetch
@@ -203,6 +233,8 @@ def create_app(
     images_per_minute = MinuteLimit(IMAGES_PER_MINUTE, clock)
     address_per_minute = MinuteLimit(ADDRESS_PER_MINUTE, clock)
     requests_per_hour = MinuteLimit(REQUESTS_PER_HOUR, clock, window=3600)
+    comments_per_minute = MinuteLimit(COMMENTS_PER_MINUTE, clock)
+    parcels_per_minute = MinuteLimit(PARCELS_PER_MINUTE, clock)
 
     def address(request: Request) -> str:
         # Behind Caddy the sender is the first X-Forwarded-For address.
@@ -364,9 +396,236 @@ def create_app(
         store.record(token.id, "ledger", True)
         return FileResponse(ledger_dir / name, media_type="application/gzip", filename=name)
 
+    # ------------------------------------------------------------ shares (공유)
+
+    def share_store() -> ShareStore:
+        if shares is None:
+            raise HTTPException(status_code=503, detail="sharing is not set up on the relay")
+        return shares
+
+    def owner_key(request: Request) -> Token:
+        """The designer's access key; managing shares is not counted as an API call."""
+        if not address_per_minute.take(address(request)):
+            raise HTTPException(status_code=429, detail="too many requests")
+        sent = request.headers.get("authorization", "")
+        value = sent[7:].strip() if sent.lower().startswith("bearer ") else ""
+        token = store.find(value) if value else None
+        if token is None:
+            raise HTTPException(status_code=401, detail="Sida access key missing or unknown")
+        if not token.usable(store.now().date()):
+            raise HTTPException(status_code=403, detail="Sida access key revoked or expired")
+        return token
+
+    def owned(share_id: str, token: Token):
+        share = share_store().owned(share_id, token.id)
+        if share is None:
+            raise HTTPException(status_code=404, detail="no such share")
+        return share
+
+    async def upload_body(request: Request) -> bytes:
+        limit = share_store().limits.share_bytes + UPLOAD_SLACK
+        try:
+            sent = int(request.headers.get("content-length") or 0)
+        except ValueError:
+            sent = 0
+        if sent > limit:
+            raise HTTPException(status_code=413, detail="snapshot too large")
+        body = await request.body()
+        if len(body) > limit:
+            raise HTTPException(status_code=413, detail="snapshot too large")
+        return body
+
+    def refused(exc: Exception) -> HTTPException:
+        if isinstance(exc, LimitReached):
+            return HTTPException(status_code=429, detail={"code": exc.code, "message": str(exc)})
+        return HTTPException(status_code=400, detail=str(exc))
+
+    def owner_view(share) -> dict:
+        return share_store().describe(share, owner=True)
+
+    @app.get("/relay/shares")
+    def list_shares(request: Request) -> Response:
+        token = owner_key(request)
+        found = share_store()
+        return private({"shares": [owner_view(s) for s in found.owner_shares(token.id)], "usage": found.usage(token.id)})
+
+    @app.post("/relay/shares", status_code=201)
+    async def create_share(request: Request) -> Response:
+        token = owner_key(request)
+        body = await upload_body(request)
+        try:
+            share = share_store().create(token.id, body)
+        except (ShareError, LimitReached) as exc:
+            raise refused(exc) from exc
+        return private({**owner_view(share), "usage": share_store().usage(token.id)}, 201)
+
+    @app.get("/relay/shares/{share_id}")
+    def get_share(share_id: str, request: Request) -> Response:
+        return private(owner_view(owned(share_id, owner_key(request))))
+
+    @app.put("/relay/shares/{share_id}")
+    async def new_version(share_id: str, request: Request) -> Response:
+        token = owner_key(request)
+        share = owned(share_id, token)
+        body = await upload_body(request)
+        try:
+            share_store().add_version(share, body)
+        except (ShareError, LimitReached) as exc:
+            raise refused(exc) from exc
+        return private({**owner_view(share_store().get(share.id)), "usage": share_store().usage(token.id)})
+
+    @app.patch("/relay/shares/{share_id}")
+    def change_share(share_id: str, body: ShareChange, request: Request) -> Response:
+        share = owned(share_id, owner_key(request))
+        return private(owner_view(share_store().change(share, comments_open=body.comments_open, new_links=body.new_links)))
+
+    @app.delete("/relay/shares/{share_id}")
+    def delete_share(share_id: str, request: Request) -> Response:
+        share = owned(share_id, owner_key(request))
+        share_store().delete(share.id)
+        return private({"deleted": share.id})
+
+    @app.get("/relay/shares/{share_id}/comments")
+    def owner_comments(share_id: str, request: Request) -> Response:
+        share = owned(share_id, owner_key(request))
+        return private({"comments": share_store().comments(share.id)})
+
+    @app.post("/relay/shares/{share_id}/comments", status_code=201)
+    def owner_reply(share_id: str, body: dict, request: Request) -> Response:
+        share = owned(share_id, owner_key(request))
+        if not body.get("parent"):
+            raise HTTPException(status_code=400, detail="the designer answers a comment (parent)")
+        try:
+            comment = share_store().add_comment(share, body, by_owner=True)
+        except (ShareError, LimitReached) as exc:
+            raise refused(exc) from exc
+        return private(comment, 201)
+
+    @app.patch("/relay/shares/{share_id}/comments/{comment_id}")
+    def resolve_comment(share_id: str, comment_id: str, body: ResolveBody, request: Request) -> Response:
+        share = owned(share_id, owner_key(request))
+        if not share_store().resolve(share, comment_id, body.resolved):
+            raise HTTPException(status_code=404, detail="no such comment")
+        return private({"id": comment_id, "resolved": body.resolved})
+
+    @app.delete("/relay/shares/{share_id}/comments/{comment_id}")
+    def delete_comment(share_id: str, comment_id: str, request: Request) -> Response:
+        share = owned(share_id, owner_key(request))
+        if not share_store().delete_comment(share, comment_id):
+            raise HTTPException(status_code=404, detail="no such comment")
+        return private({"deleted": comment_id})
+
+    # The viewer: /s/<link> is the page, the rest is what it reads. No access key; the link is the key.
+
+    def viewer_file(name: str) -> Response:
+        if viewer_dir is None or name not in VIEWER_FILES or not (viewer_dir / name).is_file():
+            raise HTTPException(status_code=404, detail="not found")
+        media = {"js": "text/javascript; charset=utf-8", "css": "text/css; charset=utf-8",
+                 "html": "text/html; charset=utf-8"}[name.rsplit(".", 1)[-1]]
+        return Response(content=(viewer_dir / name).read_bytes(), media_type=media,
+                        headers={"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"})
+
+    def opened(link: str, request: Request):
+        if not address_per_minute.take(address(request)):
+            raise HTTPException(status_code=429, detail="too many requests")
+        found = share_store().by_link(link)
+        if found is None:
+            raise HTTPException(status_code=404, detail="this share is gone or the link was changed")
+        return found
+
+    def public(answer: dict, status: int = 200) -> Response:
+        return Response(content=json.dumps(answer), status_code=status, media_type="application/json",
+                        headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"})
+
+    @app.get("/s/vendor/three.js")
+    def viewer_three() -> Response:
+        return viewer_file("vendor/three.js")
+
+    @app.get("/s/{link}")
+    def viewer_page(link: str, request: Request) -> Response:
+        if link in VIEWER_FILES:
+            return viewer_file(link)
+        opened(link, request)
+        page = viewer_file(VIEWER_PAGE)
+        page.headers.update({
+            "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", "Referrer-Policy": "no-referrer",
+            "Content-Security-Policy": VIEWER_CSP,
+        })
+        return page
+
+    @app.get("/s/{link}/info")
+    def viewer_info(link: str, request: Request) -> Response:
+        share, can_comment = opened(link, request)
+        return public({**share_store().describe(share, owner=False), "can_comment": can_comment})
+
+    @app.get("/s/{link}/v/{version}/{name:path}")
+    def viewer_data(link: str, version: int, name: str, request: Request) -> Response:
+        share, _ = opened(link, request)
+        path = share_store().file(share, version, name)
+        if path is None:
+            raise HTTPException(status_code=404, detail="not in this share")
+        media = "application/json" if name.endswith(".json") else ("image/png" if name.endswith(".png") else "image/jpeg")
+        # A version never changes once uploaded, but the link may be turned off: the browser
+        # keeps it only for this visit.
+        return FileResponse(path, media_type=media, headers={"Cache-Control": "private, max-age=600",
+                                                              "X-Robots-Tag": "noindex"})
+
+    @app.get("/s/{link}/parcels")
+    def viewer_parcels(link: str, request: Request) -> Response:
+        """
+        The site's parcel boundaries, asked of VWorld now: VWorld's data may not be stored
+        (이용약관 제19조), so a snapshot holds only the parcel numbers. Nothing is kept here either.
+        """
+        share, _ = opened(link, request)
+        need(keys.vworld)
+        if not parcels_per_minute.take(link):
+            raise HTTPException(status_code=429, detail="too many requests")
+        pnus = share_store().parcel_numbers(share)
+        found = []
+        for pnu in pnus:
+            got = get(f"{VWORLD_URL}/req/data", {
+                "service": "data", "request": "GetFeature", "data": "LP_PA_CBND_BUBUN", "key": keys.vworld,
+                "domain": keys.vworld_domain, "format": "json", "crs": "EPSG:4326", "geometry": "true",
+                "attribute": "true", "size": 10, "attrFilter": f"pnu:=:{pnu}",
+            }, {})
+            try:
+                data = json.loads(got.body)
+                features = data["response"]["result"]["featureCollection"]["features"]
+            except (ValueError, KeyError, TypeError):
+                continue
+            for feature in features:
+                if str((feature.get("properties") or {}).get("pnu") or "") == pnu and feature.get("geometry"):
+                    found.append({"pnu": pnu, "shape": feature["geometry"]})
+                    break
+        return public({"parcels": found})
+
+    @app.get("/s/{link}/comments")
+    def viewer_comments(link: str, request: Request) -> Response:
+        share, _ = opened(link, request)
+        return public({"comments": share_store().comments(share.id)})
+
+    @app.post("/s/{link}/comments", status_code=201)
+    def viewer_comment(link: str, body: dict, request: Request) -> Response:
+        share, can_comment = opened(link, request)
+        if not can_comment:
+            raise HTTPException(status_code=403, detail="this link is for looking only")
+        if not share.comments_open:
+            raise HTTPException(status_code=403, detail="the designer is not taking new comments")
+        if not comments_per_minute.take(f"{link}|{address(request)}"):
+            raise HTTPException(status_code=429, detail="too many comments; wait a minute")
+        try:
+            comment = share_store().add_comment(share, body)
+        except (ShareError, LimitReached) as exc:
+            raise refused(exc) from exc
+        return public(comment, 201)
+
     return app
 
 
 def from_env() -> FastAPI:
+    share_dir = os.environ.get("SIDA_SHARE_DIR", "").strip()
+    viewer_dir = os.environ.get("SIDA_VIEWER_DIR", "").strip()
     return create_app(Keys.from_env(), TokenStore(os.environ.get("SIDA_RELAY_DB", "/data/relay.db")),
-                      ledger_dir=Path(os.environ.get("SIDA_LEDGER_DIR", "/ledger")))
+                      ledger_dir=Path(os.environ.get("SIDA_LEDGER_DIR", "/ledger")),
+                      shares=ShareStore(share_dir, limits=Limits.from_env()) if share_dir else None,
+                      viewer_dir=Path(viewer_dir) if viewer_dir else None)

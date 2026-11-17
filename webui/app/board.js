@@ -8,6 +8,7 @@ import { keepSelected, pickedNames, addQuestion, readModelSummary, rangeQuery, p
 import { VWorldView } from './vworld-view.js';
 import { api, expertUrl, projectApi } from './api.js';
 import { say } from './commands.js';
+import { openShare, pinsAgain } from './share.js';
 import { carryPapers, stowPapers } from './ideas.js';
 import { followSelection } from './dock.js';
 import { reveal } from './dock-model.js';
@@ -142,6 +143,8 @@ function tableHooks(name) {
     carry: (at) => carryPapers(at),
     stow: (ids) => stowPapers(name, ids),
     ask: () => askAbout(),
+    // A comment pin (공유): the share window at that comment.
+    comment: (id) => openShare(name, null, id),
     openExpert: (agent, tab) => { location.hash = tab ? expertPath(name, agent, tab) : expertUrl(name, agent); },
     experts: () => ui.session?.experts || [],
   };
@@ -159,6 +162,7 @@ export async function openTable(name) {
     table = new DraftingTable(tableHooks(name));
     tableHost.replaceChildren(table.root);
     if (ui.board) { table.setBoard(ui.board); table.setSelected(ui.selected); }
+    pinsAgain(); // comments that came before the table
     placeTable();
   } catch (error) {
     tableHost.replaceChildren();

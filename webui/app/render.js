@@ -9,6 +9,7 @@ import { placeModelMaker, placeTable, table } from './board.js';
 import { ideaDragging, placeIdeaFloat } from './ideas.js';
 import { panelResizing, syncPanelWidths } from './panels.js';
 import { dockDragging, dockSplitting, floatMoving } from './dock.js';
+import { shareUnread } from './share.js';
 import { placeSiteMap } from './site.js';
 import { app, conductorScrolls, currentProjectLabel, currentRoute, deferred, expertById, newProjectDialog, settingsWarned, ui } from './state.js';
 import { commandBar } from './view-command.js';
@@ -36,11 +37,15 @@ function boardHead(name, site, agent) {
   // A side folds with its own ‹ or ›: the head offers it back once folded, on that side.
   const unfold = (side) => (ui.dock[side].open || !ui.dock[side].groups.length || (side === 'right' && (site || agent)) ? ''
     : `<button type="button" class="panel-toggle dock-unfold" data-action="dock-open" data-side="${side}" aria-expanded="false" title="${side === 'left' ? '왼쪽' : '오른쪽'} 패널 펴기">${side === 'left' ? '' : '<span aria-hidden="true">‹</span> '}<span class="dock-unfold-label">${escape(sideTitle(ui.dock, side))}</span>${side === 'left' ? ' <span aria-hidden="true">›</span>' : ''}</button>`);
+  const unread = shareUnread(name);
+  const shareButton = `<button type="button" class="panel-toggle share-toggle" data-action="share" title="링크로 보여 주고 댓글 받기"
+          aria-label="${unread ? `공유, 새 댓글 ${unread}개` : '공유'}">공유${unread ? `<span class="share-badge">새 댓글 ${unread}</span>` : ''}</button>`;
   return `<header class="board-head">
       ${unfold('left')}<div class="board-heading"><h1 class="sr-only">제도판</h1><nav class="crumbs" aria-label="현재 위치"><a href="#/">프로젝트</a><span aria-hidden="true">/</span><button type="button" class="project-name-edit" data-action="project-info" data-project="${escape(name)}" title="프로젝트 정보 수정">${escape(currentProjectLabel(name))} ✎</button>${site ? '<span aria-hidden="true">/</span><span>대지</span>' : ''}</nav></div>
       ${selection ? `<div class="selection-bar ${picked.length ? 'has-selection' : ''}" aria-label="고른 종이">${selection}</div>` : '<span class="selection-bar" aria-hidden="true"></span>'}
       <div class="panel-toggles">
         ${unfold('right')}
+        ${shareButton}
         <details class="export-menu"><summary class="panel-toggle" title="CAD·라이노 파일로 내보내기 (export)" aria-busy="${Boolean(ui.exporting)}">${ui.exporting ? '<span class="spinner" aria-hidden="true"></span>내보내는 중…' : '내보내기'}</summary>
           <div class="export-options">${EXPORT_FORMATS.map((f) => `<button type="button" data-action="export-board" data-format="${f.key}" ${ui.exporting ? 'disabled' : ''}>${f.label}</button>`).join('')}
           <p class="muted">대지 경계·매스안·트레이싱 선이 레이어별로 들어갑니다. 이 PC에 지도 묶음이 있으면 대지 주변 지형·등고선·건물도 '대지 주변' 레이어로 들어갑니다. 단위 m, 원점은 대지 가운데.</p></div></details>
