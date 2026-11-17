@@ -413,8 +413,8 @@ namespace SidaRhino
         /// <summary>
         /// Sida asks for the active viewport as it is now: a question to Sida takes it along
         /// when the designer switched that on. Captured here on the UI thread as the viewport
-        /// shows it (its display mode, what is hidden), at most ViewLongEdge pixels on the long
-        /// side, and sent in the background. When nothing can be sent Sida stops waiting after
+        /// shows it (its display mode, what is hidden), in the viewport's proportions with
+        /// ViewLongEdge pixels on the long side, and sent in the background. When nothing can be sent Sida stops waiting after
         /// a few seconds and tells the designer the question went without a picture.
         /// </summary>
         private static void SendView(RhinoDoc doc, long id)
@@ -423,7 +423,9 @@ namespace SidaRhino
             if (view == null)
                 return;
             var size = view.ActiveViewport.Size;
-            var scale = Math.Min(1.0, (double)ViewLongEdge / Math.Max(1, Math.Max(size.Width, size.Height)));
+            // Drawn again at this size, not a copy of the screen: a small viewport (four on a small window)
+            // would give a picture too small to read (305 pixels wide on a PC, 2026-11-17).
+            var scale = (double)ViewLongEdge / Math.Max(1, Math.Max(size.Width, size.Height));
             var target = new System.Drawing.Size(Math.Max(1, (int)Math.Round(size.Width * scale)), Math.Max(1, (int)Math.Round(size.Height * scale)));
             byte[] png;
             using (var bitmap = view.CaptureToBitmap(target))
