@@ -101,6 +101,8 @@ function tableHooks(name) {
     // The scale figures stood about the site (사람 배치), saved as one list.
     savePeople: (people) => boardCall(name, () => api(`${projectApi(name)}/board/people`, { method: 'PUT', body: { people } })
       .then((saved) => { if (ui.board) ui.board.people = saved.people; return saved; })),
+    saveCircles: (circles) => boardCall(name, () => api(`${projectApi(name)}/board/circles`, { method: 'PUT', body: { circles } })
+      .then((saved) => { if (ui.board) ui.board.circles = saved.circles; return saved; })),
     saveAroundParts: (hidden) => api(`${projectApi(name)}/site/context/shown`, { method: 'PUT', body: { hidden_parts: hidden } }).catch(() => {}),
     // The model base: the stepped ground (GET .../site/model-base) and its laser files (a zip).
     modelBase: (interval, range) => api(`${projectApi(name)}/site/model-base?interval=${encodeURIComponent(interval)}${range ? `&${rangeQuery(range)}` : ''}`),

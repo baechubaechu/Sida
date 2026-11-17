@@ -27,7 +27,7 @@ SITE = [("site", SimpleNamespace(board_site=lambda path: {"area_m2": 1000.0, "li
 
 def test_a_new_table_holds_only_the_site_and_papers_are_saved_one_by_one(tmp_path):
     assert board.load_board(tmp_path) == {"rev": 0, "papers": [board._site_paper()], "tray": [], "pins": [], "ideas": [], "hidden": [],
-                                          "people": [], "layers": board.default_layers()}
+                                          "people": [], "circles": [], "layers": board.default_layers()}
     assert not board.board_path(tmp_path).exists()  # reading saves nothing
 
     mass = board.add_paper(tmp_path, {**MASS, "id": "mass-a", "x": 40, "y": 10, "w": 300, "h": 210})
@@ -88,6 +88,21 @@ def test_mass_figures_come_from_the_blocks_and_ratios_need_a_known_site_area(tmp
     no_site = board.select(tmp_path, ["mass-a"], hooks=[("site", SimpleNamespace(board_site=lambda p: None))])
     assert "Site area 미확인: coverage and FAR not computed" in board.expert_block(no_site)
     assert "%" not in board.expert_block(no_site)
+
+
+def test_blocks_that_overlap_are_counted_once_on_the_ground_and_on_each_floor():
+    # A podium of 2 floors with a tower of 10 drawn through it: one building, as in the Rhino figures.
+    podium = {"u": 0, "v": 0, "w": 40, "d": 30, "floors": 2}
+    tower = {"u": 5, "v": 0, "w": 15, "d": 15, "floors": 10}
+    f = board.mass_figures({"blocks": [podium, tower], "floor_height": 4.0}, 2400.0)
+    assert f["footprint_m2"] == 1200.0 and f["floor_area_m2"] == 1200.0 * 2 + 225.0 * 8
+    assert f["coverage_pct"] == 50.0 and f["far_pct"] == 175.0 and f["height_m"] == 40.0
+    # apart or side by side nothing is shared; a turned block is taken as it stands
+    side = board.mass_figures({"blocks": [{**podium, "u": -20}, {**podium, "u": 20}], "floor_height": 4.0}, None)
+    assert side["footprint_m2"] == 2400.0 and side["floor_area_m2"] == 4800.0
+    a = {"u": 0, "v": 0, "w": 10, "d": 10, "floors": 1}
+    star = board.mass_figures({"blocks": [a, {**a, "a": 45}], "floor_height": 4.0}, None)
+    assert star["footprint_m2"] == pytest.approx(117.2, abs=0.05)
 
 
 def test_a_block_keeps_its_turn_from_the_rotate_tool_only_when_turned(tmp_path):
@@ -479,7 +494,7 @@ def test_the_view_adds_the_site_and_each_schemes_figures(tmp_path):
     tray_id = got["tray"][0]["id"]
     assert got["figures"][tray_id]["floor_area_m2"] == 200.0
     assert got["site"]["lines"] == ["대지: 필지 1개"] and len(got["site"]["plan"]["parcels"]) == 1
-    assert board.load_board(tmp_path).keys() == {"rev", "papers", "tray", "pins", "ideas", "hidden", "people", "layers"}  # nothing derived is saved
+    assert board.load_board(tmp_path).keys() == {"rev", "papers", "tray", "pins", "ideas", "hidden", "people", "circles", "layers"}  # nothing derived is saved
 
     bare = board.view(tmp_path, hooks=[("site", SimpleNamespace(board_site=lambda path: None))])
     assert bare["site"] is None and bare["figures"]["mass-a"]["coverage_pct"] is None
@@ -911,6 +926,29 @@ def test_a_hand_edited_person_that_no_longer_reads_is_left_out_not_the_table(tmp
     data["people"] = [{"id": "ok", "x": 1, "y": 2}, {"id": "bad", "x": "far"}, "junk", {"id": "ok", "x": 9, "y": 9}]
     board.board_path(tmp_path).write_text(json.dumps(data), encoding="utf-8")
     assert board.load_board(tmp_path)["people"] == [{"id": "ok", "x": 1.0, "y": 2.0, "turn": 0.0, "kind": "stand"}]
+
+
+def test_radius_circles_are_kept_with_the_board_and_checked(tmp_path):
+    board.add_paper(tmp_path, {**MASS, "id": "mass-a"})
+    saved = board.set_circles(tmp_path, [{"x": 1.2344, "y": -2, "r": 500, "bx": 301.2344, "by": 398}, {"x": 0, "y": 0, "r": 250, "z": 31.5}])
+    assert saved["circles"] == [
+        {"x": 1.234, "y": -2.0, "z": 0.0, "r": 500.0, "bx": 301.234, "by": 398.0},
+        {"x": 0.0, "y": 0.0, "z": 31.5, "r": 250.0, "bx": 0.0, "by": 250.0},  # no end given: due north
+    ]
+    assert board.load_board(tmp_path)["circles"] == saved["circles"]
+    assert board.view(tmp_path, hooks=SITE)["circles"] == saved["circles"]
+    assert "500" not in board.expert_block(board.select(tmp_path, ["mass-a"], hooks=SITE))  # the screen only
+    for bad in ("x", [{"x": 0, "y": 0}], [{"x": 0, "y": 0, "r": 0}], [{"x": 0, "y": 0, "r": -5}], [{"x": "a", "y": 0, "r": 5}],
+                [{"x": 0, "y": 0, "r": 5}] * (board.MAX_CIRCLES + 1)):
+        with pytest.raises(ValueError):
+            board.set_circles(tmp_path, bad)
+    assert board.load_board(tmp_path)["circles"] == saved["circles"]  # a refused list changes nothing
+    assert board.set_circles(tmp_path, [])["circles"] == []
+    # a damaged entry in the file is dropped, the rest kept
+    data = json.loads(board.board_path(tmp_path).read_text(encoding="utf-8"))
+    data["circles"] = [{"x": 0, "y": 0, "r": 100}, {"x": 0}, "junk"]
+    board.board_path(tmp_path).write_text(json.dumps(data), encoding="utf-8")
+    assert [c["r"] for c in board.load_board(tmp_path)["circles"]] == [100.0]
 
 
 def test_people_never_reach_the_ai(tmp_path):

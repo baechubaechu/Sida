@@ -310,6 +310,20 @@ def test_failed_ordinance_lookup_is_shown_as_unknown_not_guessed(one, fake_ordin
     assert "도시·군계획 조례를 찾지 못함" in "\n".join(site_facts.regulatory_lines(one))
 
 
+def test_the_screen_gets_each_zones_limits_with_the_ordinance_value_where_it_was_read(one, fake_ordinance):
+    # The table holds a scheme against these, the same lines the Rhino figures get.
+    assert site_facts.limits(None) == [] and site_facts.site_view(None)["limits"] == []
+    plain = site_facts.site_view(one)["limits"]
+    assert [(x["zone"], x["bcr_max"], x["far_max"], x["ordinance_bcr"], x["ordinance_far"]) for x in plain] == [
+        ("일반공업지역", 70, 350, None, None)]
+    read = site_facts.attach_ordinance(one)
+    values = read["ordinance"]["values"]["일반공업지역"]
+    got = site_facts.site_view(read)["limits"][0]
+    assert got["ordinance_bcr"] == (values.get("bcr") or {}).get("value")
+    assert got["ordinance_far"] == (values.get("far") or {}).get("value")
+    assert got["ordinance_far"] == 350  # 군포시 조례: 100분의 350 이하
+
+
 def test_only_the_regulatory_expert_receives_the_ordinance(
     mock_config, agents, project, scripted, one, fake_ordinance
 ):

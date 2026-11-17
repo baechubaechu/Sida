@@ -1110,10 +1110,14 @@ test('the properties tab sums a mass scheme against the site and its statutory c
   assert.equal(props.title, 'A안');
   assert.equal(row('동'), '2개');
   assert.equal(row('최고 층수'), '3층 (12m)');
-  assert.equal(row('건축면적'), '250㎡');
-  assert.equal(row('연면적'), '650㎡');
-  assert.equal(row('건폐율'), '50% (법정 80% 이하)');
-  assert.equal(row('용적률'), '130% (법정 1300% 이하)');
+  // the small block stands inside the large one: counted once, on the ground and on its floor
+  assert.equal(row('건축면적'), '200㎡');
+  assert.equal(row('연면적'), '600㎡');
+  assert.equal(row('건폐율'), '40% (법정 80% 이하)');
+  assert.equal(row('용적률'), '120% (법정 1300% 이하)');
+  // caps read from the ordinance say so
+  const byOrdinance = propertiesOf([mass], { ...site, bcr: 60, bcrFrom: '조례' });
+  assert.equal(byOrdinance.rows.find((r) => r[0] === '건폐율')[1], '40% (조례 60% 이하)');
   assert.ok(props.note.includes('겹친'));
   // No site area: no ratios.
   assert.equal(propertiesOf([mass], null).rows.some((r) => r[0] === '건폐율'), false);
@@ -1160,7 +1164,7 @@ test('a picked building shows its share of the site and the scheme against the c
   assert.equal(row(scheme, '건폐율 여유'), '48㎡ 남음');
 });
 
-test('blocks that overlap are told, as their shared part is counted twice', async () => {
+test('blocks that overlap are told, and their shared part is counted once', async () => {
   const { blocksOverlap, propertiesOf, pickedBlocks } = await import('../../webui/app/board-model.js');
   const a = { u: 0, v: 0, w: 10, d: 10, floors: 1 };
   assert.equal(blocksOverlap([a, { ...a, u: 10 }]), false); // side by side, touching
@@ -1170,8 +1174,31 @@ test('blocks that overlap are told, as their shared part is counted twice', asyn
   assert.equal(blocksOverlap([a]), false);
   const mass = { id: 'm', kind: 'mass', title: 'A안', blocks: [a, { ...a, u: 5 }] };
   const site = { areaM2: 400, bcr: 60, far: 250 };
-  assert.ok(propertiesOf([mass], site).note.includes('두 번'));
-  assert.ok(propertiesOf([], site, pickedBlocks([mass], ['m#0'])).note.includes('두 번'));
+  assert.ok(propertiesOf([mass], site).note.includes('한 번만'));
+  assert.ok(propertiesOf([], site, pickedBlocks([mass], ['m#0'])).note.includes('한 번만'));
+  const row = (label) => propertiesOf([mass], site).rows.find((r) => r[0] === label)?.[1];
+  assert.equal(row('건축면적'), '150㎡'); // 10 × 10 twice, 5 × 10 shared
+});
+
+test('the area blocks cover together counts shared parts once', async () => {
+  const { unionArea, massFigures, blockCorners } = await import('../../webui/app/board-model.js');
+  const box = (u, v, w, d, a = 0) => blockCorners(null, { u, v, w, d, a });
+  const near = (got, want) => assert.ok(Math.abs(got - want) < 1e-6, `${got} ≠ ${want}`);
+  near(unionArea([]), 0);
+  near(unionArea([box(0, 0, 10, 10)]), 100);
+  near(unionArea([box(0, 0, 10, 10), box(10, 0, 10, 10)]), 200); // side by side, a shared edge
+  near(unionArea([box(0, 0, 10, 10), box(20, 0, 10, 10)]), 200); // apart
+  near(unionArea([box(0, 0, 10, 10), box(0, 0, 10, 10)]), 100); // the same block twice
+  near(unionArea([box(0, 0, 40, 30), box(5, 0, 15, 15)]), 1200); // a tower within its podium
+  near(unionArea([box(0, 0, 40, 30), box(12.5, 7.5, 15, 15)]), 1200); // … flush with its corner
+  near(unionArea([box(0, 0, 10, 10), box(5, 5, 10, 10)]), 175); // a corner shared
+  near(unionArea([box(0, 0, 10, 10), box(0, 0, 10, 10, 45)]), 100 + 4 * 25 * (Math.SQRT2 - 1) ** 2); // an eight-pointed star
+  near(unionArea([box(0, 0, 10, 10), box(5, 0, 10, 10), box(10, 0, 10, 10)]), 200); // three in a row
+  // a podium of 2 floors with a tower of 10 through it: the tower's first two floors are the podium's
+  const f = massFigures([{ u: 0, v: 0, w: 40, d: 30, floors: 2 }, { u: 5, v: 0, w: 15, d: 15, floors: 10 }], { areaM2: 2400 });
+  near(f.footprint, 1200);
+  near(f.gross, 1200 * 2 + 225 * 8);
+  near(f.coverage, 50);
 });
 
 test('the band and tags while blocks are edited follow the same rule', async () => {
@@ -1648,4 +1675,20 @@ test("the 속성 panel reads the table's papers, so a copy or a turn shows at on
   assert.equal(changesPanel({ title: 'A' }), true);
   assert.equal(changesPanel({ x: 1, y: 2 }), false);
   assert.equal(changesPanel(undefined), false);
+});
+
+test('radius circles go to the board and come back as the tool holds them', async () => {
+  const { measureClick, emptyMeasure, savedCircles, shownCircles, recordStep, createHistory, undoStep } = await import('../../webui/app/board-model.js');
+  let state = measureClick(emptyMeasure(), 'radius', { x: 1, y: 2, z: 3 }).state;
+  state = measureClick(state, 'radius', { x: 301, y: 402, z: 9 }).state;
+  const saved = savedCircles(state.circles);
+  assert.deepEqual(saved, [{ x: 1, y: 2, z: 3, r: 500, bx: 301, by: 402 }]);
+  assert.deepEqual(savedCircles(shownCircles(saved)), saved);
+  assert.deepEqual(shownCircles([{ x: 0, y: 0, r: 250 }])[0].b, { x: 0, y: 250, z: 0 }); // no end kept: due north
+  assert.deepEqual(shownCircles([null, { x: 0, y: 0, r: 0 }]), []);
+  // drawing or clearing circles is a step that can be undone; no change is no step
+  const history = recordStep(createHistory(), [{ op: 'circles', before: [], after: state.circles }]);
+  assert.equal(history.past.length, 1);
+  assert.deepEqual(undoStep(history).step, [{ op: 'circles', before: state.circles, after: [] }]);
+  assert.equal(recordStep(createHistory(), [{ op: 'circles', before: state.circles, after: state.circles }]).past.length, 0);
 });

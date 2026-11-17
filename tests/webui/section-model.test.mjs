@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  nextSectionName, sectionFrame, spans, groundHeight, sectionCut, sectionSolids, sectionFigures, sectionSvg,
+  nextSectionName, sectionFrame, spans, groundHeight, sectionCut, sectionSolids, sectionFigures, sectionSvg, sectionPeople,
   nearEnd, draggedLine, sectionExport,
 } from '../../webui/app/section-model.js';
 import { OUTSIDE } from '../../webui/app/board-model.js';
@@ -99,6 +99,33 @@ test('the drawing shows the cut, its floors, its height and the A / A′ marks t
   assert.deepEqual(marks.map((m) => m[1]), result.mirror ? ['A′', 'A'] : ['A', 'A′']);
   assert.deepEqual(sectionFigures(result), ['길이 60.0m', '지형 높이차 0.0m', '자른 매스 12.0m']);
   assert.equal(sectionSvg(null), '');
+});
+
+test('people stand in the section: near the line, on the ground or a roof, not behind what is cut', () => {
+  const solids = [{ kind: 'mass', outline: square(-5, -5, 5, 5), base: 0, top: 12, floors: 3, storey: 4 }];
+  const line = [[30, 0], [-30, 0]]; // walking west, it looks north
+  const people = [
+    { x: 20, y: 10, kind: 'stand' }, // 10 m beyond
+    { x: 20, y: -1, kind: 'walk' }, // just on the near side
+    { x: 20, y: -3, kind: 'stand' }, // too far on the near side
+    { x: 0, y: 8, kind: 'stand' }, // behind the cut block
+    { x: 0, y: 0, kind: 'stand', roof: true }, // on its roof
+    { x: -20, y: 2, kind: 'child' },
+    { x: 20, y: 80, kind: 'stand' }, // past the depth
+    { x: 40, y: 5, kind: 'stand' }, // past the line's end
+  ];
+  const got = sectionCut(line, solids, flat(2), { depth: 60, people });
+  assert.deepEqual(got.people, [
+    { s: 10, z: 2, h: 1.7, dist: 10 },
+    { s: 50, z: 2, h: 1.1, dist: 2 },
+    { s: 30, z: 12, h: 1.7, dist: 0 },
+    { s: 10, z: 2, h: 1.7, dist: -1 },
+  ]);
+  // a section that shows only its cut still has the people within 3 m of it
+  assert.deepEqual(sectionPeople(line, people, solids, null, { depth: 0 }).map((p) => [p.s, p.z]), [[50, 0], [30, 12], [10, 0]]);
+  assert.equal((sectionSvg(got).match(/<polygon class="sec-person"/g) || []).length, 4);
+  assert.ok(sectionFigures(got).includes('사람 4명'));
+  assert.deepEqual(sectionCut(line, solids, flat()).people, []);
 });
 
 test('dragging a line: the nearer end, 15° steps, and the file it exports', () => {

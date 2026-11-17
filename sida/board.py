@@ -1,7 +1,7 @@
 """The drafting table (제도판): sheets of paper laid around the site, saved in the project.
 
 Independent of HTTP and of the screen. The table is stored as board.json in the project
-folder: {"rev", "papers", "tray", "pins", "ideas", "hidden", "people", "layers"}. The designer adds, moves and edits papers one
+folder: {"rev", "papers", "tray", "pins", "ideas", "hidden", "people", "circles", "layers"}. The designer adds, moves and edits papers one
 at a time (the screen and the AI write to the same file, so nobody saves it whole).
 
 `layers` (2026-11-09 지훈, as in Rhino) are the designer's layers, in order: {id, name, parent ('' at
@@ -129,6 +129,9 @@ MAX_HIDDEN_ID = 80
 PERSON_KINDS = ("stand", "walk", "child")
 MAX_PEOPLE = 400
 MAX_COORD = 100000.0  # metres from the middle of the site plan
+# Radius circles (`circles`, the 반경 tool): how many one table keeps (board-model.js MAX_CIRCLES).
+MAX_CIRCLES = 10
+MAX_RADIUS = 50000.0
 MAX_IDEA_TEXT = 600
 MAX_IDEA_PAPERS = 8
 TALK_ID = re.compile(r"\d{2,4}")  # the Conductor talk ids of sida/talks.py
@@ -178,7 +181,7 @@ def _site_paper() -> dict:
 
 
 def _empty() -> dict:
-    return {"rev": 0, "papers": [_site_paper()], "tray": [], "pins": [], "ideas": [], "hidden": [], "people": [], "layers": default_layers()}
+    return {"rev": 0, "papers": [_site_paper()], "tray": [], "pins": [], "ideas": [], "hidden": [], "people": [], "circles": [], "layers": default_layers()}
 
 
 log = logging.getLogger(__name__)
@@ -236,12 +239,18 @@ def load_board(project_path: Path) -> dict:
             continue
         if all(p["id"] != person["id"] for p in people):
             people.append(person)
+    circles = []
+    for raw in data.get("circles") if isinstance(data.get("circles"), list) else []:
+        try:
+            circles.append(clean_circle(raw, len(circles)))
+        except ValueError:
+            continue
     try:
         layers = clean_layers(data["layers"]) if isinstance(data.get("layers"), list) and data["layers"] else default_layers()
     except ValueError:
         layers = default_layers()
     return {"rev": int(data.get("rev") or 0), "papers": papers, "tray": tray, "pins": pins, "ideas": ideas,
-            "hidden": hidden, "people": people[:MAX_PEOPLE], "layers": layers}
+            "hidden": hidden, "people": people[:MAX_PEOPLE], "circles": circles[:MAX_CIRCLES], "layers": layers}
 
 
 def _save(project_path: Path, board: dict) -> dict:
@@ -764,6 +773,45 @@ def set_people(project_path: Path, raw: list) -> dict:
     return {"people": board["people"], "rev": board["rev"]}
 
 
+def clean_circle(raw, index: int) -> dict:
+    """
+    One radius circle, checked: its centre (x, y in the plan's metres, z the ground there), its
+    radius r (m, across the ground) and the end of its radius line (bx, by; due north of the
+    centre when not given). Raises ValueError.
+    """
+    if not isinstance(raw, dict):
+        raise ValueError(f"circles[{index}] must be an object")
+    x = _number(raw.get("x"), f"circles[{index}].x")
+    y = _number(raw.get("y"), f"circles[{index}].y")
+    z = _number(raw.get("z", 0), f"circles[{index}].z")
+    r = _number(raw.get("r"), f"circles[{index}].r", low=0, high=MAX_RADIUS)
+    if abs(x) > MAX_COORD or abs(y) > MAX_COORD or abs(z) > MAX_COORD:
+        raise ValueError(f"circles[{index}] is too far from the site")
+    bx = _number(raw.get("bx", x), f"circles[{index}].bx")
+    by = _number(raw.get("by", y + r), f"circles[{index}].by")
+    if abs(bx - x) > MAX_RADIUS * 1.01 or abs(by - y) > MAX_RADIUS * 1.01:
+        raise ValueError(f"circles[{index}]: the end of the radius line is too far from the centre")
+    return {"x": round(x, 3), "y": round(y, 3), "z": round(z, 3), "r": round(r, 3), "bx": round(bx, 3), "by": round(by, 3)}
+
+
+def set_circles(project_path: Path, raw: list) -> dict:
+    """
+    The radius circles drawn on the table with the 반경 tool (`circles`), kept so a distance
+    studied once (500 m about a station) is there the next time. Replaces the list; [] takes
+    them all away. The screen only: never sent to the AI. Returns {circles, rev}. Raises ValueError.
+    """
+    if not isinstance(raw, list):
+        raise ValueError("circles must be a list")
+    if len(raw) > MAX_CIRCLES:
+        raise ValueError(f"at most {MAX_CIRCLES} circles")
+    circles = [clean_circle(item, index) for index, item in enumerate(raw)]
+    with _lock:
+        board = load_board(project_path)
+        board["circles"] = circles
+        board = _save(project_path, board)
+    return {"circles": board["circles"], "rev": board["rev"]}
+
+
 def clean_layers(raw) -> list[dict]:
     """The layers, checked: unique ids, names, parents that exist (no loops). Raises ValueError."""
     if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_LAYERS:
@@ -1113,11 +1161,43 @@ def _m(value: float) -> str:
     return f"{value:,.1f}"
 
 
+def _block_shape(block: dict):
+    """A block's footprint in the site's frame (turned about its middle), as a shapely polygon."""
+    from shapely.geometry import Polygon
+
+    a = math.radians(block.get("a") or 0)
+    ca, sa = math.cos(a), math.sin(a)
+    u, v = block.get("u") or 0.0, block.get("v") or 0.0
+    return Polygon([
+        (u + lu * ca - lv * sa, v + lu * sa + lv * ca)
+        for lu, lv in ((-block["w"] / 2, -block["d"] / 2), (block["w"] / 2, -block["d"] / 2),
+                       (block["w"] / 2, block["d"] / 2), (-block["w"] / 2, block["d"] / 2))
+    ])
+
+
+def blocks_areas(blocks: list[dict]) -> tuple[float, float]:
+    """
+    (building area, gross floor area) of blocks that all stand on the ground: where blocks
+    overlap, the shared part is counted once, on the footprint and on each floor (a tower
+    drawn through its podium is one building, not two). The screen works it out by the same
+    rule (board-model.js massFigures), as do the Rhino figures (experts/rhino/snapshot.py).
+    """
+    from shapely.ops import unary_union
+
+    shapes = [(_block_shape(b), b["floors"]) for b in blocks]
+    footprint = unary_union([shape for shape, _ in shapes]).area if shapes else 0.0
+    gross, below = 0.0, 0
+    for level in sorted({floors for _, floors in shapes}):
+        # the floors from `below` + 1 up to `level`: every block at least that tall
+        gross += unary_union([shape for shape, floors in shapes if floors >= level]).area * (level - below)
+        below = level
+    return footprint, gross
+
+
 def mass_figures(paper: dict, site_area: float | None) -> dict:
     """Footprint, floor area and height from the blocks; ratios only with a known site area."""
     blocks = paper["blocks"]
-    footprint = sum(b["w"] * b["d"] for b in blocks)
-    floor_area = sum(b["w"] * b["d"] * b["floors"] for b in blocks)
+    footprint, floor_area = blocks_areas(blocks)
     figures = {
         "footprint_m2": round(footprint, 1),
         "floor_area_m2": round(floor_area, 1),
@@ -1200,7 +1280,7 @@ def paper_text(paper: dict, site: dict | None) -> str:
         ]
         text = (
             f"{head}: {len(parts)} block(s) — " + "; ".join(parts) + ". "
-            f"Building footprint {_m(f['footprint_m2'])} m² (sum of blocks, overlaps not subtracted), "
+            f"Building footprint {_m(f['footprint_m2'])} m² (what the blocks cover together, overlaps counted once), "
             f"gross floor area {_m(f['floor_area_m2'])} m², highest {_m(f['height_m'])} m "
             f"at {paper['floor_height']:g} m per floor."
         )

@@ -398,22 +398,7 @@ def limits(project_path: Path) -> list[dict]:
     """
     from sida.experts.site import site_facts
 
-    facts = site_facts.load_facts(project_path)
-    if not facts:
-        return []
-    values = (facts.get("ordinance") or {}).get("values") or {}
-    out = []
-    for zone in facts["summary"].get("zoning") or []:
-        read = values.get(zone["zone"]) or {}
-        out.append({
-            "zone": zone["zone"],
-            "bcr_max": zone.get("bcr_max"),
-            "far_min": zone.get("far_min"),
-            "far_max": zone.get("far_max"),
-            "ordinance_bcr": (read.get("bcr") or {}).get("value"),
-            "ordinance_far": (read.get("far") or {}).get("value"),
-        })
-    return out
+    return site_facts.limits(site_facts.load_facts(project_path))
 
 
 def _pct(value: float | None) -> str:

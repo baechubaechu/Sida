@@ -24,13 +24,14 @@ export const sectionMethods = {
     return {
       scheme, frame: this.site?.plan?.frame || null, terrain: around?.terrain || null,
       buildings: around?.buildings || [], hiddenParts: this.aroundPartsHidden || new Set(),
+      people: this.people || [],
     };
   },
   // Changes when anything a section drawing shows changes (its paper's own fields aside).
   sectionKey() {
     const i = this.sectionInput();
     return JSON.stringify([i.scheme?.id, i.scheme?.blocks, i.scheme?.floor_height, i.frame, Boolean(i.terrain),
-      this.around?.radius, this.around?.buildings?.length, [...i.hiddenParts].sort()]);
+      this.around?.radius, this.around?.buildings?.length, [...i.hiddenParts].sort(), i.people]);
   },
   sectionResult(p) {
     const key = JSON.stringify([this.sectionKey(), p.line, p.flip, p.depth]);
@@ -38,7 +39,7 @@ export const sectionMethods = {
     const kept = this.sectionMemo.get(p.id);
     if (kept?.key === key) return kept.result;
     const i = this.sectionInput();
-    const result = p.line ? sectionCut(p.line, sectionSolids(i), i.terrain, { flip: Boolean(p.flip), depth: p.depth ?? SECTION_DEFAULTS.depth }) : null;
+    const result = p.line ? sectionCut(p.line, sectionSolids(i), i.terrain, { flip: Boolean(p.flip), depth: p.depth ?? SECTION_DEFAULTS.depth, people: i.people }) : null;
     this.sectionMemo.set(p.id, { key, result });
     return result;
   },

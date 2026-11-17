@@ -48,7 +48,6 @@ ROLE_COLOR = {
     "state_update": "dim",
     "rag": "yellow",
     "law_search": "yellow",
-    "modeling": "bright_cyan",
     "worker": "cyan",
 }
 

@@ -12,7 +12,7 @@
 import { icon } from './icons.js';
 import * as THREE from './vendor/three.js';
 import { escapeHtml as escape } from './model.js';
-import { boardLayers, paperLayer, blockLayer, layerFlags, expandGroups, groupChange, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewMode, isoCorner, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS, changesPanel } from './board-model.js';
+import { boardLayers, paperLayer, blockLayer, layerFlags, expandGroups, groupChange, PX, MAX_TILT, cameraFor, riseFor, groundFor, drawingScale, scaleBar, lerpView, viewMode, isoCorner, viewFor, siteBounds, traceHome, placeUnplaced, fitView, folded, foldedInPlan, paperName, fmt, blockKey, pickedBlocks, createHistory, recordStep, undoStep, redoStep, CONTOUR_STEPS, changesPanel, savedCircles } from './board-model.js';
 import { typing, TOOLS, MODEL_TOOLS } from './table-shared.js';
 import { blocksMethods } from './table-blocks.js';
 import { aroundMethods } from './table-around.js';
@@ -209,6 +209,7 @@ export class DraftingTable {
     this.syncPapers();
     this.drawMasses();
     this.setPeopleList(view.people);
+    this.setCircleList(view.circles);
     this.drawTray();
     this.drawControls();
     // The first time: the view the project was last seen from, or the site fitted in.
@@ -541,6 +542,11 @@ export class DraftingTable {
       this.drawPeople();
       this.drawPersonBar();
       await this.hooks.savePeople?.(edit.after);
+    } else if (edit.op === 'circles') {
+      this.measure = { ...this.measureState(), start: null, circles: edit.after };
+      this.measurePreview = null;
+      this.drawMeasure();
+      await this.hooks.saveCircles?.(savedCircles(edit.after));
     }
   }
 

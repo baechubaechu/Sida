@@ -737,6 +737,7 @@ dialog { width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); 
 .section-drawing .sec-floor { stroke: var(--surface); stroke-width: .7; vector-effect: non-scaling-stroke; }
 .section-drawing .sec-building { fill: color-mix(in srgb, var(--muted) 45%, transparent); stroke: var(--muted); stroke-width: .8; vector-effect: non-scaling-stroke; }
 .section-drawing .is-estimate { stroke-dasharray: 3 2; }
+.section-drawing .sec-person { fill: var(--surface); stroke: var(--text); stroke-width: .8; vector-effect: non-scaling-stroke; }
 .section-drawing .sec-text { fill: var(--muted); font-family: var(--font); }
 .section-drawing .sec-end { fill: var(--text); font-family: var(--font); font-weight: 700; }
 .detail-files { display: inline-flex; gap: 4px; }
@@ -1427,6 +1428,7 @@ body.moving-float, body.moving-float * { cursor: grabbing !important; user-selec
 .deck { display: grid; gap: 12px; }
 .deck .site-note { margin: 0; }
 .deck-left-out { margin: 0; padding: 8px 12px 8px 28px; border-radius: 8px; background: #fffaf0; color: #7a5313; font-size: 13px; }
+.deck-scheme { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
 .deck-files { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .deck-files .spinner { display: inline-block; width: 12px; height: 12px; }
 .deck-slides { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px 14px; }

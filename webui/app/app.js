@@ -9,7 +9,7 @@ import { talkMenu } from './talk-panel-model.js';
 import { api, expertUrl, projectApi } from './api.js';
 import { applyModelRecommendation, askAbout, closeTable, editProperty, downloadBoard, hideVWorld, loadBoard, openTable, placeTable, table, takePicked, toggleVWorld, unpick } from './board.js';
 import { commandKey, focusCommandLine, runCommandLine } from './commands.js';
-import { decideProposal, downloadDeck, newChat, runExpert, send, sendFeedback } from './experts.js';
+import { decideProposal, downloadDeck, pickDeckScheme, newChat, runExpert, send, sendFeedback } from './experts.js';
 import { addTypedIdea, ideaAction, placeIdeaFloat, saveIdea } from './ideas.js';
 import { clearExpert, loadExpert, loadOrdinance, loadProjectSites, loadProjects, loadSession, loadSite, resetTracking, start, track } from './jobs.js';
 import { syncPanelWidths } from './panels.js';
@@ -329,6 +329,7 @@ app.addEventListener('change', (event) => {
   if (pick) togglePick(pick, event.target.checked);
   if (lot === 'mountain') ui.find.mountain = event.target.checked;
   if (event.target.id === 'idea-new-link') ui.ideaLinkNew = event.target.checked;
+  if (event.target.id === 'deck-scheme') pickDeckScheme(event.target.value);
   if (event.target.dataset?.rhinoView !== undefined) setRhinoView(event.target.checked);
   const { ordDetailed } = event.target.dataset || {};
   if (ordDetailed) setOrdinanceOption(currentRoute.name, ordDetailed, { detailed: event.target.checked });

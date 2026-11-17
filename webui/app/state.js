@@ -42,7 +42,8 @@ export const ui = {
   chat: null, chatMissing: false, module: null, moduleMissing: false, openExperts: new Set(),
   versions: null, version: null, versionMissing: false, showRaw: false, checks: new Set(), feedback: {},
   // The presentation editor's 발표자료 tab: the deck (GET .../presentation), and the file being made ('' when none).
-  deck: null, deckError: '', deckMaking: '',
+  // deckScheme: the massing scheme picked for a project's deck when it has no Rhino work ({project, id}).
+  deck: null, deckError: '', deckMaking: '', deckScheme: { project: '', id: '' },
   job: null, live: [], pending: null,
   // `exporting`: the CAD/Rhino file being made ('' when none).
   revisionOpen: false, creating: false, newDraft: {}, vworld: false, exporting: '',

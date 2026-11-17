@@ -73,15 +73,6 @@ STRINGS: dict[str, dict[str, str]] = {
         ),
         "rag_warn_error": "[rag] Warning: retrieval failed ({reason}). Continuing without retrieved regulations.",
         "expert_hook_failed": "[{domain}] Warning: could not prepare this domain's material ({reason}). Running without it.",
-        "busy_modeling": "Rhino modeler thinking …",
-        "modeling_model_too_old": (
-            "Modeling requires GPT-{min_major}+ (got '{model}'). "
-            "Set modeling.model to something like {example}."
-        ),
-        "modeling_label": "Modeler: ",
-        "modeling_calling": "→ MCP {tool}",
-        "modeling_dry_call": "(dry-run) would call {tool}",
-        "modeling_round_limit": "Stopped after max tool rounds.",
         # --- web UI
         "web_serving": "Sida web UI: {url}  (Ctrl+C to stop)",
         "web_tagline": "A studio assistant for architectural design reasoning",
@@ -260,15 +251,6 @@ STRINGS: dict[str, dict[str, str]] = {
         ),
         "rag_warn_error": "[rag] 경고: 검색에 실패했습니다({reason}). 법규 검색 없이 진행합니다.",
         "expert_hook_failed": "[{domain}] 경고: 이 영역의 자료를 준비하지 못했습니다({reason}). 해당 자료 없이 실행합니다.",
-        "busy_modeling": "라이노 모델러 생각 중 …",
-        "modeling_model_too_old": (
-            "모델링은 GPT-{min_major}+ 만 가능합니다 (현재 '{model}'). "
-            "modeling.model 을 {example} 같이 바꾸세요."
-        ),
-        "modeling_label": "모델러: ",
-        "modeling_calling": "→ MCP {tool}",
-        "modeling_dry_call": "(dry-run) {tool} 호출 예정",
-        "modeling_round_limit": "도구 라운드 한도에 도달해 멈췄습니다.",
         # --- web UI
         "web_serving": "Sida 웹 UI: {url}  (끄려면 Ctrl+C)",
         "web_tagline": "건축 설계 추론을 돕는 조수",

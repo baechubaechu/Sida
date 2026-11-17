@@ -129,23 +129,6 @@ site_facts:
     regulation_checker: regulatory
 
 # ---------------------------------------------------------------------------
-# Rhino modeling: a later special feature, not on the web yet (roadmap in the team Notion).
-# Separate from design projects / Conductor experts.
-# OpenAI API only. Model must be GPT-6 or newer (default: gpt-6-astra).
-# ---------------------------------------------------------------------------
-modeling:
-  provider: openai
-  model: gpt-6-astra
-  min_major: 6
-  temperature: 0.2          # ignored for GPT-6+ (API rejects custom temperature)
-  max_tokens: 2500
-  max_rounds: 8
-  auto_execute: true
-  prompt: agents/71_rhino_modeler.md
-  # mcp_command: null   # or full path to rhino-mcp-router.exe / env SIDA_RHINO_MCP
-  mcp_timeout: 90
-
-# ---------------------------------------------------------------------------
 # Usage records sent to the Sida team's collection server. See docs/telemetry.md.
 # Off for everyone by default; each machine turns it on from the settings screen
 # (written to config.local.yaml). Briefs and generated documents are never sent.

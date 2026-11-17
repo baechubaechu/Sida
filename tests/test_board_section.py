@@ -108,6 +108,40 @@ def test_the_drawing_hides_what_stands_behind_nearer_buildings_and_under_the_gro
     assert {t["text"] for t in drawing["texts"]} >= {"C", "C′", "±0"}
 
 
+def test_people_stand_in_the_section_near_the_line_on_the_ground_or_a_roof_not_behind_what_is_cut(tmp_path):
+    solids = [{"kind": "mass", "outline": square(-5, -5, 5, 5), "base": 0, "top": 12, "floors": 3, "storey": 4, "name": "1동"}]
+    line = [[30, 0], [-30, 0]]  # walking west, it looks north
+    people = [
+        {"x": 20, "y": 10, "kind": "stand"},  # 10 m beyond
+        {"x": 20, "y": -1, "kind": "walk"},  # just on the near side
+        {"x": 20, "y": -3, "kind": "stand"},  # too far on the near side
+        {"x": 0, "y": 8, "kind": "stand"},  # behind the cut block
+        {"x": 0, "y": 0, "kind": "stand", "roof": True},  # on its roof
+        {"x": -20, "y": 2, "kind": "child"},
+        {"x": 20, "y": 80, "kind": "stand"},  # past the depth
+        {"x": 40, "y": 5, "kind": "stand"},  # past the line's end
+    ]
+    result = board_section.cut(line, solids, flat(2.0), depth=60, people=people)
+    assert result["people"] == [
+        {"s": 10, "z": 2, "h": 1.7, "dist": 10},
+        {"s": 50, "z": 2, "h": 1.1, "dist": 2},
+        {"s": 30, "z": 12, "h": 1.7, "dist": 0},
+        {"s": 10, "z": 2, "h": 1.7, "dist": -1},
+    ]
+    # a section that shows only its cut still has the people within 3 m of it
+    close = board_section.people_in(line, people, solids, None, depth=0)
+    assert [[p["s"], p["z"]] for p in close] == [[50, 0], [30, 12], [10, 0]]
+    assert board_section.summary(result)["people"] == 4
+    assert board_section.cut(line, solids, flat())["people"] == []
+    drawing = board_section.section_drawing({"paper": {"title": "A", "scale": 200}, "result": result, "scheme": "", "ground_known": True})
+    figures = [line["points"] for line in drawing["lines"] if line["part"] == "people"]
+    assert len(figures) == 8  # a body and a head each
+    assert max(p[1] for points in figures for p in points) == pytest.approx(13.7, abs=0.1)  # the one on the roof
+    (tmp_path / "s.dxf").write_bytes(board_section.to_dxf(drawing))
+    assert "단면-사람" in {e.dxf.layer for e in ezdxf.readfile(tmp_path / "s.dxf").modelspace()}
+    assert 'data-part="people"' in board_section.to_svg(drawing).decode()
+
+
 @pytest.fixture
 def drawing():
     solids = [{"kind": "mass", "outline": square(-5, -5, 5, 5), "base": 0, "top": 12, "floors": 3, "storey": 4, "name": "1동"},

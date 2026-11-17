@@ -99,7 +99,7 @@
 }
 ```
 
-`lines`는 대지 사실을 한 줄씩 적은 문장들입니다. 화면을 따로 꾸미기 전에는 이것만 나열해도 됩니다. 두 칸 공백으로 시작하는 줄은 바로 위 줄의 부속(단서 조항, 용도 정의)입니다. `summary.zoning`의 `bcr_max`, `far_min`, `far_max`는 법정 범위이고, 조례가 정한 실제 수치는 조례 API의 `base`에 있습니다.
+`lines`는 대지 사실을 한 줄씩 적은 문장들입니다. 화면을 따로 꾸미기 전에는 이것만 나열해도 됩니다. 두 칸 공백으로 시작하는 줄은 바로 위 줄의 부속(단서 조항, 용도 정의)입니다. `summary.zoning`의 `bcr_max`, `far_min`, `far_max`는 법정 범위이고, 조례가 정한 실제 수치는 조례 API의 `base`에 있습니다. `limits`(`[{zone, bcr_max, far_min, far_max, ordinance_bcr, ordinance_far}]`)는 용도지역마다 법정 값과, 조례 조문에서 규칙으로 읽힌 값(못 읽었으면 `null`)을 나란히 둔 것입니다. 제도판은 매스안의 건폐율·용적률을 조례 값이 있으면 조례, 없으면 법정 상한과 비교하고 어느 쪽인지 적습니다(대지가 한 용도지역일 때, 라이노 수치의 `limits`와 같은 값).
 
 `restrictions`, `uses`, `parcels[].buildings`는 2026-10-16에 생겼습니다. 그 전에 저장한 대지는 `restrictions: []`, `uses: []`, `buildings: null`로 옵니다. 다시 조회하면 채워집니다.
 

@@ -879,18 +879,25 @@ export function shapesBounds(shapes) {
 }
 
 // The few site facts a project card shows, from a saved site (GET .../site); null before a site is
-// saved. Coverage and FAR are the zone's statutory caps, given only when the whole site is in one zone.
+// saved. Coverage and FAR are the zone's caps, given only when the whole site is in one zone: the
+// ordinance's value where its article was read by rule (`limits`, the same as the Rhino figures'),
+// else the statutory cap; `bcrFrom` and `farFrom` say which ('조례' | '법정').
 export function siteCard(site) {
   if (!site?.available) return null;
   const zones = site.summary?.zoning || [];
   const one = zones.length === 1 ? zones[0] : null;
+  const read = one ? (site.limits || []).find((x) => x.zone === one.zone) : null;
+  const bcrRead = read?.ordinance_bcr ?? null;
+  const farRead = read?.ordinance_far ?? null;
   return {
     address: site.query || site.parcels?.[0]?.address || '',
     zones: zones.map((z) => z.zone),
     area: areaText(site.summary?.total_area_m2),
     areaM2: site.summary?.total_area_m2 ?? null,
-    bcr: one?.bcr_max ?? null,
-    far: one?.far_max ?? null,
+    bcr: bcrRead ?? one?.bcr_max ?? null,
+    far: farRead ?? one?.far_max ?? null,
+    bcrFrom: bcrRead != null ? '조례' : '법정',
+    farFrom: farRead != null ? '조례' : '법정',
     shapes: (site.parcels || []).map((p) => p.shape).filter(Boolean),
   };
 }
@@ -1023,8 +1030,11 @@ export const DECK_FORMATS = [
   { format: 'zip', label: '그림까지 모두 받기', word: '묶음 파일' },
 ];
 
-export const deckUrl = (project) => `/api/projects/${encodeURIComponent(project)}/presentation`;
-export const deckFileUrl = (project, format) => `${deckUrl(project)}/file?format=${encodeURIComponent(format)}`;
+// `scheme`: the massing scheme on the table the deck shows when there is no Rhino work ('' = the first).
+const schemeQuery = (scheme, lead) => (scheme ? `${lead}scheme=${encodeURIComponent(scheme)}` : '');
+export const deckUrl = (project, scheme = '') => `/api/projects/${encodeURIComponent(project)}/presentation${schemeQuery(scheme, '?')}`;
+export const deckFileUrl = (project, format, scheme = '') => `${deckUrl(project)}/file?format=${encodeURIComponent(format)}${schemeQuery(scheme, '&')}`;
+export const deckDiagramUrl = (project, kind, scheme = '') => `${deckUrl(project)}/diagram/${encodeURIComponent(kind)}${schemeQuery(scheme, '?')}`;
 
 // The file name a download answers with (Content-Disposition: filename*=UTF-8''...), else `fallback`.
 export function downloadName(disposition, fallback) {
@@ -1037,15 +1047,26 @@ export function downloadName(disposition, fallback) {
 // order came from, which Rhino work the pictures are of, what is left out, and each slide with
 // its figure ready to show. `urls` builds the picture addresses: {diagram(snapshot, kind),
 // view(snapshot, file)}. A figure is {kind: 'image', url, alt}, {kind: 'table', rows} or
-// {kind: 'empty', title, why}.
+// {kind: 'empty', title, why}. Without Rhino work the figures and diagrams are of a massing scheme
+// on the drafting table (deck.model.source 'table'): `urls` then also gives tableDiagram(kind, scheme),
+// and section(paper, scheme) and photo(paper) for the sections and photos on the table.
 export function deckView(deck, urls) {
   if (!deck) return null;
   const snapshot = deck.snapshot?.id || '';
+  const source = deck.model ? deck.model.source : (snapshot ? 'rhino' : null);
+  const scheme = deck.model?.scheme || null;
   const figure = (f) => {
     if (!f) return null;
-    if (!f.ready || !snapshot) return { kind: 'empty', title: f.title, why: f.why || '만들 수 없습니다.' };
-    if (f.kind === 'diagram') return { kind: 'image', url: urls.diagram(snapshot, f.key.split(':')[1]), alt: f.title };
-    if (f.kind === 'view') return { kind: 'image', url: urls.view(snapshot, f.file), alt: f.title };
+    const empty = { kind: 'empty', title: f.title, why: f.why || '만들 수 없습니다.' };
+    if (!f.ready) return empty;
+    if (f.kind === 'section') return { kind: 'image', url: urls.section(f.paper, scheme?.id || ''), alt: f.title };
+    if (f.kind === 'photo') return { kind: 'image', url: urls.photo(f.paper), alt: f.title };
+    if (!source) return empty;
+    if (f.kind === 'diagram') {
+      const kind = f.key.split(':')[1];
+      return { kind: 'image', url: source === 'table' ? urls.tableDiagram(kind, scheme?.id || '') : urls.diagram(snapshot, kind), alt: f.title };
+    }
+    if (f.kind === 'view') return snapshot ? { kind: 'image', url: urls.view(snapshot, f.file), alt: f.title } : empty;
     return { kind: 'table', rows: deck.figure_rows || [] };
   };
   let line = '발표 편집자가 정한 순서와 문장입니다.';
@@ -1054,11 +1075,18 @@ export function deckView(deck, urls) {
       ? '발표 편집자의 결과에 슬라이드 목록이 없어 Sida가 기본 순서로 놓았습니다. 다시 실행하면 순서와 문장이 채워집니다.'
       : '발표 편집자를 아직 실행하지 않아 Sida가 기본 순서로 놓았습니다. 실행하면 순서와 문장이 채워집니다.';
   }
-  const model = deck.snapshot
-    ? `그림과 수치는 ${dateTime(deck.snapshot.taken_at)}에 보낸 라이노 작업${deck.snapshot.file ? `(${deck.snapshot.file})` : ''}에서 왔습니다.`
-    : '라이노 작업이 아직 없어 그림과 수치가 비어 있습니다. 라이노에서 Sida로 보내면 채워집니다.';
+  let model = '라이노 작업도 제도판 매스안도 아직 없어 그림과 수치가 비어 있습니다. 제도판에 매스안을 그리거나 라이노에서 Sida로 보내면 채워집니다.';
+  if (source === 'rhino' && deck.snapshot) {
+    model = `그림과 수치는 ${dateTime(deck.snapshot.taken_at)}에 보낸 라이노 작업${deck.snapshot.file ? `(${deck.snapshot.file})` : ''}에서 왔습니다.`;
+  } else if (source === 'table') {
+    model = `그림과 수치는 제도판의 매스안${scheme?.name ? ` "${scheme.name}"` : ''}에서 왔습니다. 라이노에서 Sida로 보내면 라이노 작업의 것으로 바뀝니다.`;
+  }
+  // The schemes to pick from: only when the deck is made of one and there is another.
+  const schemes = source === 'table' && (deck.schemes || []).length > 1
+    ? deck.schemes.map((s) => ({ id: s.id, name: s.name, picked: s.id === scheme?.id })) : [];
   return {
-    line, model, fromEditor: deck.source === 'editor', hasModel: Boolean(deck.snapshot), notes: deck.notes || [],
+    line, model, fromEditor: deck.source === 'editor', hasModel: Boolean(source), notes: deck.notes || [], schemes,
+    scheme: source === 'table' ? scheme?.id || '' : '',
     slides: deck.slides.map((s, index) => ({
       number: index + 1, layout: s.layout, title: s.title, subtitle: s.subtitle, bullets: s.bullets, caption: s.caption,
       notes: s.notes, figure: figure(s.figure),

@@ -1,7 +1,8 @@
 // The experts panel and an expert's page: result layout, analysis chat, earlier results, review.
 
-import { phaseLabel, visibleExperts, STATUS_LABELS, escapeHtml as escape, chatItems, expertStatus, renderMarkdown, chatTitle, chatLabel, projectPath as projectUrl, expertPath, dateTime, arrangeDocument, itemTag, renderInline, parseRecommendation, stripRecommendation, expertPageTabs, MODEL_EXPERT, SLIDES_EXPERT, stripSlideList, deckView, DECK_FORMATS, questionAnswer, stateChangeView, sitePath, siteHeadline } from './model.js';
+import { phaseLabel, visibleExperts, STATUS_LABELS, escapeHtml as escape, chatItems, expertStatus, renderMarkdown, chatTitle, chatLabel, projectPath as projectUrl, expertPath, dateTime, arrangeDocument, itemTag, renderInline, parseRecommendation, stripRecommendation, expertPageTabs, MODEL_EXPERT, SLIDES_EXPERT, stripSlideList, deckView, deckDiagramUrl, DECK_FORMATS, questionAnswer, stateChangeView, sitePath, siteHeadline } from './model.js';
 import { rhinoDiagramUrl, rhinoViewUrl } from './rhino-model.js';
+import { sectionExport } from './section-model.js';
 import { expertUrl } from './api.js';
 import { SITE_EXPERTS, activeChat, currentRoute, draftFor, expertById, jobRunning, ui } from './state.js';
 import { bubble, composer, workingLine } from './view-conductor.js';
@@ -193,6 +194,9 @@ function slidesTab(name) {
   const view = deckView(ui.deck, {
     diagram: (snapshot, kind) => rhinoDiagramUrl(name, snapshot, kind),
     view: (snapshot, file) => rhinoViewUrl(name, snapshot, file),
+    tableDiagram: (kind, scheme) => deckDiagramUrl(name, kind, scheme),
+    section: (paper, scheme) => sectionExport(name, paper, 'svg', scheme).url,
+    photo: (paper) => `/api/projects/${encodeURIComponent(name)}/board/photos/${encodeURIComponent(paper)}`,
   });
   if (!view) return '<p class="muted">불러오는 중입니다.</p>';
   const making = ui.deckMaking;
@@ -211,6 +215,7 @@ function slidesTab(name) {
   return `<section class="deck" aria-label="발표자료">
     <p class="site-note ${view.fromEditor ? '' : 'warn'}">${escape(view.line)}</p>
     <p class="site-note ${view.hasModel ? '' : 'warn'}">${escape(view.model)}</p>
+    ${view.schemes.length ? `<label class="deck-scheme">매스안 <select id="deck-scheme" data-focus="deck-scheme">${view.schemes.map((s) => `<option value="${escape(s.id)}" ${s.picked ? 'selected' : ''}>${escape(s.name)}</option>`).join('')}</select></label>` : ''}
     ${view.notes.length ? `<ul class="deck-left-out">${view.notes.map((n) => `<li>${escape(n)}</li>`).join('')}</ul>` : ''}
     <div class="deck-files">${files}<span class="muted small-text">슬라이드 ${view.slides.length}장 · 파워포인트에서 글과 도형을 그대로 고칠 수 있습니다.</span></div>
     <ol class="deck-slides">${view.slides.map(slide).join('')}</ol>

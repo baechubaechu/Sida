@@ -636,7 +636,11 @@ test('a project card shows the saved site address, zones, area and the one zone 
   assert.equal(card.areaM2, 412.5);
   assert.equal(card.bcr, 80);
   assert.equal(card.far, 1300);
+  assert.deepEqual([card.bcrFrom, card.farFrom], ['법정', '법정']);
   assert.equal(card.shapes.length, 1);
+  // The ordinance's value where its article was read by rule, as the Rhino figures hold it.
+  const read = siteCard({ ...site, limits: [{ zone: '일반상업지역', bcr_max: 80, far_max: 1300, ordinance_bcr: 60, ordinance_far: null }] });
+  assert.deepEqual([read.bcr, read.bcrFrom, read.far, read.farFrom], [60, '조례', 1300, '법정']);
   // Two zones: no single cap to show.
   const split = siteCard({ ...site, summary: { ...site.summary, zoning: [{ zone: 'a', bcr_max: 60, far_max: 200 }, { zone: 'b', bcr_max: 80, far_max: 1300 }] } });
   assert.equal(split.bcr, null);
@@ -761,7 +765,7 @@ test('the presentation editor has a 발표자료 tab, and its document is shown 
 });
 
 test('the deck is shown with where its order came from, which rhino work fills it, and each figure ready to show', async () => {
-  const { deckView, deckFileUrl, downloadName, DECK_FORMATS } = await import('../../webui/app/model.js');
+  const { deckView, deckUrl, deckFileUrl, deckDiagramUrl, downloadName, DECK_FORMATS } = await import('../../webui/app/model.js');
   const urls = { diagram: (snapshot, kind) => `/d/${snapshot}/${kind}`, view: (snapshot, file) => `/v/${snapshot}/${file}` };
   const slide = (more) => ({ layout: 'figure', title: 't', subtitle: '', bullets: [], caption: '', notes: '', figure: null, ...more });
   const deck = {
@@ -794,7 +798,32 @@ test('the deck is shown with where its order came from, which rhino work fills i
   assert.ok(deckView({ ...deck, source: 'default' }, urls).line.includes('슬라이드 목록이 없어'));
   assert.equal(deckView(null, urls), null);
 
+  // without Rhino work the deck is of a massing scheme on the drafting table, with the table's sections and photos
+  const more = { ...urls, tableDiagram: (kind, scheme) => `/t/${kind}/${scheme}`, section: (paper, scheme) => `/s/${paper}/${scheme}`, photo: (paper) => `/p/${paper}` };
+  const onTable = deckView({
+    ...deck, snapshot: null, notes: [], model: { source: 'table', scheme: { id: 'mass-a', name: 'A안' } },
+    schemes: [{ id: 'mass-a', name: 'A안' }, { id: 'mass-b', name: 'B안' }],
+    slides: [
+      slide({ figure: { key: 'diagram:floors', kind: 'diagram', title: '층별 분해', ready: true, why: '' } }),
+      slide({ figure: { key: 'section:sec-a', kind: 'section', title: '단면 A–A′', ready: true, why: '', paper: 'sec-a' } }),
+      slide({ figure: { key: 'photo:photo-1', kind: 'photo', title: '눈높이 장면', ready: true, why: '', paper: 'photo-1' } }),
+      slide({ figure: { key: 'figures', kind: 'figures', title: '수치', ready: true, why: '' } }),
+      slide({ figure: { key: 'diagram:program', kind: 'diagram', title: '프로그램 매스', ready: false, why: '용도가 없어' } }),
+    ],
+  }, more);
+  assert.ok(onTable.hasModel && onTable.model.includes('제도판의 매스안 "A안"') && onTable.scheme === 'mass-a');
+  assert.deepEqual(onTable.schemes, [{ id: 'mass-a', name: 'A안', picked: true }, { id: 'mass-b', name: 'B안', picked: false }]);
+  assert.deepEqual(onTable.slides.map((s) => s.figure.url || s.figure.kind), ['/t/floors/mass-a', '/s/sec-a/mass-a', '/p/photo-1', 'table', 'empty']);
+  const nothing = deckView({ ...deck, snapshot: null, model: { source: null, scheme: null }, schemes: [], slides: [deck.slides[4], onTable && slide({ figure: { key: 'photo:photo-1', kind: 'photo', title: '사진', ready: true, why: '', paper: 'photo-1' } })] }, more);
+  assert.ok(!nothing.hasModel && nothing.model.includes('제도판에 매스안을 그리거나') && nothing.schemes.length === 0);
+  assert.deepEqual(nothing.slides.map((s) => s.figure.kind), ['empty', 'image']); // a photo on the table shows even then
+  assert.equal(deckView(deck, more).schemes.length, 0); // Rhino work: no scheme to pick
+
   assert.equal(deckFileUrl('무교동 45', 'pptx'), '/api/projects/%EB%AC%B4%EA%B5%90%EB%8F%99%2045/presentation/file?format=pptx');
+  assert.equal(deckFileUrl('a', 'pdf', 'mass-b'), '/api/projects/a/presentation/file?format=pdf&scheme=mass-b');
+  assert.equal(deckUrl('a', 'mass-b'), '/api/projects/a/presentation?scheme=mass-b');
+  assert.equal(deckDiagramUrl('a', 'floors', 'mass-b'), '/api/projects/a/presentation/diagram/floors?scheme=mass-b');
+  assert.equal(deckDiagramUrl('a', 'floors'), '/api/projects/a/presentation/diagram/floors');
   assert.deepEqual(DECK_FORMATS.map((f) => f.format), ['pptx', 'pdf', 'zip']);
   assert.equal(downloadName("attachment; filename*=UTF-8''%EB%AC%B4%EA%B5%90%EB%8F%99%2045%20%EB%B0%9C%ED%91%9C%EC%9E%90%EB%A3%8C.pptx", 'x.pptx'), '무교동 45 발표자료.pptx');
   assert.equal(downloadName('attachment', '발표자료.pdf'), '발표자료.pdf');
