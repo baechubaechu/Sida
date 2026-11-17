@@ -7,6 +7,7 @@ Recorded law.go.kr responses: searches for 군포시, 서울특별시 and 고성
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 from sida.experts.regulation import lawapi, ordinance
 from sida.experts.regulation.lawapi import LawApiError
@@ -326,6 +327,20 @@ def test_ordinance_body_lists_its_annexes(fake_ordinance):
     annexes = lawapi.ordinance_articles("1")["annexes"]
     assert [(a["label"], a["format"]) for a in annexes] == [("별표 27", "hwp"), ("별표 3의2", "pdf")]
     assert annexes[0]["url"].endswith("flSeq=1")
+
+
+def test_ordinance_body_reads_annexes_at_the_top_level_and_skips_forms(fake_ordinance):
+    # Recorded 2026-11-17 (서울특별시 건축 조례, trimmed): "별표단위" sits right under LawService, and
+    # 별지 서식 share 별표 numbers. Before the fix every real ordinance came back with no annexes.
+    path = Path(__file__).parents[2] / "fixtures" / "lawapi" / "ordin_body_seoul_2171799.json"
+    fake_ordinance.overrides["body"] = path.read_text(encoding="utf-8")
+    body = lawapi.ordinance_articles("2171799")
+    assert body["effective"] == "2026-11-12"
+    annexes = {a["label"]: a for a in body["annexes"]}
+    assert list(annexes) == ["별표 2", "별표 2의2", "별표 3", "별표 4", "별표 6"]
+    assert annexes["별표 4"]["title"] == "대지안의 공지기준 (제30조관련)"
+    assert annexes["별표 4"]["url"].startswith("http://www.law.go.kr/flDownload.do?flSeq=170170893")
+    assert [a["label"] for a in body["articles"]] == ["제30조", "제35조"]
 
 
 def test_related_articles_fall_into_three_groups_by_title():

@@ -300,9 +300,14 @@ def ordinance_articles(mst: str, *, http_get: HttpGet | None = None) -> dict:
             }
         )
     annexes = []
-    for it in _as_list((root.get("별표") or {}).get("별표단위")):
+    # The service puts "별표단위" right under LawService (seen 2026-11-17, 서울특별시 건축 조례);
+    # the nested "별표" → "별표단위" shape is kept in case some replies use it.
+    units = root.get("별표단위") or (root.get("별표") or {}).get("별표단위")
+    for it in _as_list(units):
         if not isinstance(it, dict):
             continue
+        if str(it.get("별표구분") or "별표").strip() != "별표":
+            continue  # 별지 서식 share the numbers ("0004" is both 별표 4 and 별지 제4호서식)
         number, branch = str(it.get("별표번호") or ""), str(it.get("별표가지번호") or "")
         if not number.isdigit():
             continue
