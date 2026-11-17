@@ -3,7 +3,7 @@
 // Methods of DraftingTable (table.js adds them to its prototype).
 
 import * as THREE from './vendor/three.js';
-import { escapeHtml as escape } from './model.js';
+import { escapeHtml as escape, siteRuleRows } from './model.js';
 import { drawPage, pdfInfo } from './pdf-view.js';
 import { rhinoPaperParts, diagramFileName } from './rhino-model.js';
 import { paperGlyph, PX, PAPER_SIZE, isOverlaid, freeSpot, folded, pinnedPapers, peekSpot, paperName, resultPreview, KIND_LABELS, originLabel, figureLines, toggleSelected, fmt, photoPlan, shrunkSize, photoPaperSize, photoTitle, pickPhotoFiles, PHOTO_SIZES, MAX_PHOTOS_AT_ONCE, MAX_PHOTO_BYTES, isPdfFile, isPdfPaper, pdfCanvasSize, pdfNeedsRedraw, resizable, resizedPaper, paperTextScale } from './board-model.js';
@@ -202,10 +202,14 @@ export const papersMethods = {
   paperContent(p, active, f, card = false) {
     if (p.kind === 'site') {
       const lines = this.site?.lines || [];
+      // what applies, in at most five lines (site_rules.py), above the facts as experts get them
+      // (one line each; the whole of each, with its 원문, is on the site page)
+      const rules = siteRuleRows(this.site?.rules).map((r) => `<li title="${escape([r.detail, r.source].filter(Boolean).join(' · '))}"><span class="status-badge ${r.tone}">${escape(r.badge)}</span>
+        <b>${escape(r.title)}</b> ${escape(r.value)}${r.brief ? ` <span class="rule-detail">${escape(r.brief)}</span>` : ''}</li>`);
       return {
         title: '대지 사실',
         body: lines.length
-          ? `<ul class="facts">${lines.map((l) => `<li>${escape(l)}</li>`).join('')}</ul>
+          ? `${rules.length ? `<ul class="site-rules">${rules.join('')}</ul>` : ''}<ul class="facts">${lines.map((l) => `<li>${escape(l)}</li>`).join('')}</ul>
             <p class="source">정부 자료(대지 사실)${this.site?.plan ? '' : ' · 필지 경계 미확인'}</p>`
           : '<p class="muted">대지 사실이 아직 없습니다. 대지 주소를 조회하면 필지 경계와 면적이 여기에 나옵니다.</p>',
       };

@@ -1,6 +1,6 @@
 // The site page: facts, ordinance, planned uses and the find tab (HTML strings).
 
-import { escapeHtml as escape, expertStatus, projectPath as projectUrl, expertPath, dateTime, sitePath, siteHeadline, areaText, zoneScope, missingText, SITE_PART_LABELS, UNKNOWN, restrictionGroups, buildingLine, chosenDong, ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions } from './model.js';
+import { escapeHtml as escape, expertStatus, projectPath as projectUrl, expertPath, dateTime, sitePath, siteHeadline, areaText, zoneScope, missingText, SITE_PART_LABELS, UNKNOWN, restrictionGroups, buildingLine, chosenDong, ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions, siteRuleRows } from './model.js';
 import { REGION_LABELS, REGION_LEVELS, currentRoute, expertById, jobRunning, ui } from './state.js';
 
 // ------------------------------------------------------------------ site page
@@ -59,6 +59,22 @@ function restrictionsBlock(site) {
   return siteSection('건축제한 근거 조문', `${inner}<p class="muted small-text">정부 응답에 법령 이름이 없어 조문 제목만 보여 줍니다.</p>`);
 }
 
+// "이 대지에 걸리는 것": at most five lines of what applies, each with how sure it is and, for a
+// figure, the line it was read from (sida/experts/site/site_rules.py).
+function rulesBlock(site) {
+  const rows = siteRuleRows(site.rules);
+  if (!rows.length) return '';
+  const items = rows.map((r) => {
+    const quote = r.quote
+      ? `<details class="law-text"><summary>원문${r.source ? ` · ${escape(r.source)}` : ''}</summary><pre>${escape(r.quote)}</pre></details>`
+      : (r.source ? `<span class="muted small-text">${escape(r.source)}</span>` : '');
+    return `<li class="site-rule"><div><span class="status-badge ${r.tone}">${escape(r.badge)}</span><strong>${escape(r.title)}</strong> <span class="rule-value">${escape(r.value)}</span></div>`
+      + `${r.detail ? `<div class="muted small-text">${escape(r.detail)}</div>` : ''}${quote}</li>`;
+  });
+  return siteSection('이 대지에 걸리는 것', `<ul class="site-rules">${items.join('')}</ul>
+    <p class="muted small-text">정부 자료와 조례 원문을 규칙으로 읽은 결과입니다. 지구단위계획처럼 자료에 없는 계획은 따로 확인하세요.</p>`, 'site-rules-card');
+}
+
 // Before any site is saved (or while loading): what the facts, ordinance and uses tabs show instead.
 function siteNotYet(name) {
   const site = ui.site;
@@ -84,7 +100,8 @@ function factsTab(name) {
   const missing = s.missing.length
     ? siteSection(UNKNOWN, `<ul>${s.missing.map((m) => `<li>${escape(missingText(m))}</li>`).join('')}</ul><p class="muted small-text">가져오지 못한 항목은 추정하지 않습니다. 다시 조회해 보세요.</p>`)
     : '';
-  return `<div class="doc-row top">${siteSection('대지', `<ul>${overview}</ul>`)}</div>
+  const rules = rulesBlock(site);
+  return `${rules ? `<div class="doc-row top">${rules}</div>` : ''}<div class="doc-row top">${siteSection('대지', `<ul>${overview}</ul>`)}</div>
     <div class="doc-row">${zoningBlock(name, site)}</div>
     ${flags ? `<div class="doc-row">${flags}</div>` : ''}
     <div class="doc-row cols-2">${siteSection('그 밖의 지역·지구', listOr(districts, '없음'))}${siteSection('도시계획 도로', listOr(roads, '없음'))}</div>

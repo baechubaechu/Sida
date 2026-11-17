@@ -485,7 +485,7 @@ def test_the_view_adds_the_site_and_each_schemes_figures(tmp_path):
     board.add_paper(tmp_path, {**MASS, "id": "mass-a"})
     board.propose_paper(tmp_path, {"kind": "mass", "blocks": [{"w": 10, "d": 10, "floors": 2}], "reason": "작게"})
     hooks = [("site", SimpleNamespace(board_site=lambda path: {
-        "area_m2": 1000.0, "lines": ["대지: 필지 1개"],
+        "area_m2": 1000.0, "lines": ["대지: 필지 1개"], "rules": [{"id": "far", "status": "read", "value": "600%"}],
         "parcels": [{"pnu": "1", "shape": {"type": "Polygon", "coordinates": [_rect(127.0, 37.0, 0.0004, 0.0002)]}}],
     }))]
     got = board.view(tmp_path, hooks=hooks)
@@ -494,6 +494,7 @@ def test_the_view_adds_the_site_and_each_schemes_figures(tmp_path):
     tray_id = got["tray"][0]["id"]
     assert got["figures"][tray_id]["floor_area_m2"] == 200.0
     assert got["site"]["lines"] == ["대지: 필지 1개"] and len(got["site"]["plan"]["parcels"]) == 1
+    assert got["site"]["rules"] == [{"id": "far", "status": "read", "value": "600%"}]  # the card's lines, as given
     assert board.load_board(tmp_path).keys() == {"rev", "papers", "tray", "pins", "ideas", "hidden", "people", "circles", "layers"}  # nothing derived is saved
 
     bare = board.view(tmp_path, hooks=[("site", SimpleNamespace(board_site=lambda path: None))])
