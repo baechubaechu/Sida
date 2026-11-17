@@ -76,7 +76,9 @@ def test_the_card_on_a_residential_site_without_an_ordinance():
     assert (lines["far"]["status"], lines["far"]["value"]) == ("check", "법정 상한 250%")
     assert "도시·군계획 조례를 찾지 못함" in lines["far"]["detail"]
     assert (lines["sunlight"]["status"], lines["sunlight"]["value"]) == ("read", "적용")
-    assert lines["sunlight"]["source"] == "건축법 시행령 제86조제1항" and "1.5미터" in lines["sunlight"]["quote"]
+    sun = lines["sunlight"]
+    assert sun["source"] == "건축법 제61조제1항" and "17미터" in sun["quote"]  # 2026-11-12 개정
+    assert "10m 넘고 17m 이하 부분은 5m 이상" in sun["detail"] and "원문 대조 전" not in sun["detail"]
     assert "height" not in lines and "plan" not in lines
 
 

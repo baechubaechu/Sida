@@ -2,23 +2,31 @@
 # Each rule quotes its statute. When a statute changes, compare the text with the 원문 and update
 # `verified` (the date it was compared). Nothing here is a figure for a particular site.
 
-# 정북 방향 일조 (건축법 제61조제1항, 시행령 제86조제1항): which 용도지역 it applies in.
+# 정북 방향 일조 (건축법 제61조제1항): which 용도지역 it applies in.
+# Since 2026-11-12 the distances are in the Act itself (법률 제21880호, 2026. 8. 11. 공포, 부칙 제1조:
+# 제61조제1항은 공포 후 3개월), and 시행령 제86조제1항 is deleted (대통령령 제36817호, 2026. 11. 10.).
+# The cases where it does not apply moved to 시행령 제86조제2항. Applies to 건축허가 신청·건축신고
+# from 2026-11-12 (부칙 제4조). The 법제처 aiSearch still answered with the old versions on
+# 2026-11-17; compare with the law.go.kr 현행 page, not with that search.
 north_sunlight:
-  law: 건축법 시행령 제86조제1항
+  law: 건축법 제61조제1항
+  version: 법률 제21880호 (시행 2026. 11. 12.)
   zones:
     - 제1종전용주거지역
     - 제2종전용주거지역
     - 제1종일반주거지역
     - 제2종일반주거지역
     - 제3종일반주거지역
-  summary: 정북 쪽 인접 대지경계선에서 높이 10m 이하 부분은 1.5m 이상, 10m 넘는 부분은 그 높이의 1/2 이상 띄움(이 범위에서 건축 조례가 정함)
+  summary: 정북 쪽 인접 대지경계선에서 높이 10m 이하 부분은 1.5m 이상, 10m 넘고 17m 이하 부분은 5m 이상, 17m 넘는 부분은 그 높이의 1/2 이상 띄움(이 범위에서 조례가 정함, 예외는 시행령 제86조제2항)
   text: >-
-    전용주거지역과 일반주거지역 안에서 건축물을 건축하는 경우에는 법 제61조제1항에 따라 건축물의
-    각 부분을 정북(正北) 방향으로의 인접 대지경계선으로부터 다음 각 호의 범위에서 건축조례로 정하는
-    거리 이상을 띄어 건축하여야 한다. 1. 높이 10미터 이하인 부분: 인접 대지경계선으로부터
-    1.5미터 이상 2. 높이 10미터를 초과하는 부분: 인접 대지경계선으로부터 해당 건축물 각 부분
-    높이의 2분의 1 이상
-  verified: null  # 원문 대조 전: law.go.kr에서 대조하고 날짜를 적을 것
+    전용주거지역과 일반주거지역 안에서 건축하는 건축물은 일조 등의 확보를 위하여 정북방향(正北方向)의
+    인접 대지경계선으로부터 다음 각 호의 구분에 따른 범위에서 해당 지방자치단체의 조례로 정하는 거리
+    이상을 띄어 건축하여야 한다. 다만, 건축물의 정북방향의 인접 대지가 전용주거지역이나
+    일반주거지역이 아닌 용도지역에 해당하는 경우 등 대통령령으로 정하는 경우에는 그러하지 아니하다.
+    1. 높이 10미터 이하인 부분: 인접 대지경계선으로부터 1.5미터 이상 2. 높이 10미터 초과 17미터
+    이하인 부분: 인접 대지경계선으로부터 5미터 이상 3. 높이 17미터를 초과하는 부분: 인접
+    대지경계선으로부터 해당 건축물 각 부분 높이의 2분의 1 이상
+  verified: 2026-11-17  # law.go.kr 현행 원문(lsiSeq 288701)과 대조
 
 # 지역·지구 names (토지이용계획) that bring a height limit of their own. A district whose name
 # contains one of these words is listed on the "높이" line, as named by the government.
