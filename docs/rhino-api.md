@@ -96,13 +96,25 @@ Sida는 무엇을 어디에 그릴지만 정한 **그리기 지시**를 내고, 
 | `POST /api/rhino/live` | 플러그인: `{doc, file, units, project, autosync, busy, snapshot, selected, selected_count, notice}`. `busy`는 지금 하는 중인 일(`""`, `pull`, `push`, `draw`). `selected`는 라이노에서 고른 개체의 id(200개까지), `selected_count`는 고른 개체 전체 수. `doc`은 플러그인이 정한 문서 id(라이노 하나에 하나, `rhino-<프로세스 번호>`: 그 라이노의 지금 문서), `snapshot`은 뷰·메시 없는 스냅샷(없으면 `null`), `notice`는 방금 한 일의 결과 `{text, ok}`(선택) | `{rev}`. 패널에 보이는 것이 바뀌었을 때만 `rev`가 오릅니다 |
 | `GET /api/rhino/live?doc=` | 패널. `doc`이 없으면 가장 최근에 물어 온 문서 | `{connected, rev, state}`. `state`는 `{doc, file, units, project, project_known, autosync, busy, selection: {count, bodies, floor_area_m2, footprint_m2}, rhino, layers: [{path, meaning, color, floor_height, objects}], objects, figures, notice: {text, ok, at, n}}`. 도형은 담지 않습니다. 플러그인이 5초 넘게 묻지 않으면 `connected: false` |
 | `POST /api/rhino/commands` | 패널: `{doc, type, …}`. `type`은 `pull`, `push`, `set_project`(`project`), `set_layer`(`path`, `meaning`, `floor_height` m 또는 `null`), `set_autosync`(`on`), `report`, `draw`(`kinds`: 다이어그램 종류 목록. 플러그인이 먼저 보내고(`push`) 그 스냅샷의 그리기 지시를 받아 문서에 그립니다) | `{id}`. 모르는 `type`·의미, 연결된 적 없는 `doc`은 `400` |
-| `GET /api/rhino/commands?doc=&after=` | 플러그인. `after`는 끝낸 마지막 명령 id | `{known, commands: [{id, type, …}]}`. 묻는 것이 곧 연결 신호입니다 |
+| `GET /api/rhino/commands?doc=&after=` | 플러그인. `after`는 끝낸 마지막 명령 id | `{known, commands: [{id, type, …}]}`. 묻는 것이 곧 연결 신호입니다. 패널이 부탁한 것 말고 Sida가 직접 넣는 명령 `view`도 여기로 옵니다(아래 "뷰를 질문과 함께") |
+| `POST /api/rhino/live/view?doc=&command=&title=` | 플러그인. 명령 `view`의 답: 파일 파트 `view`(PNG 또는 JPEG, 4MB까지), `command`는 그 명령의 id, `title`은 뷰 이름(80자까지) | `{taken}`. 기다리는 질문이 없으면(늦었거나 부탁한 적 없는 그림) `taken: false`이고 그림은 버립니다. 그림이 아니거나 너무 크면 `400` |
+| `GET /api/rhino/prefs` | | `{send_view}`. 질문에 라이노 뷰를 같이 보낼지. 이 PC의 `~/Sida/preferences.json`에 있고 처음에는 `false` |
+| `PUT /api/rhino/prefs` | `{send_view: true \| false}` | `{send_view}`. 참·거짓이 아니면 `400` |
 
 ## 라이노 안 대화
 
-패널의 "Sida에게 묻기" 탭은 새 API가 아니라 그 문서의 프로젝트에 있는 Conductor 대화입니다(`docs/web-ui.md`의 대화 API: `POST /api/projects/{name}/talks`, `POST …/talks/{id}/messages`, `GET …/session/jobs/{id}`, `GET …/talks/{id}`). 그래서 패널에서 나눈 대화는 Sida 화면의 "이전 대화"에도 그대로 있습니다. 패널은 질문 글만 보냅니다.
+패널의 "Sida에게 묻기" 탭은 새 API가 아니라 그 문서의 프로젝트에 있는 Conductor 대화입니다(`docs/web-ui.md`의 대화 API: `POST /api/projects/{name}/talks`, `POST …/talks/{id}/messages`, `GET …/session/jobs/{id}`, `GET …/talks/{id}`). 그래서 패널에서 나눈 대화는 Sida 화면의 "이전 대화"에도 그대로 있습니다. 패널은 질문 글과, 뷰를 같이 보낼지(`views`)만 보냅니다.
 
-질문이 "지금 모델"에 대한 것이 되는 것은 서버에서입니다. 라이노가 그 프로젝트에 연결되어 있는 동안(플러그인이 5초 안에 물어 온 동안) Conductor는 메시지마다 지금 문서의 상태를 함께 받습니다(`hooks.conductor_site` → `live.brief_for`, 글은 `snapshot.live_text`): 수치 줄, 레이어 의미, 그리고 고른 개체(12개까지 하나씩: 레이어와 의미, 바닥 넓이, 층수와 연면적, 높이. 건물 의미 개체의 합계). 도형과 화면 캡처는 가지 않습니다(Sida의 모델 연결은 아직 그림을 보내지 않습니다). Sida 화면에서 묻는 질문에도 같은 것이 갑니다. 라이노가 끊기면 가지 않고, 전문가는 전처럼 가장 새 스냅샷의 수치만 받습니다.
+질문이 "지금 모델"에 대한 것이 되는 것은 서버에서입니다. 라이노가 그 프로젝트에 연결되어 있는 동안(플러그인이 5초 안에 물어 온 동안) Conductor는 메시지마다 지금 문서의 상태를 함께 받습니다(`hooks.conductor_site` → `live.brief_for`, 글은 `snapshot.live_text`): 수치 줄, 레이어 의미, 그리고 고른 개체(12개까지 하나씩: 레이어와 의미, 바닥 넓이, 층수와 연면적, 높이. 건물 의미 개체의 합계). 도형은 가지 않습니다. Sida 화면에서 묻는 질문에도 같은 것이 갑니다. 라이노가 끊기면 가지 않고, 전문가는 전처럼 가장 새 스냅샷의 수치만 받습니다.
+
+### 뷰를 질문과 함께
+
+설계자가 "지금 보이는 뷰도 같이 보내기"를 켜고 물으면(패널의 질문 칸 위, Sida 대화 입력칸에서는 라이노가 그 프로젝트에 연결된 동안만 보이는 "라이노 뷰도 같이 보내기") 메시지 본문에 `views: true`가 붙습니다([session-api.md](session-api.md)). 그러면 Sida가 그 프로젝트에 연결된 라이노에 명령 `view`를 넣고 8초까지 기다립니다(`live.want_view`, 영역 hook `conductor_views`). 플러그인은 활성 뷰포트를 지금 보이는 그대로(표시 모드, 숨긴 것 포함) 긴 쪽 1024픽셀 PNG로 찍어 `POST /api/rhino/live/view`로 보냅니다. 패널은 `view`를 부탁할 수 없습니다.
+
+- 그림은 형태와 구성을 보는 데만 씁니다. 수치는 전과 같이 Sida가 계산한 글로 가고, 모델에게 그림에서 치수·면적·개수·비율을 읽거나 어림하지 말라고 지시합니다(`sida/conductor.py`의 `VIEW_RULE`).
+- 그림과 그때 모델에 알려 준 수치(위의 "지금 문서의 상태" 글)는 프로젝트의 `talk_views/`에 남고 대화 기록의 그 질문에 붙습니다(`sida/views.py`). 한 대화에서는 가장 최근 그림 한 번 분만 다음 질문들에 다시 갑니다.
+- 그림이 가지 않으면 글만 보내고 화면에 알립니다: Conductor 모델이 그림을 볼 수 없을 때(`views_unseen`, `reason: model`), 라이노가 연결되어 있지 않거나 8초 안에 그림이 오지 않을 때(`reason: none`. 라이노에서 명령을 실행하는 중이면 플러그인이 기다립니다).
+- 전문가에게는 그림을 보내지 않습니다.
 
 패널은 열어 둔 탭과 대화를 자기 주소의 `#` 뒤에 적어 둡니다(`#tab=chat&project=…&talk=07`). 그래서 Sida를 다시 켜 패널이 다시 읽혀도 같은 대화가 열립니다(브라우저 저장소는 쓰지 않습니다).
 

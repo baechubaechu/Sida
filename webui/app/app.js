@@ -20,7 +20,7 @@ import { render } from './render.js';
 import { checkRelayKey, loadSettings, openSettings } from './settings.js';
 import { checkUse, chooseRegion, findLot, prepareFind, removeUse, saveSite, searchAddress, searchUses, setOrdinanceOption, togglePick } from './site.js';
 import { app, conductorScrolls, currentRoute, deferred, draftFor, newProjectDialog, drafts, freshFind, freshUseFind, jobRunning, openingTried, route, setCurrentRoute, talkViewById, toast, ui } from './state.js';
-import { askDeleteTalk, askFromLine, changeConductor, dismissTalkMenu, loadTalk, openTalk, sendTalk } from './talks.js';
+import { askDeleteTalk, askFromLine, changeConductor, dismissTalkMenu, loadTalk, openTalk, sendTalk, setRhinoView } from './talks.js';
 import { updateCommandLine } from './view-command.js';
 import { projectList } from './view-home.js';
 
@@ -58,6 +58,7 @@ async function navigate() {
       ui.live = [];
       ui.pending = null;
       ui.project = name;
+      ui.rhino = { ...ui.rhino, connected: false };  // read again for this project when a talk opens
       ui.board = null;
       ui.selected = [];
       ui.picked = [];
@@ -328,6 +329,7 @@ app.addEventListener('change', (event) => {
   if (pick) togglePick(pick, event.target.checked);
   if (lot === 'mountain') ui.find.mountain = event.target.checked;
   if (event.target.id === 'idea-new-link') ui.ideaLinkNew = event.target.checked;
+  if (event.target.dataset?.rhinoView !== undefined) setRhinoView(event.target.checked);
   const { ordDetailed } = event.target.dataset || {};
   if (ordDetailed) setOrdinanceOption(currentRoute.name, ordDetailed, { detailed: event.target.checked });
   if (event.target.dataset?.prop) {

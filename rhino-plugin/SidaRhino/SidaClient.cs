@@ -132,6 +132,17 @@ namespace SidaRhino
             EnsureOk(Quick.PostAsync($"{BaseUrl}/api/rhino/live", body).GetAwaiter().GetResult());
         }
 
+        /// <summary>The active viewport as a PNG, for the question to Sida that asked for it (the command `view`).</summary>
+        public void View(string doc, long command, string title, byte[] png)
+        {
+            using var form = new MultipartFormDataContent();
+            var part = new ByteArrayContent(png);
+            part.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+            form.Add(part, "view", "view.png");
+            var url = $"{BaseUrl}/api/rhino/live/view?doc={Uri.EscapeDataString(doc)}&command={command}&title={Uri.EscapeDataString(title)}";
+            EnsureOk(Quick.PostAsync(url, form).GetAwaiter().GetResult());
+        }
+
         private static IReadOnlyList<string> Lines(JsonElement figures)
         {
             var lines = new List<string>();

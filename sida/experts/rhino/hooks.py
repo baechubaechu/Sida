@@ -4,7 +4,9 @@ The experts get a short summary of the designer's newest Rhino snapshot (the fig
 computed from what Rhino measured and the layers' meanings), never the geometry. While a Rhino
 document is open on the project, the Conductor is also told how that document stands right now
 and what is selected in it (live.py), so a question asked from the panel in Rhino, or from the
-Sida screen beside it, is about the model as it is. The JSON API the Rhino plugin talks to is api.py.
+Sida screen beside it, is about the model as it is. When the designer asks for it, a picture of
+the active Rhino viewport goes with the question too (conductor_views); the figures still go as
+text. The JSON API the Rhino plugin talks to is api.py.
 """
 
 from __future__ import annotations
@@ -30,6 +32,25 @@ def conductor_site(project_dir) -> str:
     from sida.experts.rhino import live
 
     return live.brief_for(Path(project_dir).resolve())
+
+
+def conductor_views(project_dir) -> list[dict]:
+    """The active viewport of the Rhino open on this project, as it is now ([] when no Rhino is
+    connected or its picture did not come in a few seconds)."""
+    from pathlib import Path
+
+    from sida.experts.rhino import live
+
+    got = live.want_view(Path(project_dir).resolve())
+    if got is None:
+        return []
+    where = f' "{got["title"]}"' if got["title"] else ""
+    named = f' of the document {got["file"]}' if got["file"] else ""
+    return [{
+        "data": got["data"],
+        "about": f"the Rhino viewport{where}{named} as the designer sees it now (a screen capture, not to scale).",
+        "facts": got["brief"],
+    }]
 
 
 def api_router(load_config, core):

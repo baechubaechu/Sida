@@ -209,15 +209,17 @@ class SessionJobs:
         text: str,
         context: list[str] | None = None,
         talk: str = MAIN_TALK,
+        views: bool = False,
     ) -> Job:
         """`context`: ids of drawing-table papers the designer sent with the message.
-        `talk`: the Conductor talk the message belongs to (sida/talks.py)."""
+        `talk`: the Conductor talk the message belongs to (sida/talks.py).
+        `views`: the designer wants pictures to go with the message (sida/views.py)."""
         talks.require_talk(workspace.find_project(config, name).resolve(), talk)
         text = (text or "").strip()
         if not text:
             raise ValueError("empty message")
         table = _selection(config, name, context)
-        return self._start(config, name, "message", text=text, table=table, talk=talk)
+        return self._start(config, name, "message", text=text, table=table, talk=talk, views=views)
 
     def start_expert(
         self,
@@ -265,6 +267,7 @@ class SessionJobs:
         chat: str | None = None,
         table: board.Selection | None = None,
         talk: str | None = None,
+        views: bool = False,
     ) -> Job:
         path = workspace.find_project(config, name).resolve()
         with self._guard:
@@ -279,7 +282,7 @@ class SessionJobs:
             self._active[path] = job
             self._jobs[job.id] = job
             self._prune()
-        self.runner(lambda: self._work(job, config, text, agent, table))
+        self.runner(lambda: self._work(job, config, text, agent, table, views))
         return job
 
     def _prune(self) -> None:
@@ -317,6 +320,7 @@ class SessionJobs:
         text: str,
         agent: dict | None,
         table: board.Selection | None = None,
+        views: bool = False,
     ) -> None:
         error: str | None = None
         observer = telemetry.JobObserver(config, job.kind, job.agent)
@@ -327,7 +331,7 @@ class SessionJobs:
                 turn = engine.converse(session, engine.opening_prompt(session), ephemeral=True)
                 error = turn.error
             elif job.kind == "message":
-                error = engine.converse(session, text).error
+                error = engine.converse(session, text, with_views=views).error
             elif job.kind == "expert_chat":
                 reply = expert_chat.expert_chat(session, agent, text, job.chat)
                 error = reply.run.error if reply.run is not None else None

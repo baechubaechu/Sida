@@ -14,6 +14,10 @@ document is "connected" while its plugin keeps asking.
 
 Both sides ask by short polling, not by a held request: a held request would keep the server
 from stopping when the designer closes Sida.
+
+A message to the Conductor that should take the Rhino view along (sida/views.py) asks here
+too: want_view queues the command `view` and waits a few seconds for the plugin's picture of
+the active viewport (give_view). The picture is handed over once and not kept here.
 """
 
 from __future__ import annotations
@@ -22,12 +26,14 @@ import threading
 import time
 from datetime import datetime
 
+from sida import views
 from sida.experts.rhino import diagrams, snapshot
 
 CONNECTED_FOR = 5.0   # seconds a document stays connected after its plugin last asked
 MAX_DOCS = 8          # running Rhino documents remembered (the oldest is forgotten)
 MAX_PENDING = 50      # commands waiting for one document
 MAX_TEXT = 200
+VIEW_WAIT = 8.0       # seconds a message waits for the plugin's picture of the view
 
 # What the panel may ask of the plugin, and the fields each command carries.
 COMMANDS: dict[str, tuple[str, ...]] = {
@@ -39,9 +45,12 @@ COMMANDS: dict[str, tuple[str, ...]] = {
     "report": (),                                     # say the document again (the panel just opened)
     "draw": ("kinds",),                               # push, then draw these diagrams in the document (diagrams.py)
 }
+# Sida itself also asks the plugin for `view`: a picture of the active viewport as it is now, for a
+# message to the Conductor (want_view). The panel cannot ask for one.
 BUSY = ("", "pull", "push", "draw")  # what the plugin may say it is in the middle of
 
 _lock = threading.Lock()
+_arrived = threading.Condition(_lock)  # a picture a message waits for has come
 _docs: dict[str, dict] = {}
 _now = time.monotonic  # a test steps time by replacing this
 
@@ -116,7 +125,7 @@ def _entry(doc: str) -> dict:
         # Command ids go on from the clock, so a plugin that outlived a restart of Sida (and
         # still says "done up to 7") does not have its next commands taken for old ones.
         entry = _docs[doc] = {"state": None, "rev": 0, "seen": _now(), "pending": [], "path": None, "brief": "",
-                              "last_command": int(time.time() * 1000)}
+                              "last_command": int(time.time() * 1000), "wanted": None, "view": None}
     return entry
 
 
@@ -184,6 +193,51 @@ def brief_for(path) -> str:
         now = _now()
         live_ones = [e for e in _docs.values() if e.get("path") == path and e.get("brief") and now - e["seen"] <= CONNECTED_FOR]
         return max(live_ones, key=lambda e: e["seen"])["brief"] if live_ones else ""
+
+
+def want_view(path, wait: float | None = None) -> dict | None:
+    """
+    A picture of the active viewport of the Rhino open on this project, as it is now: queue the
+    command `view` and wait (VIEW_WAIT seconds, or `wait`) for the plugin to send it. Returns
+    {"data", "title", "file", "brief"} (the picture, the viewport's name, the document's file
+    name, and what the Conductor is told of the document), or None when no Rhino is connected
+    on the project or none came in time (the designer is in the middle of a Rhino command).
+    """
+    with _arrived:
+        now = _now()
+        live_ones = [e for e in _docs.values() if e.get("path") == path and e["state"] is not None and now - e["seen"] <= CONNECTED_FOR]
+        if not live_ones:
+            return None
+        entry = max(live_ones, key=lambda e: e["seen"])
+        if entry["wanted"] is not None or len(entry["pending"]) >= MAX_PENDING:
+            return None
+        entry["last_command"] += 1
+        command = entry["wanted"] = entry["last_command"]
+        entry["pending"].append({"type": "view", "id": command})
+        _arrived.wait_for(lambda: entry["view"] is not None, VIEW_WAIT if wait is None else wait)
+        view, entry["view"], entry["wanted"] = entry["view"], None, None
+        entry["pending"] = [c for c in entry["pending"] if c["id"] != command]  # a late one is of no use
+        if view is None:
+            return None
+        return {**view, "file": entry["state"]["file"], "brief": entry["brief"]}
+
+
+def give_view(doc: str, command: int, data: bytes, title=None) -> dict:
+    """
+    The plugin's picture for the command `view` (PNG or JPEG). Returns {"taken"}: False when no
+    message waits for it any more. Raises ValueError for what is not a picture, or one too large.
+    """
+    doc = _doc_id(doc)
+    title = " ".join(_text(title, "title", 80).split())
+    if views.media_type(data) is None:
+        raise ValueError(f"the view must be a PNG or JPEG picture of at most {views.MAX_BYTES // (1024 * 1024)} MB")
+    with _arrived:
+        entry = _docs.get(doc)
+        if entry is None or entry["wanted"] != command:
+            return {"taken": False}
+        entry["view"] = {"data": data, "title": title}
+        _arrived.notify_all()
+        return {"taken": True}
 
 
 def ask(raw) -> dict:

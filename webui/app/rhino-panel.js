@@ -26,6 +26,7 @@ const ui = {
   skipped: [],  // the diagrams the designer left out of "라이노에 그리기"
   error: '',
   drawn: {},
+  sendView: false,  // questions take a picture of the active viewport along (kept on this PC, /api/rhino/prefs)
 };
 
 // ------------------------------------------------------------------ drawing
@@ -67,7 +68,8 @@ function drawChat(state, status) {
   const rows = el('rp-chat').childElementCount;
   draw('rp-chat', chatHtml(ready.ok));
   if (el('rp-chat').childElementCount !== rows) window.scrollTo(0, document.body.scrollHeight);  // the newest line in view
-  el('rp-with').textContent = ready.ok || chat.busy ? askContext(state) : ready.why;
+  el('rp-with').textContent = ready.ok || chat.busy ? askContext(state, ui.sendView) : ready.why;
+  el('rp-view').disabled = !ready.ok;  // its tick is the designer's: set once from what this PC kept (below), never drawn over
   if (chat.unsent) {  // the answer failed and the question was not kept: back into the field, unless a new one is being written
     if (!el('rp-question').value) el('rp-question').value = chat.unsent;
     chat.unsent = '';
@@ -227,6 +229,11 @@ document.addEventListener('change', (event) => {
   const target = event.target;
   if (target.id === 'rp-project') {
     if (target.value) ask({ type: 'set_project', project: target.value });
+  } else if (target.id === 'rp-view') {
+    ui.sendView = target.checked;
+    api('/api/rhino/prefs', { method: 'PUT', body: { send_view: ui.sendView } }).catch(() => {});  // not kept: it still holds for this question
+    drawAll();
+    return;
   } else if (target.id === 'rp-auto') {
     ask({ type: 'set_autosync', on: target.checked });
   } else if (target.dataset.layer !== undefined || target.dataset.height !== undefined) {
@@ -265,7 +272,7 @@ el('rp-ask').addEventListener('submit', async (event) => {
   if (el('rp-send').disabled || !field.value.trim()) return;
   const text = field.value;
   field.value = '';
-  if (!await send(text)) field.value = text;  // not sent: the question is not lost
+  if (!await send(text, ui.sendView)) field.value = text;  // not sent: the question is not lost
 });
 chat.changed = () => drawAll();
 
@@ -294,6 +301,7 @@ async function loop() {
   setTimeout(loop, POLL_MS);
 }
 
+api('/api/rhino/prefs').then((prefs) => { ui.sendView = el('rp-view').checked = prefs.send_view === true; drawAll(); }).catch(() => {});
 // The panel just opened: have the plugin say its document again, so a page opened late is not stale.
 if (named) api('/api/rhino/commands', { method: 'POST', body: { doc: named, type: 'report' } }).catch(() => {});
 loop();

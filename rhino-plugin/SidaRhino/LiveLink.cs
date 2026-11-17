@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Drawing.Imaging;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -27,6 +29,7 @@ namespace SidaRhino
         private const int WhenDownMs = 3000;
         private const int ReportEveryMs = 700;
         private const int MaxSelected = 200;  // selected objects named in a report (Sida takes no more)
+        private const int ViewLongEdge = 1024;  // pixels on the long side of the view sent with a question
 
         private static readonly SidaClient Client = new SidaClient();
         private static readonly ConcurrentQueue<JsonElement> Waiting = new ConcurrentQueue<JsonElement>();
@@ -400,8 +403,53 @@ namespace SidaRhino
                     break;
                 case "report":
                     break;  // the report below is the answer
+                case "view":
+                    SendView(doc, command.GetProperty("id").GetInt64());
+                    return;  // nothing in the document changed
             }
             _dirty = true;
+        }
+
+        /// <summary>
+        /// Sida asks for the active viewport as it is now: a question to Sida takes it along
+        /// when the designer switched that on. Captured here on the UI thread as the viewport
+        /// shows it (its display mode, what is hidden), in the viewport's proportions with
+        /// ViewLongEdge pixels on the long side, and sent in the background. When nothing can be sent Sida stops waiting after
+        /// a few seconds and tells the designer the question went without a picture.
+        /// </summary>
+        private static void SendView(RhinoDoc doc, long id)
+        {
+            var view = doc.Views.ActiveView;
+            if (view == null)
+                return;
+            var size = view.ActiveViewport.Size;
+            // Drawn again at this size, not a copy of the screen: a small viewport (four on a small window)
+            // would give a picture too small to read (305 pixels wide on a PC, 2026-11-17).
+            var scale = (double)ViewLongEdge / Math.Max(1, Math.Max(size.Width, size.Height));
+            var target = new System.Drawing.Size(Math.Max(1, (int)Math.Round(size.Width * scale)), Math.Max(1, (int)Math.Round(size.Height * scale)));
+            byte[] png;
+            using (var bitmap = view.CaptureToBitmap(target))
+            {
+                if (bitmap == null)
+                    return;
+                using var stream = new MemoryStream();
+                bitmap.Save(stream, ImageFormat.Png);
+                png = stream.ToArray();
+            }
+            var title = view.ActiveViewport.Name ?? "";
+            if (title.Length > 80)
+                title = title.Substring(0, 80);
+            Task.Run(() =>
+            {
+                try
+                {
+                    Client.View(DocId, id, title, png);
+                }
+                catch (Exception)
+                {
+                    // not heard: Sida says that no picture came
+                }
+            });
         }
     }
 }

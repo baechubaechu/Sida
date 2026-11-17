@@ -145,6 +145,9 @@ test('the line above the question says what goes to Sida with it', () => {
   assert.match(askContext({ selection: { count: 0 } }), /개체를 고르면/);
   assert.equal(askContext({ selection: { count: 3, bodies: 2, floor_area_m2: 4496, footprint_m2: 616 } }), '고른 개체 3개 (매스 2개, 연면적 4,496.0㎡)와 지금 모델의 수치가 함께 갑니다.');
   assert.equal(askContext({ selection: { count: 2, bodies: 0, floor_area_m2: null } }), '고른 개체 2개 (잰 매스는 없음)와 지금 모델의 수치가 함께 갑니다.');
+  // with "지금 보이는 뷰도 같이 보내기" on, it says the view goes too
+  assert.equal(askContext({ selection: null }, true), '지금 모델의 수치가 함께 갑니다. 지금 보이는 뷰 한 장도 같이 갑니다.');
+  assert.match(askContext({ selection: { count: 3, bodies: 2, floor_area_m2: 4496 } }, true), /수치가 함께 갑니다\. 지금 보이는 뷰 한 장도 같이 갑니다\.$/);
 });
 
 test('a question can be asked only of a connected document that belongs to a project', () => {
@@ -166,6 +169,10 @@ test('the talk is drawn from what Sida kept, then the question just sent and wha
   assert.equal(rows[2].text, '대지 분석가 결과가 나왔습니다. 문서는 Sida 화면에서 볼 수 있습니다.');
   assert.equal(rows[3].text, '한 층 더 올리면?');
   assert.deepEqual(chatRows([], '', []), []);
+  // a question keeps the picture that went with it; the one just sent has none until Sida has kept it
+  const view = { file: '20261117-101502-000001-0.png', about: '', facts: 'FAR 210%', at: '' };
+  const withView = chatRows([{ role: 'user', text: '이 매스 어때?', views: [view] }], '다음', []);
+  assert.deepEqual(withView.map((r) => r.views), [[view], []]);
 });
 
 test('the panel keeps its tab and talk in its address, and a talk only with its project', () => {

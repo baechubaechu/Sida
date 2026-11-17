@@ -294,11 +294,13 @@ def build_conductor_messages(
     cache_ttl: str,
     history_truncated: bool = False,
     table_context: str = "",
+    views: list[dict] | None = None,
 ) -> list[dict]:
     """
     system → brief → [state] → module snapshot → [drawing table] → history.
     cache_control markers are for Anthropic-via-OpenRouter; other providers
-    flatten and ignore them.
+    flatten and ignore them. `views` (sida/views.py) are the pictures of the newest message that
+    had some; they go on that message, with the rule for reading them.
     """
     system_content = [
         {
@@ -363,7 +365,36 @@ def build_conductor_messages(
         # Not cached: the selection changes with every message.
         messages.append({"role": "user", "content": [{"type": "text", "text": table_context.strip()}]})
 
-    return messages + history
+    return messages + with_views(history, views)
+
+
+VIEW_RULE = (
+    "Use a picture for form, composition and what can be seen in it. Never read or estimate a "
+    "dimension, an area, a count or a ratio from a picture: every figure comes from the figures "
+    "given in text. If a picture and the figures seem to disagree, say so and keep to the figures."
+)
+
+
+def with_views(history: list[dict], views: list[dict] | None) -> list[dict]:
+    """The history with the pictures on the message they were sent with (sida/views.py: the
+    newest message that names these files), and what they are and how to read them. Unchanged
+    when that message is no longer in the history sent."""
+    if not views:
+        return history
+    from sida.providers import image_part
+    from sida.views import split
+
+    files = [view["file"] for view in views]
+    at = next((i for i in range(len(history) - 1, -1, -1) if history[i].get("role") == "user"
+               and isinstance(history[i].get("content"), str) and split(history[i]["content"])[1] == files), None)
+    if at is None:
+        return history
+    about = " ".join(f"Picture {i}: {view['about']}" for i, view in enumerate(views, 1) if view.get("about"))
+    note = (f"PICTURES WITH THIS MESSAGE ({len(views)}). {about} {VIEW_RULE} Pictures named in earlier "
+            "messages are not shown again.").replace("  ", " ")
+    content = [{"type": "text", "text": f"{history[at]['content']}\n\n{note}"}]
+    content += [image_part(view["data"], view["media_type"]) for view in views]
+    return [*history[:at], {"role": "user", "content": content}, *history[at + 1:]]
 
 
 def ask_conductor(
@@ -384,6 +415,7 @@ def ask_conductor(
     extra_messages: list[dict] | None = None,
     table_context: str = "",
     board_tool: bool = False,
+    views: list[dict] | None = None,
 ) -> tuple[str, dict, dict]:
     """
     One Conductor turn. Raises LLMError on provider failure (history is left
@@ -395,6 +427,9 @@ def ask_conductor(
     (module file injected for a `read` action).
     table_context is the drawing table for this call only (sida/board.py); board_tool adds
     the read_board tool.
+    views are the talk's newest pictures, each with its "file" (sida/views.py latest); they go
+    on the message that names them. A model that refuses them raises ImagesUnsupported, with
+    the history unchanged.
     """
     from sida.i18n import get_language
 
@@ -442,6 +477,7 @@ def ask_conductor(
             cache_ttl=cache_ttl,
             history_truncated=truncated,
             table_context=table_context,
+            views=views,
         )
 
     from sida.i18n import t

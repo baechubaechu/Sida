@@ -11,7 +11,7 @@
   <script type="module" src="/app/rhino-panel.js"></script>
 </head>
 <!-- The Sida panel inside Rhino (the plugin shows this page in a web view; it also opens in a
-     browser beside Rhino). It talks to Sida only: /api/rhino/live and /api/rhino/commands. -->
+     browser beside Rhino). It talks to Sida only: /api/rhino/live, /api/rhino/commands and /api/rhino/prefs. -->
 <body class="rhino-panel">
   <main id="panel">
     <header class="rp-head" id="rp-head"></header>
@@ -25,6 +25,7 @@
   <footer class="rp-foot" id="rp-foot"></footer>
   <form class="rp-ask" id="rp-ask" hidden>
     <p class="rp-with" id="rp-with"></p>
+    <label class="rp-view"><input type="checkbox" id="rp-view"> 지금 보이는 뷰도 같이 보내기</label>
     <textarea id="rp-question" rows="2" maxlength="4000" aria-label="Sida에게 물을 내용" aria-describedby="rp-with" placeholder="지금 모델을 두고 물어보세요"></textarea>
     <div class="rp-ask-row">
       <button type="button" class="rp-more" id="rp-new-talk" hidden>새 대화 시작</button>

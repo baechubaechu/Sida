@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  escapeHtml, findProjects, relativeDate, projectSummary, visibleExperts, chatItems, eventNotice, expertStatus,
+  escapeHtml, findProjects, relativeDate, projectSummary, visibleExperts, chatItems, eventNotice, expertStatus, talkViewUrl,
   renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges, relayKeyView, settingsChanges, settingsDirty, untitledName, parseRoute, expertPath, dateTime,
   documentSections, listItems, itemTag, handoffs, questionAnswer, arrangeDocument, EXPERT_LAYOUTS, SECTION_LABELS,
   stateChangeView, phaseLabel, sitePath, sitePageFor, needsSiteFirst, areaText, zoneScope, siteHeadline, missingText, restrictionGroups,
@@ -105,6 +105,24 @@ test('a message keeps the papers sent with it as chips', () => {
   ]);
   assert.deepEqual(sent.context, [{ id: 'mass-a', name: '안 A' }]);
   assert.deepEqual(plain.context, []);
+});
+
+test('a message keeps the pictures sent with it, and the screen says when one could not go', () => {
+  const view = { file: '20261117-101502-000001-0.png', about: 'the Rhino viewport', facts: 'FAR 210%', at: '2026-11-17T10:15:02' };
+  const [sent, plain] = chatItems([{ role: 'user', text: '이 매스 어때?', views: [view] }, { role: 'user', text: '안녕' }]);
+  assert.deepEqual(sent.views, [view]);
+  assert.deepEqual(plain.views, []);
+  assert.equal(talkViewUrl('무교동 45', view.file), '/api/projects/%EB%AC%B4%EA%B5%90%EB%8F%99%2045/talk-views/20261117-101502-000001-0.png');
+
+  const shown = eventNotice({ kind: 'views_shown', data: { files: [view.file] } });
+  assert.match(shown.text, /화면 1장을 질문과 함께 보냈습니다/);
+  assert.match(shown.text, /수치는 그림이 아니라 글로/);
+  const blind = eventNotice({ kind: 'views_unseen', data: { reason: 'model' } });
+  assert.match(blind.text, /그림을 볼 수 없어 화면 없이 글만 보냈습니다/);
+  assert.equal(blind.tone, 'warn');
+  const none = eventNotice({ kind: 'views_unseen', data: { reason: 'none' } });
+  assert.match(none.text, /화면을 받지 못해 글만 보냈습니다/);
+  assert.equal(none.toast, true);  // never dropped without a word
 });
 
 test('a run the Conductor asked for but Sida held back says why', () => {

@@ -153,3 +153,81 @@ def test_the_selection_in_rhino_reaches_the_panel_and_the_conductor_only_while_r
     assert live.brief_for(here) == ""
     live.pending("4242-1")
     assert live.brief_for(here) == "RHINO NOW"
+
+
+# --- the active view as a picture, for a message to the Conductor ---
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"view"
+
+
+def plugin(doc: str, *, answer=PNG, title="Perspective"):
+    """A plugin beside Sida: asks what to do until it is told `view`, then sends its picture."""
+    import threading
+    import time
+
+    seen: list[dict] = []
+
+    def work():
+        for _ in range(400):
+            commands = live.pending(doc)["commands"]
+            if commands:
+                seen.extend(commands)
+                seen.append(live.give_view(doc, commands[0]["id"], answer, title))
+                return
+            time.sleep(0.005)
+
+    thread = threading.Thread(target=work, daemon=True)
+    thread.start()
+    return thread, seen
+
+
+def test_a_message_gets_the_view_of_the_rhino_open_on_its_project(tmp_path):
+    here, there = tmp_path / "here", tmp_path / "there"
+    assert live.want_view(here, wait=0) is None  # no Rhino at all
+    live.report(live.clean_report(said()), {"floor_area_m2": 900.0}, True, path=here, brief="RHINO NOW")
+    assert live.want_view(there, wait=0) is None and live.pending("4242-1")["commands"] == []  # another project's Rhino is not asked
+
+    thread, seen = plugin("4242-1")
+    got = live.want_view(here, wait=5)
+    thread.join(5)
+    assert got == {"data": PNG, "title": "Perspective", "file": "studio.3dm", "brief": "RHINO NOW"}
+    assert seen[0]["type"] == "view" and seen[1] == {"taken": True}
+    assert live.pending("4242-1")["commands"] == []  # done with: the plugin is not asked again
+
+    # the picture is handed over once: a second one for the same command, or one nobody asked for, is not kept
+    assert live.give_view("4242-1", seen[0]["id"], PNG) == {"taken": False}
+    assert live.give_view("nobody", 1, PNG) == {"taken": False}
+    with pytest.raises(ValueError, match="type must be one of"):
+        live.ask({"doc": "4242-1", "type": "view"})  # the panel cannot ask for one
+
+
+def test_no_view_comes_when_rhino_is_busy_or_gone_and_what_is_not_a_picture_is_refused(fresh, tmp_path):
+    live.report(live.clean_report(said()), {"floor_area_m2": 900.0}, True, path=tmp_path, brief="RHINO NOW")
+    assert live.want_view(tmp_path, wait=0.01) is None  # the plugin did not answer in time
+    assert live.pending("4242-1")["commands"] == []  # and is not left with a command that is of no use now
+
+    with pytest.raises(ValueError, match="PNG or JPEG"):
+        live.give_view("4242-1", 1, b"<html>")
+    with pytest.raises(ValueError, match="title"):
+        live.give_view("4242-1", 1, PNG, "x" * 81)
+    with pytest.raises(ValueError, match="doc"):
+        live.give_view("", 1, PNG)
+
+    fresh["t"] += live.CONNECTED_FOR + 1  # Rhino stopped asking
+    assert live.want_view(tmp_path, wait=0) is None
+
+
+def test_the_rhino_domain_gives_the_view_to_the_conductor_with_what_the_document_said(tmp_path):
+    from sida import views
+    from sida.experts.rhino import hooks
+
+    assert hooks.conductor_views(tmp_path) == []  # no Rhino: nothing, and no waiting
+    live.report(live.clean_report(said()), {"floor_area_m2": 900.0}, True, path=tmp_path.resolve(), brief="## Rhino right now\nFAR 210%")
+    thread, _seen = plugin("4242-1")
+    asked = views.ask(tmp_path, [("rhino", hooks)])
+    thread.join(5)
+    assert asked == [{
+        "data": PNG, "media_type": "image/png",
+        "about": 'the Rhino viewport "Perspective" of the document studio.3dm as the designer sees it now (a screen capture, not to scale).',
+        "facts": "## Rhino right now\nFAR 210%",
+    }]

@@ -196,3 +196,34 @@ def test_tool_mode_off_and_written_block_and_empty_reply(mock_config, agents, pr
     reply, _, history = _ask(mock_config, project, agents, conductor_prompt, empty)
     assert reply == "ok" and [c["mode"] for c in empty.calls] == ["tools", "text"]
     assert history[-1]["content"].startswith("ok")
+
+
+def test_pictures_go_on_the_message_that_names_them_with_the_rule_for_reading_them():
+    from sida import views
+    from sida.conductor import VIEW_RULE
+
+    files = ["20261117-101502-000001-0.png", "20261117-101502-000001-1.jpg"]
+    shown = [{"data": b"\x89PNG", "media_type": "image/png", "about": "the Rhino view Perspective", "file": files[0]},
+             {"data": b"\xff\xd8", "media_type": "image/jpeg", "about": "", "file": files[1]}]
+    hist = [
+        {"role": "user", "content": views.mark("예전 질문", ["20261116-090000-000000-0.png"])},
+        {"role": "assistant", "content": "a"},
+        {"role": "user", "content": views.mark("이 매스 어때?", files)},
+        {"role": "assistant", "content": "b"},
+        {"role": "user", "content": "다음 질문"},
+    ]
+
+    def build(history, pictures):
+        return build_conductor_messages("sys", "brief", project_state=None, module_context="(none)", history=history,
+                                        cache_ttl="1h", views=pictures)[3:]
+
+    sent = build(hist, shown)
+    assert sent[0] == hist[0] and sent[1] == hist[1] and sent[3:] == hist[3:]  # only the newest pictures go again
+    text, first, second = sent[2]["content"]
+    assert text["text"].startswith(hist[2]["content"] + "\n\nPICTURES WITH THIS MESSAGE (2). Picture 1: the Rhino view Perspective ")
+    assert VIEW_RULE in text["text"] and "Never read or estimate a dimension, an area, a count or a ratio" in VIEW_RULE
+    assert first == {"type": "image", "media_type": "image/png", "data": "iVBORw=="}
+    assert second["media_type"] == "image/jpeg"
+    assert hist[2]["content"].endswith(files[1])  # the stored history is not changed
+    # no pictures, or their message is no longer in what is sent: the history goes as it is
+    assert build(hist, None) == hist and build(hist, []) == hist and build(hist[3:], shown) == hist[3:]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import time
@@ -40,6 +41,97 @@ def _plain_messages(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
         {"role": str(m.get("role", "user")), "content": _flatten_content(m.get("content"))}
         for m in messages
     ]
+
+
+# ---------------------------------------------------------------------------
+# Pictures
+# ---------------------------------------------------------------------------
+# A message's content list may hold pictures beside its text, in one shape (image_part) that
+# every provider turns into its own. Only a user's message carries them. A provider says
+# whether a model can look at one (sees_images); a model that refuses one raises
+# ImagesUnsupported, and the caller sends the message again without it and says so. A picture
+# is never dropped silently: an answer about a view the model did not see would mislead.
+
+
+class ImagesUnsupported(LLMError):
+    """This model takes no pictures; the caller sends the text alone and tells the user."""
+
+
+# (provider name, model) pairs that refused a picture in this process.
+_NO_IMAGES: set[tuple[str, str]] = set()
+
+
+def image_part(data: bytes, media_type: str = "image/png") -> dict[str, str]:
+    """A picture for a message's content list."""
+    return {"type": "image", "media_type": media_type, "data": base64.b64encode(data).decode("ascii")}
+
+
+def _is_image(part: Any) -> bool:
+    return isinstance(part, dict) and part.get("type") == "image" and bool(part.get("data"))
+
+
+def _images(message: dict[str, Any]) -> list[dict]:
+    """The pictures a message carries (a user's message only)."""
+    content = message.get("content")
+    if str(message.get("role", "user")) != "user" or not isinstance(content, list):
+        return []
+    return [part for part in content if _is_image(part)]
+
+
+def has_images(messages: list[dict[str, Any]]) -> bool:
+    return any(_images(m) for m in messages)
+
+
+def without_images(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The same messages with their pictures taken out."""
+    return [
+        {**m, "content": [part for part in m["content"] if not _is_image(part)]} if isinstance(m.get("content"), list) else m
+        for m in messages
+    ]
+
+
+def _data_url(part: dict) -> str:
+    return f"data:{part.get('media_type') or 'image/png'};base64,{part['data']}"
+
+
+def _chat_messages(messages: list[dict[str, Any]], *, flat: bool) -> list[dict[str, Any]]:
+    """
+    Messages for a chat-completions API with pictures as `image_url` parts. `flat` gives plain
+    strings wherever there is no picture (OpenAI, which takes no cache markers); otherwise text
+    parts stay as they are (OpenRouter).
+    """
+    out: list[dict[str, Any]] = []
+    for m in messages:
+        pictures = _images(m)
+        urls = [{"type": "image_url", "image_url": {"url": _data_url(p)}} for p in pictures]
+        if flat:
+            text = _flatten_content(m.get("content"))
+            content: Any = ([{"type": "text", "text": text}] if text else []) + urls if pictures else text
+            out.append({"role": str(m.get("role", "user")), "content": content})
+        elif isinstance(m.get("content"), list):
+            kept = [part for part in m["content"] if not _is_image(part)]
+            out.append({**m, "content": kept + urls} if len(kept) != len(m["content"]) else m)
+        else:
+            out.append(m)
+    return out
+
+
+def _refuses_images(status: int, text: str) -> bool:
+    low = text.lower()
+    return status in {400, 404, 415, 422} and "image" in low and any(w in low for w in ("support", "vision", "modal"))
+
+
+def sees_images(provider, model: str) -> bool:
+    """Whether a picture may go to this model: its provider says so and it refused none in this process."""
+    if (str(getattr(provider, "name", "")), model) in _NO_IMAGES:
+        return False
+    check = getattr(provider, "sees_images", None)
+    return bool(check(model)) if callable(check) else False
+
+
+def images_refused(provider, model: str) -> None:
+    """Remember that this model refused a picture, so none is sent to it again."""
+    _NO_IMAGES.add((str(getattr(provider, "name", "")), model))
 
 
 def _with_retries(send, *, attempts: int = 3, base_delay: float = 1.5):
@@ -122,8 +214,14 @@ class OpenRouterProvider:
             raise LLMError("OpenRouter API key is missing. Enter it on the settings screen.")
         self.api_key = api_key
 
+    @staticmethod
+    def sees_images(model: str) -> bool:
+        return True  # most models here do; one that does not refuses (ImagesUnsupported)
+
     def _post(self, body: dict[str, Any], *, tools: bool = False) -> tuple[dict, dict]:
         """One request → (first choice's message, usage)."""
+        images = has_images(body["messages"])
+        body = {**body, "messages": _chat_messages(body["messages"], flat=False)}
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -141,6 +239,8 @@ class OpenRouterProvider:
                 raise _retryable(message)
             if tools and _refuses_tools(response.status_code, response.text):
                 raise ToolsUnsupported(message)
+            if images and _refuses_images(response.status_code, response.text):
+                raise ImagesUnsupported(message)
             raise LLMError(message)
         try:
             data = response.json()
@@ -226,6 +326,10 @@ class OpenAIProvider:
         else:
             self.base_url = self.base_url.rstrip("/") + "/chat/completions"
 
+    @staticmethod
+    def sees_images(model: str) -> bool:
+        return True  # a model that does not refuses (ImagesUnsupported)
+
     def chat(
         self,
         model: str,
@@ -238,9 +342,10 @@ class OpenAIProvider:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+        images = has_images(messages)
         body: dict[str, Any] = {
             "model": model,
-            "messages": _plain_messages(messages),
+            "messages": _chat_messages(messages, flat=True),
             "max_completion_tokens": int(max_tokens),
         }
         # GPT-6+ rejects custom temperature / top_p.
@@ -261,9 +366,10 @@ class OpenAIProvider:
                     f"OpenAI error ({response.status_code}): {response.text[:300]}"
                 )
             if response.status_code != 200:
-                raise LLMError(
-                    f"OpenAI error ({response.status_code}): {response.text[:300]}"
-                )
+                message = f"OpenAI error ({response.status_code}): {response.text[:300]}"
+                if images and _refuses_images(response.status_code, response.text):
+                    raise ImagesUnsupported(message)
+                raise LLMError(message)
             try:
                 data = response.json()
                 content = data["choices"][0]["message"]["content"]
@@ -334,22 +440,40 @@ class ChatGPTProvider:
         self.token = token  # () -> access token; refreshes as needed, raises LLMError
 
     @staticmethod
+    def sees_images(model: str) -> bool:
+        return True  # the plan's models take pictures (checked 2026-11-17); one that does not refuses
+
+    @staticmethod
     def request_body(model: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        system = [m for m in _plain_messages(messages) if m["role"] == "system"]
-        turns = [m for m in _plain_messages(messages) if m["role"] != "system" and m["content"]]
+        system: list[str] = []
+        turns: list[dict[str, Any]] = []
+        for m in messages:
+            role = str(m.get("role", "user"))
+            text = _flatten_content(m.get("content"))
+            if role == "system":
+                system.append(text)
+                continue
+            pictures = _images(m)
+            if pictures:
+                parts: list[dict[str, Any]] = [{"type": "input_text", "text": text}] if text else []
+                parts += [{"type": "input_image", "image_url": _data_url(p)} for p in pictures]
+                turns.append({"role": role, "content": parts})
+            elif text:
+                turns.append({"role": role, "content": text})
         body: dict[str, Any] = {
             "model": model,
-            "input": [{"role": m["role"], "content": m["content"]} for m in turns],
+            "input": turns,
             "store": False,
             "stream": True,
         }
-        instructions = "\n\n".join(m["content"] for m in system if m["content"].strip())
+        instructions = "\n\n".join(text for text in system if text.strip())
         if instructions:
             body["instructions"] = instructions
         return body
 
     def _stream(self, body: dict[str, Any], *, tools: bool = False) -> tuple[str, list[dict], dict]:
         """One streamed request → (text, function calls, usage)."""
+        images = any(isinstance(turn.get("content"), list) for turn in body.get("input") or [])
         headers = {
             "Authorization": f"Bearer {self.token()}",
             "Content-Type": "application/json",
@@ -371,6 +495,8 @@ class ChatGPTProvider:
                 error = _chatgpt_error(response.status_code, data)
                 if tools and _refuses_tools(response.status_code, str(error)):
                     raise ToolsUnsupported(str(error))
+                if images and _refuses_images(response.status_code, str(error)):
+                    raise ImagesUnsupported(str(error))
                 raise error
             parts: list[str] = []
             calls: list[dict] = []
@@ -398,6 +524,8 @@ class ChatGPTProvider:
                     error = _chatgpt_error(200, body)
                     if tools and _refuses_tools(400, str(error)):
                         raise ToolsUnsupported(str(error))
+                    if images and _refuses_images(400, str(error)):
+                        raise ImagesUnsupported(str(error))
                     raise error
                 elif kind == "response.incomplete":
                     details = (event.get("response") or {}).get("incomplete_details") or {}
@@ -475,6 +603,7 @@ class OllamaProvider:
         # Qwen3+ etc. may fill num_predict with chain-of-thought and leave content empty.
         # Default False so visible answers fit in the token budget.
         self.think = think
+        self._vision: dict[str, bool] = {}  # model → whether its card says it sees pictures
 
     def _body(
         self,
@@ -492,9 +621,13 @@ class OllamaProvider:
         }
         if self.num_ctx:
             options["num_ctx"] = int(self.num_ctx)
+        turns = []
+        for m, plain in zip(messages, _plain_messages(messages), strict=True):
+            pictures = _images(m)
+            turns.append({**plain, "images": [p["data"] for p in pictures]} if pictures else plain)
         body: dict[str, Any] = {
             "model": model,
-            "messages": _plain_messages(messages),
+            "messages": turns,
             "stream": False,
             "options": options,
         }
@@ -507,8 +640,20 @@ class OllamaProvider:
             body["think"] = bool(use_think)
         return body
 
+    def sees_images(self, model: str) -> bool:
+        """Ollama gives a model that cannot see a picture no error, so the model's card is asked (`capabilities`)."""
+        if model not in self._vision:
+            try:
+                response = requests.post(f"{self.base_url}/api/show", json={"model": model}, timeout=10)
+                able = response.json().get("capabilities") if response.status_code == 200 else None
+            except (requests.RequestException, ValueError, AttributeError):
+                able = None
+            self._vision[model] = isinstance(able, list) and "vision" in able
+        return self._vision[model]
+
     def _post(self, body: dict[str, Any], *, tools: bool = False) -> dict:
         model = body["model"]
+        images = any(turn.get("images") for turn in body.get("messages") or [])
         try:
             response = requests.post(f"{self.base_url}/api/chat", json=body, timeout=300)
         except requests.ConnectionError as exc:
@@ -529,6 +674,8 @@ class OllamaProvider:
                 raise _retryable(message)
             if tools and _refuses_tools(response.status_code, response.text):
                 raise ToolsUnsupported(message)  # e.g. "... does not support tools"
+            if images and _refuses_images(response.status_code, response.text):
+                raise ImagesUnsupported(message)
             raise LLMError(message)
         try:
             data = response.json()
