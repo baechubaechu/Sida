@@ -135,6 +135,7 @@ export const pointerMethods = {
       if (!this.root.contains(document.activeElement)) this.root.focus({ preventScroll: true });
       return;
     }
+    if (t.dataset.envelopePlace !== undefined) { this.placeEnvelopeScheme(t.dataset.envelopePlace); return; }
     if (t.dataset.tilt) { this.showView(t.dataset.tilt, t.dataset.corner); return; }
     const id = t.dataset.id;
     switch (t.dataset.trayAction) {
@@ -151,6 +152,7 @@ export const pointerMethods = {
       case 'trace': this.layTracing(); this.drawControls(); break;
       case 'photo': this.pickPhotos(); this.drawControls(); break;
       case 'around': this.toggleAround(); break;
+      case 'envelope': this.toggleEnvelope(); break;
       case 'eye': this.toggleEye(); break;
       case 'model-panel': this.openModel(); this.drawControls(); break;
       case 'cut': this.cutFromBar(); break;

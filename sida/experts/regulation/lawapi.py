@@ -300,8 +300,10 @@ def ordinance_articles(mst: str, *, http_get: HttpGet | None = None) -> dict:
             }
         )
     annexes = []
-    for it in _as_list((root.get("별표") or {}).get("별표단위")):
-        if not isinstance(it, dict):
+    # The reply lists annexes at its top ("별표단위", 2026-11 서울특별시 건축 조례) or, as first
+    # written here, under "별표"; forms (별표구분 "서식", e.g. 별지 제4호서식) share the numbers.
+    for it in _as_list(root.get("별표단위") or (root.get("별표") or {}).get("별표단위")):
+        if not isinstance(it, dict) or str(it.get("별표구분") or "별표") != "별표":
             continue
         number, branch = str(it.get("별표번호") or ""), str(it.get("별표가지번호") or "")
         if not number.isdigit():
@@ -311,7 +313,7 @@ def ordinance_articles(mst: str, *, http_get: HttpGet | None = None) -> dict:
             {
                 "label": label,
                 "title": str(it.get("별표제목") or "").strip(),
-                "url": str(it.get("별표첨부파일명") or "").strip(),
+                "url": html.unescape(str(it.get("별표첨부파일명") or "").strip()),
                 "format": str(it.get("별표첨부파일구분") or "").strip().lower(),
             }
         )

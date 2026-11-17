@@ -1655,7 +1655,7 @@ export const CONTOUR_STEPS = [1, 2, 5];
 // group's name, on a narrower one each group folds to one button that opens its tools. An item is
 // a tool's id (table-shared.js TOOLS) or a button's (scheme-new, trace, photo, around, model-panel).
 export const TOOL_GROUPS = [
-  { id: 'mass', label: '매스', items: ['rect', 'push', 'move', 'rotate', 'scale', 'erase', 'scheme-new'] },
+  { id: 'mass', label: '매스', items: ['rect', 'push', 'move', 'rotate', 'scale', 'erase', 'scheme-new', 'envelope'] },
   { id: 'measure', label: '재기', items: ['tape', 'radius', 'section'] },
   { id: 'lay', label: '올리기', items: ['note', 'pen', 'person', 'trace', 'photo'] },
   { id: 'around', label: '주변', items: ['around', 'model-panel'] },
@@ -2585,3 +2585,69 @@ export function scatterSpots({ rings = [], obstacles = [], terrain = null, peopl
   return out;
 }
 
+
+// ------------------------------------------------------------------ 법규 볼륨 (GET .../site/envelope)
+
+// The blocks of a mass scheme that stand taller than the envelope lets them: for each block, the
+// grid cells (envelope.grid: u0, v0, step, rows of heights; null outside the lot, -1 no limit)
+// whose middles lie inside it, and how far its top (floors × the scheme's floor height) passes the
+// lowest of them. [{index, over (m), allowed (m)}], over 5 cm only; [] without a grid.
+export function envelopeOver(envelope, paper) {
+  const grid = envelope?.grid;
+  if (!grid || !Array.isArray(grid.h) || !(grid.step > 0)) return [];
+  const fh = paper?.floor_height || 4.2;
+  const out = [];
+  (paper?.blocks || []).forEach((b, index) => {
+    const a = ((b.a || 0) * Math.PI) / 180;
+    const cos = Math.cos(a), sin = Math.sin(a);
+    const hw = Math.abs(b.w / 2 * cos) + Math.abs(b.d / 2 * sin);
+    const hd = Math.abs(b.w / 2 * sin) + Math.abs(b.d / 2 * cos);
+    const i0 = Math.max(0, Math.floor((b.u - hw - grid.u0) / grid.step));
+    const i1 = Math.ceil((b.u + hw - grid.u0) / grid.step);
+    const j0 = Math.max(0, Math.floor((b.v - hd - grid.v0) / grid.step));
+    const j1 = Math.ceil((b.v + hd - grid.v0) / grid.step);
+    let allowed = Infinity;
+    for (let j = j0; j <= j1 && j < grid.h.length; j += 1) {
+      const row = grid.h[j];
+      for (let i = i0; i <= i1 && i < row.length; i += 1) {
+        const h = row[i];
+        if (h === null || h === undefined || h < 0) continue;
+        const du = grid.u0 + (i + 0.5) * grid.step - b.u, dv = grid.v0 + (j + 0.5) * grid.step - b.v;
+        const lu = du * cos + dv * sin, lv = -du * sin + dv * cos; // into the block's own axes
+        if (Math.abs(lu) < b.w / 2 - 1e-6 && Math.abs(lv) < b.d / 2 - 1e-6) allowed = Math.min(allowed, h);
+      }
+    }
+    const top = b.floors * fh;
+    if (Number.isFinite(allowed) && top > allowed + 0.05) {
+      out.push({ index, over: Math.round((top - allowed) * 10) / 10, allowed: Math.round(allowed * 10) / 10 });
+    }
+  });
+  return out;
+}
+
+// A reference scheme of the envelope as a new mass paper for the table (hooks.add).
+export function envelopeSchemePaper(scheme) {
+  return {
+    kind: 'mass', title: `법규 볼륨 참고 · ${scheme.name}`, floor_height: scheme.floor_height,
+    blocks: scheme.blocks.map((b) => ({ u: b.u, v: b.v, w: b.w, d: b.d, floors: b.floors })),
+  };
+}
+
+// What the 법규 볼륨 card shows: its figures, the rule lines (with their 원문) and a line per
+// reference scheme. Figures the server did not give are left out.
+const ENVELOPE_STATUS = { read: '확인', check: '확인 필요', none: '해당 없음' };
+export function envelopeCard(envelope) {
+  if (!envelope) return null;
+  const figures = [];
+  if (envelope.zone) figures.push(['용도지역', envelope.zone]);
+  if (envelope.max_height_m !== null && envelope.max_height_m !== undefined) figures.push(['정북일조 최고 높이', `${fmt(envelope.max_height_m, 1)}m`]);
+  if (envelope.bcr) figures.push(['건폐율', `${envelope.bcr}%${envelope.bcr_from ? ` (${envelope.bcr_from})` : ''}`]);
+  if (envelope.far) figures.push(['용적률', `${envelope.far}%${envelope.far_from ? ` (${envelope.far_from})` : ''}`]);
+  if (envelope.full_floor_area_m2) figures.push(['볼륨을 모두 채운 연면적', m2(envelope.full_floor_area_m2)]);
+  figures.push(['층높이', `${fmt(envelope.floor_height, 1)}m`]);
+  const lines = (envelope.lines || []).map((l) => ({ ...l, label: ENVELOPE_STATUS[l.status] || l.status }));
+  const schemes = (envelope.schemes || []).map((s, index) => ({
+    index, name: s.name, text: `건축면적 ${m2(s.footprint_m2)} · 연면적 ${m2(s.floor_area_m2)} · 높이 ${fmt(s.height_m, 1)}m`,
+  }));
+  return { title: '법규 볼륨', figures, lines, schemes };
+}

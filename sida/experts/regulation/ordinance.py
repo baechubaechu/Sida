@@ -214,6 +214,101 @@ def lookup(municipality: str, *, http_get=None, today: date | None = None) -> di
     return result
 
 
+# ---------------------------------------------------------------------------
+# The 건축 조례 and its 정북 일조 distances (건축법 제61조제1항: "다음 각 호의 구분에 따른 범위에서
+# 해당 지방자치단체의 조례로 정하는 거리")
+# ---------------------------------------------------------------------------
+
+
+def find_building_ordinances(municipality: str, *, http_get=None, today: date | None = None) -> list[dict]:
+    """The 건축 조례 that may hold the site's building rules, most local first, as search hits: the
+    시·군·구's own when it has one, then the 시·도's (a 자치구 usually has none: the 특별시·광역시
+    ordinance applies)."""
+    tokens = (municipality or "").split()
+    out = []
+    for n in range(len(tokens), 0, -1):
+        body = " ".join(tokens[:n])
+        hits = lawapi.search_ordinances(f"{body} 건축 조례", http_get=http_get)
+        own = [
+            h for h in hits
+            if h["kind"] == "조례" and h["mst"] and same_body(h["org"], body) and _squash(h["name"]).endswith("건축조례")
+        ]
+        if own:
+            now = (today or date.today()).isoformat()
+            in_force = [h for h in own if h["effective"] and h["effective"] <= now]
+            out.append(max(in_force or own, key=lambda h: h["effective"]))
+    return out
+
+
+_METRES = r"([\d]+(?:\.\d+)?)\s*미터"
+_FROM_LINE = r"\s*[:：]?\s*인접\s*대지\s*경계선\s*으로부터\s*"
+_UP_TO = re.compile(r"높이\s*" + _METRES + r"\s*이하인\s*부분" + _FROM_LINE + _METRES + r"\s*이상")
+_BAND = re.compile(r"높이\s*" + _METRES + r"\s*초과\s*" + _METRES + r"\s*이하인\s*부분" + _FROM_LINE + _METRES + r"\s*이상")
+_HALF = re.compile(r"높이\s*" + _METRES + r"\s*를?\s*초과하는\s*부분" + _FROM_LINE
+                   + r"(?:해당\s*건축물\s*의?\s*)?각\s*부분\s*의?\s*높이\s*의\s*2분의\s*1\s*이상")
+
+
+def sunlight_rule(text: str) -> dict | None:
+    """
+    The distances of an ordinance's 정북 일조 article (its first paragraph), read by rule:
+    {"steps": [[distance m, up to height m], ...], "half_above": height m} — a part up to each
+    height stands at least that far from the 정북 인접 대지경계선, and a part above `half_above`
+    at least half its own height. None when the paragraph does not read as such a list (a band
+    that does not start where the last one ended, distances that fall, no "2분의 1" part).
+    """
+    body = _TAG.sub("", text or "")
+    first = re.split(r"②", body, maxsplit=1)[0]
+    steps: list[tuple[float, float, float]] = []  # (from height, to height, distance)
+    for m in _UP_TO.finditer(first):
+        steps.append((0.0, float(m.group(1)), float(m.group(2))))
+    for m in _BAND.finditer(first):
+        steps.append((float(m.group(1)), float(m.group(2)), float(m.group(3))))
+    halves = [float(m.group(1)) for m in _HALF.finditer(first)]
+    if not steps or len(halves) != 1:
+        return None
+    steps.sort()
+    reach = 0.0
+    for low, high, _ in steps:
+        if low != reach or high <= low:
+            return None
+        reach = high
+    distances = [d for _, _, d in steps]
+    if any(b < a for a, b in zip(distances, distances[1:], strict=False)) or halves[0] != reach:
+        return None
+    return {"steps": [[d, high] for _, high, d in steps], "half_above": reach}
+
+
+def sunlight_lookup(municipality: str, *, http_get=None, today: date | None = None) -> dict:
+    """
+    {"municipality", "name", "effective", "mst", "label", "title", "text", "rule", "error"}: the
+    building ordinance's 정북 일조 article as written and its distances (sunlight_rule, None when
+    not read). error: None, a LawApiError kind, "not_found" or "no_article". Never raises for an
+    API failure.
+    """
+    out = {"municipality": municipality, "name": "", "effective": "", "mst": "", "label": "", "title": "",
+           "text": "", "rule": None, "error": None}
+    try:
+        hits = find_building_ordinances(municipality, http_get=http_get, today=today)
+        if not hits:
+            out["error"] = "not_found"
+            return out
+        for hit in hits:  # the most local ordinance that has the article
+            body = lawapi.ordinance_articles(hit["mst"], http_get=http_get)
+            article = next((a for a in body["articles"]
+                            if "일조" in _squash(a["title"]) and "높이" in _squash(a["title"])), None)
+            if article is not None:
+                break
+    except lawapi.LawApiError as exc:
+        out["error"] = exc.kind
+        return out
+    out.update(name=body["name"] or hit["name"], effective=body["effective"] or hit["effective"], mst=hit["mst"])
+    if article is None:
+        out["error"] = "no_article"
+        return out
+    out.update(label=article["label"], title=article["title"], text=article["text"], rule=sunlight_rule(article["text"]))
+    return out
+
+
 _ANNEX_REF = re.compile(r"별표\s*(\d+)(?:의\s*(\d+))?")
 
 

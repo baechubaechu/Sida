@@ -438,3 +438,46 @@ def test_provisos_give_each_figure_after_the_base_with_the_words_before_it():
     # a decimal gives no figure, whichever way it is written
     assert ordinance.provisos("일반: 300퍼센트(단, 도심: 62.5퍼센트)") == [{"where": "도심", "value": None}]
     assert ordinance.provisos("일반: 300퍼센트(단, 도심: 100분의 62.5)") == [{"where": "도심", "value": None}]
+
+
+def test_annexes_listed_at_the_top_of_the_reply_are_read_and_forms_left_out(fake_ordinance):
+    annexes = lawapi.ordinance_articles("2171799")["annexes"]
+    assert [a["label"] for a in annexes] == ["별표 2", "별표 2의2", "별표 4"]  # 별지 제4호서식 is not 별표 4
+    assert annexes[2]["title"].startswith("대지안의 공지기준")
+    fake_ordinance.overrides["body"] = (
+        '{"LawService": {"자치법규기본정보": {}, "조문": {"조": []}, "별표단위": {"별표구분": "별표", '
+        '"별표번호": "0001", "별표가지번호": "00", "별표첨부파일명": "http://x/flDownload.do?flSeq=1&amp;flNm=a"}}}'
+    )
+    assert lawapi.ordinance_articles("1")["annexes"][0]["url"] == "http://x/flDownload.do?flSeq=1&flNm=a"
+
+
+SEOUL_SUNLIGHT = {"steps": [[1.5, 10.0], [5.0, 17.0]], "half_above": 17.0}
+
+
+def test_the_building_ordinances_north_sunlight_distances_are_read_with_its_text(fake_ordinance):
+    found = ordinance.sunlight_lookup("서울특별시 중구", today=date(2026, 11, 17))
+    assert (found["name"], found["label"], found["mst"], found["error"]) == ("서울특별시 건축 조례", "제35조", "2171799", None)
+    assert found["rule"] == SEOUL_SUNLIGHT
+    assert "10미터 이하" in found["text"] and "일조" in found["title"]
+    # 중구 has no 건축 조례 of its own: the search went from 중구 up to 서울특별시
+    assert [c["query"] for c in fake_ordinance.calls if "MST" not in c] == ["서울특별시 중구 건축 조례", "서울특별시 건축 조례"]
+
+
+def test_a_place_without_a_building_ordinance_or_a_failed_search_says_so(fake_ordinance):
+    assert ordinance.sunlight_lookup("경기도 군포시", today=date(2026, 11, 17))["error"] == "not_found"
+    fake_ordinance.overrides["search"] = LawApiError("network", "ConnectTimeout")
+    found = ordinance.sunlight_lookup("서울특별시 중구", today=date(2026, 11, 17))
+    assert (found["error"], found["rule"]) == ("network", None)
+
+
+def test_sunlight_distances_are_not_read_from_a_paragraph_that_does_not_list_them_in_order():
+    text = ("제35조(일조 등의 확보를 위한 건축물의 높이 제한) ① 영 제86조제1항에 따라 건축물의 각 부분을 "
+            "정북 방향으로의 인접 대지경계선으로부터 다음 각 호의 범위에서 띄어 건축하여야 한다.\n"
+            "1. 높이 10미터 이하인 부분: 인접 대지경계선으로부터 1.5미터 이상\n"
+            "2. 높이 10미터를 초과하는 부분: 인접 대지경계선으로부터 해당 건축물 각 부분 높이의 2분의 1 이상\n"
+            "② 다른 항: 높이 30미터 이하인 부분: 9미터 이상")
+    assert ordinance.sunlight_rule(text) == {"steps": [[1.5, 10.0]], "half_above": 10.0}
+    gap = text.replace("2. 높이 10미터를 초과", "2. 높이 12미터를 초과")
+    assert ordinance.sunlight_rule(gap) is None  # the bands do not meet
+    assert ordinance.sunlight_rule(text.replace("2분의 1", "3분의 1")) is None
+    assert ordinance.sunlight_rule("") is None

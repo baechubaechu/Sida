@@ -68,7 +68,7 @@
 | `storage.py` / `errors.py` / `console.py` | 파일을 끊김 없이 쓰기 / 공통 오류 / 서버 로그용 UTF-8·색 |
 | `i18n.py` | 화면 문자열(한국어 기본, 영어 대체) |
 | `webapp.py` | FastAPI 앱: `/api` 아래 JSON API와 `webui/app/` 화면 |
-| `experts/site/` | 대지 사실: 정부 토지 API(`landapi.py`, `datago.py`), 필지 → 대지·법정 수치·확인 항목(`site_facts.py` + `data/zoning_limits.yaml`), 주변 3D([`site-context.md`](site-context.md)) |
+| `experts/site/` | 대지 사실: 정부 토지 API(`landapi.py`, `datago.py`), 필지 → 대지·법정 수치·확인 항목(`site_facts.py` + `data/zoning_limits.yaml`), 주변 3D([`site-context.md`](site-context.md)), 법규 볼륨(`envelope.py`, [`site-envelope.md`](site-envelope.md)) |
 | `experts/regulation/` | 법령 검색(`rag.py`, `lawapi.py`, `law_search.py`, [`law-search-api.md`](law-search-api.md)), 조례 조문과 건폐율·용적률 읽기(`ordinance.py`, `hwp.py`, [`site-ordinance.md`](site-ordinance.md)) |
 | `experts/model/` | 대지 모형 판의 JSON API와 표현 계획자에게 주는 모형 자료 |
 | `experts/rhino/` | 라이노 플러그인이 쓰는 JSON API: 스냅샷과 수치, 다이어그램, 실시간 패널([`rhino-api.md`](rhino-api.md)). |
