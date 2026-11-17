@@ -23,6 +23,7 @@ from sida import (  # noqa: E402
     relay_key,
     runtime,
     settings,
+    share,
     storage,
     telemetry,
 )
@@ -236,6 +237,8 @@ def isolated_settings(tmp_path, monkeypatch):
     # A key request (settings → "Sida 키 요청") is kept in a temporary folder and never sent.
     monkeypatch.setattr(relay_key, "REQUEST_PATH", tmp_path / "relay_request.json")
     monkeypatch.setattr(relay_key, "_http_post", lambda url, body: _no_network(url, body))
+    # Sharing (공유) never reaches the server: tests that share patch share._http themselves.
+    monkeypatch.setattr(share, "_http", lambda method, url, **kw: _no_network(url, kw))
     # No real nvidia-smi calls: tests that need a GPU patch query_nvidia_smi themselves.
     monkeypatch.setattr(hardware, "query_nvidia_smi", lambda: None)
     settings_dir = tmp_path / "settings"
