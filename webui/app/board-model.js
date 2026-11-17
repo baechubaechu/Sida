@@ -2640,7 +2640,13 @@ export function envelopeCard(envelope) {
   if (!envelope) return null;
   const figures = [];
   if (envelope.zone) figures.push(['용도지역', envelope.zone]);
-  if (envelope.max_height_m !== null && envelope.max_height_m !== undefined) figures.push(['정북일조 최고 높이', `${fmt(envelope.max_height_m, 1)}m`]);
+  if (envelope.max_height_m !== null && envelope.max_height_m !== undefined) figures.push(['최고 높이', `${fmt(envelope.max_height_m, 1)}m`]);
+  if (envelope.height_limit_m) figures.push(['높이 한도 (입력)', `${fmt(envelope.height_limit_m, 1)}m`]);
+  if (envelope.district_height_m) figures.push(['높이 한도 (고시)', `${fmt(envelope.district_height_m, 1)}m`]);
+  const uses = (envelope.uses || []).map((u) => ({ ...u, selected: u.key === envelope.use }));
+  const use = uses.find((u) => u.selected);
+  if (use) figures.push(['건물 용도', envelope.use_area_m2 ? `${use.label} · 바닥면적 ${m2(envelope.use_area_m2)}` : use.label]);
+  if (envelope.building_line_area_m2) figures.push(['건축선 후퇴 면적', m2(envelope.building_line_area_m2)]);
   if (envelope.bcr) figures.push(['건폐율', `${envelope.bcr}%${envelope.bcr_from ? ` (${envelope.bcr_from})` : ''}`]);
   if (envelope.far) figures.push(['용적률', `${envelope.far}%${envelope.far_from ? ` (${envelope.far_from})` : ''}`]);
   if (envelope.full_floor_area_m2) figures.push(['볼륨을 모두 채운 연면적', m2(envelope.full_floor_area_m2)]);
@@ -2649,5 +2655,5 @@ export function envelopeCard(envelope) {
   const schemes = (envelope.schemes || []).map((s, index) => ({
     index, name: s.name, text: `건축면적 ${m2(s.footprint_m2)} · 연면적 ${m2(s.floor_area_m2)} · 높이 ${fmt(s.height_m, 1)}m`,
   }));
-  return { title: '법규 볼륨', figures, lines, schemes };
+  return { title: '법규 볼륨', figures, lines, schemes, uses };
 }

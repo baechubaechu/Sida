@@ -89,6 +89,12 @@ def _named(facts: dict, words: list[str], skip: set[str]) -> list[str]:
     return out
 
 
+def height_districts(facts: dict) -> list[str]:
+    """The site's districts that set a height of their own (height_words: 고도지구 and the like), as
+    the government names them."""
+    return _named(facts, load_rules()["height_words"], set())
+
+
 def _topic(word: str) -> str:
     """은 or 는 after `word` (지역 → 은)."""
     last = word[-1:]

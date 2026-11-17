@@ -153,6 +153,9 @@ export const pointerMethods = {
       case 'photo': this.pickPhotos(); this.drawControls(); break;
       case 'around': this.toggleAround(); break;
       case 'envelope': this.toggleEnvelope(); break;
+      case 'envelope-height': this.applyEnvelopeHeight(); break;
+      case 'envelope-height-clear': this.applyEnvelopeHeight(true); break;
+      case 'envelope-use': this.applyEnvelopeUse(); break;
       case 'eye': this.toggleEye(); break;
       case 'model-panel': this.openModel(); this.drawControls(); break;
       case 'cut': this.cutFromBar(); break;
@@ -660,6 +663,8 @@ export const pointerMethods = {
     if (p?.kind === 'note') { this.editing = id; this.drawPaper(p); }
   },
   onKey(e) {
+    if (e.key === 'Enter' && e.target.id === 'envelope-height-input') { e.preventDefault(); this.applyEnvelopeHeight(); return; }
+    if (e.key === 'Enter' && e.target.id === 'envelope-use-area') { e.preventDefault(); this.applyEnvelopeUse(); return; }
     if (typing(e.target) || e.target.closest?.('dialog')) return;
     const k = e.key.toLowerCase();
     if (k === 'escape' && this.toolGroupOpen) { e.preventDefault(); this.toolGroupOpen = ''; this.drawControls(); return; }

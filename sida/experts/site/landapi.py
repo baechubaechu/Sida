@@ -581,6 +581,30 @@ def parcel_at(lon: float, lat: float, *, http_get: HttpGet | None = None) -> dic
     return None
 
 
+# 용도지구 layers whose pieces name the notice that set them (dyear, dnum), for reading that
+# notice's table (height_districts.py). Not stored (이용약관 제19조).
+DISTRICT_LAYERS = ("LT_C_UQ123",)  # 고도지구
+
+
+def districts_at(layer: str, lon: float, lat: float, *, http_get: HttpGet | None = None) -> list[dict]:
+    """
+    The pieces of a 용도지구 layer (DISTRICT_LAYERS) under a point: [{"properties", "shape"}].
+    LT_C_UQ123 (고도지구) pieces carry uname, dyear, dnum, sido_name, sigg_name and no height
+    (2026-11-17 실제 호출로 확인). Several notices may overlap at one point, old ones too.
+    """
+    if layer not in DISTRICT_LAYERS:
+        raise ValueError(f"not a district layer: {layer}")
+    lon, lat = float(lon), float(lat)
+    if not (KOREA_LON[0] <= lon <= KOREA_LON[1] and KOREA_LAT[0] <= lat <= KOREA_LAT[1]):
+        raise ValueError(f"point outside Korea: {lon}, {lat}")
+    out = []
+    for feature in _feature_list(layer, http_get, geom_filter=f"POINT({lon} {lat})", geometry=True):
+        shape = _shape(feature)
+        if shape:
+            out.append({"properties": feature.get("properties") or {}, "shape": shape})
+    return out
+
+
 # Map images the browser loads straight from VWorld (2026-10-14 실제 호출로 확인):
 # - background tiles (WMTS "Base"): plain z/y/x PNG tiles.
 # - 지적 lines (WMS lp_pa_cbnd_bubun, VERSION 1.3.0 only): no DOMAIN parameter, because a browser
