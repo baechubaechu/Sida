@@ -20,6 +20,9 @@
 | `webui/app/rhino-model.js` | 라이노의 DOM 없는 도우미: 제도판의 "라이노 작업" 종이(수치 줄, 캡처 순서, 한도 줄, 다이어그램 주소와 파일 이름)와 라이노 안 패널(`rhino.html`)이 보여 주는 것(상태, 하는 중인 일, 건폐율·용적률 게이지, 레이어 표, 층고 읽기, 그릴 다이어그램 고르기, 대화 줄과 질문과 함께 가는 것, 주소에 적어 두는 탭·대화). 수치는 계산하지 않고 서버가 보낸 대로 보여 줍니다. `tests/webui/rhino-model.test.mjs`가 확인합니다 |
 | `webui/app/rhino.html`, `rhino-panel.js`, `rhino-chat.js`, `rhino.css` | 라이노 안 패널. 플러그인이 웹 뷰로 띄우는 따로 된 화면이고(브라우저에서 `/app/rhino.html`로 열어도 됨), 1초마다 `/api/rhino/live`를 읽고 `/api/rhino/commands`로 플러그인에 일을 부탁합니다(`docs/rhino-api.md`의 "실시간"). 라이노와는 직접 말하지 않습니다. "Sida에게 묻기" 탭(`rhino-chat.js`)은 그 프로젝트의 Conductor 대화 API를 그대로 씁니다 |
 | 발표 편집자의 "발표자료" 탭 | `view-experts.js`의 `slidesTab`. `GET /api/projects/{name}/presentation`의 슬라이드를 작은 쪽으로 보여 주고 PowerPoint·PDF·묶음 파일을 받습니다(`experts.js`의 `downloadDeck`, 도우미는 `model.js`의 `deckView`·`stripSlideList`·`downloadName`). 자세한 것은 [`presentation.md`](presentation.md) |
+| `webui/app/share.js`, `table-comments.js` | 공유 창(제도판 머리의 "공유" 버튼, 옆 창: 올라가는 것·링크 두 개·댓글·사용량)과 제도판의 댓글 핀. 자세한 것은 [`share.md`](share.md) |
+| `webui/app/share-model.js` | 공유의 DOM 없는 도우미: 공유 창 문구, 댓글 묶기·안 읽은 것, 댓글 대상 이름, 보기 화면이 스냅샷에서 그리는 것(매스안 목록, 수치 줄, 동 상자, 필지선 좌표, 카메라). 수치는 계산하지 않습니다. `tests/webui/share-model.test.mjs`가 확인합니다 |
+| `webui/app/share.html`, `share-view.js`, `share.css` | 보기 화면. 앱이 아니라 국내 서버가 `/s/<링크>`에서 내주는 따로 된 화면입니다(`relay/README.md`의 "공유"). 앱의 제도판을 쓰지 않고 `three.js`로 매스와 필지선만 그립니다 |
 | `webui/app/board-model.js` | 제도판의 DOM 없는 도우미(카메라·확대, 대지 범위, 동 꼭짓점, 새 종이 자리, 3D 이름표와 내용 카드 자리, 종이 이름, 매스안 입력 검사, 고른 종이, 두 안 비교 질문, 되돌리기 기록, 상세 창 배치도). `tests/webui/board-model.test.mjs`가 확인합니다 |
 | `webui/app/talk-panel-model.js` | Conductor 패널 열기·닫기, 이전 대화와 새 대화 선택 상태, 양쪽 너비 계산. `tests/webui/talk-panel.test.mjs`가 확인합니다 |
 | `webui/app/dock-model.js` | 패널 배치: 탭을 다른 묶음·위·아래·빈 쪽으로 옮기기, 묶음 높이, 접기, 끌어 놓을 자리 계산, 저장 형식. `tests/webui/dock-model.test.mjs`가 확인합니다 |
@@ -42,8 +45,8 @@
 | 대지 페이지 (`#/project/<이름>/site` 대지 사실, `.../site/ordinance` 조례, `.../site/uses` 계획 용도, `.../site/find` 찾기) | 대지 사실 `GET .../site`, 조례 `GET .../site/ordinance`와 조문 선택 `PUT .../site/ordinance/options/{id}`, 용도 이름 찾기 `GET /api/site/uses`, 계획 용도 조회·지우기 `POST`/`DELETE .../site/uses...`, 지역 목록 `GET /api/site/regions`, 지번으로 찾기 `GET /api/site/lots`, 주소로 찾기 `POST .../site/parcels`, 조회해 저장 `PUT .../site`, 지도 `GET /api/site/map`·`GET /api/site/parcel-at`·`GET /api/site/shapes`, 브리프의 대지 주소 `GET /api/projects/{name}` |
 | 설계 상태 반영 승인 | `POST .../state-proposals/{id}/apply`, `.../skip` |
 | 설정 창 | `GET`/`PUT /api/settings`, 키 `PUT /api/settings/keys/{openrouter·vworld·vworld_domain·data_go_kr·law·relay_url·relay_token}`, ChatGPT 로그인 `/api/settings/chatgpt...` |
-
 | 제도판 | `GET .../board`(종이·AI 섹션·대지 도면·매스안 수치), 종이 `POST`/`PATCH`/`DELETE .../board/papers...`, AI 섹션 `POST .../board/tray/{id}/place`, `DELETE .../board/tray/{id}`. 아이디어 보드 `POST .../board/ideas`, `PATCH`/`DELETE .../board/ideas/{id}`, `PUT .../board/ideas/order`, 종이 넣기 `POST .../board/ideas/stow`, 꺼내기 `POST .../board/ideas/{id}/place`. 캐드·라이노 내보내기 `GET .../board/export?format=dxf|3dm&active=<매스안 id>`(제도판 머리의 "내보내기" 버튼과 명령 `export`). 자세한 것은 [board-api.md](board-api.md) |
+| 공유 (제도판 머리의 "공유") | `GET`/`POST`/`PATCH`/`DELETE .../share`, 댓글 `GET .../share/comments?refresh=1`, 답글 `POST .../share/comments`, 해결 `PATCH .../share/comments/{id}`, 지우기 `DELETE .../share/comments/{id}`, 읽음 `PUT .../share/comments/seen`. 자세한 것은 [share.md](share.md) |
 
 API의 자세한 내용은 [session-api.md](session-api.md), [site-ordinance.md](site-ordinance.md), [state-editing.md](state-editing.md), [settings-api.md](settings-api.md), [chatgpt-login.md](chatgpt-login.md)에 있습니다.
 

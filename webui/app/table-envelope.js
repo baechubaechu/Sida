@@ -6,7 +6,7 @@
 // Methods of DraftingTable (table.js adds them to its prototype).
 
 import * as THREE from './vendor/three.js';
-import { escapeHtml as escape } from './model.js';
+import { escapeHtml as escape, ruleLinks } from './model.js';
 import { envelopeCard, envelopeOver, envelopeSchemePaper, viewFor, freeSpot, PAPER_SIZE } from './board-model.js';
 
 export const envelopeMethods = {
@@ -109,6 +109,13 @@ export const envelopeMethods = {
         <label for="envelope-height-input">고시 높이 한도${this.envelope.height_districts?.length ? ` <small>${escape(this.envelope.height_districts.join(', '))}</small>` : ''}</label>
         <span><input id="envelope-height-input" type="number" min="1" max="500" step="0.1" inputmode="decimal" value="${limit ?? ''}" placeholder="예: 28"><span aria-hidden="true">m</span>
         <button type="button" data-ui="envelope-height">적용</button>${limit ? '<button type="button" data-ui="envelope-height-clear">지우기</button>' : ''}</span></div>` : '';
+    // A zone whose notice allows a relaxed height after the committee's review: the designer may
+    // look at it (2026-11-17 지훈 "비고란 처리도 해"); the card's height line then says so.
+    const relaxed = this.envelope.height_district?.relaxed_m;
+    const on = Boolean(this.envelope.use_relaxed);
+    const relaxedForm = relaxed && !limit ? `<div class="envelope-height envelope-relaxed">
+        <span><button type="button" data-ui="envelope-relaxed" aria-pressed="${on}">${on ? '기본 높이로 보기' : `완화 높이 ${escape(String(relaxed))}m로 검토`}</button>
+        <small>${on ? `완화 ${escape(String(relaxed))}m로 자르는 중, 도시계획위원회 심의 필요` : '도시계획위원회 심의를 거쳐야 하는 높이'}</small></span></div>` : '';
     // The building's use (and its floor area) sets 대지 안의 공지 and whether 공동주택 채광 applies.
     const useForm = card.uses.length ? `<div class="envelope-height envelope-use">
         <label for="envelope-use-select">건물 용도 <small>대지 안의 공지·채광</small></label>
@@ -119,11 +126,12 @@ export const envelopeMethods = {
       <dl class="envelope-figures">${card.figures.map(([k, v]) => `<dt>${escape(k)}</dt><dd>${escape(v)}</dd>`).join('')}</dl>
       ${overText}
       ${heightForm}
+      ${relaxedForm}
       ${useForm}
       ${card.schemes.length ? `<div class="envelope-schemes"><b>참고 매스</b>${card.schemes.map((s) => `<div class="envelope-scheme"><span><strong>${escape(s.name)}</strong> <small>${escape(s.text)}</small></span>
         <button type="button" data-envelope-place="${s.index}" title="이 참고 매스를 새 매스안으로 제도판에 놓기">매스안으로 놓기</button></div>`).join('')}</div>` : ''}
       <ul class="envelope-lines">${card.lines.map((l) => `<li class="is-${escape(l.status)}"><details><summary><span class="envelope-state">${escape(l.label)}</span> <b>${escape(l.title)}</b> ${escape(l.value)}</summary>
-        ${l.detail ? `<p>${escape(l.detail)}</p>` : ''}${l.quote ? `<blockquote>${escape(l.quote)}</blockquote>` : ''}${l.source ? `<p class="source">${escape(l.source)}</p>` : ''}</details></li>`).join('')}</ul>
+        ${l.detail ? `<p>${escape(l.detail)}</p>` : ''}${l.quote ? `<blockquote>${escape(l.quote)}</blockquote>` : ''}${l.source ? `<p class="source">${escape(l.source)}</p>` : ''}${ruleLinks(l.links)}</details></li>`).join('')}</ul>
       <p class="envelope-note">공공 자료와 조문으로 계산한 참고용입니다. 카드에 "확인 필요"로 남은 항목은 반영하지 않았으니 설계에 앞서 확인하세요.</p>`;
   },
   // The height entered for a 고도지구 (from the card's field; null clears it): kept for the project,
@@ -137,6 +145,17 @@ export const envelopeMethods = {
       this.envelope = await this.hooks.envelope();
     } catch (error) {
       this.say(`높이 한도를 적용하지 못했습니다. ${error.message}`);
+      return;
+    }
+    this.drawEnvelope(); this.drawMasses();
+  },
+  // The relaxed-height switch of a 고도지구 zone: kept for the project, then the envelope worked out again.
+  async toggleEnvelopeRelaxed() {
+    try {
+      await this.hooks.saveEnvelopeSettings({ use_relaxed: !this.envelope?.use_relaxed });
+      this.envelope = await this.hooks.envelope();
+    } catch (error) {
+      this.say(`완화 높이 검토를 바꾸지 못했습니다. ${error.message}`);
       return;
     }
     this.drawEnvelope(); this.drawMasses();

@@ -97,6 +97,67 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
 
 묶음이 없는 PC는 묶음을 통째로 받지 않고, 대지 주변 필지의 표제부만 묻습니다(`POST /relay/ledger/lookup`, `{"pnus": [...]}` 최대 2,000개 → `{"rows": {pnu: [...]}, "month"}`). 서버는 `/ledger`의 압축 안 푼 `*.ledger.sqlite`에서 찾습니다(`ledger_pull`이 gzip 옆에 남김). 하루 한도에 함께 셉니다.
 
+## 공유 (보기 링크와 댓글)
+
+설계자가 올린 제도판 스냅샷을 링크로 보여 주고 댓글을 받습니다. 무엇이 올라가고 앱에서 어떻게 보이는지는 [`docs/share.md`](../docs/share.md)에 있습니다. 코드는 `shares.py`(저장·한도·댓글)와 `app.py`의 경로입니다. `SIDA_SHARE_DIR`이 없으면 공유는 꺼져 있고(503), `SIDA_VIEWER_DIR`이 없으면 보기 화면만 503입니다.
+
+| 경로 | 하는 일 |
+|---|---|
+| `GET`/`POST /relay/shares` | 내 공유 목록과 사용량 · 새 공유(본문은 스냅샷 zip, 제목과 올린 사람은 zip 안의 `snapshot.json`에서 읽음). 접속 키 필요, 하루 호출 수에 세지 않음 |
+| `GET`/`PUT`/`PATCH`/`DELETE /relay/shares/{id}` | 공유 상태 · 새 판 올리기 · `{comments_open, new_links}` · 끄기(스냅샷과 댓글을 지움). 내 키로 만든 것만 |
+| `GET`/`POST /relay/shares/{id}/comments`, `PATCH`/`DELETE .../comments/{댓글 id}` | 댓글 받기 · 설계자 답글(`parent` 필요) · 해결 · 지우기(답글까지) |
+| `GET /s/{링크}` | 보기 화면(`share.html`). `noindex`, `no-referrer`, CSP를 붙임. 화면이 부르는 파일(`share-view.js` 등 `app.py`의 `VIEWER_FILES`)만 내줌 |
+| `GET /s/{링크}/info`, `/s/{링크}/v/{판}/{파일}` | 공유 정보(판 목록, 댓글 링크인지, 댓글이 열렸는지) · 스냅샷 파일 |
+| `GET /s/{링크}/around` | 보기 화면의 "주변 건물": 앱의 브이월드 3D 페이지(`static/vworld3d.html`)에 서버의 3D 키를 넣어 내줌. 이 서버의 보기 화면만 틀로 열 수 있고(`frame-ancestors 'self'`), 3D 키가 없으면 503. 링크마다 1분에 30번. 스크립트는 `/s/{링크}/vworld3d-frame.js` |
+| `GET /s/{링크}/parcels` | 필지 경계. 저장하지 않고 그때 브이월드(`LP_PA_CBND_BUBUN`)에 서버 키로 물음. 링크마다 1분에 30번 |
+| `GET`/`POST /s/{링크}/comments` | 댓글 보기 · 쓰기(`{name, text, version, target?, at?, parent?}`). 쓰기는 댓글 링크만, 댓글이 열려 있을 때만, 링크·주소마다 1분에 6번 |
+
+한도(넘으면 429와 `{code, message}`)는 `relay.env`에서 바꿉니다. 크기는 MB입니다.
+
+| 변수 | 기본 |
+|---|---|
+| `SIDA_SHARE_SHARE_BYTES` | 한 공유 20 |
+| `SIDA_SHARE_OWNER_BYTES` | 한 키 전체 100 |
+| `SIDA_SHARE_OWNER_SHARES` | 한 키의 동시 공유 10 |
+| `SIDA_SHARE_NEW_SHARES`, `SIDA_SHARE_PERIOD_DAYS` | 14일에 새 공유 10 |
+| `SIDA_SHARE_UPLOADS_PER_DAY` | 하루 업로드(새 판 포함) 20 |
+| `SIDA_SHARE_RETENTION_DAYS` | 마지막 업로드부터 30일 보관 |
+
+zip 안의 `snapshot.json`은 4MB, 사진 한 장은 3MB, 요청 본문은 한 공유 한도보다 1MB 넘게 크면 읽지 않고 413입니다. 댓글은 공유 하나에 500개까지입니다. 기한이 지난 공유는 한 시간마다 지웁니다.
+
+### 처음 설치 (서버)
+
+1. 저장 폴더를 추가 스토리지에 만들고, 컨테이너가 쓸 수 있게 주인을 `nobody`(65534)로 바꿉니다(안 하면 공유를 올릴 때 쓰기에 실패합니다).
+
+   ```bash
+   mkdir -p /opt/sida-kr/data/shares
+   chown 65534:65534 /opt/sida-kr/data/shares
+   ```
+2. 보기 화면 파일을 서버에 둡니다. 저장소의 `webui/app` 폴더를 `/opt/sida-kr/viewer/`로 복사합니다(예: `git archive origin/main webui/app | ssh 서버 "tar -x -C /tmp && rsync -a --delete /tmp/webui/app/ /opt/sida-kr/viewer/"`). 서버는 `VIEWER_FILES`에 있는 것만 내줍니다.
+3. `compose.yaml`의 `relay`에 더합니다.
+
+   ```yaml
+       environment:
+         SIDA_SHARE_DIR: /shares
+         SIDA_VIEWER_DIR: /viewer
+       volumes:
+         - relay-data:/data
+         - /opt/sida-kr/data/shares:/shares
+         - /opt/sida-kr/viewer:/viewer:ro
+   ```
+
+4. `Caddyfile`의 `handle /relay/*` 옆에 더합니다(`/relay/shares`는 이미 `handle /relay/*`가 넘깁니다).
+
+   ```
+   	handle /s/* {
+   		reverse_proxy relay:8000
+   	}
+   ```
+5. `docker compose up -d --build relay && docker compose restart caddy`
+6. 확인: 앱에서 공유를 켜고 받은 링크를 다른 브라우저로 열어 매스와 필지선이 보이는지, 댓글이 앱에 돌아오는지 봅니다.
+
+백업은 `/opt/sida-kr/data/shares`의 `shares.db`와 `files/`입니다. 보관 기한이 30일이라 꼭 필요하지는 않습니다.
+
 ## 대지 주변 지형 (`POST /relay/terrain/ground`)
 
 묶음이 없는 PC는 대지 하나의 주변 지형만 받습니다(`{"lon", "lat", "radius"}`, 반경 최대 1,500m = 한 변 3km). 답은 **대지 가운데를 (0, 0)으로 한 미터 좌표와 대지 바닥 기준 상대 높이**뿐입니다. 경위도와 해발 높이는 내보내지 않습니다(국토지리정보원 보안관리규정 [별표 1]: 좌표와 1:5,000 등고선·표고값을 인터넷에 함께 표시 금지. 이 방식이 괜찮은지는 국토지리정보원에 문의 중). 높이는 미리 계산한 지형 칸에서 읽기만 하고, 칸이 범위를 다 덮지 않으면 높이 없이(평지) 영역·차선·건물만 보냅니다. 한 번에 하나만 만듭니다.
@@ -114,7 +175,7 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
 `/opt/sida-kr`에 이미 `caddy`가 있다는 전제입니다(`compose.yaml`, `Caddyfile`).
 
 1. 서버용 정부 키를 받습니다. 브이월드는 **이 서버 주소**(`https://sida-kr.duckdns.org`)로 키를 받아야 합니다(개발키는 6개월, 운영키는 심사). 공공데이터포털·법제처도 서버용으로 따로 받는 것을 권합니다.
-2. 이 폴더의 `Dockerfile`, `requirements.txt`, `__init__.py`, `app.py`, `tokens.py`, `admin.py`와 `static/` 폴더를 서버의 `/opt/sida-kr/relay/`에, 저장소의 `sida/` 폴더를 `/opt/sida-kr/relay/sida/`에 복사합니다(지형·대장 찾기가 앱 코드를 그대로 씀). 예: `git archive origin/main relay sida | ssh 서버 "rm -rf /tmp/r && mkdir /tmp/r && tar -x -C /tmp/r"` 뒤 서버에서 `rsync -a /tmp/r/relay/ /opt/sida-kr/relay/ && rsync -a --delete /tmp/r/sida/ /opt/sida-kr/relay/sida/`.
+2. 이 폴더의 `Dockerfile`, `requirements.txt`, `__init__.py`, `app.py`, `tokens.py`, `shares.py`, `admin.py`와 `static/` 폴더를 서버의 `/opt/sida-kr/relay/`에, 저장소의 `sida/` 폴더를 `/opt/sida-kr/relay/sida/`에 복사합니다(지형·대장 찾기가 앱 코드를 그대로 씀). 예: `git archive origin/main relay sida | ssh 서버 "rm -rf /tmp/r && mkdir /tmp/r && tar -x -C /tmp/r"` 뒤 서버에서 `rsync -a /tmp/r/relay/ /opt/sida-kr/relay/ && rsync -a --delete /tmp/r/sida/ /opt/sida-kr/relay/sida/`.
 3. `/opt/sida-kr/relay.env`를 만듭니다(권한 600, 저장소에 넣지 않음).
 
    ```

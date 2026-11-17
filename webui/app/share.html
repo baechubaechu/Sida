@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#36536b">
+  <title>Sida 공유</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./share.css">
+  <script type="module" src="./share-view.js"></script>
+</head>
+<body>
+  <div class="viewer" id="viewer">
+    <header class="viewer-head">
+      <div class="viewer-title">
+        <a class="viewer-logo" href="/" aria-label="Sida 소개">Sida</a>
+        <span class="viewer-rule" aria-hidden="true"></span>
+        <div class="viewer-name"><h1 id="title">공유한 프로젝트를 여는 중입니다</h1><span id="byline" class="muted"></span></div>
+      </div>
+      <div class="viewer-tools">
+        <label for="version" class="muted small">판</label>
+        <select id="version" disabled></select>
+        <span class="viewer-chip" id="mode-chip">보기 전용</span>
+        <a class="viewer-cta" href="/">Sida로 직접 설계해 보기</a>
+      </div>
+    </header>
+    <div class="viewer-body">
+      <main class="viewer-main">
+        <div class="viewer-bar">
+          <div role="group" aria-label="매스안" class="scheme-tabs" id="schemes"></div>
+          <dl class="figures" id="figures"></dl>
+        </div>
+        <div class="scene" id="scene" aria-label="대지와 매스안 3D. 끌어서 돌리고, 휠로 확대하고, 오른쪽 버튼이나 Shift로 끌어 옮깁니다.">
+          <iframe class="scene-around" id="around" title="대지 주변 건물 (브이월드 3D)" hidden></iframe>
+          <div class="scene-pins" id="pins"></div>
+          <p class="scene-hint" id="hint" role="status" hidden></p>
+          <div class="scene-tools">
+            <button type="button" id="place" aria-pressed="false" hidden><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 21s-6-5.3-6-11a6 6 0 0 1 12 0c0 5.7-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/></svg>댓글 놓기</button>
+            <button type="button" id="around-toggle" aria-pressed="false" hidden><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 21h18M5 21V10l4-2v13M9 21V5l6-2v18M15 21V9l4 2v10"/></svg>주변 건물</button>
+            <button type="button" id="home">처음 보기로</button>
+          </div>
+          <div class="scene-legend" aria-hidden="true">
+            <span><i class="sw mass"></i>매스안</span>
+            <span class="model-only"><i class="sw lot"></i>대지</span>
+            <span class="around-only">주변: 브이월드 3D(국토교통부), 한 색으로</span>
+          </div>
+        </div>
+      </main>
+      <aside class="viewer-side">
+        <div role="tablist" aria-label="옆 패널" class="side-tabs">
+          <button type="button" role="tab" id="tab-comments" aria-selected="true" aria-controls="panel-comments">댓글</button>
+          <button type="button" role="tab" id="tab-site" aria-selected="false" aria-controls="panel-site">대지 정보</button>
+          <button type="button" role="tab" id="tab-papers" aria-selected="false" aria-controls="panel-papers">메모·사진</button>
+        </div>
+        <section role="tabpanel" id="panel-comments" aria-labelledby="tab-comments" class="side-panel">
+          <ol class="comment-list" id="comments"></ol>
+          <form class="comment-form" id="comment-form" novalidate hidden>
+            <div class="spot" id="spot"></div>
+            <label for="who">이름</label>
+            <input id="who" maxlength="40" autocomplete="name" placeholder="예: 이OO 교수">
+            <label for="text">댓글</label>
+            <textarea id="text" rows="3" maxlength="1000"></textarea>
+            <p class="form-error" id="form-error" role="alert"></p>
+            <div class="form-foot"><span class="muted small" id="form-note">댓글은 설계자의 Sida에 바로 전달됩니다.</span>
+              <button type="submit" class="primary">댓글 남기기</button></div>
+          </form>
+          <p class="side-note" id="comments-note" hidden></p>
+        </section>
+        <section role="tabpanel" id="panel-site" aria-labelledby="tab-site" class="side-panel" hidden></section>
+        <section role="tabpanel" id="panel-papers" aria-labelledby="tab-papers" class="side-panel" hidden></section>
+      </aside>
+    </div>
+    <p class="viewer-foot muted small">대지 경계: 브이월드(국토교통부)를 열 때마다 받아 보여 줍니다. 이 화면은 설계자가 올린 그때의 모습이며, 링크는 설계자가 끄면 바로 닫힙니다.</p>
+  </div>
+</body>
+</html>

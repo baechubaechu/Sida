@@ -2,7 +2,7 @@ FROM python:3.12-slim
 WORKDIR /srv
 COPY requirements.txt /srv/
 RUN pip install --no-cache-dir -r requirements.txt && mkdir /data && chown nobody /data
-COPY __init__.py app.py tokens.py admin.py /srv/relay/
+COPY __init__.py app.py tokens.py admin.py shares.py /srv/relay/
 COPY static /srv/relay/static/
 # The app's code for the ground and the 건축물대장 packs (context3d.shared_ground, ledger_pack.lookup):
 # the repository's sida/ folder, copied next to this file as relay/sida/ when deploying (README).

@@ -3,7 +3,7 @@
 import { expertPath } from './model.js';
 
 export class ApiError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
+  constructor(status, message, code = '') { super(message); this.status = status; this.code = code; }
 }
 
 export async function api(path, { method = 'GET', body, form } = {}) {
@@ -20,8 +20,9 @@ export async function api(path, { method = 'GET', body, form } = {}) {
   let data = null;
   try { data = await response.json(); } catch { /* empty body */ }
   if (!response.ok) {
-    const detail = typeof data?.detail === 'string' ? data.detail : `요청이 실패했습니다 (${response.status})`;
-    throw new ApiError(response.status, detail);
+    // A detail is a message, or {code, message} where the screen acts on the code (sharing).
+    const detail = typeof data?.detail === 'string' ? data.detail : data?.detail?.message || `요청이 실패했습니다 (${response.status})`;
+    throw new ApiError(response.status, detail, data?.detail?.code || '');
   }
   return data;
 }

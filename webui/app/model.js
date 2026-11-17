@@ -783,12 +783,25 @@ export const RULE_STATUS = {
   check: { label: '확인 필요', tone: 'review' },
 };
 
+// Links a rule line points to: only https links with a label are kept.
+export function safeLinks(links) {
+  return (links || []).filter((l) => l && typeof l.label === 'string' && /^https:\/\//.test(l.url || '')).map((l) => ({ label: l.label, url: l.url }));
+}
+
+// The links of a rule line as HTML (opened in a new tab), or ''.
+export function ruleLinks(links) {
+  const safe = safeLinks(links);
+  return safe.length ? `<p class="rule-links">${safe.map((l) => `<a href="${escapeHtml(l.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(l.label)}</a>`).join(' · ')}</p>` : '';
+}
+
 export function siteRuleRows(rules) {
   return (rules || []).map((r) => {
     const status = RULE_STATUS[r.status] || RULE_STATUS.check;
     return {
       id: r.id, title: r.title || '', value: r.value || UNKNOWN, detail: r.detail || '',
       quote: r.quote || '', source: r.source || '', badge: status.label, tone: status.tone,
+      // 토지이음 pages where the designer reads what the app does not know (sida/experts/site/eum.py)
+      links: safeLinks(r.links),
       // the detail's first sentence when it is short ("연면적 최대 21,737㎡"), for a small card
       brief: (r.detail || '').split('. ')[0].length <= 20 ? (r.detail || '').split('. ')[0] : '',
     };

@@ -32,6 +32,7 @@ from sida.project_documents import DocumentConflict
 from sida.session_api import create_router as create_session_router
 from sida.session_jobs import SessionJobs
 from sida.settings_api import create_router as create_settings_router
+from sida.share_api import create_router as create_share_router
 from sida.telemetry_api import create_router as create_telemetry_router
 
 WEB_DIR = sida_config.ROOT / "webui"
@@ -157,6 +158,7 @@ def create_app(*, allowed_hosts: frozenset[str] | set[str] = LOCAL_HOSTS) -> Fas
     app.include_router(create_settings_router(load_config, core))
     app.include_router(create_chatgpt_router(load_config, core))
     app.include_router(create_telemetry_router(load_config, core))
+    app.include_router(create_share_router(load_config, core))
     from sida.experts import expert_routers
 
     for router in expert_routers(load_config, core):  # each domain's own JSON API

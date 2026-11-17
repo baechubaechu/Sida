@@ -7,6 +7,9 @@
 # Zone fields: number (도면표시번호), limit (원문 그대로), max_m (m), base: ground(지표면, 높이 산정은 height_rule) | road
 # (도로면 기준, road_offset_m) | sea(해발), relaxed_m (비고의 완화: 위원회 심의를 거쳐야 하므로 자동 적용
 # 하지 않음), area_m2 (조서의 면적, VWorld 조각과 짝짓는 데 씀), location (조서의 위치).
+# kept: 이 고시에 기정 행만 있는 구역(바뀌지 않음). VWorld는 이 구역을 예전 고시 번호로 그려 두므로, 표에 없는
+#   번호의 조각이라도 같은 구의 kept 구역과 넓이·지번이 맞으면 그 구역으로 봄.
+# public_land_max_m: 국·공유지(토지소유정보의 소유구분)이면 이 높이. zoning: 이 구역이 해당하는 용도지역(사유서).
 
 notices:
   - notice: 서울특별시 고시 제2024-317호
@@ -17,11 +20,19 @@ notices:
     # 2,352,498 / 구기·평창 431,559 / 경복궁 996,121 ㎡). 기정 행만 있는 구역(남산 7~14, 경복궁 1)은
     # 합계에 들어가므로 계속 유효.
     vworld: {layer: LT_C_UQ123, dyear: "2024", dnum: "0317"}
-    verified: null
+    # 이 고시의 구역인데 VWorld가 다른 번호로 그리는 조각: 그 번호의 조각은 여기 적은 지구의 구역으로만 맞춤.
+    # 2023-1986: 북한산 주변(강북구·도봉구)의 조각이 모두 이 번호(2026-11-18 우이동 100-1 등 실제 조회). 토지이음
+    # 고시정보에 이 번호의 고시는 없고, 토지이용계획의 관리번호(manageNo 6110000·11305·2023·1986…)에 들어 있는
+    # 번호임. 2024-317호의 북한산 기정 행은 '90.12.10 제404호뿐이라 그 사이 높이를 바꾼 고시는 없고, 토지이음
+    # 확인도면 범례도 우이동 100-1(2종 7층이하)에 "고도지구(28m이하)"로 이 고시의 2번 구역과 같음.
+    vworld_also:
+      - {dyear: "2023", dnum: "1986", districts: [북한산 주변]}
+    verified: 2026-11-17  # 지훈이 쪽 그림과 줄마다 대조(대조 페이지), 변경 행 없는 구역은 기정값 그대로
     height_rule: >-
       지표면으로부터 건물 최상단까지의 높이[단, 지표면 산정방법은 건축법령을 따르되, 건물 옥상돌출부,
       옥상돌출물 및 필로티는 높이에 포함하며, 옥상에 설치되는 높이 3m 이내의 승강기탑·계단탑 및
       난간벽(투시형 또는 그 벽면적의 2분의1 이상이 공간으로 되고 높이 1.5m 미만인 것에 한정)은 제외]
+    rooftop_allowance_m: 3  # height_rule의 단서: 옥상 승강기탑·계단탑·투시형 난간은 3m 이내면 높이에 넣지 않음
     districts:
       남산 주변:
         total_m2: 2809828
@@ -40,19 +51,19 @@ notices:
           - {number: 19, location: 중구 회현동1가 86-3 일대, limit: 36m이하, max_m: 36, base: ground, area_m2: 23724}
           - {number: 6,  location: "용산구 한남동 810, 4-13 일대", limit: 18m이하, max_m: 18, base: ground, area_m2: 49630, note: "지반고를 6m범위 내에서 건축심의를 받아 낮출 수 있음"}
           # 아래는 기정 행만 있음(변경 없음, 면적 합계로 유효 확인)
-          - {number: 7,  location: 용산구 한남동 810 일대, limit: 30m이하, max_m: 30, base: ground, area_m2: 29224, note: "지반고를 6m범위 내에서 건축심의를 받아 낮출 수 있음"}
-          - {number: 8,  location: 용산구 한남동 810 일대, limit: 36m이하, max_m: 36, base: ground, area_m2: 15074, note: "지반고를 6m범위 내에서 건축심의를 받아 낮출 수 있음"}
-          - {number: 9,  location: 용산구 한남동 829 일대, limit: 18m이하, max_m: 18, base: ground, area_m2: 36020}
-          - {number: 10, location: 용산구 한남동 829 일대, limit: 30m이하, max_m: 30, base: ground, area_m2: 27080}
-          - {number: 11, location: "용산구 이태원동 57-35, 56-13, 124-7, 136-6, 한남동 736-42, 685-2일대", limit: 20m이하, max_m: 20, base: ground, area_m2: 120800}
-          - {number: 12, location: "용산구 이태원동 123-15, 127-7, 141-11 일대", limit: 28m이하, max_m: 28, base: ground, area_m2: 19496}
-          - {number: 13, location: "용산구 이태원동 57-1, 72-16, 132-8, 한남동 737-57 일대", limit: 15m이하, max_m: 15, base: ground, area_m2: 51113}
-          - {number: 14, location: 용산구 이태원동 137-23 일대, limit: 23m이하, max_m: 23, base: ground, area_m2: 1241}
+          - {number: 7,  location: 용산구 한남동 810 일대, limit: 30m이하, max_m: 30, base: ground, kept: true, area_m2: 29224, note: "지반고를 6m범위 내에서 건축심의를 받아 낮출 수 있음"}
+          - {number: 8,  location: 용산구 한남동 810 일대, limit: 36m이하, max_m: 36, base: ground, kept: true, area_m2: 15074, note: "지반고를 6m범위 내에서 건축심의를 받아 낮출 수 있음"}
+          - {number: 9,  location: 용산구 한남동 829 일대, limit: 18m이하, max_m: 18, base: ground, kept: true, area_m2: 36020}
+          - {number: 10, location: 용산구 한남동 829 일대, limit: 30m이하, max_m: 30, base: ground, kept: true, area_m2: 27080}
+          - {number: 11, location: "용산구 이태원동 57-35, 56-13, 124-7, 136-6, 한남동 736-42, 685-2일대", limit: 20m이하, max_m: 20, base: ground, kept: true, area_m2: 120800}
+          - {number: 12, location: "용산구 이태원동 123-15, 127-7, 141-11 일대", limit: 28m이하, max_m: 28, base: ground, kept: true, area_m2: 19496}
+          - {number: 13, location: "용산구 이태원동 57-1, 72-16, 132-8, 한남동 737-57 일대", limit: 15m이하, max_m: 15, base: ground, kept: true, area_m2: 51113}
+          - {number: 14, location: 용산구 이태원동 137-23 일대, limit: 23m이하, max_m: 23, base: ground, kept: true, area_m2: 1241}
       북한산 주변:
         total_m2: 2352498
         zones:
-          - {number: 1, location: "강북구 우이동, 인수동, 수유1동, 삼양동 일대 / 도봉구 도봉1동, 방학2·3동, 쌍문1동 일대", limit: 20m 이하 (완화시 28m이하), max_m: 20, relaxed_m: 28, base: ground, area_m2: 248450, note: "사유서: 제1종일반주거지역"}
-          - {number: 2, location: "강북구 우이동, 인수동, 수유1동, 삼양동 일대 / 도봉구 도봉1동, 방학2·3동, 쌍문1동 일대", limit: 28m 이하, max_m: 28, base: ground, area_m2: 2104048, note: "사유서: 제2종일반주거지역(7층)이상"}
+          - {number: 1, location: "강북구 우이동, 인수동, 수유1동, 삼양동 일대 / 도봉구 도봉1동, 방학2·3동, 쌍문1동 일대", limit: 20m 이하 (완화시 28m이하), max_m: 20, relaxed_m: 28, base: ground, area_m2: 248450, zoning: [제1종일반주거지역]}  # 사유서: 제1종일반주거지역
+          - {number: 2, location: "강북구 우이동, 인수동, 수유1동, 삼양동 일대 / 도봉구 도봉1동, 방학2·3동, 쌍문1동 일대", limit: 28m 이하, max_m: 28, base: ground, area_m2: 2104048, zoning: [제2종일반주거지역, 제3종일반주거지역, 준주거지역]}  # 사유서: 제2종일반주거지역(7층)이상
       구기·평창:
         total_m2: 431559
         zones:
@@ -60,7 +71,7 @@ notices:
       경복궁 주변:
         total_m2: 996121
         zones:
-          - {number: 1, location: "종로구 효자, 창성, 통의, 적선동 일대", limit: "15m이하 (단, 국·공유지는 12m이하로 함)", max_m: 15, base: ground, area_m2: 10080, note: "국·공유지는 12m"}  # 기정 행만 있음
+          - {number: 1, location: "종로구 효자, 창성, 통의, 적선동 일대", limit: "15m이하 (단, 국·공유지는 12m이하로 함)", max_m: 15, public_land_max_m: 12, base: ground, kept: true, area_m2: 10080}  # 기정 행만 있음
           - {number: 2, location: "종로구 중학, 사간, 송현, 안국, 재, 소격, 화, 가회, 팔판, 삼청동 일대", limit: 16m이하, max_m: 16, base: ground, area_m2: 430655}
           - {number: 3, location: "종로구 적선, 통의, 창성, 효자, 궁정동 일대", limit: 18m이하, max_m: 18, base: ground, area_m2: 141667}
           - {number: 4, location: "종로구 청운, 누상, 누하, 필운, 옥인, 궁정, 통인, 신교, 사직동 일대", limit: 20m이하, max_m: 20, base: ground, area_m2: 332972}
