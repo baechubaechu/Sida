@@ -2,14 +2,15 @@
 """
 Solve the ground of a region ahead of time (sida/experts/site/ground_tiles.py), so building a
 site's surroundings reads the heights instead of solving them. Run it after making or changing
-a contours or roads pack; until then the app solves the ground per site as before.
+a contours or roads pack: it solves again only the tiles near the packs that changed (until then
+the app solves the ground there per site as before).
 
     python scripts/build_ground_tiles.py --name seoul
     python scripts/build_ground_tiles.py --name seoul --box 126.76,37.41,127.19,37.72 --workers 8
 
 Without --box it covers the height packs' extent. The tiles go to
 ~/Sida/context_data/<name>.ground.sqlite (outside the repository). An interrupted run carries on
-where it stopped when started again, as long as the packs have not changed since.
+where it stopped when started again.
 """
 
 from __future__ import annotations
@@ -26,22 +27,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sida.experts.site import context3d, ground_tiles, terrain_pack  # noqa: E402
-
-
-def packs_extent(folder: Path) -> tuple[float, float, float, float] | None:
-    """west, south, east, north of the heights in the folder's height packs."""
-    boxes = []
-    for path in ground_tiles.height_packs(folder):
-        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as conn:
-            for table in ("contours_box", "spots_box", "road_points_box"):
-                if conn.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (table,)).fetchone():
-                    row = conn.execute(f"SELECT min(west), min(south), max(east), max(north) FROM {table}").fetchone()  # noqa: S608
-                    if row and row[0] is not None:
-                        boxes.append(row)
-    if not boxes:
-        return None
-    return min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)
-
 
 MAX_WORKERS = 8  # Windows ran out of system resources (WinError 1450) with 23 workers on 3,276 tiles
 IN_FLIGHT = 4  # tiles handed out per worker at a time, not the whole region at once
@@ -65,13 +50,16 @@ def solved(pool, todo, folder: Path, ahead: int):
 
 def build(name: str, folder: Path, box=None, workers: int = 1, log=print) -> Path:
     """Make (or finish) <name>.ground.sqlite in the folder for the box (default: the packs' extent)."""
-    box = box or packs_extent(folder)
+    box = box or ground_tiles.extent(folder)
     if box is None:
         raise SystemExit("no contours or roads pack in " + str(folder))
     path = folder / f"{name}{ground_tiles.SUFFIX}"
-    if path.exists() and ground_tiles.current(path, folder):
-        have = ground_tiles.done(path)
+    if path.exists() and ground_tiles.usable(ground_tiles.info(path)):
         conn = sqlite3.connect(path)
+        dropped = ground_tiles.refresh(conn, folder)
+        if dropped:
+            log(f"{dropped} tiles near changed packs to solve again")
+        have = ground_tiles.done(path)
     else:
         have = set()
         conn = ground_tiles.create(path, folder, name=name, box=",".join(f"{v:g}" for v in box))
