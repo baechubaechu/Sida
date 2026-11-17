@@ -18,6 +18,7 @@ import { aroundAction, layerAction } from './layers.js';
 import { askDelete, createSample, keepProjectList, openProjectInfo } from './projects.js';
 import { render } from './render.js';
 import { checkRelayKey, loadSettings, openSettings } from './settings.js';
+import { loadShare, openShare } from './share.js';
 import { checkUse, chooseRegion, findLot, prepareFind, removeUse, saveSite, searchAddress, searchUses, setOrdinanceOption, togglePick } from './site.js';
 import { app, conductorScrolls, currentRoute, deferred, draftFor, newProjectDialog, drafts, freshFind, freshUseFind, jobRunning, openingTried, route, setCurrentRoute, talkViewById, toast, ui } from './state.js';
 import { askDeleteTalk, askFromLine, changeConductor, dismissTalkMenu, loadTalk, openTalk, sendTalk, setRhinoView } from './talks.js';
@@ -78,6 +79,7 @@ async function navigate() {
       if (!ui.projects) loadProjects().then(() => render(false));
       openTable(name);
       await Promise.all([loadSession(name), loadBoard(name), loadSite(name)]);
+      loadShare(name); // the share's comments, as pins (not waited for)
     }
     if (currentRoute.site && currentRoute.tab === 'find') prepareFind(name);
     if (currentRoute.site && currentRoute.tab === 'ordinance' && !ui.ordinance && ui.site?.available) loadOrdinance(name);
@@ -205,6 +207,7 @@ app.addEventListener('click', (event) => {
   const { action } = button.dataset;
   const { name, agent } = currentRoute;
   if (action === 'settings') openSettings(button.dataset.target, button);
+  if (action === 'share') openShare(name, button);
   if (action === 'export-board') { button.closest('details')?.removeAttribute('open'); downloadBoard(name, button.dataset.format); }
   if (action === 'sample') createSample();
   if (action === 'delete-project') askDelete(button.dataset.project);

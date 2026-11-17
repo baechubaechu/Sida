@@ -93,6 +93,61 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
 4. `compose.yaml`의 `relay`에 `volumes: - ./ledger:/ledger:ro`를 더하고, 이미지를 다시 만들어 켭니다(`docker compose up -d --build relay`).
 5. 확인: `curl -H "Authorization: Bearer sida_…" https://sida-kr.duckdns.org/relay/ledger/manifest.json`.
 
+## 공유 (보기 링크와 댓글)
+
+설계자가 올린 제도판 스냅샷을 링크로 보여 주고 댓글을 받습니다. 무엇이 올라가고 앱에서 어떻게 보이는지는 [`docs/share.md`](../docs/share.md)에 있습니다. 코드는 `shares.py`(저장·한도·댓글)와 `app.py`의 경로입니다. `SIDA_SHARE_DIR`이 없으면 공유는 꺼져 있고(503), `SIDA_VIEWER_DIR`이 없으면 보기 화면만 503입니다.
+
+| 경로 | 하는 일 |
+|---|---|
+| `GET`/`POST /relay/shares` | 내 공유 목록과 사용량 · 새 공유(본문은 스냅샷 zip, 제목과 올린 사람은 zip 안의 `snapshot.json`에서 읽음). 접속 키 필요, 하루 호출 수에 세지 않음 |
+| `GET`/`PUT`/`PATCH`/`DELETE /relay/shares/{id}` | 공유 상태 · 새 판 올리기 · `{comments_open, new_links}` · 끄기(스냅샷과 댓글을 지움). 내 키로 만든 것만 |
+| `GET`/`POST /relay/shares/{id}/comments`, `PATCH`/`DELETE .../comments/{댓글 id}` | 댓글 받기 · 설계자 답글(`parent` 필요) · 해결 · 지우기(답글까지) |
+| `GET /s/{링크}` | 보기 화면(`share.html`). `noindex`, `no-referrer`, CSP를 붙임. 화면이 부르는 파일(`share-view.js` 등 `app.py`의 `VIEWER_FILES`)만 내줌 |
+| `GET /s/{링크}/info`, `/s/{링크}/v/{판}/{파일}` | 공유 정보(판 목록, 댓글 링크인지, 댓글이 열렸는지) · 스냅샷 파일 |
+| `GET /s/{링크}/parcels` | 필지 경계. 저장하지 않고 그때 브이월드(`LP_PA_CBND_BUBUN`)에 서버 키로 물음. 링크마다 1분에 30번 |
+| `GET`/`POST /s/{링크}/comments` | 댓글 보기 · 쓰기(`{name, text, version, target?, at?, parent?}`). 쓰기는 댓글 링크만, 댓글이 열려 있을 때만, 링크·주소마다 1분에 6번 |
+
+한도(넘으면 429와 `{code, message}`)는 `relay.env`에서 바꿉니다. 크기는 MB입니다.
+
+| 변수 | 기본 |
+|---|---|
+| `SIDA_SHARE_SHARE_BYTES` | 한 공유 20 |
+| `SIDA_SHARE_OWNER_BYTES` | 한 키 전체 100 |
+| `SIDA_SHARE_OWNER_SHARES` | 한 키의 동시 공유 10 |
+| `SIDA_SHARE_NEW_SHARES`, `SIDA_SHARE_PERIOD_DAYS` | 14일에 새 공유 10 |
+| `SIDA_SHARE_UPLOADS_PER_DAY` | 하루 업로드(새 판 포함) 20 |
+| `SIDA_SHARE_RETENTION_DAYS` | 마지막 업로드부터 30일 보관 |
+
+zip 안의 `snapshot.json`은 4MB, 사진 한 장은 3MB, 요청 본문은 한 공유 한도보다 1MB 넘게 크면 읽지 않고 413입니다. 댓글은 공유 하나에 500개까지입니다. 기한이 지난 공유는 한 시간마다 지웁니다.
+
+### 처음 설치 (서버)
+
+1. 저장 폴더를 추가 스토리지에 만듭니다: `mkdir -p /opt/sida-kr/data/shares`.
+2. 보기 화면 파일을 서버에 둡니다. 저장소의 `webui/app` 폴더를 `/opt/sida-kr/viewer/`로 복사합니다(예: `git archive origin/main webui/app | ssh 서버 "tar -x -C /tmp && rsync -a --delete /tmp/webui/app/ /opt/sida-kr/viewer/"`). 서버는 `VIEWER_FILES`에 있는 것만 내줍니다.
+3. `compose.yaml`의 `relay`에 더합니다.
+
+   ```yaml
+       environment:
+         SIDA_SHARE_DIR: /shares
+         SIDA_VIEWER_DIR: /viewer
+       volumes:
+         - relay-data:/data
+         - /opt/sida-kr/data/shares:/shares
+         - /opt/sida-kr/viewer:/viewer:ro
+   ```
+
+4. `Caddyfile`의 `handle /relay/*` 옆에 더합니다(`/relay/shares`는 이미 `handle /relay/*`가 넘깁니다).
+
+   ```
+   	handle /s/* {
+   		reverse_proxy relay:8000
+   	}
+   ```
+5. `docker compose up -d --build relay && docker compose restart caddy`
+6. 확인: 앱에서 공유를 켜고 받은 링크를 다른 브라우저로 열어 매스와 필지선이 보이는지, 댓글이 앱에 돌아오는지 봅니다.
+
+백업은 `/opt/sida-kr/data/shares`의 `shares.db`와 `files/`입니다. 보관 기한이 30일이라 꼭 필요하지는 않습니다.
+
 ## 앱에서 이 서버로 안 되는 것
 
 - 법제처 별표 파일 내려받기는 원래 키가 필요 없어 계속 직접 받습니다.
@@ -102,7 +157,7 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
 `/opt/sida-kr`에 이미 `caddy`가 있다는 전제입니다(`compose.yaml`, `Caddyfile`).
 
 1. 서버용 정부 키를 받습니다. 브이월드는 **이 서버 주소**(`https://sida-kr.duckdns.org`)로 키를 받아야 합니다(개발키는 6개월, 운영키는 심사). 공공데이터포털·법제처도 서버용으로 따로 받는 것을 권합니다.
-2. 이 폴더의 `Dockerfile`, `requirements.txt`, `__init__.py`, `app.py`, `tokens.py`, `admin.py`와 `static/` 폴더를 서버의 `/opt/sida-kr/relay/`에 복사합니다(예: `git archive origin/main relay | ssh 서버 "tar -x -C /tmp"`).
+2. 이 폴더의 `Dockerfile`, `requirements.txt`, `__init__.py`, `app.py`, `tokens.py`, `shares.py`, `admin.py`와 `static/` 폴더를 서버의 `/opt/sida-kr/relay/`에 복사합니다(예: `git archive origin/main relay | ssh 서버 "tar -x -C /tmp"`).
 3. `/opt/sida-kr/relay.env`를 만듭니다(권한 600, 저장소에 넣지 않음).
 
    ```

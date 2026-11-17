@@ -24,6 +24,7 @@ import { measureMethods } from './table-measure.js';
 import { peopleMethods } from './table-people.js';
 import { sectionMethods } from './table-section.js';
 import { envelopeMethods } from './table-envelope.js';
+import { commentsMethods } from './table-comments.js';
 
 export class DraftingTable {
   // hooks: { add(paper), update(id, changes), remove(id), place(id, placement), discard(id),
@@ -89,6 +90,7 @@ export class DraftingTable {
     this.envelopeBusy = false;
     this.envelopeRequest = null;
     this.people = []; // 사람 배치: scale figures stood about the site (table-people.js)
+    this.comments = []; // a share's comment pins (table-comments.js)
     this.personPicked = ''; // the person picked (their id)
     this.personKind = 'stand'; // what the 사람 tool stands next
     this.root = document.createElement('div');
@@ -461,6 +463,7 @@ export class DraftingTable {
     this.placeGumball();
     this.placeBlockTags();
     this.placeMeasure();
+    this.placeComments();
   }
 
   openViewScale() {
@@ -821,4 +824,4 @@ export class DraftingTable {
   }
 }
 
-Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods, eyeMethods, measureMethods, peopleMethods, sectionMethods, envelopeMethods);
+Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods, eyeMethods, measureMethods, peopleMethods, sectionMethods, envelopeMethods, commentsMethods);
