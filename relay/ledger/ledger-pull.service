@@ -9,11 +9,12 @@ RequiresMountsFor=/opt/sida-kr/data
 Type=oneshot
 User=ledger
 Group=ledger
-ExecStart=/usr/bin/python3 /opt/sida-kr/ledger-sync/ledger_pull.py --out /opt/sida-kr/data/ledger --work /opt/sida-kr/data/ledger-work --region seoul=11
+ExecStart=/usr/bin/python3 /opt/sida-kr/ledger-sync/ledger_pull.py --out /opt/sida-kr/data/ledger --work /opt/sida-kr/data/ledger-work
 Nice=15
 IOSchedulingClass=idle
 MemoryMax=400M
-TimeoutStartSec=2h
+# Every 시·도 (16 packs) from one reading of the ~3.8GB file, then gzip: room for a slow disk.
+TimeoutStartSec=4h
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
