@@ -12,10 +12,14 @@ once for a whole region in tiles and keeps them in a file next to the terrain pa
 - Heights are whole centimetres, each row stored as the differences along it, compressed.
 - A tiles file says which height packs it was made from (name, size, modification time,
   SHA-256 and the box their heights cover) and with which SOLVER version. When a pack changes,
-  appears or goes, only the tiles whose map data reaches its box (old or new) stop counting: the
-  ground there is solved per site as before until scripts/build_ground_tiles.py solves those
-  tiles again (refresh). A pack copied without change (a new modification time) still counts:
-  its SHA-256 is compared. A new SOLVER makes the whole file stop counting.
+  appears or goes, the tiles whose map data reaches its box (old or new) stop counting: the
+  ground there is solved per site as before until scripts/build_ground_tiles.py runs again
+  (refresh). A pack copied without change (a new modification time) still counts: its SHA-256
+  is compared. A new SOLVER makes the whole file stop counting.
+- Each tile also keeps a digest of the heights it was solved from (context3d.tile_digest, table
+  `inputs`). refresh reads those heights again from the packs now and solves again only the
+  tiles whose digest differs, so a pack made again for the whole region (seoul.terrain from a
+  new 수치지형도) costs only the tiles near what actually changed in it.
 - Raw and processed map data stay out of the repository, like the packs. Heights with their
   coordinates are for this PC only (국토지리정보원 보안관리규정: no online exposure).
 """
@@ -145,12 +149,12 @@ def extent(folder: Path | None = None) -> tuple[float, float, float, float] | No
 
 
 def made_from(folder: Path | None = None) -> dict[str, dict]:
-    """{pack name: {size, mtime (s), sha256, box}} of each height pack: what tiles made now depend on."""
+    """{pack name: {size, mtime_ns, sha256, box}} of each height pack: what tiles made now depend on."""
     out = {}
     for p in height_packs(folder):
         st = p.stat()
         sha, box = _measure(p)
-        out[p.name] = {"size": st.st_size, "mtime": int(st.st_mtime), "sha256": sha, "box": box}
+        out[p.name] = {"size": st.st_size, "mtime_ns": st.st_mtime_ns, "sha256": sha, "box": box}
     return out
 
 
@@ -163,7 +167,7 @@ def _same(record: dict, path: Path) -> bool:
     st = path.stat()
     if st.st_size != record.get("size"):
         return False
-    return int(st.st_mtime) == record.get("mtime") or _measure(path)[0] == record.get("sha256")
+    return st.st_mtime_ns == record.get("mtime_ns") or _measure(path)[0] == record.get("sha256")
 
 
 def recorded(meta: dict, folder: Path | None = None) -> dict[str, dict] | None:
@@ -224,21 +228,35 @@ def current(path: Path, folder: Path | None = None) -> bool:
     return packs is not None and not stale_boxes(packs, folder)
 
 
-def refresh(conn: sqlite3.Connection, folder: Path | None = None) -> int:
+def refresh(conn: sqlite3.Connection, folder: Path | None = None, digests=None, log=lambda _m: None) -> int:
     """
-    Bring a tiles file up to the height packs now in the folder: drop the tiles whose map data
-    reaches a changed, new or removed pack (all of them when the file's packs are not known) and
-    record the packs now. Returns how many tiles were dropped; the build solves them again.
+    Bring a tiles file up to the height packs now in the folder and record them. A tile whose map
+    data reaches a changed, new or removed pack is dropped (to be solved again) unless its heights
+    are the same as when it was solved: `digests(keys)` gives ((ix, iy), tile_digest) of the packs
+    now, compared with the digests kept (table `inputs`). All tiles are dropped when the file's
+    packs are not known. Returns how many tiles were dropped.
     """
     meta = dict(conn.execute("SELECT key, value FROM meta"))
     packs = recorded(meta, folder)
+    conn.execute(_SCHEMA_INPUTS)
     keys = list(conn.execute("SELECT ix, iy FROM tiles"))
     has_empty = conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'empty'").fetchone()
     if has_empty:
         keys += list(conn.execute("SELECT ix, iy FROM empty"))
-    boxes = stale_boxes(packs, folder) if packs is not None else None
-    drop = [(ix, iy) for ix, iy in keys if boxes is None or stale(ix, iy, boxes)]
+    if packs is None:
+        drop = keys
+    else:
+        boxes = stale_boxes(packs, folder)
+        near = [(ix, iy) for ix, iy in keys if boxes and stale(ix, iy, boxes)]
+        kept = inputs(conn)
+        known = [k for k in near if k in kept]
+        same = set()
+        if known and digests is not None:
+            log(f"comparing the heights of {len(known)} tiles near changed packs")
+            same = {key for key, digest in digests(known) if kept.get(key) == digest}
+        drop = [k for k in near if k not in same]
     conn.executemany("DELETE FROM tiles WHERE ix = ? AND iy = ?", drop)
+    conn.executemany("DELETE FROM inputs WHERE ix = ? AND iy = ?", drop)
     if has_empty:
         conn.executemany("DELETE FROM empty WHERE ix = ? AND iy = ?", drop)
     conn.execute("DELETE FROM meta WHERE key = 'made_from'")
@@ -254,11 +272,16 @@ def create(path: Path, folder: Path | None = None, **meta) -> sqlite3.Connection
         path.unlink()
     conn = sqlite3.connect(path)
     conn.executescript(_SCHEMA)
+    conn.execute(_SCHEMA_INPUTS)
     rows = {"format": str(FORMAT), "solver": str(SOLVER), "step": str(STEP),
             "tile": json.dumps([TILE_LON, TILE_LAT]), "packs": json.dumps(made_from(folder)),
             **{k: str(v) for k, v in meta.items()}}
     conn.executemany("INSERT INTO meta (key, value) VALUES (?, ?)", rows.items())
     return conn
+
+
+_SCHEMA_INPUTS = ("CREATE TABLE IF NOT EXISTS inputs "
+                  "(ix INTEGER NOT NULL, iy INTEGER NOT NULL, digest TEXT NOT NULL, PRIMARY KEY (ix, iy))")
 
 
 # ---------------------------------------------------------------------------
@@ -290,6 +313,19 @@ def mark_empty(conn: sqlite3.Connection, ix: int, iy: int) -> None:
     """A tile with no heights to solve from (outside the packs), so a carried-on run skips it."""
     conn.execute("CREATE TABLE IF NOT EXISTS empty (ix INTEGER NOT NULL, iy INTEGER NOT NULL, PRIMARY KEY (ix, iy))")
     conn.execute("INSERT OR IGNORE INTO empty VALUES (?, ?)", (ix, iy))
+
+
+def set_inputs(conn: sqlite3.Connection, ix: int, iy: int, digest: str) -> None:
+    """The digest of the heights a tile was solved from (context3d.tile_digest)."""
+    conn.execute(_SCHEMA_INPUTS)
+    conn.execute("INSERT OR REPLACE INTO inputs VALUES (?, ?, ?)", (ix, iy, digest))
+
+
+def inputs(conn: sqlite3.Connection) -> dict[tuple[int, int], str]:
+    """{(ix, iy): digest} kept in a file (files made before 2026-11-17 have none at first)."""
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'inputs'").fetchone():
+        return {}
+    return {(ix, iy): digest for ix, iy, digest in conn.execute("SELECT ix, iy, digest FROM inputs")}
 
 
 def done(path: Path) -> set[tuple[int, int]]:

@@ -34,6 +34,8 @@ in-memory cache keeps one site from being fetched twice in a row.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import time
 from collections.abc import Callable
@@ -440,6 +442,50 @@ def tile_grid(frame: Frame, half: float, step: float, folder: Path | None = None
     return ground_tiles.heights(frame.lon0 + xx / frame.east, frame.lat0 + yy / frame.north, folder)
 
 
+def _tile_query(ix: int, iy: int, folder: Path | None):
+    """(frame, core half sizes hx and hy in m, solve half in m, terrain_pack.query) of a tile:
+    the map data around it that its ground is solved from."""
+    west, south, east, north = ground_tiles.tile_box(ix, iy)
+    frame = Frame({"lon": (west + east) / 2, "lat": (south + north) / 2})
+    hx, hy = (east - west) / 2 * frame.east, (north - south) / 2 * frame.north
+    step = ground_tiles.STEP
+    half = math.ceil((max(hx, hy) + ground_tiles.TILE_MARGIN) / step) * step  # the middle on a grid point
+    return frame, hx, hy, half, terrain_pack.query(*frame.box(half), folder=folder)
+
+
+def heights_digest(found: dict) -> str:
+    """SHA-256 of the heights in a terrain_pack.query (contours, spot heights, road points), in a
+    fixed order: equal when a tile would be solved from the same heights, whatever pack file they
+    came from."""
+    data = {
+        "contours": sorted(json.dumps([c["elev"], c["points"]]) for c in found["contours"]),
+        "spots": sorted(json.dumps(list(s)) for s in found["spots"]),
+        "roads": sorted(json.dumps(list(r)) for r in found.get("road_points") or []),
+    }
+    return hashlib.sha256(json.dumps(data).encode()).hexdigest()
+
+
+def tile_digest(ix: int, iy: int, *, folder: Path | None = None) -> str:
+    """heights_digest of the map data a tile is solved from (ground_tiles.refresh compares it)."""
+    return heights_digest(_tile_query(ix, iy, folder)[4])
+
+
+def solve_tile(ix: int, iy: int, *, folder: Path | None = None) -> tuple[dict | None, str]:
+    """(make_tile's tile or None, tile_digest), from one read of the map data."""
+    frame, hx, hy, half, found = _tile_query(ix, iy, folder)
+    step = ground_tiles.STEP
+    fixed, _lines, _roads = fixed_heights(frame, found)
+    grid = solve_ground(fixed, half, step)
+    digest = heights_digest(found)
+    if grid is None:
+        return None, digest
+    mid = int(round(half / step))
+    cx, cy = ground_tiles.cells(hx, hy)
+    z = grid[mid - cy:mid + cy + 1, mid - cx:mid + cx + 1]
+    return {"ix": ix, "iy": iy, "lon0": frame.lon0, "lat0": frame.lat0, "east": frame.east, "north": frame.north,
+            "x0": -cx * step, "y0": -cy * step, "step": step, "z": z}, digest
+
+
 def make_tile(ix: int, iy: int, *, folder: Path | None = None) -> dict | None:
     """
     One ground tile (ground_tiles.py): the ground solved over the tile and TILE_MARGIN m around
@@ -447,20 +493,7 @@ def make_tile(ix: int, iy: int, *, folder: Path | None = None) -> dict | None:
     "lat0", "east", "north" (m per degree), "x0", "y0", "step", "z" (rows south to north, m above
     sea level)}. None when no height lies near the tile.
     """
-    west, south, east, north = ground_tiles.tile_box(ix, iy)
-    frame = Frame({"lon": (west + east) / 2, "lat": (south + north) / 2})
-    hx, hy = (east - west) / 2 * frame.east, (north - south) / 2 * frame.north
-    step = ground_tiles.STEP
-    half = math.ceil((max(hx, hy) + ground_tiles.TILE_MARGIN) / step) * step  # the middle on a grid point
-    fixed, _lines, _roads = fixed_heights(frame, terrain_pack.query(*frame.box(half), folder=folder))
-    grid = solve_ground(fixed, half, step)
-    if grid is None:
-        return None
-    mid = int(round(half / step))
-    cx, cy = ground_tiles.cells(hx, hy)
-    z = grid[mid - cy:mid + cy + 1, mid - cx:mid + cx + 1]
-    return {"ix": ix, "iy": iy, "lon0": frame.lon0, "lat0": frame.lat0, "east": frame.east, "north": frame.north,
-            "x0": -cx * step, "y0": -cy * step, "step": step, "z": z}
+    return solve_tile(ix, iy, folder=folder)[0]
 
 
 CLASS_CODES = {"site": "g", "road": "r", "sidewalk": "s", "water": "w"}

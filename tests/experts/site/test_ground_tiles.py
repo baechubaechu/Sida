@@ -7,6 +7,7 @@ import json
 import os
 import sqlite3
 import time
+from contextlib import closing
 from pathlib import Path
 
 import numpy as np
@@ -121,9 +122,9 @@ def test_a_changed_pack_drops_only_the_tiles_near_it(two_packs):
     assert ground_tiles.heights(*lonlat(FAR, 0), folder=folder) is None  # near it: solved per site
     log = []
     load_script().build("t", folder, box_to(FAR + 100), workers=1, log=log.append)
-    dropped = int(log[0].split()[0])
+    dropped = int(next(m for m in log if "heights changed" in m).split()[0])
     assert far in ground_tiles.done(path) and 0 < dropped < len(every) / 2
-    assert log[1].startswith(f"{dropped} tiles to solve")
+    assert any(m.startswith(f"{dropped} tiles to solve") for m in log)
     assert ground_tiles.current(path, folder)
     assert float(ground_tiles.heights(*lonlat(FAR + 20, 0), folder=folder)) == pytest.approx(31.0, abs=0.5)
 
@@ -139,7 +140,7 @@ def test_a_new_pack_drops_only_the_tiles_near_it_and_a_removed_one_too(heights):
     assert context3d.ground(frame, 100, folder=heights)["from_tiles"] is True
     log = []
     load_script().build("t", heights, box_to(FAR + 100), workers=1, log=log.append)
-    assert 0 < int(log[0].split()[0]) < every / 2
+    assert 0 < int(next(m for m in log if "heights changed" in m).split()[0]) < every / 2
     (heights / f"r{terrain_pack.SUFFIX}").unlink()
     assert not ground_tiles.current(path, heights)
     assert context3d.ground(frame, 100, folder=heights)["from_tiles"] is True
@@ -211,7 +212,7 @@ def test_the_pool_is_handed_a_few_tiles_at_a_time_not_the_whole_region(monkeypat
     from concurrent.futures import Future
 
     script = load_script()
-    monkeypatch.setattr(script.context3d, "make_tile", lambda ix, iy, folder: (ix, iy))
+    monkeypatch.setattr(script.context3d, "solve_tile", lambda ix, iy, folder: (ix, iy))
     got, most = [], [0]
 
     class Pool:
@@ -229,3 +230,82 @@ def test_the_pool_is_handed_a_few_tiles_at_a_time_not_the_whole_region(monkeypat
         assert key == tile
         got.append(tile)
     assert sorted(got) == todo and most[0] <= 6
+
+
+def remake_pack(folder: Path, far_elev: float, made: str) -> None:
+    """The contours pack made again from scratch on another day (other bytes), with a spot height FAR m east."""
+    path = folder / f"h{terrain_pack.SUFFIX}"
+    path.unlink()
+    conn = terrain_pack.create(path, {"name": "h", "source": "made up", "made": made})
+    for y, elev in ((-150, 10.0), (-50, 13.0), (50, 17.0), (150, 20.0)):
+        terrain_pack.add_contour(conn, elev, [lonlat(x, y) for x in range(-600, 601, 20)])
+    terrain_pack.add_spot(conn, *lonlat(0, 0), 15.0)
+    terrain_pack.add_spot(conn, *lonlat(FAR, 0), far_elev)
+    conn.commit()
+    conn.close()
+
+
+def test_a_pack_made_again_for_the_whole_region_solves_only_where_its_heights_changed(heights):
+    remake_pack(heights, 30.0, "2026-01-01")
+    path = make(heights, box_to(FAR + 100))
+    every = ground_tiles.done(path)
+    remake_pack(heights, 34.0, "2026-02-01")  # the same pack over the whole box: only the far spot differs
+    frame = context3d.Frame({"lon": LON0, "lat": LAT0})
+    assert context3d.ground(frame, 100, folder=heights)["from_tiles"] is False  # until it runs again
+    log = []
+    load_script().build("t", heights, box_to(FAR + 100), workers=1, log=log.append)
+    assert any(m.startswith(f"comparing the heights of {len(every)} tiles") for m in log)
+    dropped = int(next(m for m in log if "heights changed" in m).split()[0])
+    assert 0 < dropped < len(every) / 2
+    assert ground_tiles.current(path, heights)
+    assert context3d.ground(frame, 100, folder=heights)["from_tiles"] is True
+    assert float(ground_tiles.heights(*lonlat(FAR, 0), folder=heights)) == pytest.approx(34.0, abs=0.5)
+
+
+def test_a_pack_made_again_with_the_same_heights_solves_nothing(heights):
+    remake_pack(heights, 30.0, "2026-01-01")
+    path = make(heights, box_to(FAR + 100))
+    remake_pack(heights, 30.0, "2026-02-01")
+    log = []
+    load_script().build("t", heights, box_to(FAR + 100), workers=1, log=log.append)
+    assert any(m.startswith("comparing the heights") for m in log) and not any("heights changed" in m for m in log)
+    assert any(m.startswith(f"0 tiles to solve ({len(ground_tiles.done(path))} already done)") for m in log)
+
+
+def test_heights_are_recorded_for_a_file_from_before_without_solving(heights):
+    path = make(heights)
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute("DROP TABLE inputs")
+        conn.commit()
+    log = []
+    west, south = lonlat(-150, -150)
+    east, north = lonlat(150, 150)
+    load_script().build("t", heights, (west, south, east, north), workers=1, log=log.append)
+    count = len(ground_tiles.done(path))
+    assert log[0] == f"recording the heights of {count} tiles" and log[1].startswith("0 tiles to solve")
+    with closing(sqlite3.connect(path)) as conn:
+        assert len(ground_tiles.inputs(conn)) == count
+
+
+def test_a_tile_without_recorded_heights_near_a_change_is_solved_again(heights):
+    remake_pack(heights, 30.0, "2026-01-01")
+    path = make(heights, box_to(FAR + 100))
+    every = len(ground_tiles.done(path))
+    with closing(sqlite3.connect(path)) as conn:
+        conn.execute("DELETE FROM inputs")
+        conn.commit()
+    remake_pack(heights, 30.0, "2026-02-01")
+    log = []
+    load_script().build("t", heights, box_to(FAR + 100), workers=1, log=log.append)
+    assert log[0] == f"{every} tiles whose heights changed to solve again"
+
+
+def test_a_file_recorded_with_whole_second_times_still_counts(heights):
+    path = make(heights)
+    with closing(sqlite3.connect(path)) as conn:
+        packs = json.loads(dict(conn.execute("SELECT key, value FROM meta"))["packs"])
+        for record in packs.values():
+            record["mtime"] = record.pop("mtime_ns") // 1_000_000_000  # as files made on 2026-11-17 first had it
+        conn.execute("UPDATE meta SET value = ? WHERE key = 'packs'", (json.dumps(packs),))
+        conn.commit()
+    assert ground_tiles.current(path, heights)  # the SHA-256 is the same
