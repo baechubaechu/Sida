@@ -1,3 +1,7 @@
 fastapi>=0.110,<1
 uvicorn>=0.29,<1
 requests>=2.31,<3
+# The ground and 건축물대장 lookups run the app's own code (sida/, copied in; see Dockerfile).
+numpy>=1.24
+shapely>=2.0,<3
+PyYAML>=6.0,<7

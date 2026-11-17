@@ -9,8 +9,9 @@ size and SHA-256, unpacks it, checks the pack's own month and rows, then puts it
 surroundings read the newest pack from the next build on (ledger_pack.lookup).
 
 Asking needs a Sida access key (sida/relay.py), as the relay's other paths do. The app asks at
-most once a day, in the background, when a site's surroundings are built (check_soon), and when
-the designer asks (POST /api/site/ledger/update). What happened last is kept in
+most once a day, in the background, when a site's surroundings are built (check_soon), but only
+to keep the packs this PC already has current; a PC without packs asks the relay for each site's
+rows instead (site_relay.ledger). The designer can still take every pack (POST /api/site/ledger/update). What happened last is kept in
 <folder>/ledger_sync.json.
 """
 
@@ -151,10 +152,11 @@ def _write_state(folder: Path, state: dict) -> None:
     (folder / STATE).write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
-def update(folder: Path | None = None, *, now=time.time) -> dict:
+def update(folder: Path | None = None, *, now=time.time, new: bool = True) -> dict:
     """
-    Ask the relay for its packs and take each one newer than this PC's. Returns status(). Raises
-    LedgerSyncError; what happened is kept for status() either way.
+    Ask the relay for its packs and take each one newer than this PC's; with `new`, also the ones
+    this PC has none of. Returns status(). Raises LedgerSyncError; what happened is kept for
+    status() either way.
     """
     folder = terrain_pack.TERRAIN_DIR if folder is None else folder
     with _lock:
@@ -170,7 +172,7 @@ def update(folder: Path | None = None, *, now=time.time) -> dict:
                 raise LedgerSyncError("bad_manifest", "json") from None
             have = {p["name"]: p["month"] for p in local_packs(folder)}
             for entry in entries(manifest):
-                if entry["month"] > have.get(entry["name"], ""):
+                if (new or entry["name"] in have) and entry["month"] > have.get(entry["name"], ""):
                     folder.mkdir(parents=True, exist_ok=True)
                     _fetch(base, entry, folder)
                     state["updated"].append(f"{entry['name']} {entry['month']}")
@@ -203,16 +205,21 @@ def check_soon(folder: Path | None = None, *, force: bool = False, now=time.time
     """
     Start update() on a background thread when a day has passed since the last check (or `force`)
     and none is running. True when one was started. Never raises: a failed check waits a day.
+    The daily check only keeps the packs this PC already has current: a PC without them asks the
+    relay for each site's rows instead (site_relay.ledger). `force` (the designer asked) takes
+    every pack the relay lists.
     """
     folder = terrain_pack.TERRAIN_DIR if folder is None else folder
     _load_env()
     if not relay.base_url() or _running.is_set() or not (force or due(folder, now())):
         return False
+    if not force and not local_packs(folder):
+        return False
     _running.set()
 
     def work() -> None:
         try:
-            update(folder, now=now)
+            update(folder, now=now, new=force)
         except Exception:  # kept in the state file; the surroundings carry on with what they have
             pass
         finally:
