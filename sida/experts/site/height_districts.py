@@ -159,22 +159,31 @@ def pick(pieces: list[dict], facts: dict) -> dict:
     What the 고도지구 pieces under the site say: {"status": "matched" | "candidates" | "unknown_notice"
     | "none" (or "error" from the caller when the lookup failed), "notice", "verified", "district",
     "zone", "matched_by" ("area" | "location" | "zoning", "+zoning" when the 용도지역 narrowed it),
-    "kept_as" (the older notice numbers VWorld draws an unchanged zone with), "candidates", "notices_seen"}.
+    "kept_as" (the other numbers VWorld draws the zone with), "drawn_as" ("kept": an unchanged zone under
+    its older number; "alias": a number the table's vworld_also gives the notice), "candidates", "notices_seen"}.
     """
     table = load_table()["notices"]
     seen = sorted({_id(p) for p in pieces})
     out = {"status": "none", "notice": None, "verified": None, "district": "", "zone": None, "matched_by": "",
-           "kept_as": [], "candidates": [], "notices_seen": [f"{y}-{n}" for y, n in seen]}
+           "kept_as": [], "drawn_as": "", "candidates": [], "notices_seen": [f"{y}-{n}" for y, n in seen]}
     if not pieces:
         return out
     site = _site_places(facts)
     zoning = {z["zone"] for z in (facts.get("summary") or {}).get("zoning") or []}
     known = [n for n in table if (n["vworld"]["dyear"], n["vworld"]["dnum"]) in seen]
+    aliased = [(n, a) for n in table for a in n.get("vworld_also") or [] if (a["dyear"], a["dnum"]) in seen]
     if known:
         notice = max(known, key=lambda n: (n["vworld"]["dyear"], n["vworld"]["dnum"]))
         mine = [p for p in pieces if _id(p) == (notice["vworld"]["dyear"], notice["vworld"]["dnum"])]
         zones = _zones(notice)
         found, how = _match(zones, mine, site, zoning)
+    elif aliased:
+        # pieces VWorld draws under another number for some districts of a notice (its vworld_also)
+        notice, alias = aliased[0]
+        mine = [p for p in pieces if _id(p) == (alias["dyear"], alias["dnum"])]
+        zones = [(n, z) for n, z in _zones(notice) if n in alias["districts"]]
+        found, how = _match(zones, mine, site, zoning)
+        out.update(kept_as=[f"{alias['dyear']}-{alias['dnum']}"], drawn_as="alias")
     else:
         # an unchanged zone drawn under its older number: the kept zones of a notice of the pieces' region
         regions = {str(p["properties"].get("sido_name") or "") for p in pieces}
@@ -186,7 +195,7 @@ def pick(pieces: list[dict], facts: dict) -> dict:
             found, how = _match(kept, pieces, site, zoning)
             if found:
                 notice, zones = candidate, kept
-                out["kept_as"] = out["notices_seen"]
+                out.update(kept_as=out["notices_seen"], drawn_as="kept")
                 break
         if notice is None:
             out["status"] = "unknown_notice"
@@ -242,7 +251,9 @@ def line(found: dict, *, entered: float | None, use_relaxed: bool = False,
     how = HOW.get(base_how, "")
     if narrowed:
         how += ", 용도지역으로 구역을 가림"
-    if found.get("kept_as"):
+    if found.get("drawn_as") == "alias":
+        how += f". 브이월드 조각 번호({', '.join(found['kept_as'])})는 이 고시의 {found['district']} 구역으로 봄(높이 표의 vworld_also)"
+    elif found.get("kept_as"):
         how += f". 브이월드 조각은 예전 고시 번호({', '.join(found['kept_as'])})로 그려져 있으나 이 고시에서 바뀌지 않은 구역"
     note = f". {zone['note']}" if zone.get("note") else ""
     quote = f"{where}: {zone['limit']}" + (f" — 높이 산정: {rule}" if rule else "")

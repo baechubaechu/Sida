@@ -245,3 +245,18 @@ def test_the_sites_ownership_comes_from_the_land_register(fake_vworld, monkeypat
     assert gyeongbok["public_land"] is True
     monkeypatch.setattr(landapi, "districts_at", lambda *a, **k: [piece(19004)])
     assert "public_land" not in envelope.district_at(PLAN, facts())
+
+
+def test_pieces_under_a_number_the_table_aliases_are_matched_to_that_notices_named_districts_only():
+    # 2026-11-18 실제 조회: 우이동 100-1 (제2종일반주거지역(7층이하)) lies on a 2023-1986 piece; 토지이음 shows 28m
+    piece_1986 = piece(258762, "2023", "1986", sigg="강북구")
+    found = height_districts.pick([piece_1986], facts("서울특별시 강북구 우이동 100-1", "제2종일반주거지역"))
+    assert (found["status"], found["district"], found["zone"]["number"], found["zone"]["max_m"]) == ("matched", "북한산 주변", 2, 28)
+    assert (found["drawn_as"], found["kept_as"], found["matched_by"]) == ("alias", ["2023-1986"], "zoning")
+    line, height = height_districts.line(found, entered=None)
+    assert height == 28.0 and "브이월드 조각 번호(2023-1986)는 이 고시의 북한산 주변 구역으로 봄" in line["detail"]
+    first = height_districts.pick([piece_1986], facts("서울특별시 강북구 우이동 100-1", "제1종일반주거지역"))
+    assert (first["zone"]["number"], first["zone"]["max_m"]) == (1, 20)
+    # the alias names 북한산 주변 only: a 2023-1986 piece elsewhere is never another district's zone
+    elsewhere = height_districts.pick([piece(19109, "2023", "1986")], facts())
+    assert elsewhere["status"] == "candidates" and not elsewhere["candidates"]
