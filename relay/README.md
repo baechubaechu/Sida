@@ -104,6 +104,7 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
 | `GET`/`POST /relay/shares/{id}/comments`, `PATCH`/`DELETE .../comments/{댓글 id}` | 댓글 받기 · 설계자 답글(`parent` 필요) · 해결 · 지우기(답글까지) |
 | `GET /s/{링크}` | 보기 화면(`share.html`). `noindex`, `no-referrer`, CSP를 붙임. 화면이 부르는 파일(`share-view.js` 등 `app.py`의 `VIEWER_FILES`)만 내줌 |
 | `GET /s/{링크}/info`, `/s/{링크}/v/{판}/{파일}` | 공유 정보(판 목록, 댓글 링크인지, 댓글이 열렸는지) · 스냅샷 파일 |
+| `GET /s/{링크}/around` | 보기 화면의 "주변 건물": 앱의 브이월드 3D 페이지(`static/vworld3d.html`)에 서버의 3D 키를 넣어 내줌. 이 서버의 보기 화면만 틀로 열 수 있고(`frame-ancestors 'self'`), 3D 키가 없으면 503. 링크마다 1분에 30번. 스크립트는 `/s/{링크}/vworld3d-frame.js` |
 | `GET /s/{링크}/parcels` | 필지 경계. 저장하지 않고 그때 브이월드(`LP_PA_CBND_BUBUN`)에 서버 키로 물음. 링크마다 1분에 30번 |
 | `GET`/`POST /s/{링크}/comments` | 댓글 보기 · 쓰기(`{name, text, version, target?, at?, parent?}`). 쓰기는 댓글 링크만, 댓글이 열려 있을 때만, 링크·주소마다 1분에 6번 |
 
@@ -122,7 +123,12 @@ zip 안의 `snapshot.json`은 4MB, 사진 한 장은 3MB, 요청 본문은 한 �
 
 ### 처음 설치 (서버)
 
-1. 저장 폴더를 추가 스토리지에 만듭니다: `mkdir -p /opt/sida-kr/data/shares`.
+1. 저장 폴더를 추가 스토리지에 만들고, 컨테이너가 쓸 수 있게 주인을 `nobody`(65534)로 바꿉니다(안 하면 공유를 올릴 때 쓰기에 실패합니다).
+
+   ```bash
+   mkdir -p /opt/sida-kr/data/shares
+   chown 65534:65534 /opt/sida-kr/data/shares
+   ```
 2. 보기 화면 파일을 서버에 둡니다. 저장소의 `webui/app` 폴더를 `/opt/sida-kr/viewer/`로 복사합니다(예: `git archive origin/main webui/app | ssh 서버 "tar -x -C /tmp && rsync -a --delete /tmp/webui/app/ /opt/sida-kr/viewer/"`). 서버는 `VIEWER_FILES`에 있는 것만 내줍니다.
 3. `compose.yaml`의 `relay`에 더합니다.
 

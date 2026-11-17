@@ -3,7 +3,7 @@
 // the table's comment pins (table-comments.js) and the viewer (share-view.js).
 // tests/webui/share-model.test.mjs checks it.
 
-import { blockCorners } from './board-model.js';
+import { blockCorners, massPolygons } from './board-model.js';
 
 const COUNT_WORDS = [['mass', '매스안', '개'], ['tracing', '트레이싱', '장'], ['note', '메모', '개'], ['photo', '사진', '장']];
 const LEFT_WORDS = {
@@ -170,6 +170,30 @@ export function localRings(shape, origin) {
   const north = EARTH_RADIUS * k;
   const polygons = shape.type === 'MultiPolygon' ? shape.coordinates : shape.type === 'Polygon' ? [shape.coordinates] : [];
   return polygons.filter((p) => p?.[0]?.length).map((p) => p[0].map(([lon, lat]) => [(lon - origin.lon) * east, (lat - origin.lat) * north]));
+}
+
+// The outer rings of a parcel boundary (GeoJSON, lon/lat) as they are: [[lon, lat], …] per ring.
+export function outerRings(shape) {
+  const polygons = shape?.type === 'MultiPolygon' ? shape.coordinates : shape?.type === 'Polygon' ? [shape.coordinates] : [];
+  return polygons.filter((p) => p?.[0]?.length).map((p) => p[0].map(([lon, lat]) => [lon, lat]));
+}
+
+// How the surroundings look in the viewer: VWorld's buildings and ground in one colour, no names
+// (vworld3d-frame.js setLook), as the table's white model.
+export const AROUND_LOOK = Object.freeze({ white: true, plain: true, noNames: true });
+
+// What the VWorld 3D page needs for a scheme (vworld3d-frame.js show/setMasses/findSite): the
+// site's middle, the scheme's blocks as lon/lat prisms, and the parcels' rings (to find and hide
+// the buildings standing on the site now). Null when the snapshot has no place on the map.
+export function aroundScene(snapshot, schemeId, parcels = []) {
+  const plan = snapshot?.site?.plan;
+  if (!plan?.origin) return null;
+  const paper = viewerSchemes(snapshot).find((s) => s.id === schemeId)?.paper || null;
+  return {
+    center: { lon: plan.origin.lon, lat: plan.origin.lat },
+    polygons: massPolygons(paper, plan),
+    rings: (parcels || []).flatMap((p) => outerRings(p?.shape)),
+  };
 }
 
 // The site card's fact lines for the viewer ("용도지역: 일반상업지역" → label and text); the rules

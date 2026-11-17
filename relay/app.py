@@ -91,6 +91,7 @@ VIEWER_FILES = {
 }
 COMMENTS_PER_MINUTE = 6  # new comments per link and sending address per minute
 PARCELS_PER_MINUTE = 30  # parcel boundaries asked of VWorld per link per minute (a page asks once)
+AROUND_PER_MINUTE = 30  # VWorld 3D pages opened per link per minute (the surroundings in the viewer)
 UPLOAD_SLACK = 1024 * 1024  # a request body may be this much over a share's limit before it is read
 # The viewer's page: its own files and the share's data only, never another site's.
 VIEWER_CSP = (
@@ -235,6 +236,7 @@ def create_app(
     requests_per_hour = MinuteLimit(REQUESTS_PER_HOUR, clock, window=3600)
     comments_per_minute = MinuteLimit(COMMENTS_PER_MINUTE, clock)
     parcels_per_minute = MinuteLimit(PARCELS_PER_MINUTE, clock)
+    around_per_minute = MinuteLimit(AROUND_PER_MINUTE, clock)
 
     def address(request: Request) -> str:
         # Behind Caddy the sender is the first X-Forwarded-For address.
@@ -556,7 +558,8 @@ def create_app(
     @app.get("/s/{link}/info")
     def viewer_info(link: str, request: Request) -> Response:
         share, can_comment = opened(link, request)
-        return public({**share_store().describe(share, owner=False), "can_comment": can_comment})
+        return public({**share_store().describe(share, owner=False), "can_comment": can_comment,
+                       "around": bool(keys.vworld3d)})
 
     @app.get("/s/{link}/v/{version}/{name:path}")
     def viewer_data(link: str, version: int, name: str, request: Request) -> Response:
@@ -598,6 +601,28 @@ def create_app(
                     found.append({"pnu": pnu, "shape": feature["geometry"]})
                     break
         return public({"parcels": found})
+
+    @app.get("/s/{link}/around")
+    def viewer_around(link: str, request: Request) -> Response:
+        """
+        VWorld's 3D map around the site for the viewer (the app's 3D page with the server's 3D key,
+        shown as a one-colour model by the viewer). Only the viewer page on this server may frame
+        it; nothing of VWorld's passes through or is kept here.
+        """
+        opened(link, request)
+        if not keys.vworld3d:
+            raise HTTPException(status_code=503, detail="3D map is not set up on the relay")
+        if not around_per_minute.take(link):
+            raise HTTPException(status_code=429, detail="too many requests")
+        return Response(content=webgl3d_page(keys.vworld3d), media_type="text/html; charset=utf-8", headers={
+            "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow",
+            "Referrer-Policy": "origin",  # VWorld checks the key against this server's address only
+            "Content-Security-Policy": "frame-ancestors 'self'",
+        })
+
+    @app.get("/s/{link}/vworld3d-frame.js")
+    def viewer_around_script(link: str) -> Response:
+        return vworld3d_script()
 
     @app.get("/s/{link}/comments")
     def viewer_comments(link: str, request: Request) -> Response:

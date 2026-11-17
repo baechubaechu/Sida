@@ -285,3 +285,22 @@ def test_the_viewer_gets_the_parcel_boundaries_from_vworld_now_and_nothing_is_ke
     assert got == {"parcels": [{"pnu": "1114010300100450000", "shape": {"type": "Polygon", "coordinates": [[[1, 2]]]}}]}
     assert len(asked) == 1 and asked[0]["key"] == "vw-server-key" and asked[0]["attrFilter"] == "pnu:=:1114010300100450000"
     assert not any("vw-server-key" in p.read_bytes().decode("latin-1") for p in shares.root.rglob("*") if p.is_file())
+
+
+def test_the_viewer_frames_vworld_3d_around_the_site_with_the_servers_3d_key(tokens, shares, key):
+    client = TestClient(relay.create_app(relay.Keys(vworld3d="vw-3d-key"), tokens, shares=shares, viewer_dir=VIEWER))
+    link = upload(client, key).json()["view_link"]
+    assert client.get(f"/s/{link}/info").json()["around"] is True
+    page = client.get(f"/s/{link}/around")
+    assert page.status_code == 200 and "apiKey=vw-3d-key" in page.text
+    assert page.headers["content-security-policy"] == "frame-ancestors 'self'"  # only the viewer frames it
+    assert page.headers["referrer-policy"] == "origin" and "noindex" in page.headers["x-robots-tag"]
+    script = client.get(f"/s/{link}/vworld3d-frame.js")
+    assert script.status_code == 200 and script.content == (relay.STATIC / "vworld3d-frame.js").read_bytes()
+    assert client.get("/s/AAAAAAAAAAAAAAAAAAAAAAAA/around").status_code == 404
+
+
+def test_no_surroundings_without_the_3d_key(client, key):
+    link = upload(client, key).json()["view_link"]
+    assert client.get(f"/s/{link}/info").json()["around"] is False
+    assert client.get(f"/s/{link}/around").status_code == 503
