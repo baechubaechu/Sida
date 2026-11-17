@@ -1,0 +1,23 @@
+{
+ "possessions": {
+  "field": [
+   {
+    "pnu": "1114010300100310000",
+    "ldCode": "1114010300",
+    "ldCodeNm": "서울특별시 중구 태평로1가",
+    "mnnmSlno": "31",
+    "posesnSeCode": "04",
+    "posesnSeCodeNm": "시 도유지",
+    "nationInsttSeCode": "02",
+    "nationInsttSeCodeNm": "지자체",
+    "stdrYm": "2024-12",
+    "lastUpdtDt": "2025-08-26"
+   }
+  ],
+  "pageNo": "1",
+  "resultCode": "",
+  "totalCount": "1",
+  "numOfRows": "100",
+  "resultMsg": ""
+ }
+}

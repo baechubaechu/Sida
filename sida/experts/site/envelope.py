@@ -509,12 +509,14 @@ def _line(id_: str, status: str, title: str, value: str, detail: str = "", quote
 
 def compute(plan: dict, facts: dict, rule: dict, parcels: list[dict] | None, zones_of, *, floor_height: float,
             neighbours_error: str = "", height_cap: float | None = None, use: str | None = None,
-            use_area: float | None = None, district: dict | None = None) -> dict:
+            use_area: float | None = None, district: dict | None = None, use_relaxed: bool = False) -> dict:
     """The envelope view of a site (the API's reply) from its plan, facts and the parcels around.
     `height_cap`: the height the designer entered from a 고도지구's notice (m), cutting the envelope;
     `use`, `use_area`: the building's use (envelope_rules uses) and its floor area (㎡), for 대지 안의
     공지 and 채광 (setbacks.py); `district`: what height_districts.pick found for the site's 고도지구
-    (its height cuts the envelope when the notice's table is verified and nothing was entered)."""
+    (its height cuts the envelope when the notice's table is verified and nothing was entered; its
+    "public_land" is the site's 국·공유지 for a zone with its own height there); `use_relaxed`: the
+    designer looks at the zone's relaxed height (완화, needs the committee's review)."""
     rules_data = site_rules.load_rules()
     across = dict(rules_data["across_marks"])
     maybe = dict(rules_data["maybe_across_marks"])
@@ -527,17 +529,20 @@ def compute(plan: dict, facts: dict, rule: dict, parcels: list[dict] | None, zon
            "full_floor_area_m2": None, "schemes": [], "lines": [],
            "height_districts": site_rules.height_districts(facts), "height_limit_m": height_cap,
            "uses": setbacks.uses(), "use": use, "use_area_m2": use_area, "building_line_area_m2": None, "roads": [],
-           "district_height_m": None, "height_district": None}
+           "district_height_m": None, "height_district": None, "use_relaxed": use_relaxed, "rooftop_allowance_m": None}
     lines = out["lines"]
     found = district or {"status": "none"}
-    height_line, from_notice = (height_districts.line(found, entered=height_cap)
+    height_line, from_notice = (height_districts.line(found, entered=height_cap, use_relaxed=use_relaxed,
+                                                      public_land=found.get("public_land"))
                                 if height_cap or found["status"] != "none" else (None, None))
     if found["status"] != "none":
         zone = found.get("zone") or {}
         out["height_district"] = {"status": found["status"], "notice": found.get("notice"), "district": found.get("district"),
-                                  "number": zone.get("number"), "limit": zone.get("limit"), "verified": found.get("verified")}
+                                  "number": zone.get("number"), "limit": zone.get("limit"), "verified": found.get("verified"),
+                                  "relaxed_m": zone.get("relaxed_m"), "kept_as": found.get("kept_as") or []}
     if not height_cap and from_notice:
         out["district_height_m"] = from_notice
+        out["rooftop_allowance_m"] = height_districts.rooftop_allowance(found.get("notice"))
     height_cap = height_cap or from_notice
     if rule["applies"] is None:
         lines.append(_line("sunlight", "check", "법규 볼륨", "계산 안 함", rule["detail"]))
@@ -677,12 +682,13 @@ def envelope_for(project_dir, *, floor_height: float | None = None, http_get=Non
         district = district_at(plan, facts, http_get=http_get)
     return compute(plan, facts, rule, parcels, lambda pnu: zone_of(pnu, http_get=http_get), floor_height=fh,
                    neighbours_error=error, height_cap=settings["height_limit_m"], use=settings["use"],
-                   use_area=settings["use_area_m2"], district=district)
+                   use_area=settings["use_area_m2"], district=district, use_relaxed=settings["use_relaxed"])
 
 
 def district_at(plan: dict, facts: dict, *, http_get=None) -> dict:
     """What the 고도지구 pieces under the site's middle say (height_districts.pick). A failed lookup
-    is a "check" with no figure."""
+    is a "check" with no figure. For a zone with a height of its own on 국·공유지, "public_land" is
+    whether the site's parcels are (public_land_of)."""
     lot = unary_union([Polygon(r) for p in plan["parcels"] for r in p["rings"] if len(r) >= 3]).buffer(0)
     point = lot.representative_point()
     _to_local, east, north = _lonlat_to_local(plan["origin"])
@@ -691,7 +697,25 @@ def district_at(plan: dict, facts: dict, *, http_get=None) -> dict:
         pieces = landapi.districts_at(height_districts.LAYER, lon, lat, http_get=http_get)
     except (landapi.LandApiError, ValueError):
         return {"status": "error", "notice": None}
-    return height_districts.pick(pieces, facts)
+    found = height_districts.pick(pieces, facts)
+    if (found.get("zone") or {}).get("public_land_max_m"):
+        found["public_land"] = public_land_of(facts, http_get=http_get)
+    return found
+
+
+def public_land_of(facts: dict, *, http_get=None) -> bool | None:
+    """True when every parcel of the site is 국·공유지, False when none is (landapi.land_owner), None
+    when that is not known for one of them or the parcels differ."""
+    seen = set()
+    for parcel in facts.get("parcels") or []:
+        try:
+            owner = landapi.land_owner(parcel["pnu"], http_get=http_get)
+        except (landapi.LandApiError, ValueError, KeyError):
+            return None
+        if owner is None:
+            return None
+        seen.add(owner["public"])
+    return seen.pop() if len(seen) == 1 else None
 
 
 # ---------------------------------------------------------------------------
@@ -703,8 +727,9 @@ HEIGHT_LIMIT_RANGE = (1.0, 500.0)  # m: a 고도지구's notice height
 
 
 def load_settings(project_dir) -> dict:
-    """{"height_limit_m", "use", "use_area_m2"}: what the designer entered (None for what was not; an
-    unreadable or out-of-range value is left out)."""
+    """{"height_limit_m", "use", "use_area_m2", "use_relaxed"}: what the designer entered (None for
+    what was not, False for the relaxed-height switch; an unreadable or out-of-range value is left
+    out)."""
     try:
         data = json.loads((Path(project_dir) / SETTINGS_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -713,7 +738,8 @@ def load_settings(project_dir) -> dict:
         data = {}
     out = {"height_limit_m": _number(data.get("height_limit_m"), HEIGHT_LIMIT_RANGE),
            "use": data.get("use") if data.get("use") in setbacks.load_rules()["uses"] else None,
-           "use_area_m2": _number(data.get("use_area_m2"), setbacks.USE_AREA_RANGE)}
+           "use_area_m2": _number(data.get("use_area_m2"), setbacks.USE_AREA_RANGE),
+           "use_relaxed": data.get("use_relaxed") is True}
     return out
 
 
@@ -725,8 +751,9 @@ def _number(value, bounds: tuple[float, float]) -> float | None:
 
 def save_settings(project_dir, changes: dict) -> dict:
     """Set what the designer entered: `height_limit_m` (m within HEIGHT_LIMIT_RANGE), `use` (a key of
-    envelope_rules uses), `use_area_m2` (㎡ within setbacks.USE_AREA_RANGE); None clears one.
-    ValueError (naming the key) for a value out of range. Returns the settings as saved."""
+    envelope_rules uses), `use_area_m2` (㎡ within setbacks.USE_AREA_RANGE); None clears one;
+    `use_relaxed` (bool: look at a 고도지구's relaxed height). ValueError (naming the key) for a value
+    out of range. Returns the settings as saved."""
     settings = load_settings(project_dir)
     for key, bounds in (("height_limit_m", HEIGHT_LIMIT_RANGE), ("use_area_m2", setbacks.USE_AREA_RANGE)):
         if key in changes:
@@ -741,5 +768,9 @@ def save_settings(project_dir, changes: dict) -> dict:
         if changes["use"] is not None and changes["use"] not in setbacks.load_rules()["uses"]:
             raise ValueError("use")
         settings["use"] = changes["use"]
+    if "use_relaxed" in changes:
+        if not isinstance(changes["use_relaxed"], bool) and changes["use_relaxed"] is not None:
+            raise ValueError("use_relaxed")
+        settings["use_relaxed"] = bool(changes["use_relaxed"])
     atomic_write_text(Path(project_dir) / SETTINGS_FILE, json.dumps(settings, ensure_ascii=False, indent=1) + "\n")
     return settings

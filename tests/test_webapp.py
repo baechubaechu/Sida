@@ -661,7 +661,7 @@ def test_site_envelope_api_gives_the_legal_volume_and_reference_schemes(client, 
 
     # a height entered for a 고도지구 is kept and gives the open commercial-like top a ceiling
     settings = f"{url}/settings"
-    none = {"height_limit_m": None, "use": None, "use_area_m2": None}
+    none = {"height_limit_m": None, "use": None, "use_area_m2": None, "use_relaxed": False}
     assert client.get(settings).json() == none
     assert client.put(settings, json={"height_limit_m": 0.5}).status_code == 400
     assert client.put(settings, json={"height_limit_m": 21}).json() == {**none, "height_limit_m": 21.0}
@@ -677,6 +677,9 @@ def test_site_envelope_api_gives_the_legal_volume_and_reference_schemes(client, 
     body = client.get(url).json()
     lines = {x["id"]: x for x in body["lines"]}
     assert body["use"] == "factory" and lines["open_space"]["value"] != "용도 선택 필요"
+    assert client.put(settings, json={"use_relaxed": True}).json()["use_relaxed"] is True
+    assert client.get(url).json()["use_relaxed"] is True
+    assert client.put(settings, json={"use_relaxed": False}).json()["use_relaxed"] is False
     assert client.put("/api/projects/nope/site/envelope/settings", json={}).status_code == 404
 
     facts = site_facts.load_facts(project.path)

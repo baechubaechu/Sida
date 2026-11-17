@@ -249,7 +249,7 @@ def test_a_height_entered_for_a_height_district_cuts_the_envelope_and_its_scheme
 
 
 def test_the_entered_height_is_kept_per_project_and_checked(tmp_path):
-    none = {"height_limit_m": None, "use": None, "use_area_m2": None}
+    none = {"height_limit_m": None, "use": None, "use_area_m2": None, "use_relaxed": False}
     assert envelope.load_settings(tmp_path) == none
     assert envelope.save_settings(tmp_path, {"height_limit_m": 45.567}) == {**none, "height_limit_m": 45.57}
     assert envelope.load_settings(tmp_path)["height_limit_m"] == 45.57
@@ -264,6 +264,12 @@ def test_the_entered_height_is_kept_per_project_and_checked(tmp_path):
     with pytest.raises(ValueError, match="use_area_m2"):
         envelope.save_settings(tmp_path, {"use_area_m2": -5})
     assert envelope.save_settings(tmp_path, {"use": None})["use"] is None
+    # looking at a 고도지구's relaxed height (완화, 위원회 심의)
+    assert envelope.save_settings(tmp_path, {"use_relaxed": True})["use_relaxed"] is True
+    assert envelope.load_settings(tmp_path)["use_relaxed"] is True
+    with pytest.raises(ValueError, match="use_relaxed"):
+        envelope.save_settings(tmp_path, {"use_relaxed": "yes"})
+    assert envelope.save_settings(tmp_path, {"use_relaxed": False})["use_relaxed"] is False
     (tmp_path / envelope.SETTINGS_FILE).write_text("{oops", encoding="utf-8")
     assert envelope.load_settings(tmp_path) == none
     (tmp_path / envelope.SETTINGS_FILE).write_text('{"use": "castle", "use_area_m2": true}', encoding="utf-8")

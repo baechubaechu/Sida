@@ -1,0 +1,23 @@
+{
+ "possessions": {
+  "field": [
+   {
+    "pnu": "1111011900100010000",
+    "ldCode": "1111011900",
+    "ldCodeNm": "서울특별시 종로구 세종로",
+    "mnnmSlno": "1",
+    "posesnSeCode": "02",
+    "posesnSeCodeNm": "국유지",
+    "nationInsttSeCode": "01",
+    "nationInsttSeCodeNm": "중앙부처",
+    "stdrYm": "2024-12",
+    "lastUpdtDt": "2025-08-26"
+   }
+  ],
+  "pageNo": "1",
+  "resultCode": "",
+  "totalCount": "1",
+  "numOfRows": "100",
+  "resultMsg": ""
+ }
+}

@@ -1,0 +1,23 @@
+{
+ "possessions": {
+  "field": [
+   {
+    "pnu": "1111010800101000000",
+    "ldCode": "1111010800",
+    "ldCodeNm": "서울특별시 종로구 통인동",
+    "mnnmSlno": "100",
+    "posesnSeCode": "06",
+    "posesnSeCodeNm": "법인",
+    "nationInsttSeCode": "ZZ",
+    "nationInsttSeCodeNm": "구분없음",
+    "stdrYm": "2024-12",
+    "lastUpdtDt": "2025-08-26"
+   }
+  ],
+  "pageNo": "1",
+  "resultCode": "",
+  "totalCount": "1",
+  "numOfRows": "100",
+  "resultMsg": ""
+ }
+}
