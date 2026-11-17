@@ -1591,6 +1591,7 @@ def view(project_path: Path, *, hooks=None) -> dict:
         site = {
             "area_m2": area,
             "lines": summary.get("lines") or [],
+            "rules": summary.get("rules") or [],  # the card's "이 대지에 걸리는 것" (site_rules)
             "plan": site_plan(summary.get("parcels") or []),
         }
     return {**board, "site": site, "figures": figures, "saved_view": load_view(project_path)}

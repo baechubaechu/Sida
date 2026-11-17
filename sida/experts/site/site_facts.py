@@ -263,6 +263,46 @@ def _matched_districts(article_text: str, title: str, districts: list[str]) -> l
     return matched
 
 
+def _name_key(name: str) -> str:
+    return re.sub(r"[\s·ㆍ]", "", name)
+
+
+def site_figure(facts: dict, zone: str, kind: str) -> dict | None:
+    """
+    One ratio of one zone as the ordinance gives it (ordinance.zone_values), and, when the
+    ordinance's own proviso names a 지구·구역 the site lies in by its exact name ("800퍼센트(단,
+    서울도심: 600퍼센트)" on a site in 서울도심), that figure as "applied": {"value", "where",
+    "base"}. The applied value is None when two such provisos give different figures, the figure
+    is a decimal, or it falls outside the statutory range. None when the ordinance has no figure.
+    """
+    from sida.experts.regulation import ordinance
+
+    figure = (((facts.get("ordinance") or {}).get("values") or {}).get(zone) or {}).get(kind)
+    if not figure or not figure.get("conditional") or figure.get("value") is None:
+        return figure  # no proviso, or a base figure not read by rule: nothing to apply
+    districts = {_name_key(d): d for d in _site_districts(facts)}
+    found = [p for p in ordinance.provisos(figure.get("quote", "")) if _name_key(p["where"]) in districts]
+    if not found:
+        return figure
+    values = {p["value"] for p in found}
+    value = values.pop() if len(values) == 1 else None
+    limit = load_limits()["zones"].get(zone) or {}
+    if value is not None and limit:
+        ok = 0 < value <= limit["bcr_max"] if kind == "bcr" else limit["far_min"] <= value <= limit["far_max"]
+        value = value if ok else None
+    where = ", ".join(dict.fromkeys(districts[_name_key(p["where"])] for p in found))
+    return {**figure, "applied": {"value": value, "where": where, "base": figure.get("value")}}
+
+
+def ruling_value(figure: dict | None) -> int | None:
+    """The figure that holds for the site: the applied proviso's when one names its district."""
+    if not figure:
+        return None
+    if "applied" in figure:
+        return figure["applied"]["value"]
+    return figure.get("value")
+
+
 def ordinance_options(facts: dict | None) -> dict:
     """
     Everything the ordinance says about 건폐율 / 용적률 for this site, arranged for a designer:
@@ -415,22 +455,25 @@ def candidates_for_pnus(pnus: list[str], *, http_get=None) -> list[dict]:
 def limits(facts: dict | None) -> list[dict]:
     """
     The coverage and FAR limits of the site's zones, as the facts have them: the statutory ones
-    and, where the ordinance article was read by rule, the ordinance's value (else None). []
-    without a site. Nothing is computed here.
+    and, where the ordinance article was read by rule, the ordinance's value (else None): the
+    figure of its proviso when that names a 지구·구역 the site lies in (site_figure). [] without a
+    site. Nothing is estimated here.
     """
     if not facts:
         return []
-    values = (facts.get("ordinance") or {}).get("values") or {}
     out = []
     for zone in (facts.get("summary") or {}).get("zoning") or []:
-        read = values.get(zone["zone"]) or {}
+        bcr, far = site_figure(facts, zone["zone"], "bcr"), site_figure(facts, zone["zone"], "far")
         out.append({
             "zone": zone["zone"],
             "bcr_max": zone.get("bcr_max"),
             "far_min": zone.get("far_min"),
             "far_max": zone.get("far_max"),
-            "ordinance_bcr": (read.get("bcr") or {}).get("value"),
-            "ordinance_far": (read.get("far") or {}).get("value"),
+            "ordinance_bcr": ruling_value(bcr),
+            "ordinance_far": ruling_value(far),
+            # the 지구·구역 whose proviso gave the ordinance figure ('' for the zone's base figure)
+            "ordinance_bcr_where": ((bcr or {}).get("applied") or {}).get("where", ""),
+            "ordinance_far_where": ((far or {}).get("applied") or {}).get("where", ""),
         })
     return out
 
@@ -440,7 +483,7 @@ def site_view(facts: dict | None) -> dict:
     if not facts:
         return {
             "available": False, "query": "", "fetched_at": "", "parcels": [], "summary": None,
-            "restrictions": [], "uses": [], "lines": [], "limits": [],
+            "restrictions": [], "uses": [], "lines": [], "limits": [], "rules": [],
         }
     parcels = []
     for p in facts["parcels"]:
@@ -470,7 +513,15 @@ def site_view(facts: dict | None) -> dict:
         "uses": facts.get("uses") or [],
         "lines": describe(facts).replace("\n- ", "\n").removeprefix("- ").split("\n"),
         "limits": limits(facts),
+        "rules": _rules(facts),
     }
+
+
+def _rules(facts: dict) -> list[dict]:
+    """The site card's "이 대지에 걸리는 것" lines (site_rules.card)."""
+    from sida.experts.site import site_rules  # it reads the facts through this module
+
+    return site_rules.card(facts)
 
 
 def parcel_zoning(parcel: dict, zone_names) -> list[str]:
@@ -898,6 +949,14 @@ def _figure_text(word: str, figure: dict | None) -> str:
         return f"{word} — 읽은 값이 법정 범위를 벗어나 표시하지 않음, 원문 확인: {cited}"
     if figure["value"] is None:
         return f"{word} — 수치를 규칙으로 읽지 못함(여러 수치, 소수 등), 원문 확인: {cited}"
+    applied = figure.get("applied")
+    if applied and applied["value"] is not None:
+        return (
+            f"{word} {applied['value']:,}% 이하 — 대지가 {applied['where']} 안이라 단서의 수치를 적용"
+            f"(기본 {figure['value']:,}%): {cited}"
+        )
+    if applied:
+        return f"{word} — 대지의 {applied['where']}에 대한 단서를 한 가지 수치로 읽지 못함, 원문 확인: {cited}"
     note = " (단서·예외가 붙어 있음 — 원문 확인)" if figure["conditional"] else ""
     return f"{word} {figure['value']:,}% 이하{note}: {cited}"
 
@@ -912,7 +971,8 @@ def _ordinance_value_lines(facts: dict) -> list[str]:
             lines.append(f"조례값({zone}): 건폐율·용적률을 한 조문(또는 별표)에서 정함 — 수치를 읽지 못함, 원문 확인")
             continue
         lines.append(
-            f"조례값({zone}): " + "; ".join(_figure_text(word, values.get(kind)) for kind, word in (("bcr", "건폐율"), ("far", "용적률")))
+            f"조례값({zone}): "
+            + "; ".join(_figure_text(word, site_figure(facts, zone, kind)) for kind, word in (("bcr", "건폐율"), ("far", "용적률")))
         )
     return lines
 
@@ -1044,7 +1104,8 @@ def ordinance_block_for_agent(config: dict, agent: dict, project_path: Path) -> 
 
 def board_summary(facts: dict) -> dict:
     """For the drafting table: the site area (None when not every parcel's area is known),
-    the site and zoning lines as experts get them, and each parcel's boundary for drawing."""
+    the site and zoning lines as experts get them, each parcel's boundary for drawing and the
+    card's "이 대지에 걸리는 것" lines (site_rules)."""
     s = facts["summary"]
     area = s["total_area_m2"] if s["area_complete"] else None
     lines = [line for line in regulatory_lines(facts) if line.startswith(("대지:", "용도지역:"))]
@@ -1057,7 +1118,7 @@ def board_summary(facts: dict) -> dict:
         }
         for p in facts["parcels"]
     ]
-    return {"area_m2": area, "lines": lines, "parcels": parcels}
+    return {"area_m2": area, "lines": lines, "parcels": parcels, "rules": _rules(facts)}
 
 
 def describe(facts: dict) -> str:

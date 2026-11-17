@@ -425,3 +425,16 @@ def test_a_date_left_in_the_line_is_not_a_decimal_figure():
     assert figure["value"] == 20 and figure["quote"] == "자연환경보전지역 : 20퍼센트 이하"
     dated = ordinance.zone_figure("① 같다.1. 준주거지역 : 60퍼센트 이하 2013.01.01. 시행", "준주거지역")
     assert dated["value"] == 60
+
+
+def test_provisos_give_each_figure_after_the_base_with_the_words_before_it():
+    assert ordinance.provisos("일반상업지역: 800퍼센트(단, 서울도심: 600퍼센트)") == [{"where": "서울도심", "value": 600}]
+    assert ordinance.provisos("중심상업지역 : 1천퍼센트 이하(단, 서울도심 : 800퍼센트 이하, 역사문화미관지구 : 600퍼센트)") == [
+        {"where": "서울도심", "value": 800}, {"where": "역사문화미관지구", "value": 600}]
+    assert ordinance.provisos("상업지역: 80퍼센트. 다만, 창원신도시구역은 60퍼센트") == [{"where": "창원신도시구역", "value": 60}]
+    assert ordinance.provisos("제2종일반주거지역 : 220퍼센트 이하(단, 대지면적 1천제곱미터 초과 시 200퍼센트 이하)") == [
+        {"where": "대지면적 1천제곱미터 초과 시", "value": 200}]
+    assert ordinance.provisos("준주거지역: 400퍼센트") == []
+    # a decimal gives no figure, whichever way it is written
+    assert ordinance.provisos("일반: 300퍼센트(단, 도심: 62.5퍼센트)") == [{"where": "도심", "value": None}]
+    assert ordinance.provisos("일반: 300퍼센트(단, 도심: 100분의 62.5)") == [{"where": "도심", "value": None}]

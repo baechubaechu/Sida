@@ -528,7 +528,7 @@ def test_site_api_searches_looks_up_merged_parcels_and_reads_back(client, projec
     url = f"/api/projects/{project.name}/site"
     assert client.get(url).json() == {
         "available": False, "query": "", "fetched_at": "", "parcels": [], "summary": None,
-        "restrictions": [], "uses": [], "lines": [], "limits": [],
+        "restrictions": [], "uses": [], "lines": [], "limits": [], "rules": [],
     }
 
     found = client.post(f"{url}/parcels", json={"query": "  경기도 군포시 금정동 689 "}).json()
@@ -547,6 +547,8 @@ def test_site_api_searches_looks_up_merged_parcels_and_reads_back(client, projec
     assert body["summary"]["parcel_count"] == 2 and body["summary"]["municipality"] == "경기도 군포시"
     assert body["summary"]["zoning"][0]["zone"] == "일반공업지역" and body["parcels"][0]["area_m2"]
     assert any(line.startswith("조례값(일반공업지역): 건폐율 70% 이하") for line in body["lines"])
+    rules = {x["id"]: x for x in body["rules"]}  # 이 대지에 걸리는 것 (site_rules)
+    assert (rules["far"]["value"], rules["bcr"]["value"], rules["sunlight"]["value"]) == ("350%", "70%", "해당 없음")
     assert client.get(url).json() == body  # saved
     assert client.get(f"{url}/ordinance").json()["name"] == "군포시 도시계획 조례"  # ordinance came with it
 

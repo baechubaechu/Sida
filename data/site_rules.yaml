@@ -1,0 +1,30 @@
+# What the site card ("이 대지에 걸리는 것", sida/experts/site/site_rules.py) applies by name.
+# Each rule quotes its statute. When a statute changes, compare the text with the 원문 and update
+# `verified` (the date it was compared). Nothing here is a figure for a particular site.
+
+# 정북 방향 일조 (건축법 제61조제1항, 시행령 제86조제1항): which 용도지역 it applies in.
+north_sunlight:
+  law: 건축법 시행령 제86조제1항
+  zones:
+    - 제1종전용주거지역
+    - 제2종전용주거지역
+    - 제1종일반주거지역
+    - 제2종일반주거지역
+    - 제3종일반주거지역
+  summary: 정북 쪽 인접 대지경계선에서 높이 10m 이하 부분은 1.5m 이상, 10m 넘는 부분은 그 높이의 1/2 이상 띄움(이 범위에서 건축 조례가 정함)
+  text: >-
+    전용주거지역과 일반주거지역 안에서 건축물을 건축하는 경우에는 법 제61조제1항에 따라 건축물의
+    각 부분을 정북(正北) 방향으로의 인접 대지경계선으로부터 다음 각 호의 범위에서 건축조례로 정하는
+    거리 이상을 띄어 건축하여야 한다. 1. 높이 10미터 이하인 부분: 인접 대지경계선으로부터
+    1.5미터 이상 2. 높이 10미터를 초과하는 부분: 인접 대지경계선으로부터 해당 건축물 각 부분
+    높이의 2분의 1 이상
+  verified: null  # 원문 대조 전: law.go.kr에서 대조하고 날짜를 적을 것
+
+# 지역·지구 names (토지이용계획) that bring a height limit of their own. A district whose name
+# contains one of these words is listed on the "높이" line, as named by the government.
+height_words: [고도, 대공방어, 비행안전, 비행장, 경관지구, 가로구역, 역사문화환경]
+
+# Names of areas whose own plan may set the height, ratios or building lines instead of the
+# base figures. Listed on the "따로 정한 계획" line to be checked; a name already on the
+# height line is not repeated.
+plan_words: [지구단위계획, 정비구역, 재정비촉진, 특별계획, 경관관리, 개발제한, 도시개발구역, 택지개발]

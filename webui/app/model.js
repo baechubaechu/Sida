@@ -760,6 +760,27 @@ export function ordinanceFigure(figure) {
   return { text: `${figure.value}%`, note: figure.conditional ? '단서·예외 있음, 원문 확인' : '', quote, label };
 }
 
+// The site card's "이 대지에 걸리는 것" lines (GET .../site and the board's site `rules`,
+// sida/experts/site/site_rules.py), each with the words for how sure it is and its badge's tone.
+export const RULE_STATUS = {
+  read: { label: '규칙으로 읽음', tone: 'done' },
+  conditional: { label: '조건 있음', tone: 'review' },
+  none: { label: '해당 없음', tone: 'idle' },
+  check: { label: '확인 필요', tone: 'review' },
+};
+
+export function siteRuleRows(rules) {
+  return (rules || []).map((r) => {
+    const status = RULE_STATUS[r.status] || RULE_STATUS.check;
+    return {
+      id: r.id, title: r.title || '', value: r.value || UNKNOWN, detail: r.detail || '',
+      quote: r.quote || '', source: r.source || '', badge: status.label, tone: status.tone,
+      // the detail's first sentence when it is short ("연면적 최대 21,737㎡"), for a small card
+      brief: (r.detail || '').split('. ')[0].length <= 20 ? (r.detail || '').split('. ')[0] : '',
+    };
+  });
+}
+
 // Whether a related article is about this site, as far as the saved facts tell: only the "site"
 // group knows (the site's 지구·구역 named in the article); design and admin give null.
 export function ordinanceApplies(item) {

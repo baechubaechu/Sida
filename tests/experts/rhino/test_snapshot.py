@@ -188,6 +188,7 @@ def test_the_limits_come_from_the_site_facts_as_they_stand(tmp_path, monkeypatch
     monkeypatch.setattr(site_facts, "load_facts", lambda path: copy.deepcopy(facts))
     assert snapshot.limits(tmp_path) == [{
         "zone": "제2종일반주거지역", "bcr_max": 60, "far_min": 100, "far_max": 250, "ordinance_bcr": 60, "ordinance_far": None,
+        "ordinance_bcr_where": "", "ordinance_far_where": "",
     }]
 
 

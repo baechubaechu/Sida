@@ -313,6 +313,41 @@ def zone_figure(article_text: str, zone: str) -> dict | None:
     return None
 
 
+# Where a proviso starts in a zone's item ("800퍼센트(단, 서울도심: 600퍼센트)", "…다만, 창원신도시구역은
+# 60퍼센트"), and what may stand between a place's name and its figure.
+_PROVISO_START = re.compile(r"다만|단,|\(")
+_PROVISO_CUT = re.compile(r"다만\s*,?|단\s*,|[(),;]")
+_PLACE_TAIL = re.compile(r"\s*(?:[:：]|안에서는|에서는|의\s*경우(?:에는)?|은|는)\s*$")
+
+
+def provisos(quote: str) -> list[dict]:
+    """
+    The figures a zone's item states after its base figure, each with the words just before it:
+    "일반상업지역: 800퍼센트(단, 서울도심: 600퍼센트)" → [{"where": "서울도심", "value": 600}].
+    `where` is only words; whether they name a place the site lies in is for the caller to decide
+    by exact name (a condition such as "대지면적 1천제곱미터 초과 시" never matches one). A decimal
+    figure gives value None.
+    """
+    text = _TAG.sub("", quote or "")
+    start = _PROVISO_START.search(text)
+    if not start:
+        return []
+    rest = text[start.start() :]
+    out = []
+    for match in _NUMBER.finditer(rest):
+        before = rest[: match.start()]
+        whole = re.search(r"[\d,]+\.$", before)  # "62.5퍼센트": the number found is only "5"
+        if whole:
+            before = before[: whole.start()]
+        cuts = list(_PROVISO_CUT.finditer(before))
+        where = before[cuts[-1].end() :] if cuts else before
+        where = _PLACE_TAIL.sub("", " ".join(where.split())).strip()
+        after = rest[match.end() : match.end() + 2]  # "100분의 62.5": the number found is only "62"
+        decimal = whole or (len(after) == 2 and after[0] == "." and after[1].isdigit())
+        out.append({"where": where, "value": None if decimal else _number(match)})
+    return out
+
+
 _PLAIN_NUMBER = re.compile(r"^((?:\d+천)?[\d,]*\d|\d+천)(\.\d+)?\s*(?:퍼센트|%)?\s*(?:이하)?$")
 
 

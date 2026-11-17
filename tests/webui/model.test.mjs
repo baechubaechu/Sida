@@ -5,7 +5,7 @@ import {
   renderMarkdown, chatTitle, latestChat, chatLabel, keyChanges, relayKeyView, settingsChanges, settingsDirty, untitledName, parseRoute, expertPath, dateTime,
   documentSections, listItems, itemTag, handoffs, questionAnswer, arrangeDocument, EXPERT_LAYOUTS, SECTION_LABELS,
   stateChangeView, phaseLabel, sitePath, sitePageFor, needsSiteFirst, areaText, zoneScope, siteHeadline, missingText, restrictionGroups,
-  ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions,
+  ordinanceFigure, ordinanceApplies, ordinanceSends, useResult, useError, useDefinitions, siteRuleRows,
   buildingLine, chosenDong, lotQuery, lookupBody, briefSite,
   togglePicked, shapesToFetch, shapesBounds, distanceLabel, siteCard, siteSlot, parcelOutline, readiness, MAX_SHAPES, EXPORT_FORMATS, boardExport,
 } from '../../webui/app/model.js';
@@ -829,4 +829,19 @@ test('the deck is shown with where its order came from, which rhino work fills i
   assert.equal(downloadName('attachment', '발표자료.pdf'), '발표자료.pdf');
   assert.equal(downloadName("attachment; filename*=UTF-8''%E0%A4%A", '발표자료.zip'), '발표자료.zip'); // a broken name: the fallback
   assert.equal(downloadName(null, 'a'), 'a');
+});
+
+test('siteRuleRows: each line of 이 대지에 걸리는 것 says how sure it is', () => {
+  const rows = siteRuleRows([
+    { id: 'far', status: 'read', title: '용적률', value: '600%', detail: '연면적 최대 21,737㎡. 일반상업지역 기본 800%, 대지가 서울도심 안이라 단서의 600%', quote: '일반상업지역: 800퍼센트(단, 서울도심: 600퍼센트)', source: '제48조' },
+    { id: 'sunlight', status: 'none', title: '정북일조', value: '해당 없음' },
+    { id: 'plan', status: 'check', title: '따로 정한 계획', value: '정비구역' },
+    { id: 'x', status: 'odd', title: '?' },
+  ]);
+  assert.deepEqual(rows.map((r) => [r.badge, r.tone]), [['규칙으로 읽음', 'done'], ['해당 없음', 'idle'], ['확인 필요', 'review'], ['확인 필요', 'review']]);
+  assert.equal(rows[0].source, '제48조');
+  assert.equal(rows[0].brief, '연면적 최대 21,737㎡'); // the short first sentence, for the drafting table's card
+  assert.equal(rows[1].brief, '');
+  assert.equal(rows[3].value, '미확인');
+  assert.deepEqual(siteRuleRows(undefined), []);
 });
