@@ -100,7 +100,8 @@ GROUND_WAIT = 20  # s an answer waits for its turn before "busy"
 KOREA = {"lon": (124.0, 132.0), "lat": (33.0, 39.0)}
 
 # Shares (공유, relay/shares.py): the viewer page and the files it loads, from the app's own screen
-# files (webui/app, mounted on the server at SIDA_VIEWER_DIR). Only these are served.
+# files (webui/app; scripts/relay_bundle.py copies these into the image at SIDA_VIEWER_DIR). Only these
+# are served.
 VIEWER_PAGE = "share.html"
 VIEWER_FILES = {
     "share.html", "share-view.js", "share-model.js", "share.css", "board-model.js", "model.js", "icons.js",
