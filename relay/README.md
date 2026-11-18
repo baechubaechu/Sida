@@ -134,18 +134,18 @@ zip 안의 `snapshot.json`은 4MB, 사진 한 장은 3MB, 요청 본문은 한 �
    mkdir -p /opt/sida-kr/data/shares
    chown 65534:65534 /opt/sida-kr/data/shares
    ```
-2. 보기 화면 파일을 서버에 둡니다. 저장소의 `webui/app` 폴더를 `/opt/sida-kr/viewer/`로 복사합니다(예: `git archive origin/main webui/app | ssh 서버 "tar -x -C /tmp && rsync -a --delete /tmp/webui/app/ /opt/sida-kr/viewer/"`). 서버는 `VIEWER_FILES`에 있는 것만 내줍니다.
+2. 보기 화면 파일은 따로 둘 것이 없습니다. `scripts/relay_bundle.py`가 `webui/app`에서 `VIEWER_FILES`에 있는 것만 골라 이미지에 넣고(`/srv/viewer`, `SIDA_VIEWER_DIR`), 서버는 그것만 내줍니다. 보기 화면이 바뀌면 relay를 다시 빌드하면 됩니다(아래 "설치" 2번).
 3. `compose.yaml`의 `relay`에 더합니다.
 
    ```yaml
        environment:
          SIDA_SHARE_DIR: /shares
-         SIDA_VIEWER_DIR: /viewer
        volumes:
          - relay-data:/data
          - /opt/sida-kr/data/shares:/shares
-         - /opt/sida-kr/viewer:/viewer:ro
    ```
+
+   예전처럼 `SIDA_VIEWER_DIR: /viewer`와 `/opt/sida-kr/viewer:/viewer:ro`가 있으면 지웁니다. 남아 있으면 이미지 안의 화면 대신 손으로 복사한 옛 화면을 내줍니다.
 
 4. `Caddyfile`의 `handle /relay/*` 옆에 더합니다(`/relay/shares`는 이미 `handle /relay/*`가 넘깁니다).
 
@@ -165,7 +165,7 @@ zip 안의 `snapshot.json`은 4MB, 사진 한 장은 3MB, 요청 본문은 한 �
 
 1. 지형 묶음(`*.terrain.sqlite`)과 지형 칸(`*.ground.sqlite`)을 `/opt/sida-kr/data/terrain/`에 둡니다(지훈 PC `~/Sida/context_data`에서 복사, 국외 서버에는 두지 않음).
 2. `compose.yaml`의 `relay`에 `- ./data/terrain:/terrain:ro`를 더하고, `mem_limit`을 `512m`으로 올립니다(넓은 범위는 메모리를 씁니다).
-3. 이미지를 다시 만듭니다. 이미지에는 앱의 `sida/` 코드가 들어갑니다(아래 설치 2번).
+3. 이미지를 다시 만듭니다. 이미지에는 앱의 `sida/` 코드가 들어갑니다(아래 "설치" 2번).
 
 ## 앱에서 이 서버로 안 되는 것
 
@@ -176,7 +176,16 @@ zip 안의 `snapshot.json`은 4MB, 사진 한 장은 3MB, 요청 본문은 한 �
 `/opt/sida-kr`에 이미 `caddy`가 있다는 전제입니다(`compose.yaml`, `Caddyfile`).
 
 1. 서버용 정부 키를 받습니다. 브이월드는 **이 서버 주소**(`https://sida-kr.duckdns.org`)로 키를 받아야 합니다(개발키는 6개월, 운영키는 심사). 공공데이터포털·법제처도 서버용으로 따로 받는 것을 권합니다.
-2. 이 폴더의 `Dockerfile`, `requirements.txt`, `__init__.py`, `app.py`, `tokens.py`, `shares.py`, `admin.py`와 `static/` 폴더를 서버의 `/opt/sida-kr/relay/`에, 저장소의 `sida/` 폴더를 `/opt/sida-kr/relay/sida/`에 복사합니다(지형·대장 찾기가 앱 코드를 그대로 씀). 예: `git archive origin/main relay sida | ssh 서버 "rm -rf /tmp/r && mkdir /tmp/r && tar -x -C /tmp/r"` 뒤 서버에서 `rsync -a /tmp/r/relay/ /opt/sida-kr/relay/ && rsync -a --delete /tmp/r/sida/ /opt/sida-kr/relay/sida/`.
+2. 이미지에 들어갈 것을 한 파일로 묶어 서버의 `/opt/sida-kr/relay/`에 풉니다. 묶음은 이 폴더(`Dockerfile`, `*.py`, `static/` 등)에 저장소의 `sida/` 폴더(`relay/sida/`, 지형·대장 찾기가 앱 코드를 그대로 씀)와 보기 화면 파일(`relay/viewer/`, `webui/app`에서 `VIEWER_FILES`만)을 더한 것입니다. 커밋에서 만들므로(기본 `origin/main`) 커밋하지 않은 파일은 올라가지 않습니다. 보기 화면에 없는 파일이 있으면 묶지 않고 멈춥니다.
+
+   ```bash
+   git fetch origin && python scripts/relay_bundle.py          # relay-bundle.tar.gz
+   scp relay-bundle.tar.gz 서버:/tmp/
+   ssh 서버 "rm -rf /tmp/r && mkdir /tmp/r && tar -xzf /tmp/relay-bundle.tar.gz -C /tmp/r \
+     && rm -rf /opt/sida-kr/relay/sida /opt/sida-kr/relay/viewer && rsync -a /tmp/r/relay/ /opt/sida-kr/relay/"
+   ```
+
+   코드나 보기 화면을 고친 뒤 반영할 때도 이것과 6번만 하면 됩니다.
 3. `/opt/sida-kr/relay.env`를 만듭니다(권한 600, 저장소에 넣지 않음).
 
    ```

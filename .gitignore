@@ -30,5 +30,7 @@ rhino-plugin/**/bin/
 rhino-plugin/**/obj/
 rhino-plugin/dist/
 
-# The app code copied next to the relay for its Docker image when deploying (relay/README.md)
+# The app code and the share viewer copied next to the relay for its Docker image (scripts/relay_bundle.py)
 /relay/sida/
+/relay/viewer/
+/relay-bundle.tar.gz

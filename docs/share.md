@@ -55,4 +55,4 @@
 
 ## 서버
 
-경로, 한도, 설치는 [`relay/README.md`](../relay/README.md)의 "공유"에 있습니다. 서버 코드는 `relay/shares.py`(저장·한도·댓글)와 `relay/app.py`(경로)이고, 테스트는 `tests/relay/test_shares.py`, 앱 쪽은 `tests/test_share.py`(실제 중계 서버를 메모리에 띄워 끝까지 확인)입니다.
+경로, 한도, 설치는 [`relay/README.md`](../relay/README.md)의 "공유"에 있습니다. 보기 화면 파일은 relay 이미지에 같이 들어가므로(`scripts/relay_bundle.py`), 화면을 고치면 relay를 다시 빌드하면 됩니다. 서버 코드는 `relay/shares.py`(저장·한도·댓글)와 `relay/app.py`(경로)이고, 테스트는 `tests/relay/test_shares.py`, 앱 쪽은 `tests/test_share.py`(실제 중계 서버를 메모리에 띄워 끝까지 확인)입니다.
