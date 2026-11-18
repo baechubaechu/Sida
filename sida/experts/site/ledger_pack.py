@@ -110,38 +110,63 @@ def build(source: Path, out: Path, prefixes: tuple[str, ...], *, month: str = ""
     A pack at `out` (replaced) holding the 표제부 of the 시군구 whose codes start with one of
     `prefixes` (e.g. "11" for Seoul) from the bulk file `source`. Returns the rows kept.
     """
-    out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = out.with_name(out.name + ".part")
-    if tmp.exists():
-        tmp.unlink()
-    kept = 0
-    with closing(sqlite3.connect(tmp)) as conn:
-        conn.executescript(_SCHEMA)
-        batch = []
-        cols = ["pnu", *TEXTS, *NUMBERS]
-        insert = f"INSERT INTO rows ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})"
+    return build_many(source, {out: prefixes}, month=month, log=log)[out]
+
+
+def build_many(source: Path, outs: dict[Path, tuple[str, ...]], *, month: str = "", log=print) -> dict[Path, int]:
+    """
+    Several packs from one reading of the bulk file (~806만 lines): {out: 시군구 code prefixes}, each
+    pack replaced. Returns {out: rows kept}. A line goes to the first pack whose prefixes it starts with.
+    """
+    cols = ["pnu", *TEXTS, *NUMBERS]
+    insert = f"INSERT INTO rows ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})"
+    batch_size = max(5_000, 50_000 // max(1, len(outs)))  # rows held per pack before writing
+    kept = dict.fromkeys(outs, 0)
+    batches: dict[Path, list] = {out: [] for out in outs}
+    conns: dict[Path, sqlite3.Connection] = {}
+    by_code: dict[str, Path | None] = {}  # 시군구 code → its pack (or none), worked out once per code
+    try:
+        for out in outs:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            tmp = out.with_name(out.name + ".part")
+            tmp.unlink(missing_ok=True)
+            conns[out] = sqlite3.connect(tmp)
+            conns[out].executescript(_SCHEMA)
+        n = 0
         for n, values in enumerate(lines(source), 1):
-            if not values[COLUMNS["sigungu"]].startswith(prefixes):
+            code = values[COLUMNS["sigungu"]]
+            if code not in by_code:
+                by_code[code] = next((o for o, prefixes in outs.items() if code.startswith(tuple(prefixes))), None)
+            out = by_code[code]
+            if out is None:
                 continue
             pnu = pnu_of(values)
             if pnu is None:
                 continue
             row = row_of(values)
+            batch = batches[out]
             batch.append([pnu, *(row[k] for k in TEXTS), *(row[k] for k in NUMBERS)])
-            if len(batch) >= 50_000:
-                conn.executemany(insert, batch)
-                kept += len(batch)
-                batch = []
-                log(f"  {kept} rows kept, {n} lines read")
-        conn.executemany(insert, batch)
-        kept += len(batch)
-        conn.execute("CREATE INDEX rows_pnu ON rows (pnu)")
-        meta = {"format": str(FORMAT), "source": "국토교통부 건축물대장 표제부 (건축HUB 대용량 데이터 제공)",
-                "month": month or month_of(source.name), "file": source.name, "prefixes": ",".join(prefixes),
-                "rows": str(kept)}
-        conn.executemany("INSERT INTO meta (key, value) VALUES (?, ?)", meta.items())
-        conn.commit()
-    tmp.replace(out)
+            if len(batch) >= batch_size:
+                conns[out].executemany(insert, batch)
+                kept[out] += len(batch)
+                batch.clear()
+            if n % 500_000 == 0:
+                log(f"  {sum(kept.values())} rows kept, {n} lines read")
+        for out, conn in conns.items():
+            conn.executemany(insert, batches[out])
+            kept[out] += len(batches[out])
+            conn.execute("CREATE INDEX rows_pnu ON rows (pnu)")
+            meta = {"format": str(FORMAT), "source": "국토교통부 건축물대장 표제부 (건축HUB 대용량 데이터 제공)",
+                    "month": month or month_of(source.name), "file": source.name,
+                    "prefixes": ",".join(outs[out]), "rows": str(kept[out])}
+            conn.executemany("INSERT INTO meta (key, value) VALUES (?, ?)", meta.items())
+            conn.commit()
+            conn.close()
+            out.with_name(out.name + ".part").replace(out)
+    finally:
+        for out, conn in conns.items():
+            conn.close()
+            out.with_name(out.name + ".part").unlink(missing_ok=True)
     return kept
 
 

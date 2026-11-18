@@ -4,6 +4,7 @@ Make map packs (sida/experts/site/terrain_pack.py) from map downloads (VWorld �
 CC BY). Only what lies in the box is kept. Each kind of source goes in its own pack:
 
   --contours DIR   국토지리정보원 연속수치지형도 등고선 N3L_F0010000*.shp, 표고점 N3P_F0020000*.shp
+                   (unzipped, any depth)
   --areas DIR      1:5,000 수치지형도 v2.0 SHP sheets (unzipped, any depth), or the same layers of a
                    연속수치지형도 download (N3A_E0032111_11.shp …, a whole 시도): 도로경계 N3A_A0010000,
                    보도 N3A_A0033320, 하천경계 N3A_E0010001, 실폭하천 N3A_E0032111, 호소 N3A_E0052114,
@@ -136,7 +137,7 @@ def build(args, staging: Path, cleanup: ExitStack) -> int:
         started = time.perf_counter()
         path, conn = pack("contours", args.source_date)
         lines = points = 0
-        for shp in sorted(args.contours.glob("N3L_F0010000*.shp")):
+        for shp in layer_files(args.contours, "N3L_F0010000"):
             tr, own = projected(shp)
             reader = shapefile.Reader(str(shp)[:-4], encoding="cp949")
             cont = [f[0] for f in reader.fields[1:]].index("CONT")
@@ -149,7 +150,7 @@ def build(args, staging: Path, cleanup: ExitStack) -> int:
                     terrain_pack.add_contour(conn, elev, [list(p) for p in zip(lons, lats, strict=True)])
                     lines += 1
             print(f"{shp.name}: {lines} contour lines so far")
-        for shp in sorted(args.contours.glob("N3P_F0020000*.shp")):
+        for shp in layer_files(args.contours, "N3P_F0020000"):
             tr, own = projected(shp)
             reader = shapefile.Reader(str(shp)[:-4], encoding="cp949")
             nume = [f[0] for f in reader.fields[1:]].index("NUME")

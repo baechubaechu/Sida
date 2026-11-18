@@ -193,6 +193,21 @@ def test_an_interrupted_run_carries_on(heights):
     assert log[0].startswith(f"0 tiles to solve ({len(first)} already done)")
 
 
+def test_a_wider_region_skips_the_tiles_another_file_already_has(heights):
+    first = make(heights)  # t.ground.sqlite: a 광역시
+    had = ground_tiles.done(first)
+    west, south = lonlat(-150, -150)
+    east, north = lonlat(150, 150)
+    wide = (west, south, east + 0.01, north)  # a 도 around it: one more column of tiles
+    log = []
+    path = load_script().build("wide", heights, wide, workers=1, log=log.append, skip_others=True)
+    assert f"{len(had)} in other files" in log[0]
+    assert ground_tiles.done(path) == set(ground_tiles.tiles_in_box(*wide)) - had
+    # without the flag the same tiles are solved again in the new file
+    path = load_script().build("again", heights, wide, workers=1, log=lambda _m: None)
+    assert ground_tiles.done(path) == set(ground_tiles.tiles_in_box(*wide))
+
+
 def test_a_tile_without_heights_near_it_is_not_made_and_not_solved_again(heights):
     far = ground_tiles.tile_of(129.0, 35.0)
     assert context3d.make_tile(int(far[0]), int(far[1]), folder=heights) is None

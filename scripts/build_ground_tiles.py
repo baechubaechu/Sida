@@ -7,8 +7,10 @@ app solves the ground near the changed packs per site as before).
 
     python scripts/build_ground_tiles.py --name seoul
     python scripts/build_ground_tiles.py --name seoul --box 126.76,37.41,127.19,37.72 --workers 8
+    python scripts/build_ground_tiles.py --name gyeonggi --box 126.3,36.9,127.9,38.3 --skip-others
 
-Without --box it covers the height packs' extent. The tiles go to
+Without --box it covers the height packs' extent. --skip-others leaves out the tiles another
+tiles file in the folder already has and still counts (a 도 whose box takes in a 광역시). The tiles go to
 ~/Sida/context_data/<name>.ground.sqlite (outside the repository). An interrupted run carries on
 where it stopped when started again.
 """
@@ -50,9 +52,18 @@ def solved(pool, todo, folder: Path, ahead: int, fn=None):
             yield running.pop(future), future.result()
 
 
-def build(name: str, folder: Path, box=None, workers: int = 1, log=print) -> Path:
+def solved_elsewhere(path: Path, folder: Path) -> set[tuple[int, int]]:
+    """The tiles of the folder's other tiles files that are made from the packs as they are now."""
+    out: set[tuple[int, int]] = set()
+    for other in ground_tiles.files(folder):
+        if other != path and ground_tiles.current(other, folder):
+            out |= ground_tiles.done(other)
+    return out
+
+
+def build(name: str, folder: Path, box=None, workers: int = 1, log=print, skip_others: bool = False) -> Path:
     """Make (or finish, or bring up to the packs now) <name>.ground.sqlite in the folder for the
-    box (default: the packs' extent)."""
+    box (default: the packs' extent). skip_others: not the tiles another file already has."""
     box = box or ground_tiles.extent(folder)
     if box is None:
         raise SystemExit("no contours or roads pack in " + str(folder))
@@ -84,8 +95,10 @@ def build(name: str, folder: Path, box=None, workers: int = 1, log=print) -> Pat
             have = set()
             conn = stack.enter_context(closing(
                 ground_tiles.create(path, folder, name=name, box=",".join(f"{v:g}" for v in box))))
-        todo = [(ix, iy) for ix, iy in ground_tiles.tiles_in_box(*box) if (ix, iy) not in have]
-        log(f"{len(todo)} tiles to solve ({len(have)} already done) in {path}")
+        elsewhere = solved_elsewhere(path, folder) - have if skip_others else set()
+        todo = [(ix, iy) for ix, iy in ground_tiles.tiles_in_box(*box) if (ix, iy) not in have | elsewhere]
+        others = f", {len(elsewhere)} in other files" if skip_others else ""
+        log(f"{len(todo)} tiles to solve ({len(have)} already done{others}) in {path}")
         for k, (key, (tile, digest)) in enumerate(each(todo, context3d.solve_tile), 1):
             if tile is not None:
                 ground_tiles.add(conn, tile)
@@ -107,9 +120,10 @@ def main() -> int:
     ap.add_argument("--box", help="west,south,east,north in degrees (default: the height packs' extent)")
     ap.add_argument("--workers", type=int, default=max(1, min(MAX_WORKERS, (os.cpu_count() or 2) - 1)))
     ap.add_argument("--folder", type=Path, default=terrain_pack.TERRAIN_DIR)
+    ap.add_argument("--skip-others", action="store_true", help="leave out tiles another tiles file has")
     args = ap.parse_args()
     box = tuple(float(v) for v in args.box.split(",")) if args.box else None
-    build(args.name, args.folder, box, args.workers)
+    build(args.name, args.folder, box, args.workers, skip_others=args.skip_others)
     return 0
 
 

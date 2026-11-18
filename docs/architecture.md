@@ -13,7 +13,7 @@
 | `knowledge/` | 법령 검색 `local_files` 방식이 읽는 마크다운 |
 | `docs/` | 설계·API 문서 |
 | `tests/` | 테스트(녹화한 정부 API 응답은 `tests/fixtures/`) |
-| `scripts/` | 테스트용 정부 API 응답 녹화, 관련 테스트 고르기, vendor 파일 다시 만들기 |
+| `scripts/` | 테스트용 정부 API 응답 녹화, 관련 테스트 고르기, vendor 파일 다시 만들기, 지도·대장 묶음 만들기(시·도 한 번에 묶기와 점검: `build_region_packs.py`, `check_region_packs.py`) |
 | `collector/` | 사용 기록 수집 서버(앱 패키지와 별개, [`telemetry.md`](telemetry.md)) |
 | `relay/` | 정부 API 중계 서버(키 없는 PC용, 앱 패키지와 별개) |
 | `assets/` | 로고 |
