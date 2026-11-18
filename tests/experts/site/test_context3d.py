@@ -66,6 +66,12 @@ def test_pack_query_returns_only_what_touches_the_box(pack):
     assert terrain_pack.query(west, south, east, north, folder=pack / "none") == {
         "contours": [], "spots": [], "areas": [], "buildings": [], "map_buildings": [], "road_points": [],
         "road_lines": [], "road_marks": [], "sources": []}
+    without = terrain_pack.query(west, south, east, north, folder=pack, heights=False)
+    assert without["contours"] == without["spots"] == [] and len(without["areas"]) == 2
+    assert without["sources"] == found["sources"]  # its heights are in the box: still a source
+    far_west, far_south = lonlat(4000, -200)
+    far_east, far_north = lonlat(4100, -100)
+    assert terrain_pack.query(far_west, far_south, far_east, far_north, folder=pack, heights=False)["sources"] == []
     with pytest.raises(ValueError):
         terrain_pack.add_area(None, "lake", [])
 

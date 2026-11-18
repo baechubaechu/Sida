@@ -4,10 +4,12 @@ A PC with terrain packs (terrain_pack.py) and ledger packs (ledger_pack.py) read
 before. Without them, the surroundings ask the relay for just what one site needs
 (relay/app.py), with this person's Sida access key (sida/relay.py):
 
-- POST /relay/terrain/ground {lon, lat, radius}: the ground within ±radius m of the site's middle
-  as context3d.shared_ground makes it on the server: metres from the site's middle and heights
-  relative to the ground there, never lon/lat or heights above sea level (국토지리정보원
-  보안관리규정 [별표 1]: no coordinates together with 1:5,000 contours or spot heights online).
+- POST /relay/terrain/ground {lon, lat, radius}: the ground tiles and map features within ±radius m
+  of the site's middle as context3d.shared_ground makes them on the server: metres from the site's
+  middle and heights relative to the ground there, never lon/lat or heights above sea level
+  (국토지리정보원 보안관리규정 [별표 1]: no coordinates together with 1:5,000 contours or spot
+  heights online). The server only cuts and shifts them; this PC joins the tiles and draws the
+  contours (context3d.from_shared), so the server's work stays small.
   The app always asks for ASK_RADIUS m and cuts smaller ranges from it, so a change of range does
   not ask again. The answer is kept in <terrain folder>/cache (CACHE_BYTES at most, the least
   recently used goes first), so a site drawn once is drawn again without the internet.
@@ -32,7 +34,7 @@ from sida.experts.site import landapi, terrain_pack
 
 GROUND_PATH = "/relay/terrain/ground"
 LEDGER_PATH = "/relay/ledger/lookup"
-FORMAT = 1
+FORMAT = 2  # context3d.SHARED_FORMAT: answers kept in an older format are asked again
 ASK_RADIUS = 500.0  # m: the app's largest range (context3d.MAX_RADIUS)
 MAX_RADIUS = 1500.0  # m: the most the relay sends (a 3 km side)
 MAX_PNUS = 2000  # PNUs per ledger lookup
@@ -96,7 +98,7 @@ def _cache_path(lon: float, lat: float, folder: Path | None) -> Path:
 
 def _usable(answer, radius: float) -> bool:
     return (isinstance(answer, dict) and answer.get("format") == FORMAT
-            and float(answer.get("radius") or 0) >= radius and isinstance(answer.get("contours"), list))
+            and float(answer.get("radius") or 0) >= radius and isinstance(answer.get("tiles"), list))
 
 
 def cached(lon: float, lat: float, radius: float, folder: Path | None = None) -> dict | None:

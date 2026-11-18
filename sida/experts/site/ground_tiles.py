@@ -342,6 +342,57 @@ def done(path: Path) -> set[tuple[int, int]]:
 # ---------------------------------------------------------------------------
 
 
+def current_files(folder: Path | None = None) -> list[tuple[Path, list]]:
+    """(tiles file, stale_boxes) of each file in the folder made the way tiles are made now."""
+    out = []
+    for p in files(folder):
+        try:
+            meta = info(p)
+        except sqlite3.Error:
+            continue
+        packs = recorded(meta, folder) if usable(meta) else None
+        if packs is not None:
+            out.append((p, stale_boxes(packs, folder)))
+    return out
+
+
+_ROW = "SELECT lon0, lat0, east, north, x0, y0, step, nx, ny, z FROM tiles WHERE ix = ? AND iy = ?"
+
+
+def _rows(keys, current: list[tuple[Path, list]]):
+    """(key, row) of each tile key from the first file that has it still counting; row None when none has."""
+    conns = [sqlite3.connect(f"file:{p}?mode=ro", uri=True) for p, _ in current]
+    try:
+        for tx, ty in keys:
+            row = None
+            for conn, (_p, boxes) in zip(conns, current, strict=True):
+                if stale(tx, ty, boxes):
+                    continue
+                row = conn.execute(_ROW, (tx, ty)).fetchone()
+                if row:
+                    break
+            yield (tx, ty), row
+    finally:
+        for conn in conns:
+            conn.close()
+
+
+def tiles_for_box(west: float, south: float, east: float, north: float, folder: Path | None = None) -> list[tuple] | None:
+    """
+    The rows (lon0, lat0, east, north, x0, y0, step, nx, ny, z) of the current tiles meeting the
+    box, as kept (z still encoded); None when any of them is missing or no longer counts.
+    """
+    current = current_files(folder)
+    if not current:
+        return None
+    out = []
+    for _key, row in _rows(tiles_in_box(west, south, east, north), current):
+        if row is None:
+            return None
+        out.append(row)
+    return out
+
+
 def heights(lon, lat, folder: Path | None = None) -> np.ndarray | None:
     """
     Ground heights (m above sea level) at these points (arrays of the same shape) from the
@@ -350,43 +401,21 @@ def heights(lon, lat, folder: Path | None = None) -> np.ndarray | None:
     """
     lon = np.asarray(lon, dtype=float)
     lat = np.asarray(lat, dtype=float)
-    paths, stale_by = [], []
-    for p in files(folder):
-        try:
-            meta = info(p)
-        except sqlite3.Error:
-            continue
-        packs = recorded(meta, folder) if usable(meta) else None
-        if packs is not None:
-            paths.append(p)
-            stale_by.append(stale_boxes(packs, folder))
-    if not paths:
+    current = current_files(folder)
+    if not current:
         return None
     ix, iy = tile_of(lon.ravel(), lat.ravel())
     out = np.full(lon.size, np.nan)
     wanted = sorted(set(zip(ix.tolist(), iy.tolist(), strict=True)))
-    conns = [sqlite3.connect(f"file:{p}?mode=ro", uri=True) for p in paths]
-    try:
-        for tx, ty in wanted:
-            row = None
-            for conn, boxes in zip(conns, stale_by, strict=True):
-                if stale(tx, ty, boxes):
-                    continue
-                row = conn.execute("SELECT lon0, lat0, east, north, x0, y0, step, nx, ny, z FROM tiles "
-                                   "WHERE ix = ? AND iy = ?", (tx, ty)).fetchone()
-                if row:
-                    break
-            if row is None:
-                return None
-            lon0, lat0, east, north, x0, y0, step, nx, ny, blob = row
-            z = decode(blob, nx, ny)
-            here = (ix == tx) & (iy == ty)
-            x = (lon.ravel()[here] - lon0) * east
-            y = (lat.ravel()[here] - lat0) * north
-            out[here] = _bilinear(z, x0, y0, step, x, y)
-    finally:
-        for conn in conns:
-            conn.close()
+    for (tx, ty), row in _rows(wanted, current):
+        if row is None:
+            return None
+        lon0, lat0, east, north, x0, y0, step, nx, ny, blob = row
+        z = decode(blob, nx, ny)
+        here = (ix == tx) & (iy == ty)
+        x = (lon.ravel()[here] - lon0) * east
+        y = (lat.ravel()[here] - lat0) * north
+        out[here] = _bilinear(z, x0, y0, step, x, y)
     return out.reshape(lon.shape)
 
 
