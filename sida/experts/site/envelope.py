@@ -533,15 +533,16 @@ def compute(plan: dict, facts: dict, rule: dict, parcels: list[dict] | None, zon
     lines = out["lines"]
     found = district or {"status": "none"}
     height_line, from_notice = (height_districts.line(found, entered=height_cap, use_relaxed=use_relaxed,
-                                                      public_land=found.get("public_land"))
+                                                      public_land=found.get("public_land"), floor_height=floor_height)
                                 if height_cap or found["status"] != "none" else (None, None))
     if found["status"] != "none":
         zone = found.get("zone") or {}
         out["height_district"] = {"status": found["status"], "notice": found.get("notice"), "district": found.get("district"),
                                   "number": zone.get("number"), "limit": zone.get("limit"), "verified": found.get("verified"),
-                                  "relaxed_m": zone.get("relaxed_m"), "kept_as": found.get("kept_as") or []}
+                                  "relaxed_m": zone.get("relaxed_m"), "max_floors": zone.get("max_floors"),
+                                  "kept_as": found.get("kept_as") or []}
     if not height_cap and from_notice:
-        out["district_height_m"] = from_notice
+        out["district_height_m"] = round(from_notice, 2)
         out["rooftop_allowance_m"] = height_districts.rooftop_allowance(found.get("notice"))
     height_cap = height_cap or from_notice
     if rule["applies"] is None:

@@ -273,3 +273,52 @@ def test_the_height_line_links_to_the_parcels_land_use_page_and_the_notice():
     assert [link["label"] for link in height_districts.line(matched, entered=None)[0]["links"]] == ["토지이음 고시 검색(2024-317)"]
     entered, _h = height_districts.line(matched, entered=30)
     assert "links" not in entered  # the designer's own height needs no pointer
+
+
+FLOORS_NOTICE = {  # a zone set in floors, as 대구광역시 고시 writes them ("3층이하")
+    "notice": "대구광역시 고시 제2021-177호", "notice_date": "2021-06-30", "region": "대구광역시",
+    "vworld": {"layer": "LT_C_UQ123", "dyear": "2021", "dnum": "0177"}, "verified": "2026-11-18",
+    "districts": {"대니산지구(자모)": {"zones": [
+        {"number": 31, "location": "달성군 현풍읍 자모리", "limit": "3층", "max_m": None, "max_floors": 3,
+         "base": "ground", "area_m2": 1195629}]}},
+}
+
+
+@pytest.fixture
+def floors_table(monkeypatch):
+    table = copy.deepcopy(height_districts.load_table())
+    table["notices"].append(copy.deepcopy(FLOORS_NOTICE))
+    monkeypatch.setattr(height_districts, "load_table", lambda: table)
+    return table
+
+
+def test_a_zone_set_in_floors_keeps_that_many_floors_at_the_envelopes_floor_height(floors_table):
+    found = height_districts.pick([piece(1195629, dyear="2021", dnum="0177", sigg="달성군", sido="대구광역시")],
+                                  facts("대구광역시 달성군 현풍읍 자모리 1"))
+    assert (found["status"], found["zone"]["number"]) == ("matched", 31)
+    line, height = height_districts.line(found, entered=None, floor_height=3.3)
+    assert (line["status"], line["value"]) == ("read", "3층 (9.9m)") and "층높이 3.3m로 3층까지" in line["detail"]
+    assert height == pytest.approx(9.9) and math.floor(height / 3.3) == 3  # 3 × 3.3 is not 9.9 in floats
+    line, height = height_districts.line(found, entered=None)  # no floor height: shown, not cut
+    assert (line["status"], line["value"], height) == ("check", "3층", None)
+    found["verified"] = None  # what pick() says of a table not yet checked
+    line, height = height_districts.line(found, entered=None, floor_height=3.3)
+    assert (line["value"], height) == ("3층 (9.9m) (대조 전)", None)
+
+
+def test_the_envelope_of_a_zone_set_in_floors_stands_that_many_floors(floors_table, monkeypatch):
+    from tests.experts.site.test_envelope import PLAN
+
+    limits = site_facts.load_limits()["zones"]["일반상업지역"]
+    f = {"summary": {"zoning": [{"zone": "일반상업지역", "pnus": ["1"], "area_m2": 504.0, **limits}],
+                     "districts": [{"name": "고도지구", "relation": "포함"}], "total_area_m2": 504.0, "area_complete": True,
+                     "municipality": "대구광역시 달성군", "parcel_count": 1},
+         "parcels": [{"pnu": "1", "address": "대구광역시 달성군 현풍읍 자모리 1"}]}
+    monkeypatch.setattr(landapi, "districts_at", lambda *a, **k: [
+        piece(1195629, dyear="2021", dnum="0177", sigg="달성군", sido="대구광역시")])
+    district = envelope.district_at(PLAN, f)
+    for fh in (3.0, 3.3):
+        out = envelope.compute(PLAN, f, envelope.sunlight_rule(f), [], lambda pnu: None, floor_height=fh, district=district)
+        assert len(out["levels"]) == 3 and out["district_height_m"] == round(3 * fh, 2)
+        assert out["height_district"]["max_floors"] == 3
+        assert all(s["height_m"] <= round(3 * fh, 1) for s in out["schemes"]) and out["schemes"]
