@@ -12,6 +12,7 @@ from sida.experts.site import (
     context3d,
     context_range,
     datago,
+    diagrams_api,
     envelope,
     landapi,
     ledger_sync,
@@ -88,6 +89,7 @@ def create_router(load_config, core) -> APIRouter:
     router = APIRouter()
     router.include_router(_address_router())
     router.include_router(_project_router(load_config, core))
+    router.include_router(diagrams_api.create_router(load_config, core, _land))  # 대지분석 다이어그램
     return router
 
 

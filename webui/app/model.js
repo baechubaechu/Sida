@@ -400,13 +400,14 @@ export function sitePageFor(event, name, site) {
   return sitePath(name, site?.available ? 'facts' : 'find');
 }
 
-const EXPERT_TABS = ['chat', 'versions', 'model', 'slides'];
+const EXPERT_TABS = ['chat', 'versions', 'model', 'diagrams', 'slides'];
 
 // Tabs an expert's page has besides 결과, 분석 채팅 and 이전 버전: the representation planner's
-// 모형 holds the model board panel (model-maker.js) for the laser-cut site model, the
-// presentation editor's 발표자료 the slides Sida makes files of (deckView).
+// 모형 holds the model board panel (model-maker.js) for the laser-cut site model and its 대지 다이어그램
+// the site analysis diagrams (range per diagram, files, all at once), the presentation editor's
+// 발표자료 the slides Sida makes files of (deckView).
 export const EXPERT_PAGE_TABS = {
-  representation_planner: [{ id: 'model', label: '모형' }],
+  representation_planner: [{ id: 'model', label: '모형' }, { id: 'diagrams', label: '대지 다이어그램' }],
   presentation_editor: [{ id: 'slides', label: '발표자료' }],
 };
 export const MODEL_EXPERT = 'representation_planner';

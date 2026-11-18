@@ -618,9 +618,10 @@ test('the representation planner: its site model recommendation is read and the 
   assert.equal(model.blocks[0].label, '모형');
   assert.equal(model.blocks[0].items.length, 3);
   assert.equal(arranged.handoffs[0].agent, 'presentation_editor');
-  assert.deepEqual(expertPageTabs('representation_planner'), [{ id: 'model', label: '모형' }]);
+  assert.deepEqual(expertPageTabs('representation_planner'), [{ id: 'model', label: '모형' }, { id: 'diagrams', label: '대지 다이어그램' }]);
   assert.deepEqual(expertPageTabs('site_reader'), []);
   assert.equal(parseRoute(expertPath('가', 'representation_planner', 'model')).tab, 'model');
+  assert.equal(parseRoute(expertPath('가', 'representation_planner', 'diagrams')).tab, 'diagrams');
 });
 
 test('a project card shows the saved site address, zones, area and the one zone statutory caps', () => {

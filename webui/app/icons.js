@@ -44,6 +44,8 @@ const PATHS = {
   up: '<path d="M10 16V4M5 9l5-5 5 5"/>',
   down: '<path d="M10 4v12M5 11l5 5 5-5"/>',
   check: '<path d="m4.5 10.5 3.5 3.5 7.5-8"/>',
+  // 대지분석 다이어그램: a sheet with a plan figure and a sun arc.
+  diagrams: '<rect x="3" y="3" width="14" height="14" rx="1.5"/><path d="M6 14v-3h3v3M11 14V9h3v5"/><path d="M5.5 7.5a4.5 3 0 0 1 9 0" stroke-dasharray="1.6 1.4"/>',
   // A model's base: boards stacked in steps.
   base: '<path d="M2.5 16.5h15v-3h-15zM5 13.5v-3h10v3M8 10.5v-3h5v3"/>',
   chevron: '<path d="m7.5 5 5 5-5 5"/>',

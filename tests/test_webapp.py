@@ -688,6 +688,65 @@ def test_site_envelope_api_gives_the_legal_volume_and_reference_schemes(client, 
     assert client.get(url).status_code == 400  # no boundary to work in
 
 
+def test_site_diagrams_api_lists_draws_and_keeps_choices(client, project, fake_vworld, monkeypatch):
+    from sida.experts.site import landapi, site_diagrams, site_facts
+    from tests.experts.site.test_site_diagrams import _around
+
+    url = f"/api/projects/{project.name}/site/diagrams"
+    assert client.get(url).status_code == 404  # no site looked up yet
+    assert client.get("/api/projects/nope/site/diagrams").status_code == 404
+    parcel = landapi.search_parcels("경기도 군포시 금정동 689")[:1]
+    site_facts.save_facts(project.path, site_facts.build_facts("금정동 689-14", parcel))
+    asked = []
+
+    def fake_gather(plan, **kw):
+        asked.append(kw)
+        return _around(shape=kw["shape"], orient=kw["orient"])
+
+    monkeypatch.setattr(site_diagrams, "gather", fake_gather)
+    body = client.get(url).json()
+    kinds = {d["kind"]: d for d in body["diagrams"]}
+    assert list(kinds) == ["figure_ground", "figure_nolli", "heights", "uses", "streets", "water_trees", "terrain", "shadow", "sun_path", "distance"]
+    assert kinds["shadow"]["ready"] and not kinds["terrain"]["ready"] and kinds["terrain"]["reason"]
+    assert kinds["heights"]["range"] == "default" and body["hours"][0] == 9 and body["shape"] == "square"
+    assert kinds["shadow"]["ranges"]["small"] == {"side": 150, "words": "150 m 정사각"}  # each kind its own sizes
+    assert kinds["heights"]["ranges"]["default"]["side"] == 1000 and kinds["sun_path"]["ranges"] == {}
+    assert asked[0]["shape"] == "square"  # in the shape picked for 주변 3D
+
+    svg = client.get(f"{url}/heights")
+    assert svg.status_code == 200 and svg.headers["content-type"].startswith("image/svg+xml") and b"<svg" in svg.content
+    assert client.get(f"{url}/shadow", params={"hour": "12", "format": "json"}).json()["drawing"]["kind"] == "shadow"
+    assert client.get(f"{url}/terrain").status_code == 400  # no terrain here: the reason comes back
+    assert client.get(f"{url}/nope").status_code == 404
+    assert client.get(f"{url}/shadow", params={"hour": "20"}).status_code == 400
+    assert client.get(f"{url}/heights", params={"range": "wide"}).status_code == 400
+    assert client.get(f"{url}/heights", params={"format": "pdf"}).status_code == 400
+
+    assert client.put(f"{url}/shadow", json={"range": "small", "hour": 10}).json() == {"range": "small", "hour": 10}
+    assert client.put(f"{url}/shadow", json={"range": "small", "hour": 30}).status_code == 400
+    kept = {d["kind"]: d for d in client.get(url).json()["diagrams"]}["shadow"]
+    assert (kept["range"], kept["hour"]) == ("small", 10)
+    near = client.get(f"{url}/shadow", params={"format": "json"}).json()["drawing"]
+    assert near["range"] == "small" and near["frame"] == [-75, -75, 75, 75]  # the kept choice is drawn when none is asked
+
+    # 전부 받기: every ready diagram at its kept choice, as SVGs in one zip named after the project
+    got = client.get(f"{url}/export")
+    assert got.status_code == 200 and got.headers["content-type"] == "application/zip"
+    assert "filename*=UTF-8''" in got.headers["content-disposition"]
+    with zipfile.ZipFile(io.BytesIO(got.content)) as archive:
+        names = archive.namelist()
+        assert "08 그림자 · 동지 10시 (좁게 150m).svg" in names  # the kept range and hour
+        assert not any("지형" in n for n in names)  # no terrain here: left out
+        assert all(b"<svg" in archive.read(n)[:300] for n in names)
+
+    def failing(plan, **kw):
+        raise ValueError("the site has no boundary to stand on")
+
+    monkeypatch.setattr(site_diagrams, "gather", failing)
+    assert client.get(url).status_code == 400
+    assert client.get(f"{url}/export").status_code == 400
+
+
 def test_site_context_api_gives_the_surroundings_in_the_table_frame(client, project, fake_vworld, tmp_path):
     from sida import board
     from sida.experts.site import context3d, landapi, site_facts, terrain_pack

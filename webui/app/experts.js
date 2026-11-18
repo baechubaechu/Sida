@@ -1,11 +1,13 @@
 // Expert actions: run, revise, analysis chats, feedback, the project-state proposal.
 
 import { sitePath, needsSiteFirst, deckFileUrl, downloadName, DECK_FORMATS } from './model.js';
+import { siteDiagramLabel, siteDiagramQuery } from './board-model.js';
+import { diagramFileName } from './rhino-model.js';
 import { api, expertUrl, projectApi } from './api.js';
-import { saveBlob, takePicked } from './board.js';
+import { fetchBlob, saveBlob, svgToPng, table, takePicked } from './board.js';
 import { deckScheme, loadExpert, loadSession, refreshProject, start } from './jobs.js';
 import { render } from './render.js';
-import { activeChat, currentRoute, draftFor, drafts, jobRunning, toast, ui } from './state.js';
+import { activeChat, currentRoute, draftFor, drafts, jobRunning, siteDiagramChoice, toast, ui } from './state.js';
 
 // Another massing scheme for the deck (the 매스안 choice on the 발표자료 tab): the deck is read again.
 export async function pickDeckScheme(id) {
@@ -39,6 +41,62 @@ export async function downloadDeck(format) {
   }
   ui.deckMaking = '';
   render(false);
+}
+
+// A button on the representation planner's 대지 다이어그램 tab: a diagram's range or hour (shown at
+// once, then kept for the project, so the table's panel draws it the same), its picture as a file,
+// or every ready diagram in one zip (GET .../site/diagrams/export).
+export async function siteDiagramAction(action, kind, value) {
+  const { name, agent } = currentRoute;
+  const base = `${projectApi(name)}/site/diagrams`;
+  const fail = (what, error) => toast(`${what} ${error instanceof TypeError ? 'Sida 서버에 연결할 수 없습니다.' : error.message}`, 'error');
+  if (action === 'reload') { await loadExpert(name, agent); render(false); return; }
+  if (action === 'export-all') {
+    if (ui.siteDiagramsBusy) return;
+    ui.siteDiagramsBusy = 'export-all';
+    render(false);
+    try {
+      const response = await fetch(`${base}/export`);
+      if (!response.ok) {
+        let detail = '';
+        try { detail = (await response.json()).detail; } catch { /* not JSON */ }
+        throw new Error(typeof detail === 'string' && detail ? detail : `요청이 실패했습니다 (${response.status})`);
+      }
+      const filename = downloadName(response.headers.get('Content-Disposition'), '대지분석_다이어그램.zip');
+      saveBlob(await response.blob(), filename);
+      toast(`${filename}을(를) 내려받았습니다.`, 'success');
+    } catch (error) {
+      fail('다이어그램을 묶지 못했습니다.', error);
+    }
+    ui.siteDiagramsBusy = '';
+    render(false);
+    return;
+  }
+  const d = ui.siteDiagrams?.diagrams?.find((x) => x.kind === kind);
+  if (!d) return;
+  const choice = siteDiagramChoice(kind);
+  if (action === 'range' || action === 'hour') {
+    const next = action === 'range' ? { ...choice, range: value } : { ...choice, hour: value === 'all' ? null : Number(value) };
+    Object.assign(d, next);
+    render(false);
+    try {
+      Object.assign(d, await api(`${base}/${encodeURIComponent(kind)}`, { method: 'PUT', body: next }));
+      table?.forgetDiagrams?.(); // the table's panel shows the kept choice too
+    } catch (error) {
+      fail('고른 범위를 저장하지 못했습니다.', error);
+    }
+    return;
+  }
+  if (action !== 'svg' && action !== 'png') return;
+  const label = siteDiagramLabel(d, choice);
+  try {
+    const svg = await fetchBlob(`${base}/${encodeURIComponent(kind)}?${siteDiagramQuery(kind, choice)}`);
+    const filename = diagramFileName('', label, action);
+    saveBlob(action === 'png' ? await svgToPng(svg) : svg, filename);
+    toast(`${filename}을(를) 내려받았습니다.`, 'success');
+  } catch (error) {
+    fail(`${d.title}을(를) 만들지 못했습니다.`, error);
+  }
 }
 
 export async function decideProposal(id, apply) {
