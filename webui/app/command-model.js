@@ -50,6 +50,7 @@ export const COMMANDS = [
   { name: 'around', aliases: ['context'], label: '주변 3D 켜고 끄기 (주변 건물·도로·지형, 설정은 레이어 패널의 주변)', group: 'view' },
   { name: 'envelope', aliases: ['legal', 'volume'], label: '법규 볼륨 켜고 끄기: 정북일조·건폐율·용적률로 지을 수 있는 볼륨과 참고 매스', group: 'view' },
   { name: 'clip', aliases: ['cut'], label: '3D 자르기: 단면선으로 3D를 잘라 보기 (다시 하면 끔)', group: 'view' },
+  { name: 'diagram', aliases: ['diagrams', 'analysis'], label: '대지분석 다이어그램: 피겨-그라운드·높이·용도·그림자 등 9종 열기', group: 'panel' },
   { name: 'base', aliases: ['modelbase'], label: '모형 바닥: 레이저 커팅 대지 모형 판 열기', group: 'panel' },
   { name: 'deck', aliases: ['slides', 'ppt'], label: '발표 자료 열기 (발표 편집자의 발표자료 탭)', group: 'panel' },
   { name: 'settings', aliases: ['options'], label: '설정 열기', group: 'panel' },

@@ -1500,6 +1500,31 @@ body.moving-float, body.moving-float * { cursor: grabbing !important; user-selec
 .envelope-card { left: 16px; top: 116px; width: min(340px, calc(100% - 32px)); max-height: calc(100% - 200px); overflow-y: auto; display: grid; gap: 10px; padding: 12px 14px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgb(0 0 0 / .12); z-index: 2; cursor: auto; user-select: text; font-size: 13px; }
 .envelope-card[hidden] { display: none; }
+/* 대지분석 다이어그램: a column of cards at the right of the table (table-diagrams.js) */
+.diagram-panel { right: 16px; top: 116px; bottom: 72px; width: min(360px, calc(100% - 32px)); overflow-y: auto; display: grid; align-content: start; gap: 10px; padding: 12px 14px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgb(0 0 0 / .12); z-index: 2; cursor: auto; user-select: text; font-size: 13px; }
+.diagram-panel[hidden] { display: none; }
+.diagram-panel header { display: flex; justify-content: space-between; align-items: center; }
+.diagram-panel h3 { margin: 0; font-size: 15px; }
+.diagram-panel header button { width: 28px; height: 28px; border-radius: 6px; font-size: 16px; color: var(--muted); }
+.diagram-panel header button:hover { background: var(--surface-subtle); color: var(--text); }
+.diagram-note { margin: 0; color: var(--muted); font-size: 12px; }
+.diagram-retry { justify-self: start; padding: 6px 10px; border-radius: 6px; background: var(--surface-subtle); color: var(--brand); font-weight: 700; font-size: 12px; }
+.diagram-cards { display: grid; gap: 10px; }
+.diagram-card { margin: 0; display: grid; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+.diagram-card figcaption { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.diagram-card img { display: block; width: 100%; height: auto; min-height: 120px; border-radius: 4px; background: #fff; border: 1px solid var(--line); }
+.diagram-hour { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.diagram-hour select { font: inherit; padding: 2px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); }
+.diagram-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.diagram-actions button { padding: 5px 9px; border-radius: 6px; background: var(--surface-subtle); color: var(--brand); font-weight: 700; font-size: 12px; }
+.diagram-actions button:hover, .diagram-retry:hover { background: var(--line); }
+.diagram-card.is-off { opacity: .75; }
+/* The representation planner's 대지 다이어그램 tab: the same cards, side by side where the page is wide. */
+.site-diagram-tab { display: grid; gap: 12px; }
+.site-diagram-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.diagram-cards.is-wide { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); align-items: start; }
+.diagram-why { margin: 0; color: var(--muted); font-size: 12px; }
 .envelope-card header { display: flex; justify-content: space-between; align-items: center; }
 .envelope-card h3 { margin: 0; font-size: 15px; }
 .envelope-card header button { width: 28px; height: 28px; border-radius: 6px; font-size: 16px; color: var(--muted); }

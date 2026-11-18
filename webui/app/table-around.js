@@ -68,6 +68,7 @@ export const aroundMethods = {
     }
     const shown = this.aroundOn;
     const stepped = this.steppedOn;
+    this.forgetDiagrams(); // the diagrams are drawn over this range too
     this.around = null;
     this.aroundOn = false;
     this.stepped = null;

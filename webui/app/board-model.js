@@ -1658,7 +1658,7 @@ export const TOOL_GROUPS = [
   { id: 'mass', label: '매스', items: ['rect', 'push', 'move', 'rotate', 'scale', 'erase', 'scheme-new', 'envelope'] },
   { id: 'measure', label: '재기', items: ['tape', 'radius', 'section'] },
   { id: 'lay', label: '올리기', items: ['note', 'pen', 'person', 'trace', 'photo'] },
-  { id: 'around', label: '주변', items: ['around', 'model-panel'] },
+  { id: 'around', label: '주변', items: ['around', 'diagrams', 'model-panel'] },
 ];
 export const TOOLBAR_WIDE = 1260; // px of table the unfolded bar needs (beside the history buttons and the idea board)
 
@@ -2661,4 +2661,34 @@ export function envelopeCard(envelope) {
     index, name: s.name, text: `건축면적 ${m2(s.footprint_m2)} · 연면적 ${m2(s.floor_area_m2)} · 높이 ${fmt(s.height_m, 1)}m`,
   }));
   return { title: '법규 볼륨', figures, lines, schemes, uses };
+}
+
+// ------------------------------------------------------------------ 대지분석 다이어그램
+// The site analysis diagrams (GET .../site/diagrams, sida/experts/site/site_diagrams.py): each is
+// drawn by the server as an SVG over the range that suits it or one step smaller or larger;
+// the shadow is one hour of 동지 9~15시 or all of them layered (hour null).
+
+// A diagram's ranges: one step under the range that suits it, that range, and one step over.
+export const SITE_DIAGRAM_RANGES = [['small', '좁게'], ['default', '기본'], ['large', '넓게']];
+
+function rangeId(choice) {
+  return SITE_DIAGRAM_RANGES.some(([id]) => id === choice.range) ? choice.range : 'default';
+}
+
+// The query that draws a diagram as chosen: range, and for the shadow its hour ("all" for every hour).
+export function siteDiagramQuery(kind, choice = {}) {
+  const q = new URLSearchParams({ range: rangeId(choice) });
+  if (kind === 'shadow') q.set('hour', Number.isInteger(choice.hour) ? String(choice.hour) : 'all');
+  return q.toString();
+}
+
+// The words that name a diagram as chosen, for its file and its paper: "그림자 · 동지 12시 (좁게 150m)".
+// `diagram.ranges` holds each range's side in m as the server worked it out; the sun path has none.
+export function siteDiagramLabel(diagram, choice = {}) {
+  const id = rangeId(choice);
+  const word = SITE_DIAGRAM_RANGES.find(([key]) => key === id)[1];
+  const side = diagram.ranges?.[id]?.side;
+  const hour = diagram.kind === 'shadow' ? (Number.isInteger(choice.hour) ? ` ${choice.hour}시` : ' 9~15시') : '';
+  if (diagram.kind === 'sun_path') return diagram.title;
+  return `${diagram.title}${hour} (${word}${side ? ` ${side}m` : ''})`;
 }

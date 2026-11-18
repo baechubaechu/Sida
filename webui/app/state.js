@@ -44,6 +44,10 @@ export const ui = {
   // The presentation editor's 발표자료 tab: the deck (GET .../presentation), and the file being made ('' when none).
   // deckScheme: the massing scheme picked for a project's deck when it has no Rhino work ({project, id}).
   deck: null, deckError: '', deckMaking: '', deckScheme: { project: '', id: '' },
+  // The representation planner's 대지 다이어그램 tab: the diagrams with their kept choices (GET
+  // .../site/diagrams), why they could not be read, when the list came (it draws the pictures again)
+  // and what is being made ('' none, 'export-all' the zip, or `${kind}:${format}`).
+  siteDiagrams: null, siteDiagramsError: '', siteDiagramsVersion: 0, siteDiagramsBusy: '',
   job: null, live: [], pending: null,
   // `exporting`: the CAD/Rhino file being made ('' when none).
   revisionOpen: false, creating: false, newDraft: {}, vworld: false, exporting: '',
@@ -115,6 +119,12 @@ export function expertById(agent) {
 // The expert chat on screen: the one in the address, or the expert's newest chat.
 export function activeChat() {
   return currentRoute.chat || latestChat(expertById(currentRoute.agent));
+}
+
+// A diagram's kept {range, hour} on the representation planner's 대지 다이어그램 tab.
+export function siteDiagramChoice(kind) {
+  const d = ui.siteDiagrams?.diagrams?.find((x) => x.kind === kind);
+  return d ? { range: d.range || 'default', hour: Number.isInteger(d.hour) ? d.hour : null } : { range: 'default', hour: null };
 }
 
 export function jobRunning() {
