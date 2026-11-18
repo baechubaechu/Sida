@@ -31,7 +31,8 @@ back as it came (status, content type, body).
   /relay/terrain/ground, from the terrain packs and ground tiles in SIDA_TERRAIN_DIR). The ground
   goes out in metres from the site's middle with heights relative to the ground there, never with
   lon/lat or heights above sea level (context3d.shared_ground; 국토지리정보원 보안관리규정 [별표 1]),
-  and is only read from tiles made ahead of time, never solved here.
+  and is only read from tiles made ahead of time and cut to the range, never solved here; the app
+  joins the tiles and draws the contours, so the server's part stays small.
 
 Run: uvicorn relay.app:from_env --factory (see relay/README.md).
 """

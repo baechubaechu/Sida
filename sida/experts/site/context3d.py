@@ -39,8 +39,10 @@ import hashlib
 import json
 import math
 import time
+import zlib
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from itertools import chain
 from pathlib import Path
 
 import numpy as np
@@ -451,74 +453,164 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None, shape: st
 # The ground the relay shares (relay/app.py) and the app reads back (site_relay.py)
 # ---------------------------------------------------------------------------
 
-SHARED_FORMAT = 1
+SHARED_FORMAT = 2
 SOURCE_KEYS = ("name", "kind", "source", "source_date")
 
 
-def _xy(points) -> list[list[float]]:
-    return [[round(float(x), 2), round(float(y), 2)] for x, y in np.asarray(points, dtype=float).reshape(-1, 2)]
+def _pack_rings(frame: Frame, rings) -> dict:
+    """[lon, lat] rings or lines as the relay sends them: {"n": points per ring, "xy": the points in
+    whole cm east and north of the site's middle (little-endian int32 pairs, zlib, base64)}."""
+    n = [len(r) for r in rings]
+    if not sum(n):
+        return {"n": n, "xy": ""}
+    flat = np.fromiter(chain.from_iterable(chain.from_iterable(rings)), dtype=float, count=2 * sum(n))
+    cm = np.rint(frame.local(flat) * 100).astype("<i4")
+    return {"n": n, "xy": base64.b64encode(zlib.compress(cm.tobytes(), 6)).decode()}
+
+
+def _unpack_rings(packed: dict) -> list[np.ndarray]:
+    """_pack_rings back to (k × 2) arrays of local metres."""
+    n = [int(k) for k in packed.get("n") or []]
+    if not sum(n):
+        return [np.empty((0, 2)) for _ in n]
+    xy = np.frombuffer(zlib.decompress(base64.b64decode(packed["xy"])), dtype="<i4").reshape(-1, 2) / 100.0
+    return np.split(xy, np.cumsum(n)[:-1])
+
+
+def _shared_tiles(frame: Frame, half: float, folder: Path | None) -> tuple[list[dict], float | None]:
+    """
+    The ground tiles over ±half m as the relay sends them, and the ground height at the site's
+    middle modulo INDEX_EVERY (to draw contours at whole metres; the same the old answer's contour
+    heights and index flags gave away, never the height itself): each tile cut to the range, its
+    grid in metres from the site's middle (x0, y0, dx, dy) and its heights relative to the ground
+    at the middle (ground_tiles.encode, base64). ([], None) when the tiles do not cover the range.
+    The relay only decodes, shifts and encodes again: the PC joins the tiles and draws the contours.
+    """
+    rows = ground_tiles.tiles_for_box(*frame.box(half), folder)
+    if not rows:
+        return [], None
+    pieces = []
+    for lon0, lat0, east, north, x0, y0, step, nx, ny, blob in rows:
+        dx, dy = step * frame.east / east, step * frame.north / north
+        xs = (x0 + np.arange(nx) * step) * (frame.east / east) + (lon0 - frame.lon0) * frame.east
+        ys = (y0 + np.arange(ny) * step) * (frame.north / north) + (lat0 - frame.lat0) * frame.north
+        cols = np.flatnonzero(np.abs(xs) <= half + dx)
+        lines = np.flatnonzero(np.abs(ys) <= half + dy)
+        if len(cols) < 2 or len(lines) < 2:
+            continue
+        j0, j1, i0, i1 = cols[0], cols[-1] + 1, lines[0], lines[-1] + 1
+        z = ground_tiles.decode(blob, nx, ny)[i0:i1, j0:j1]
+        pieces.append({"x0": float(xs[j0]), "y0": float(ys[i0]), "dx": dx, "dy": dy, "z": z})
+    middle = _tiles_sample(pieces, np.zeros(1), np.zeros(1))
+    if not pieces or np.isnan(middle[0]):
+        return [], None
+    elev0 = float(middle[0])
+    tiles = [{"x0": round(p["x0"], 3), "y0": round(p["y0"], 3), "dx": p["dx"], "dy": p["dy"],
+              "nx": int(p["z"].shape[1]), "ny": int(p["z"].shape[0]),
+              "z": base64.b64encode(ground_tiles.encode(p["z"] - elev0)).decode()} for p in pieces]
+    return tiles, round(elev0 % INDEX_EVERY, 2)
+
+
+def _tiles_sample(pieces: list[dict], x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Bilinear heights of tile pieces ({"x0", "y0", "dx", "dy", "z"}) at local points; NaN off them."""
+    out = np.full(x.shape, np.nan)
+    for p in pieces:
+        ny, nx = p["z"].shape
+        fx = (x - p["x0"]) / p["dx"]
+        fy = (y - p["y0"]) / p["dy"]
+        here = np.isnan(out) & (fx >= -1e-9) & (fx <= nx - 1 + 1e-9) & (fy >= -1e-9) & (fy <= ny - 1 + 1e-9)
+        if here.any():
+            out[here] = ground_tiles._bilinear(p["z"], 0.0, 0.0, 1.0, fx[here], fy[here])
+    return out
 
 
 def shared_ground(lon: float, lat: float, radius: float, *, folder: Path | None = None) -> dict:
     """
     What the relay sends for the ground within ±radius m (a square) of a site's middle: metres
     east and north of that middle and heights relative to the ground there, never lon/lat or a
-    height above sea level (국토지리정보원 보안관리규정 [별표 1]).
-    {"format", "radius", "half", "step", "grid": {"n", "z": base64 of ground_tiles.encode} or None,
-    "contours": [{"z", "index", "points"}], "areas": [{"kind", "ring"}], "paint": {"lines", "marks"},
-    "buildings": [{"ring", **terrain_pack.BUILDING_FIELDS}], "map_buildings": [{"ring", "floors", "use"}],
-    "sources": [{name, kind, source, source_date}]}.
-    Heights come only from ground tiles: the relay never solves the ground (grid None and no
-    contours where its tiles don't cover the range).
+    height above sea level (국토지리정보원 보안관리규정 [별표 1]). The relay does as little as it
+    can: it reads the ground tiles and the map features in the range, shifts them to the site and
+    sends them on; from_shared on the PC joins the tiles into a grid and draws the contours.
+    {"format", "radius", "half", "step", "tiles": [_shared_tiles], "phase",
+    "areas": {"kind": [...], **_pack_rings}, "paint": {"lines": {"attrs", **rings},
+    "marks": {"attrs", "ahead": rings, **rings}}, "buildings": {"attrs", **rings},
+    "map_buildings": {"floors", "use", **rings}, "sources": [{name, kind, source, source_date}]}.
+    The relay never solves the ground: no tiles (and no contour sources) where its tiles don't
+    cover the range.
     """
     frame = Frame({"lon": lon, "lat": lat})
-    g = ground(frame, radius, folder=folder, shape="square", solve=False, remote=False)
-    grid = None
-    if g["grid"] is not None:
-        grid = {"n": int(g["grid"].shape[0]), "z": base64.b64encode(ground_tiles.encode(g["grid"])).decode()}
-    paint = g["paint"]
+    half = radius + MARGIN
+    found = terrain_pack.query(*frame.box(half), folder=folder, heights=False)
+    tiles, phase = _shared_tiles(frame, half, folder)
+    lines, marks = found.get("road_lines") or [], found.get("road_marks") or []
     return {
-        "format": SHARED_FORMAT, "radius": float(radius), "half": g["half"], "step": g["step"], "grid": grid,
-        "contours": [{"z": c["z"], "index": c["index"], "points": c["points"]} for c in g["contours"]],
-        "areas": [{"kind": kind, "ring": _xy(ring)} for kind, ring in g["areas"]],
+        "format": SHARED_FORMAT, "radius": float(radius), "half": half, "step": SOLVE_STEP,
+        "tiles": tiles, "phase": phase,
+        "areas": {"kind": [a["kind"] for a in found["areas"]], **_pack_rings(frame, [a["ring"] for a in found["areas"]])},
         "paint": {
-            "lines": [{**r, "points": _xy(r["points"])} for r in paint["lines"]],
-            "marks": [{**m, "ring": _xy(m["ring"]), "ahead": _xy(m["ahead"])[0] if m.get("ahead") is not None else None}
-                      for m in paint["marks"]],
+            "lines": {"attrs": [{k: v for k, v in r.items() if k != "points"} for r in lines],
+                      **_pack_rings(frame, [r["points"] for r in lines])},
+            "marks": {"attrs": [{k: v for k, v in m.items() if k not in ("ring", "ahead")} for m in marks],
+                      "ahead": _pack_rings(frame, [[m["ahead"]] if m.get("ahead") else [] for m in marks]),
+                      **_pack_rings(frame, [m["ring"] for m in marks])},
         },
-        "buildings": [{**b, "ring": _xy(frame.local(b["ring"]))} for b in g["buildings"]],
-        "map_buildings": [{**b, "ring": _xy(frame.local(b["ring"]))} for b in g["map_buildings"]],
-        "sources": [{k: s.get(k, "") for k in SOURCE_KEYS} for s in g["sources"]
-                    if grid is not None or s.get("kind", "contours") != "contours"],
+        "buildings": {"attrs": [{k: v for k, v in b.items() if k != "ring"} for b in found["buildings"]],
+                      **_pack_rings(frame, [b["ring"] for b in found["buildings"]])},
+        "map_buildings": {"floors": [b["floors"] for b in found["map_buildings"]],
+                          "use": [b["use"] for b in found["map_buildings"]],
+                          **_pack_rings(frame, [b["ring"] for b in found["map_buildings"]])},
+        "sources": [{k: s.get(k, "") for k in SOURCE_KEYS} for s in found["sources"]
+                    if tiles or s.get("kind", "contours") != "contours"],
     }
 
 
+def _shared_grid(shared: dict, half: float) -> np.ndarray | None:
+    """The relay's tiles joined into the (n × n) SOLVE_STEP grid over ±half m; None unless they cover it."""
+    pieces = [{**t, "z": ground_tiles.decode(base64.b64decode(t["z"]), int(t["nx"]), int(t["ny"]))}
+              for t in shared.get("tiles") or []]
+    if not pieces:
+        return None
+    n = int(round(2 * half / SOLVE_STEP)) + 1
+    axis = -half + np.arange(n) * SOLVE_STEP
+    xx, yy = np.meshgrid(axis, axis)
+    grid = _tiles_sample(pieces, xx, yy)
+    return None if np.isnan(grid).any() else grid
+
+
 def from_shared(frame: Frame, shared: dict, radius: float, shape: str = DEFAULT_SHAPE) -> dict:
-    """shared_ground's answer as `ground` returns it, for this range (contours cut to it). The
-    pack buildings get lon/lat back (from this PC's frame) for `surroundings`. Heights stay
-    relative: ground_elev is 0."""
-    grid = None
-    if shared.get("grid"):
-        n = int(shared["grid"]["n"])
-        grid = ground_tiles.decode(base64.b64decode(shared["grid"]["z"]), n, n)
+    """shared_ground's answer as `ground` returns it, for this range: the tiles joined into a grid
+    over the range and its margin, the contours drawn from it. The pack buildings get lon/lat back
+    (from this PC's frame) for `surroundings`. Heights stay relative: ground_elev is 0."""
+    half = min(float(shared["half"]), radius + MARGIN)
+    grid = _shared_grid(shared, half)
     contours = []
-    for c in shared["contours"]:
-        for run in clip_range(np.asarray(c["points"], dtype=float), radius, shape):
-            contours.append({"elev": c["z"], "z": c["z"], "index": bool(c["index"]),
-                             "points": [[round(float(x), 2), round(float(y), 2)] for x, y in run]})
+    if grid is not None:
+        phase = float(shared.get("phase") or 0.0)
+        for level, pts in grid_contours(grid + phase, half, SOLVE_STEP, CONTOUR_EVERY):
+            z = round(level - phase, 3)
+            index = abs(level / INDEX_EVERY - round(level / INDEX_EVERY)) < 1e-6
+            for run in clip_range(pts, radius, shape):
+                contours.append({"elev": z, "z": z, "index": index,
+                                 "points": [[round(float(x), 2), round(float(y), 2)] for x, y in run]})
+    areas = shared.get("areas") or {}
+    buildings = shared.get("buildings") or {}
+    mapped = shared.get("map_buildings") or {}
     paint = shared.get("paint") or {}
+    lines, marks = paint.get("lines") or {}, paint.get("marks") or {}
+    aheads = _unpack_rings(marks.get("ahead") or {})
     return {
-        "grid": grid, "half": float(shared["half"]), "step": float(shared["step"]),
-        "ground_elev": 0.0 if grid is not None else None, "contours": contours if grid is not None else [],
-        "sources": shared.get("sources") or [],
-        "areas": [(a["kind"], np.asarray(a["ring"], dtype=float)) for a in shared.get("areas") or []],
-        "buildings": [{**b, "ring": frame.lonlat(b["ring"]).tolist()} for b in shared.get("buildings") or []],
-        "map_buildings": [{**b, "ring": frame.lonlat(b["ring"]).tolist()} for b in shared.get("map_buildings") or []],
+        "grid": grid, "half": half, "step": SOLVE_STEP, "ground_elev": 0.0 if grid is not None else None,
+        "contours": contours, "sources": shared.get("sources") or [],
+        "areas": list(zip(areas.get("kind") or [], _unpack_rings(areas), strict=True)),
+        "buildings": [{**a, "ring": frame.lonlat(r).tolist()}
+                      for a, r in zip(buildings.get("attrs") or [], _unpack_rings(buildings), strict=True)],
+        "map_buildings": [{"ring": frame.lonlat(r).tolist(), "floors": f, "use": u}
+                          for r, f, u in zip(_unpack_rings(mapped), mapped.get("floors") or [], mapped.get("use") or [],
+                                             strict=True)],
         "paint": {
-            "lines": [{**r, "points": np.asarray(r["points"], dtype=float)} for r in paint.get("lines") or []],
-            "marks": [{**m, "ring": np.asarray(m["ring"], dtype=float),
-                       "ahead": np.asarray(m["ahead"], dtype=float) if m.get("ahead") is not None else None}
-                      for m in paint.get("marks") or []],
+            "lines": [{**a, "points": r} for a, r in zip(lines.get("attrs") or [], _unpack_rings(lines), strict=True)],
+            "marks": [{**a, "ring": r, "ahead": ahead[0] if len(ahead) else None}
+                      for a, r, ahead in zip(marks.get("attrs") or [], _unpack_rings(marks), aheads, strict=True)],
         },
         "from_tiles": grid is not None, "relative": True,
     }

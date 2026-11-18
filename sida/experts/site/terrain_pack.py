@@ -189,7 +189,8 @@ def info(path: Path) -> dict:
         return dict(conn.execute("SELECT key, value FROM meta"))
 
 
-def query(west: float, south: float, east: float, north: float, folder: Path | None = None) -> dict:
+def query(west: float, south: float, east: float, north: float, folder: Path | None = None, *,
+          heights: bool = True) -> dict:
     """
     Contours, spot heights, ground areas and buildings touching the box, from every pack in the
     folder: {"contours": [{"elev", "points": [[lon, lat]]}], "spots": [[lon, lat, elev]],
@@ -198,6 +199,9 @@ def query(west: float, south: float, east: float, north: float, folder: Path | N
     "road_lines": [{"type", "kind", "points"}], "road_marks": [{"type", "kind", "ring", "ahead" (or None)}],
     "sources": [pack meta]}. Empty lists when no pack covers the box. A road line or mark found in
     two packs (the same 정밀도로지도 ID) comes once.
+    heights=False leaves out the contours, spot heights and road points (empty lists), for a
+    caller whose heights come from ground tiles; a pack that has some in the box still counts
+    among the sources.
     """
     out: dict = {"contours": [], "spots": [], "areas": [], "buildings": [], "map_buildings": [],
                  "road_points": [], "road_lines": [], "road_marks": [], "sources": []}
@@ -208,12 +212,12 @@ def query(west: float, south: float, east: float, north: float, folder: Path | N
                 "SELECT c.elev, c.points FROM contours c JOIN contours_box b ON b.id = c.id "
                 "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",
                 (west, east, south, north),
-            ).fetchall()
+            ).fetchall() if heights else []
             points = conn.execute(
                 "SELECT s.lon, s.lat, s.elev FROM spots s JOIN spots_box b ON b.id = s.id "
                 "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",
                 (west, east, south, north),
-            ).fetchall()
+            ).fetchall() if heights else []
             areas = conn.execute(
                 "SELECT a.kind, a.ring FROM areas a JOIN areas_box b ON b.id = a.id "
                 "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",
@@ -233,7 +237,7 @@ def query(west: float, south: float, east: float, north: float, folder: Path | N
                 "SELECT r.lon, r.lat, r.elev FROM road_points r JOIN road_points_box b ON b.id = r.id "
                 "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",
                 (west, east, south, north),
-            ).fetchall() if _has_table(conn, "road_points") else []
+            ).fetchall() if heights and _has_table(conn, "road_points") else []
             paint = conn.execute(
                 "SELECT r.ref, r.type, r.kind, r.points FROM road_lines r JOIN road_lines_box b ON b.id = r.id "
                 "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",
@@ -244,7 +248,12 @@ def query(west: float, south: float, east: float, north: float, folder: Path | N
                 "WHERE b.east >= ? AND b.west <= ? AND b.north >= ? AND b.south <= ?",
                 (west, east, south, north),
             ).fetchall() if _has_table(conn, "road_marks") else []
-            if lines or points or areas or houses or mapped or roads or paint or marks:
+            has_heights = not heights and any(
+                _has_table(conn, t) and conn.execute(
+                    f"SELECT 1 FROM {t} WHERE east >= ? AND west <= ? AND north >= ? AND south <= ? LIMIT 1",  # noqa: S608
+                    (west, east, south, north)).fetchone()
+                for t in ("contours_box", "spots_box", "road_points_box"))
+            if lines or points or areas or houses or mapped or roads or paint or marks or has_heights:
                 out["sources"].append(dict(conn.execute("SELECT key, value FROM meta")))
         out["contours"] += [{"elev": elev, "points": json.loads(text)} for elev, text in lines]
         out["spots"] += [[lon, lat, elev] for lon, lat, elev in points]

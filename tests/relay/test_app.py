@@ -327,7 +327,7 @@ def test_ledger_rows_are_looked_up_by_pnu_from_the_unpacked_packs(store, upstrea
 
 
 def test_the_ground_goes_out_relative_to_the_site_and_only_within_bounds(store, upstream, token, tmp_path):
-    from sida.experts.site import terrain_pack
+    from sida.experts.site import context3d, terrain_pack
     from tests.experts.site.test_context3d import LAT0, LON0, lonlat
 
     folder = tmp_path / "terrain"
@@ -343,8 +343,9 @@ def test_the_ground_goes_out_relative_to_the_site_and_only_within_bounds(store, 
     got = post(app, "/relay/terrain/ground", body, token)
     assert got.status_code == 200 and got.headers["content-encoding"] == "gzip"
     shared = got.json()
-    assert shared["format"] == 1 and shared["grid"] is None and shared["contours"] == []  # no tiles: no heights
-    assert shared["areas"][0]["ring"][0] == pytest.approx([-20, -20], abs=0.01)  # metres from the site, not lon/lat
+    assert shared["format"] == 2 and shared["tiles"] == [] and shared["phase"] is None  # no tiles: no heights
+    (kind, ring), = context3d.from_shared(context3d.Frame(body), shared, 100)["areas"]
+    assert kind == "water" and ring[0] == pytest.approx([-20, -20], abs=0.01)  # metres from the site, not lon/lat
     assert shared["sources"] == [{"name": "t-areas", "kind": "areas", "source": "made up", "source_date": ""}]
     for bad in ({**body, "radius": 1501}, {**body, "lon": 140.0}, {**body, "extra": 1}):
         assert post(app, "/relay/terrain/ground", bad, token).status_code == 422
