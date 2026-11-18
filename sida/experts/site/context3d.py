@@ -500,27 +500,43 @@ def _shared_tiles(frame: Frame, half: float, folder: Path | None) -> tuple[list[
             continue
         j0, j1, i0, i1 = cols[0], cols[-1] + 1, lines[0], lines[-1] + 1
         z = ground_tiles.decode(blob, nx, ny)[i0:i1, j0:j1]
-        pieces.append({"x0": float(xs[j0]), "y0": float(ys[i0]), "dx": dx, "dy": dy, "z": z})
+        ix, iy = ground_tiles.tile_of(lon0, lat0)
+        west, south, east_, north_ = ground_tiles.tile_box(int(ix), int(iy))
+        core = [(west - frame.lon0) * frame.east, (south - frame.lat0) * frame.north,
+                (east_ - frame.lon0) * frame.east, (north_ - frame.lat0) * frame.north]
+        pieces.append({"x0": float(xs[j0]), "y0": float(ys[i0]), "dx": dx, "dy": dy, "z": z, "core": core})
     middle = _tiles_sample(pieces, np.zeros(1), np.zeros(1))
     if not pieces or np.isnan(middle[0]):
         return [], None
     elev0 = float(middle[0])
-    tiles = [{"x0": round(p["x0"], 3), "y0": round(p["y0"], 3), "dx": p["dx"], "dy": p["dy"],
+    tiles = [{"x0": round(p["x0"], 3), "y0": round(p["y0"], 3), "dx": p["dx"], "dy": p["dy"], "core": p["core"],
               "nx": int(p["z"].shape[1]), "ny": int(p["z"].shape[0]),
               "z": base64.b64encode(ground_tiles.encode(p["z"] - elev0)).decode()} for p in pieces]
     return tiles, round(elev0 % INDEX_EVERY, 2)
 
 
 def _tiles_sample(pieces: list[dict], x: np.ndarray, y: np.ndarray) -> np.ndarray:
-    """Bilinear heights of tile pieces ({"x0", "y0", "dx", "dy", "z"}) at local points; NaN off them."""
+    """
+    Bilinear heights of tile pieces ({"x0", "y0", "dx", "dy", "z", "core"}) at local points; NaN
+    off them. A point takes the tile whose own square ("core": west, south, east, north in local
+    metres, west and south edges included) holds it, as ground_tiles.heights does, not a
+    neighbour's border cells, which were solved apart and can differ by a few cm at the seam;
+    only a point no core holds (or pieces without "core") takes any piece that covers it.
+    """
     out = np.full(x.shape, np.nan)
-    for p in pieces:
-        ny, nx = p["z"].shape
-        fx = (x - p["x0"]) / p["dx"]
-        fy = (y - p["y0"]) / p["dy"]
-        here = np.isnan(out) & (fx >= -1e-9) & (fx <= nx - 1 + 1e-9) & (fy >= -1e-9) & (fy <= ny - 1 + 1e-9)
-        if here.any():
-            out[here] = ground_tiles._bilinear(p["z"], 0.0, 0.0, 1.0, fx[here], fy[here])
+    for own in (True, False):
+        for p in pieces:
+            if own and not p.get("core"):
+                continue
+            ny, nx = p["z"].shape
+            fx = (x - p["x0"]) / p["dx"]
+            fy = (y - p["y0"]) / p["dy"]
+            here = np.isnan(out) & (fx >= -1e-9) & (fx <= nx - 1 + 1e-9) & (fy >= -1e-9) & (fy <= ny - 1 + 1e-9)
+            if own:
+                west, south, east, north = p["core"]
+                here &= (x >= west) & (x < east) & (y >= south) & (y < north)
+            if here.any():
+                out[here] = ground_tiles._bilinear(p["z"], 0.0, 0.0, 1.0, fx[here], fy[here])
     return out
 
 
