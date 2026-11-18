@@ -53,6 +53,7 @@ export const pointerMethods = {
     root.addEventListener('change', (e) => {
       if (e.target.dataset.ui === 'cut-pick') this.setCut(e.target.value);
       if (e.target.dataset.ui === 'ghost') { this.ghost = e.target.checked; this.drawMasses(); }
+      if (e.target.dataset.diagramHour) this.diagramAction('hour', e.target.dataset.diagramHour, e.target.value);
       if (e.target === this.photoInput && this.photoInput.files.length) this.addPhotos([...this.photoInput.files]);
       if (e.target.dataset.detailTitle) this.saveTitle(e.target.dataset.detailTitle, e.target.value);
     });
@@ -136,6 +137,7 @@ export const pointerMethods = {
       return;
     }
     if (t.dataset.envelopePlace !== undefined) { this.placeEnvelopeScheme(t.dataset.envelopePlace); return; }
+    if (t.dataset.diagram) { this.diagramAction(t.dataset.diagram, t.dataset.kind, t.dataset.value); return; }
     if (t.dataset.tilt) { this.showView(t.dataset.tilt, t.dataset.corner); return; }
     const id = t.dataset.id;
     switch (t.dataset.trayAction) {
@@ -157,6 +159,7 @@ export const pointerMethods = {
       case 'envelope-height-clear': this.applyEnvelopeHeight(true); break;
       case 'envelope-use': this.applyEnvelopeUse(); break;
       case 'envelope-relaxed': this.toggleEnvelopeRelaxed(); break;
+      case 'diagrams': this.toggleDiagrams(); break;
       case 'eye': this.toggleEye(); break;
       case 'model-panel': this.openModel(); this.drawControls(); break;
       case 'cut': this.cutFromBar(); break;

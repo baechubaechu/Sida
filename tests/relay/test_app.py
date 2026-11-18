@@ -300,3 +300,52 @@ def test_ledger_packs_are_served_to_access_keys_only_and_only_what_the_manifest_
     assert call(app, "/relay/ledger/seoul-2026-08.ledger.sqlite.gz", token=token).status_code == 404  # not listed
     assert call(app, "/relay/ledger/..%2Frelay.db", token=token).status_code == 404
     assert upstream.calls == []
+
+
+def post(client, path, body, token=None):
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    return client.post(path, json=body, headers=headers)
+
+
+def test_ledger_rows_are_looked_up_by_pnu_from_the_unpacked_packs(store, upstream, token, tmp_path):
+    from sida.experts.site import ledger_pack
+    from tests.experts.site.test_ledger_pack import bulk_zip
+
+    folder = tmp_path / "ledger"
+    folder.mkdir()
+    app = TestClient(relay.create_app(KEYS, store, fetch=upstream, ledger_dir=folder))
+    pnu = "1111011900101060000"
+    assert post(app, "/relay/ledger/lookup", {"pnus": [pnu]}, token).status_code == 503  # no pack yet
+    ledger_pack.build(bulk_zip(tmp_path), folder / f"seoul-2026-09{ledger_pack.SUFFIX}", ("11",), month="2026-09",
+                      log=lambda _m: None)
+    assert post(app, "/relay/ledger/lookup", {"pnus": [pnu]}).status_code == 401
+    got = post(app, "/relay/ledger/lookup", {"pnus": [pnu, "2611011900101060000"]}, token).json()
+    assert got["month"] == "2026-09" and list(got["rows"]) == [pnu] and got["rows"][pnu]
+    assert post(app, "/relay/ledger/lookup", {"pnus": ["../relay.db"]}, token).status_code == 400
+    assert post(app, "/relay/ledger/lookup", {"pnus": [pnu] * (relay.MAX_LOOKUP_PNUS + 1)}, token).status_code == 422
+    assert ("2026-11-07", "지훈", "ledger", 1, 0) in store.usage()  # one good lookup, counted with the key
+
+
+def test_the_ground_goes_out_relative_to_the_site_and_only_within_bounds(store, upstream, token, tmp_path):
+    from sida.experts.site import terrain_pack
+    from tests.experts.site.test_context3d import LAT0, LON0, lonlat
+
+    folder = tmp_path / "terrain"
+    folder.mkdir()
+    app = TestClient(relay.create_app(KEYS, store, fetch=upstream, terrain_dir=folder))
+    body = {"lon": LON0, "lat": LAT0, "radius": 100}
+    assert post(app, "/relay/terrain/ground", body, token).status_code == 503  # no packs yet
+    conn = terrain_pack.create(folder / f"t{terrain_pack.SUFFIX}", {"name": "t-areas", "kind": "areas", "source": "made up"})
+    terrain_pack.add_area(conn, "water", [lonlat(-20, -20), lonlat(20, -20), lonlat(20, 20), lonlat(-20, 20)])
+    conn.commit()
+    conn.close()
+    assert post(app, "/relay/terrain/ground", body).status_code == 401
+    got = post(app, "/relay/terrain/ground", body, token)
+    assert got.status_code == 200 and got.headers["content-encoding"] == "gzip"
+    shared = got.json()
+    assert shared["format"] == 1 and shared["grid"] is None and shared["contours"] == []  # no tiles: no heights
+    assert shared["areas"][0]["ring"][0] == pytest.approx([-20, -20], abs=0.01)  # metres from the site, not lon/lat
+    assert shared["sources"] == [{"name": "t-areas", "kind": "areas", "source": "made up", "source_date": ""}]
+    for bad in ({**body, "radius": 1501}, {**body, "lon": 140.0}, {**body, "extra": 1}):
+        assert post(app, "/relay/terrain/ground", bad, token).status_code == 422
+    assert upstream.calls == []

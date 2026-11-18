@@ -2,20 +2,23 @@
 Description=Sida: this month's 건축물대장 packs from 건축HUB (does nothing until a new month is out)
 After=network-online.target
 Wants=network-online.target
+# The packs live on the added storage (sida-store); without it mounted the service does not run.
+RequiresMountsFor=/opt/sida-kr/data
 
 [Service]
 Type=oneshot
 User=ledger
 Group=ledger
-ExecStart=/usr/bin/python3 /opt/sida-kr/ledger-sync/ledger_pull.py --out /opt/sida-kr/ledger --work /var/tmp/sida-ledger --region seoul=11
+ExecStart=/usr/bin/python3 /opt/sida-kr/ledger-sync/ledger_pull.py --out /opt/sida-kr/data/ledger --work /opt/sida-kr/data/ledger-work
 Nice=15
 IOSchedulingClass=idle
 MemoryMax=400M
-TimeoutStartSec=2h
+# Every 시·도 (16 packs) from one reading of the ~3.8GB file, then gzip: room for a slow disk.
+TimeoutStartSec=4h
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/opt/sida-kr/ledger /var/tmp/sida-ledger
+ReadWritePaths=/opt/sida-kr/data/ledger /opt/sida-kr/data/ledger-work
 # ProtectSystem=strict leaves /tmp read-only: SQLite sorts for CREATE INDEX in the work folder instead.
-# No PrivateTmp: it would hide /var/tmp/sida-ledger from the service (status 226/NAMESPACE).
-Environment=SQLITE_TMPDIR=/var/tmp/sida-ledger TMPDIR=/var/tmp/sida-ledger
+# No PrivateTmp: it would hide /opt/sida-kr/data/ledger-work from the service (status 226/NAMESPACE).
+Environment=SQLITE_TMPDIR=/opt/sida-kr/data/ledger-work TMPDIR=/opt/sida-kr/data/ledger-work

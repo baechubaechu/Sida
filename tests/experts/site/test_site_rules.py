@@ -105,3 +105,11 @@ def test_several_zones_make_one_line_and_no_site_makes_none():
     assert lines[0]["id"] == "zones" and lines[0]["value"] == "일반상업지역, 제3종일반주거지역"
     assert {x["id"]: x for x in lines}["sunlight"]["value"] == "적용"
     assert site_rules.card(None) == []
+
+
+def test_the_height_line_links_to_the_parcels_land_use_page():
+    f = facts(districts=MUGYO)
+    f["parcels"] = [{"pnu": "1114010100100450000", "address": "서울특별시 중구 무교동 45"}]
+    height = {x["id"]: x for x in site_rules.card(f)}["height"]
+    assert height["links"] == [{"label": "토지이음 토지이용계획(이 필지)",
+                                "url": "https://www.eum.go.kr/web/ar/lu/luLandDet.jsp?pnu=1114010100100450000&mode=search&isNoScr=script&selGbn=umd"}]

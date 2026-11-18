@@ -23,7 +23,11 @@ export const STATUS_LABELS = {
 
 export const PROVIDER_LABELS = {
   openrouter: 'OpenRouter (API 키)', ollama: '이 PC의 모델 (Ollama)', chatgpt: 'ChatGPT 구독',
+  anthropic: 'Anthropic (API 키)', google: 'Google Gemini (API 키)',
 };
+
+// Providers that run on the user's own API key, each with a key `<id>_key` and models `<id>_model`.
+export const KEY_PROVIDERS = ['anthropic', 'google'];
 
 export const MODE_LABELS = { cloud: '둘 다 OpenRouter', local: '둘 다 이 PC의 모델', custom: '따로 고름' };
 
@@ -75,10 +79,12 @@ export function readiness(settings, relayRequest = null) {
   if (roles.includes('chatgpt') && !chatgpt.signed_in) ai = { ok: false, text: 'ChatGPT 로그인 필요', target: '#settings-chatgpt' };
   else if (roles.includes('chatgpt') && !chatgpt.plan_usage) ai = { ok: false, text: 'ChatGPT 다시 로그인 필요', target: '#settings-chatgpt' };
   else if (roles.includes('openrouter') && !keys.openrouter?.set) ai = { ok: false, text: 'OpenRouter 키 필요', target: '#set-openrouter' };
+  else if (roles.includes('anthropic') && !keys.anthropic?.set) ai = { ok: false, text: 'Anthropic 키 필요', target: '#set-anthropic' };
+  else if (roles.includes('google') && !keys.google?.set) ai = { ok: false, text: 'Gemini 키 필요', target: '#set-google' };
   else {
     const provider = settings.conductor?.provider;
     const model = provider === 'chatgpt' ? chatgpt.model : settings.conductor?.model;
-    const name = { chatgpt: 'ChatGPT', openrouter: 'OpenRouter', ollama: '이 PC 모델' }[provider] || provider || '';
+    const name = { chatgpt: 'ChatGPT', openrouter: 'OpenRouter', ollama: '이 PC 모델', anthropic: 'Anthropic', google: 'Gemini' }[provider] || provider || '';
     ai = { ok: true, text: [name, model].filter(Boolean).join(' · '), target: provider === 'chatgpt' ? '#settings-chatgpt' : '#set-conductor' };
   }
   let data;
@@ -105,14 +111,22 @@ export function settingsChanges(settings, draft) {
   for (const [key, saved] of pairs) if (draft[key] !== saved) changes[key] = draft[key];
   if (draft.chatgpt_model && draft.chatgpt_model !== settings.chatgpt.model) changes.chatgpt_model = draft.chatgpt_model;
   if (draft.worker_chatgpt_model && draft.worker_chatgpt_model !== settings.chatgpt.worker_model) changes.worker_chatgpt_model = draft.worker_chatgpt_model;
+  for (const provider of KEY_PROVIDERS) {
+    const saved = settings[provider] || {};
+    const field = `${provider}_model`;
+    if (draft[field] && draft[field] !== saved.model) changes[field] = draft[field];
+    if (draft[`worker_${field}`] && draft[`worker_${field}`] !== saved.worker_model) changes[`worker_${field}`] = draft[`worker_${field}`];
+  }
   return changes;
 }
 
-// Whether the form holds anything unsaved: a setting, an OpenRouter key or a government key typed in.
+// Whether the form holds anything unsaved: a setting, an OpenRouter or Anthropic key or a government key typed in.
 export function settingsDirty(settings, draft) {
   if (!settings || !draft) return false;
   return Object.keys(settingsChanges(settings, draft)).length > 0
-    || Boolean(String(draft.openrouter_key || '').trim()) || keyChanges(draft.keys, settings.keys).length > 0;
+    || Boolean(String(draft.openrouter_key || '').trim())
+    || KEY_PROVIDERS.some((provider) => Boolean(String(draft[`${provider}_key`] || '').trim()))
+    || keyChanges(draft.keys, settings.keys).length > 0;
 }
 
 // The keys to save: [id, value] for each one typed in (a shown value only when it changed).
@@ -386,13 +400,14 @@ export function sitePageFor(event, name, site) {
   return sitePath(name, site?.available ? 'facts' : 'find');
 }
 
-const EXPERT_TABS = ['chat', 'versions', 'model', 'slides'];
+const EXPERT_TABS = ['chat', 'versions', 'model', 'diagrams', 'slides'];
 
 // Tabs an expert's page has besides 결과, 분석 채팅 and 이전 버전: the representation planner's
-// 모형 holds the model board panel (model-maker.js) for the laser-cut site model, the
-// presentation editor's 발표자료 the slides Sida makes files of (deckView).
+// 모형 holds the model board panel (model-maker.js) for the laser-cut site model and its 대지 다이어그램
+// the site analysis diagrams (range per diagram, files, all at once), the presentation editor's
+// 발표자료 the slides Sida makes files of (deckView).
 export const EXPERT_PAGE_TABS = {
-  representation_planner: [{ id: 'model', label: '모형' }],
+  representation_planner: [{ id: 'model', label: '모형' }, { id: 'diagrams', label: '대지 다이어그램' }],
   presentation_editor: [{ id: 'slides', label: '발표자료' }],
 };
 export const MODEL_EXPERT = 'representation_planner';
@@ -769,12 +784,25 @@ export const RULE_STATUS = {
   check: { label: '확인 필요', tone: 'review' },
 };
 
+// Links a rule line points to: only https links with a label are kept.
+export function safeLinks(links) {
+  return (links || []).filter((l) => l && typeof l.label === 'string' && /^https:\/\//.test(l.url || '')).map((l) => ({ label: l.label, url: l.url }));
+}
+
+// The links of a rule line as HTML (opened in a new tab), or ''.
+export function ruleLinks(links) {
+  const safe = safeLinks(links);
+  return safe.length ? `<p class="rule-links">${safe.map((l) => `<a href="${escapeHtml(l.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(l.label)}</a>`).join(' · ')}</p>` : '';
+}
+
 export function siteRuleRows(rules) {
   return (rules || []).map((r) => {
     const status = RULE_STATUS[r.status] || RULE_STATUS.check;
     return {
       id: r.id, title: r.title || '', value: r.value || UNKNOWN, detail: r.detail || '',
       quote: r.quote || '', source: r.source || '', badge: status.label, tone: status.tone,
+      // 토지이음 pages where the designer reads what the app does not know (sida/experts/site/eum.py)
+      links: safeLinks(r.links),
       // the detail's first sentence when it is short ("연면적 최대 21,737㎡"), for a small card
       brief: (r.detail || '').split('. ')[0].length <= 20 ? (r.detail || '').split('. ')[0] : '',
     };

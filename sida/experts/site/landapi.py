@@ -329,6 +329,35 @@ def regions(parent: str = "", *, http_get: HttpGet | None = None) -> list[dict]:
     return found
 
 
+def sido_boxes(*, http_get: HttpGet | None = None) -> dict[str, list[float]]:
+    """
+    {2-digit 시·도 code: [west, south, east, north]} of each 시·도's boundary (islands included),
+    for checking that a region's map packs cover it (scripts/check_region_packs.py). Only the
+    boxes are kept, not the boundaries (이용약관 제19조).
+    """
+    out: dict[str, list[float]] = {}
+    for feature in _feature_list("LT_C_ADSIDO_INFO", http_get, geom_filter=KOREA_BOX, geometry=True):
+        code = str((feature.get("properties") or {}).get("ctprvn_cd") or "")
+        points = list(_coordinates((feature.get("geometry") or {}).get("coordinates")))
+        if len(code) != 2 or not points:
+            continue
+        lons, lats = [p[0] for p in points], [p[1] for p in points]
+        box = out.get(code)
+        here = [min(lons), min(lats), max(lons), max(lats)]
+        out[code] = here if box is None else [min(box[0], here[0]), min(box[1], here[1]),
+                                              max(box[2], here[2]), max(box[3], here[3])]
+    return out
+
+
+def _coordinates(value):
+    """Every [lon, lat] in a GeoJSON coordinates array, at any depth."""
+    if isinstance(value, (list, tuple)) and len(value) >= 2 and all(isinstance(v, (int, float)) for v in value[:2]):
+        yield float(value[0]), float(value[1])
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _coordinates(item)
+
+
 def _lot_rows(attr_filter: str, prefix: str, http_get: HttpGet | None) -> list[dict]:
     out: dict[str, dict] = {}
     for row in _features("LP_PA_CBND_BUBUN", http_get, attr_filter=attr_filter):

@@ -9,7 +9,7 @@ import { talkMenu } from './talk-panel-model.js';
 import { api, expertUrl, projectApi } from './api.js';
 import { applyModelRecommendation, askAbout, closeTable, editProperty, downloadBoard, hideVWorld, loadBoard, openTable, placeTable, table, takePicked, unpick } from './board.js';
 import { commandKey, focusCommandLine, runCommandLine } from './commands.js';
-import { decideProposal, downloadDeck, pickDeckScheme, newChat, runExpert, send, sendFeedback } from './experts.js';
+import { decideProposal, downloadDeck, pickDeckScheme, newChat, runExpert, send, sendFeedback, siteDiagramAction } from './experts.js';
 import { addTypedIdea, ideaAction, placeIdeaFloat, saveIdea } from './ideas.js';
 import { clearExpert, loadExpert, loadOrdinance, loadProjectSites, loadProjects, loadSession, loadSite, resetTracking, start, track } from './jobs.js';
 import { syncPanelWidths } from './panels.js';
@@ -202,6 +202,8 @@ function onHashChange() {
 app.addEventListener('click', (event) => {
   if (openProjectGrowing(event)) return;
   if (!event.target.closest('.talk-more')) dismissTalkMenu();
+  const diagram = event.target.closest('.site-diagram-tab [data-diagram]');
+  if (diagram) { siteDiagramAction(diagram.dataset.diagram, diagram.dataset.kind, diagram.dataset.value); return; }
   const button = event.target.closest('[data-action]');
   if (!button) return;
   const { action } = button.dataset;
@@ -333,6 +335,7 @@ app.addEventListener('change', (event) => {
   if (lot === 'mountain') ui.find.mountain = event.target.checked;
   if (event.target.id === 'idea-new-link') ui.ideaLinkNew = event.target.checked;
   if (event.target.id === 'deck-scheme') pickDeckScheme(event.target.value);
+  if (event.target.dataset?.diagramHour && event.target.closest('.site-diagram-tab')) siteDiagramAction('hour', event.target.dataset.diagramHour, event.target.value);
   if (event.target.dataset?.rhinoView !== undefined) setRhinoView(event.target.checked);
   const { ordDetailed } = event.target.dataset || {};
   if (ordDetailed) setOrdinanceOption(currentRoute.name, ordDetailed, { detailed: event.target.checked });

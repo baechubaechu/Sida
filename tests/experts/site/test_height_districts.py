@@ -260,3 +260,16 @@ def test_pieces_under_a_number_the_table_aliases_are_matched_to_that_notices_nam
     # the alias names 북한산 주변 only: a 2023-1986 piece elsewhere is never another district's zone
     elsewhere = height_districts.pick([piece(19109, "2023", "1986")], facts())
     assert elsewhere["status"] == "candidates" and not elsewhere["candidates"]
+
+
+def test_the_height_line_links_to_the_parcels_land_use_page_and_the_notice():
+    pnu = "1130510400101000001"
+    unknown = height_districts.pick([piece(5000, "2019", "0001", sigg="강북구", sido="부산광역시")], facts(pnu=pnu))
+    line, height = height_districts.line(unknown, entered=None)
+    assert (line["value"], height) == ("입력 필요", None)
+    assert [link["label"] for link in line["links"]] == ["토지이음 토지이용계획(이 필지)", "토지이음 고시 검색(2019-1)"]
+    assert pnu in line["links"][0]["url"]
+    matched = height_districts.pick([piece(19004)], facts())
+    assert [link["label"] for link in height_districts.line(matched, entered=None)[0]["links"]] == ["토지이음 고시 검색(2024-317)"]
+    entered, _h = height_districts.line(matched, entered=30)
+    assert "links" not in entered  # the designer's own height needs no pointer

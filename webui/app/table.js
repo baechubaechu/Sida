@@ -25,6 +25,7 @@ import { peopleMethods } from './table-people.js';
 import { sectionMethods } from './table-section.js';
 import { envelopeMethods } from './table-envelope.js';
 import { commentsMethods } from './table-comments.js';
+import { diagramsMethods } from './table-diagrams.js';
 
 export class DraftingTable {
   // hooks: { add(paper), update(id, changes), remove(id), place(id, placement), discard(id),
@@ -89,6 +90,11 @@ export class DraftingTable {
     this.envelopeOn = false;
     this.envelopeBusy = false;
     this.envelopeRequest = null;
+    this.siteDiagrams = null; // 대지분석 다이어그램 (GET .../site/diagrams), asked for when the panel opens (table-diagrams.js)
+    this.diagramsOpen = false;
+    this.diagramsBusy = false;
+    this.diagramsError = '';
+    this.diagramsRequest = null;
     this.people = []; // 사람 배치: scale figures stood about the site (table-people.js)
     this.comments = []; // a share's comment pins (table-comments.js)
     this.personPicked = ''; // the person picked (their id)
@@ -120,6 +126,7 @@ export class DraftingTable {
       <div class="block-tags" aria-hidden="true"></div>
       <p class="table-ui around-legend" aria-label="주변 3D 범례" hidden></p>
       <section class="table-ui envelope-card" aria-label="법규 볼륨" hidden></section>
+      <section class="table-ui diagram-panel" aria-label="대지분석 다이어그램" hidden></section>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
       <section class="table-ui peek" aria-label="종이 내용" hidden></section>
       <section class="table-ui scheme-form" aria-label="매스안 입력" hidden></section>
@@ -145,6 +152,7 @@ export class DraftingTable {
       eye: this.root.querySelector('.eye-bar'),
       aroundLegend: this.root.querySelector('.around-legend'),
       envelope: this.root.querySelector('.envelope-card'),
+      diagrams: this.root.querySelector('.diagram-panel'),
       tray: this.root.querySelector('.tray'),
       form: this.root.querySelector('.scheme-form'),
       peek: this.root.querySelector('.peek'),
@@ -186,6 +194,7 @@ export class DraftingTable {
       this.around = null;
       this.drawAround();
       this.forgetEnvelope();
+      this.forgetDiagrams();
     }
     this.figures = view.figures || {};
     this.tray = view.tray || [];
@@ -286,6 +295,10 @@ export class DraftingTable {
       case 'envelope':
         if (!this.site?.plan && !this.envelopeOn) return '대지를 먼저 정해야 법규 볼륨을 계산할 수 있습니다.';
         this.toggleEnvelope();
+        return '';
+      case 'diagram':
+        if (!this.site?.plan && !this.diagramsOpen) return '대지를 먼저 정해야 대지분석 다이어그램을 그릴 수 있습니다.';
+        this.toggleDiagrams();
         return '';
       case 'base': this.openModel(); return '';
       case 'group': return this.groupSelection(true);
@@ -625,6 +638,8 @@ export class DraftingTable {
         hint: '대지 주변의 지형과 건물을 3D로 보기 (공공 자료로 만든 참고용 모형). 범위·모양·등고선은 레이어 패널의 주변 줄에서 정합니다', icon: 'around' },
       envelope: { attr: 'data-ui="envelope"', pressed: this.envelopeOn, off: !(this.site?.plan && !this.envelopeBusy), label: this.envelopeBusy ? '법규 볼륨 계산 중' : '법규 볼륨', cmd: 'envelope',
         hint: '정북일조·건폐율·용적률로 대지에 지을 수 있는 볼륨과 참고 매스 보기 (공공 자료와 조문으로 계산한 참고용)', icon: 'envelope' },
+      diagrams: { attr: 'data-ui="diagrams"', pressed: this.diagramsOpen, off: !this.site?.plan, label: '대지분석 다이어그램', cmd: 'diagram',
+        hint: '피겨-그라운드·건물 높이·용도·도로·물과 나무·지형·동지 그림자·태양 궤적·거리 반경을 규칙대로 그린 도면 (주변 3D 범위의 공공 자료)', icon: 'diagrams' },
       'model-panel': { attr: 'data-ui="model-panel"', label: '모형 바닥', cmd: 'base', hint: '표현 계획자의 모형 탭: 모형 판 크기·축척을 정해 레이저 커팅 파일 받기', icon: 'base' },
     });
     const state = (it) => `${it.pressed === undefined ? '' : `aria-pressed="${Boolean(it.pressed)}"`} ${it.off ? 'disabled' : ''}`;
@@ -824,4 +839,4 @@ export class DraftingTable {
   }
 }
 
-Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods, eyeMethods, measureMethods, peopleMethods, sectionMethods, envelopeMethods, commentsMethods);
+Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods, eyeMethods, measureMethods, peopleMethods, sectionMethods, envelopeMethods, commentsMethods, diagramsMethods);

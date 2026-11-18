@@ -12,12 +12,16 @@ has a new month:
 2. Stop when the manifest already has that file id.
 3. Download the zip (~650MB, no resume: the server ignores Range) and check it: the declared
    size, all of it arrived, a zip. 건축HUB answers an unknown id with 200 and nothing.
-4. Make each region's pack with sida.experts.site.ledger_pack (read from the zip as it is), and
-   refuse one with fewer rows than 95% of last month's (a broken file, not a month of demolition).
-5. Gzip each pack next to the manifest, then write the manifest (atomically) and remove the files
-   it no longer lists. The zip and the work files are removed whatever happened.
+4. Make every region's pack in one reading of the zip (sida.experts.site.ledger_pack; one per
+   시·도 by default, sida.experts.site.regions), and refuse the month when a pack has no rows or
+   fewer than 95% of last month's (a broken file, not a month of demolition).
+5. Gzip each pack next to the manifest for the apps to download, and keep the pack itself there
+   too (<name>-<month>.ledger.sqlite, not in the manifest) for the relay to look parcels up in.
+   Then write the manifest (atomically) and remove the files of other months. The zip and the
+   work files are removed whatever happened.
 
-    python3 ledger_pull.py --out /opt/sida-kr/ledger --work /var/tmp/sida-ledger --region seoul=11
+    python3 ledger_pull.py --out /opt/sida-kr/data/ledger --work /opt/sida-kr/data/ledger-work
+    python3 ledger_pull.py --out … --work … --region seoul=11 --region gyeonggi=41   # only these
 
 The ledger_pack module is taken from the repository when run there, else from src/ next to this
 file (a copy made at install, relay/README.md).
@@ -45,6 +49,7 @@ sys.path.insert(0, str(HERE / "src"))  # the installed copy; in the repository s
 sys.path.insert(1, str(HERE.parents[1]))
 
 from sida.experts.site import ledger_pack  # noqa: E402
+from sida.experts.site.regions import ledger_regions  # noqa: E402
 
 HUB = "https://www.hub.go.kr"
 LIST_URL = HUB + "/portal/opn/lps/idx-lgcpt-pvsn-srvc-list.do?opnLgcptTaskSeCd=03&pageCountPerPage=10&pageIndex=1"
@@ -147,54 +152,68 @@ def run(out: Path, work: Path, regions: dict[str, tuple[str, ...]], *, page: str
         raise PullError("no 표제부 on 건축HUB's list (the page changed?)")
     file_id, title, month = found
     old = read_manifest(out)
-    if old.get("source_id") == file_id and {p.get("name") for p in old.get("packs", [])} == set(regions):
+    listed = {p.get("name") for p in old.get("packs", []) if isinstance(p, dict)}
+    kept = all((out / f"{name}-{month}{ledger_pack.SUFFIX}").is_file() for name in regions)
+    if old.get("source_id") == file_id and listed == set(regions) and kept:
         log(f"unchanged: {title} ({file_id})")
         return "unchanged"
     before = {p.get("name"): int(p.get("rows", 0)) for p in old.get("packs", []) if isinstance(p, dict)}
     source = work / f"{file_id}.zip"
-    made: list[Path] = []
+    made = {name: work / f"{name}{ledger_pack.SUFFIX}" for name in regions}
     try:
         log(f"downloading {title} ({file_id})")
         size = fetch_file(DOWNLOAD_URL.format(id=file_id), source)
+        rows = ledger_pack.build_many(source, {made[name]: prefixes for name, prefixes in regions.items()},
+                                      month=month, log=log)
+        for name in regions:
+            got = rows[made[name]]
+            if got <= 0 or got < MIN_SHARE * before.get(name, 0):
+                raise PullError(f"{name}: {got} rows, last month {before.get(name, 0)}")
         packs = []
         for name, prefixes in regions.items():
-            pack = work / f"{name}{ledger_pack.SUFFIX}"
-            made.append(pack)
-            rows = ledger_pack.build(source, pack, prefixes, month=month, log=lambda m: None)
-            if rows <= 0 or rows < MIN_SHARE * before.get(name, 0):
-                raise PullError(f"{name}: {rows} rows, last month {before.get(name, 0)}")
             file = f"{name}-{month}{ledger_pack.SUFFIX}.gz"
-            gz_bytes, sha = _gzip(pack, out / file)
-            packs.append({"name": name, "month": month, "prefixes": ",".join(prefixes), "rows": rows,
+            gz_bytes, sha = _gzip(made[name], out / file)
+            packs.append({"name": name, "month": month, "prefixes": ",".join(prefixes), "rows": rows[made[name]],
                           "file": file, "bytes": gz_bytes, "sha256": sha})
-            log(f"{name}: {rows} rows, {gz_bytes} bytes")
+            log(f"{name}: {rows[made[name]]} rows, {gz_bytes} bytes")
+        for name in regions:  # the packs themselves, for the relay's lookups (same disk: a rename)
+            shutil.move(made[name], out / f"{name}-{month}{ledger_pack.SUFFIX}")
+            os.chmod(out / f"{name}-{month}{ledger_pack.SUFFIX}", 0o644)
         manifest = {"format": FORMAT, "source": "국토교통부 건축물대장 표제부 (건축HUB 대용량 데이터 제공)",
                     "source_title": title, "source_id": file_id, "source_bytes": size,
                     "made_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "packs": packs}
         _write_atomic(out / MANIFEST, json.dumps(manifest, ensure_ascii=False, indent=1))
-        keep = {MANIFEST} | {p["file"] for p in packs}
+        keep = {MANIFEST} | {p["file"] for p in packs} | {f"{name}-{month}{ledger_pack.SUFFIX}" for name in regions}
         for path in out.iterdir():
             if path.is_file() and path.name not in keep:
                 path.unlink()
         return f"updated {month}"
     finally:
-        for path in (source, *made):
+        for path in (source, *made.values()):
             path.unlink(missing_ok=True)
             path.with_name(path.name + ".part").unlink(missing_ok=True)
+
+
+def parse_regions(items: list[str]) -> dict[str, tuple[str, ...]]:
+    """--region values (name=시군구 prefixes) as {name: prefixes}; every 시·도 when none are given."""
+    if not items:
+        return ledger_regions()
+    out = {}
+    for item in items:
+        name, _, prefixes = item.partition("=")
+        out[name.strip()] = tuple(p.strip() for p in prefixes.split(",") if p.strip())
+    return out
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.strip().split("\n\n")[0])
     ap.add_argument("--out", type=Path, required=True, help="what the relay serves (manifest + packs)")
     ap.add_argument("--work", type=Path, required=True, help="room for the zip (~650MB) and the packs")
-    ap.add_argument("--region", action="append", default=[], help="name=시군구 prefixes, e.g. seoul=11 (repeat)")
+    ap.add_argument("--region", action="append", default=[],
+                    help="name=시군구 prefixes, e.g. seoul=11 (repeat; default: one pack per 시·도)")
     args = ap.parse_args()
-    regions = {}
-    for item in args.region or ["seoul=11"]:
-        name, _, prefixes = item.partition("=")
-        regions[name.strip()] = tuple(p.strip() for p in prefixes.split(",") if p.strip())
     try:
-        print(run(args.out, args.work, regions, log=lambda m: print(m, flush=True)), flush=True)
+        print(run(args.out, args.work, parse_regions(args.region), log=lambda m: print(m, flush=True)), flush=True)
     except (PullError, OSError, zipfile.BadZipFile, sqlite3.Error) as exc:
         print(f"failed: {exc}", file=sys.stderr, flush=True)
         return 1

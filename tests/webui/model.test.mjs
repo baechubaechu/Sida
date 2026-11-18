@@ -618,9 +618,10 @@ test('the representation planner: its site model recommendation is read and the 
   assert.equal(model.blocks[0].label, '모형');
   assert.equal(model.blocks[0].items.length, 3);
   assert.equal(arranged.handoffs[0].agent, 'presentation_editor');
-  assert.deepEqual(expertPageTabs('representation_planner'), [{ id: 'model', label: '모형' }]);
+  assert.deepEqual(expertPageTabs('representation_planner'), [{ id: 'model', label: '모형' }, { id: 'diagrams', label: '대지 다이어그램' }]);
   assert.deepEqual(expertPageTabs('site_reader'), []);
   assert.equal(parseRoute(expertPath('가', 'representation_planner', 'model')).tab, 'model');
+  assert.equal(parseRoute(expertPath('가', 'representation_planner', 'diagrams')).tab, 'diagrams');
 });
 
 test('a project card shows the saved site address, zones, area and the one zone statutory caps', () => {
@@ -691,6 +692,12 @@ test('the sidebar says whether the AI and the government data are ready, and whe
   assert.deepEqual([noKey.ok, noKey.text, noKey.target], [false, 'OpenRouter 키 필요', '#set-openrouter']);
   const local = readiness({ ...base, conductor: { provider: 'ollama', model: 'qwen' }, worker: { provider: 'ollama' } })[0];
   assert.deepEqual([local.ok, local.text, local.target], [true, '이 PC 모델 · qwen', '#set-conductor']);
+  const claude = { ...base, conductor: { provider: 'anthropic', model: 'claude-opus-5-5' }, worker: { provider: 'anthropic' } };
+  const claudeNoKey = readiness(claude)[0];
+  assert.deepEqual([claudeNoKey.ok, claudeNoKey.text, claudeNoKey.target], [false, 'Anthropic 키 필요', '#set-anthropic']);
+  assert.equal(readiness({ ...claude, keys: { anthropic: { set: true } } })[0].text, 'Anthropic · claude-opus-5-5');
+  const gemini = readiness({ ...base, conductor: { provider: 'google', model: 'gemini-4-hydrogen' }, worker: { provider: 'ollama' } })[0];
+  assert.deepEqual([gemini.ok, gemini.text, gemini.target], [false, 'Gemini 키 필요', '#set-google']);
 
   assert.equal(readiness({ ...base, keys: { vworld: { set: true }, data_go_kr: { set: true } } })[1].text, '이 PC의 정부 키로 연결됨');
   assert.deepEqual(readiness({ ...base, keys: {} }, { state: 'pending' })[1].text, 'Sida 키 승인 기다리는 중');
@@ -728,6 +735,15 @@ test('the settings form knows what saving would change and whether anything is u
   assert.equal(settingsDirty(settings, { ...draft, keys: { ...draft.keys, law: 'oc' } }), true);
   assert.equal(settingsDirty(settings, { ...draft, keys: { ...draft.keys, vworld_domain: 'localhost' } }), false);
   assert.equal(settingsDirty(null, draft), false);
+  // The Claude models and key (the user's own Anthropic API key).
+  const claude = { ...settings, anthropic: { model: 'claude-opus-5-5', worker_model: 'claude-opus-5-5' } };
+  const claudeDraft = { ...draft, anthropic_model: 'claude-opus-5-5', worker_anthropic_model: 'claude-opus-5-5', anthropic_key: '' };
+  assert.deepEqual(settingsChanges(claude, claudeDraft), {});
+  assert.deepEqual(settingsChanges(claude, { ...claudeDraft, worker_anthropic_model: 'claude-sonnet-5-5' }), { worker_anthropic_model: 'claude-sonnet-5-5' });
+  assert.equal(settingsDirty(claude, { ...claudeDraft, anthropic_key: 'sk-ant-1' }), true);
+  assert.deepEqual(settingsChanges({ ...claude, google: { model: 'g1', worker_model: 'g1' } }, { ...claudeDraft, google_model: 'g2', worker_google_model: 'g1' }),
+    { google_model: 'g2' });
+  assert.equal(settingsDirty(claude, { ...claudeDraft, google_key: 'AIza' }), true);
 });
 
 test('a project made without a name gets the first free 무제 number', () => {
@@ -844,4 +860,15 @@ test('siteRuleRows: each line of 이 대지에 걸리는 것 says how sure it is
   assert.equal(rows[1].brief, '');
   assert.equal(rows[3].value, '미확인');
   assert.deepEqual(siteRuleRows(undefined), []);
+});
+
+test('ruleLinks: a rule line links to 토지이음 in a new tab, only by https', async () => {
+  const { ruleLinks, safeLinks } = await import('../../webui/app/model.js');
+  const url = 'https://www.eum.go.kr/web/ar/lu/luLandDet.jsp?pnu=1130510400101000001&mode=search';
+  const rows = siteRuleRows([{ id: 'height', status: 'conditional', title: '높이', value: '고도지구', links: [{ label: '토지이음 토지이용계획(이 필지)', url }, { label: 'bad', url: 'javascript:alert(1)' }, null] }]);
+  assert.deepEqual(rows[0].links, [{ label: '토지이음 토지이용계획(이 필지)', url }]);
+  const html = ruleLinks(rows[0].links);
+  assert.match(html, /^<p class="rule-links"><a href="https:\/\/www\.eum\.go\.kr\/web\/ar\/lu\/luLandDet\.jsp\?pnu=1130510400101000001&amp;mode=search" target="_blank" rel="noopener noreferrer">토지이음 토지이용계획\(이 필지\)<\/a><\/p>$/);
+  assert.equal(ruleLinks([]), '');
+  assert.deepEqual(safeLinks(undefined), []);
 });

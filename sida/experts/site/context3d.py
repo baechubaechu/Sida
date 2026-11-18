@@ -34,6 +34,7 @@ in-memory cache keeps one site from being fetched twice in a row.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import math
@@ -51,6 +52,7 @@ from sida.experts.site import (
     landapi,
     ledger_pack,
     road_marks,
+    site_relay,
     street_trees,
     terrain_pack,
 )
@@ -110,6 +112,11 @@ class Frame:
     def local(self, points) -> np.ndarray:
         p = np.asarray(points, dtype=float).reshape(-1, 2)
         return np.column_stack([(p[:, 0] - self.lon0) * self.east, (p[:, 1] - self.lat0) * self.north])
+
+    def lonlat(self, points) -> np.ndarray:
+        """local(): metres back to lon/lat."""
+        p = np.asarray(points, dtype=float).reshape(-1, 2)
+        return np.column_stack([self.lon0 + p[:, 0] / self.east, self.lat0 + p[:, 1] / self.north])
 
     def box(self, half: float) -> tuple[float, float, float, float]:
         """west, south, east, north (degrees) of the square `half` m around the origin."""
@@ -388,18 +395,25 @@ def fixed_heights(frame: Frame, found: dict) -> tuple[np.ndarray, list, bool]:
 
 
 def ground(frame: Frame, radius: float, *, folder: Path | None = None, shape: str = DEFAULT_SHAPE,
-           tiles: bool = True) -> dict:
+           tiles: bool = True, solve: bool = True, remote: bool = True) -> dict:
     """
     The ground around the site from the terrain packs: {"grid" (SOLVE_STEP, relative to the
     site's middle), "half", "step", "ground_elev" (m above sea level at the middle), "contours",
     "sources", "areas" [(kind, local ring)], "paint": the road lines and marks with local points,
-    "from_tiles": whether the heights came from tiles made ahead of time}.
+    "from_tiles": whether the heights came from tiles made ahead of time, "relative": True when
+    the heights came from the relay, which sends none above sea level (ground_elev is then 0)}.
     {"grid": None, ...} when no pack covers the site.
     The heights come from the ground tiles (ground_tiles.py) when current ones cover the whole
-    range (and `tiles`), else they are solved here from fixed_heights.
+    range (and `tiles`), else they are solved here from fixed_heights (when `solve`).
+    Where this PC has no contour pack, the ground comes from the Sida relay when it has some
+    (site_relay.ground, when `remote`).
     """
     half = radius + MARGIN
     found = terrain_pack.query(*frame.box(half), folder=folder)
+    if remote and not any(s.get("kind", "contours") == "contours" for s in found["sources"]):
+        shared = site_relay.ground(frame.lon0, frame.lat0, radius, folder=folder)
+        if shared is not None:
+            return from_shared(frame, shared, radius, shape)
     fixed, lines, roads_used = fixed_heights(frame, found)
     areas = [(a["kind"], frame.local(a["ring"])) for a in found["areas"]]
     paint = {
@@ -409,12 +423,12 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None, shape: st
     }
     grid = tile_grid(frame, half, SOLVE_STEP, folder) if tiles and len(fixed) else None
     from_tiles = grid is not None
-    if grid is None:
+    if grid is None and solve:
         grid = solve_ground(fixed, half, SOLVE_STEP)
     if grid is None:
         return {"grid": None, "half": half, "step": SOLVE_STEP, "ground_elev": None, "contours": [],
                 "sources": found["sources"], "areas": areas, "buildings": found["buildings"],
-                "map_buildings": found["map_buildings"], "paint": paint, "from_tiles": False}
+                "map_buildings": found["map_buildings"], "paint": paint, "from_tiles": False, "relative": False}
     elev0 = float(sample(grid, half, SOLVE_STEP, [0.0], [0.0])[0])
     if roads_used:  # the 1:5,000 lines no longer lie on the ground near the roads: draw them from it
         lines = grid_contours(grid, half, SOLVE_STEP, CONTOUR_EVERY)
@@ -429,7 +443,84 @@ def ground(frame: Frame, radius: float, *, folder: Path | None = None, shape: st
     return {
         "grid": grid - elev0, "half": half, "step": SOLVE_STEP, "ground_elev": round(elev0, 2),
         "contours": contours, "sources": found["sources"], "areas": areas, "buildings": found["buildings"],
-        "map_buildings": found["map_buildings"], "paint": paint, "from_tiles": from_tiles,
+        "map_buildings": found["map_buildings"], "paint": paint, "from_tiles": from_tiles, "relative": False,
+    }
+
+
+# ---------------------------------------------------------------------------
+# The ground the relay shares (relay/app.py) and the app reads back (site_relay.py)
+# ---------------------------------------------------------------------------
+
+SHARED_FORMAT = 1
+SOURCE_KEYS = ("name", "kind", "source", "source_date")
+
+
+def _xy(points) -> list[list[float]]:
+    return [[round(float(x), 2), round(float(y), 2)] for x, y in np.asarray(points, dtype=float).reshape(-1, 2)]
+
+
+def shared_ground(lon: float, lat: float, radius: float, *, folder: Path | None = None) -> dict:
+    """
+    What the relay sends for the ground within ±radius m (a square) of a site's middle: metres
+    east and north of that middle and heights relative to the ground there, never lon/lat or a
+    height above sea level (국토지리정보원 보안관리규정 [별표 1]).
+    {"format", "radius", "half", "step", "grid": {"n", "z": base64 of ground_tiles.encode} or None,
+    "contours": [{"z", "index", "points"}], "areas": [{"kind", "ring"}], "paint": {"lines", "marks"},
+    "buildings": [{"ring", **terrain_pack.BUILDING_FIELDS}], "map_buildings": [{"ring", "floors", "use"}],
+    "sources": [{name, kind, source, source_date}]}.
+    Heights come only from ground tiles: the relay never solves the ground (grid None and no
+    contours where its tiles don't cover the range).
+    """
+    frame = Frame({"lon": lon, "lat": lat})
+    g = ground(frame, radius, folder=folder, shape="square", solve=False, remote=False)
+    grid = None
+    if g["grid"] is not None:
+        grid = {"n": int(g["grid"].shape[0]), "z": base64.b64encode(ground_tiles.encode(g["grid"])).decode()}
+    paint = g["paint"]
+    return {
+        "format": SHARED_FORMAT, "radius": float(radius), "half": g["half"], "step": g["step"], "grid": grid,
+        "contours": [{"z": c["z"], "index": c["index"], "points": c["points"]} for c in g["contours"]],
+        "areas": [{"kind": kind, "ring": _xy(ring)} for kind, ring in g["areas"]],
+        "paint": {
+            "lines": [{**r, "points": _xy(r["points"])} for r in paint["lines"]],
+            "marks": [{**m, "ring": _xy(m["ring"]), "ahead": _xy(m["ahead"])[0] if m.get("ahead") is not None else None}
+                      for m in paint["marks"]],
+        },
+        "buildings": [{**b, "ring": _xy(frame.local(b["ring"]))} for b in g["buildings"]],
+        "map_buildings": [{**b, "ring": _xy(frame.local(b["ring"]))} for b in g["map_buildings"]],
+        "sources": [{k: s.get(k, "") for k in SOURCE_KEYS} for s in g["sources"]
+                    if grid is not None or s.get("kind", "contours") != "contours"],
+    }
+
+
+def from_shared(frame: Frame, shared: dict, radius: float, shape: str = DEFAULT_SHAPE) -> dict:
+    """shared_ground's answer as `ground` returns it, for this range (contours cut to it). The
+    pack buildings get lon/lat back (from this PC's frame) for `surroundings`. Heights stay
+    relative: ground_elev is 0."""
+    grid = None
+    if shared.get("grid"):
+        n = int(shared["grid"]["n"])
+        grid = ground_tiles.decode(base64.b64decode(shared["grid"]["z"]), n, n)
+    contours = []
+    for c in shared["contours"]:
+        for run in clip_range(np.asarray(c["points"], dtype=float), radius, shape):
+            contours.append({"elev": c["z"], "z": c["z"], "index": bool(c["index"]),
+                             "points": [[round(float(x), 2), round(float(y), 2)] for x, y in run]})
+    paint = shared.get("paint") or {}
+    return {
+        "grid": grid, "half": float(shared["half"]), "step": float(shared["step"]),
+        "ground_elev": 0.0 if grid is not None else None, "contours": contours if grid is not None else [],
+        "sources": shared.get("sources") or [],
+        "areas": [(a["kind"], np.asarray(a["ring"], dtype=float)) for a in shared.get("areas") or []],
+        "buildings": [{**b, "ring": frame.lonlat(b["ring"]).tolist()} for b in shared.get("buildings") or []],
+        "map_buildings": [{**b, "ring": frame.lonlat(b["ring"]).tolist()} for b in shared.get("map_buildings") or []],
+        "paint": {
+            "lines": [{**r, "points": np.asarray(r["points"], dtype=float)} for r in paint.get("lines") or []],
+            "marks": [{**m, "ring": np.asarray(m["ring"], dtype=float),
+                       "ahead": np.asarray(m["ahead"], dtype=float) if m.get("ahead") is not None else None}
+                      for m in paint.get("marks") or []],
+        },
+        "from_tiles": grid is not None, "relative": True,
     }
 
 
@@ -740,8 +831,9 @@ def surroundings(
     buildings come from the packs (`packed`, GIS건물통합정보) where there are some, else from
     VWorld's 건축물정보 and 도로명주소 건물 layers.
     Their 건축물대장 rows: from `ledger` for every parcel when it is given; else from a ledger pack
-    (ledger_pack.py, the monthly bulk file) where one covers the parcel, except within LIVE_NEAR m of
-    the site, which is always asked of data.go.kr so the buildings next to it are current.
+    (ledger_pack.py, the monthly bulk file) on this PC or else on the relay (site_relay.ledger)
+    where one covers the parcel, except within LIVE_NEAR m of the site, which is always asked of
+    data.go.kr so the buildings next to it are current.
     """
     box = frame.box(radius)
     notes: list[str] = []
@@ -799,7 +891,13 @@ def surroundings(
     if wanted and ledger is None:
         reach = max((float(np.hypot(r[:, 0], r[:, 1]).max()) for r in site_rings or [] if len(r)), default=0.0) + LIVE_NEAR
         near = {pnus[i] for i in pnus if pnus[i] and float(np.hypot(*found[i][3])) <= reach}
-        from_pack, meta = ledger_pack.lookup([p for p in wanted if p not in near], folder)
+        far = [p for p in wanted if p not in near]
+        from_pack, meta = ledger_pack.lookup(far, folder)
+        rest = [p for p in far if p not in from_pack]
+        if rest:  # no pack on this PC for them: the relay's packs (site_relay.ledger)
+            from_relay, relay_meta = site_relay.ledger(rest)
+            from_pack.update(from_relay)
+            meta = meta or relay_meta
         records.update(from_pack)
         if meta:
             ledger_source = {"month": meta.get("month", ""), "from_pack": len(from_pack),

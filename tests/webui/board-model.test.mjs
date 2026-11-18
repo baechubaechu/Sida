@@ -1791,3 +1791,18 @@ test('the envelope card lists its figures, its lines with their state and a line
   const paper = m.envelopeSchemePaper({ name: '남쪽 탑형', floor_height: 3, blocks: [{ u: 1, v: 2, w: 3, d: 4, floors: 5 }] });
   assert.deepEqual(paper, { kind: 'mass', title: '법규 볼륨 참고 · 남쪽 탑형', floor_height: 3, blocks: [{ u: 1, v: 2, w: 3, d: 4, floors: 5 }] });
 });
+
+test('site diagrams are asked for and named as chosen', async () => {
+  const m = await import('../../webui/app/board-model.js');
+  assert.equal(m.siteDiagramQuery('heights', { range: 'small' }), 'range=small');
+  assert.equal(m.siteDiagramQuery('heights', {}), 'range=default');
+  assert.equal(m.siteDiagramQuery('heights', { range: 'near' }), 'range=default');
+  assert.equal(m.siteDiagramQuery('shadow', { range: 'large', hour: 12 }), 'range=large&hour=12');
+  assert.equal(m.siteDiagramQuery('shadow', { range: 'default', hour: null }), 'range=default&hour=all');
+  const shadow = { kind: 'shadow', title: '그림자 · 동지', ranges: { small: { side: 150 }, default: { side: 200 }, large: { side: 300 } } };
+  assert.equal(m.siteDiagramLabel(shadow, { range: 'small', hour: 9 }), '그림자 · 동지 9시 (좁게 150m)');
+  assert.equal(m.siteDiagramLabel(shadow, { range: 'large', hour: null }), '그림자 · 동지 9~15시 (넓게 300m)');
+  assert.equal(m.siteDiagramLabel({ kind: 'heights', title: '건물 높이' }, {}), '건물 높이 (기본)');
+  assert.equal(m.siteDiagramLabel({ kind: 'sun_path', title: '태양 궤적', ranges: {} }, {}), '태양 궤적');
+  assert.deepEqual(m.TOOL_GROUPS.find((g) => g.id === 'around').items, ['around', 'diagrams', 'model-panel']);
+});

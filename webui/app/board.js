@@ -97,6 +97,16 @@ function tableHooks(name) {
     // 법규 볼륨: the envelope and reference schemes of the site, GET .../site/envelope (envelope.py).
     envelope: () => api(`${projectApi(name)}/site/envelope`),
     saveEnvelopeSettings: (changes) => api(`${projectApi(name)}/site/envelope/settings`, { method: 'PUT', body: changes }),
+    // 대지분석 다이어그램 (GET .../site/diagrams, site_diagrams.py): the kinds with the kept choices,
+    // a diagram's picture address, keeping a choice, the picture as a file (SVG as drawn, PNG made here).
+    siteDiagrams: () => api(`${projectApi(name)}/site/diagrams`),
+    siteDiagramUrl: (kind, query) => `${projectApi(name)}/site/diagrams/${encodeURIComponent(kind)}?${query}`,
+    keepSiteDiagram: (kind, choice) => api(`${projectApi(name)}/site/diagrams/${encodeURIComponent(kind)}`, { method: 'PUT', body: choice }),
+    siteDiagramFile: async (kind, query, format) => {
+      const svg = await fetchBlob(`${projectApi(name)}/site/diagrams/${encodeURIComponent(kind)}?${query}`);
+      return format === 'png' ? svgToPng(svg) : svg;
+    },
+    saveFile: (blob, filename) => saveBlob(blob, filename),
     saveRange: (range) => api(`${projectApi(name)}/site/context/range`, { method: 'PUT', body: range }),
     // The view the table was last seen from, kept for the project (a reload opens on it).
     saveView: (v) => api(`${projectApi(name)}/board/view`, { method: 'PUT', body: v }).catch(() => {}),
@@ -272,7 +282,7 @@ export async function downloadBoard(name, format) {
 }
 
 // A file from the server; a refusal comes back as its message.
-async function fetchBlob(url) {
+export async function fetchBlob(url) {
   const response = await fetch(url);
   if (!response.ok) {
     let detail = '';
@@ -298,7 +308,7 @@ async function fetchDownload(url, filename) {
 }
 
 // An SVG picture as a PNG, painted by the browser at twice its size (sharp on a slide).
-async function svgToPng(svg) {
+export async function svgToPng(svg) {
   const address = URL.createObjectURL(svg);
   try {
     const image = new Image();

@@ -3,8 +3,10 @@
 import { phaseLabel, visibleExperts, STATUS_LABELS, escapeHtml as escape, chatItems, expertStatus, renderMarkdown, chatTitle, chatLabel, projectPath as projectUrl, expertPath, dateTime, arrangeDocument, itemTag, renderInline, parseRecommendation, stripRecommendation, expertPageTabs, MODEL_EXPERT, SLIDES_EXPERT, stripSlideList, deckView, deckDiagramUrl, DECK_FORMATS, questionAnswer, stateChangeView, sitePath, siteHeadline } from './model.js';
 import { rhinoDiagramUrl, rhinoViewUrl } from './rhino-model.js';
 import { sectionExport } from './section-model.js';
-import { expertUrl } from './api.js';
-import { SITE_EXPERTS, activeChat, currentRoute, draftFor, expertById, jobRunning, ui } from './state.js';
+import { siteDiagramQuery } from './board-model.js';
+import { diagramCards } from './table-diagrams.js';
+import { expertUrl, projectApi } from './api.js';
+import { SITE_EXPERTS, activeChat, currentRoute, draftFor, expertById, jobRunning, siteDiagramChoice, ui } from './state.js';
 import { bubble, composer, workingLine } from './view-conductor.js';
 
 function chatAnswering(agent, chat) {
@@ -233,6 +235,33 @@ function modelTab() {
     <div id="model-maker-slot" class="model-maker-slot"><p class="muted">모형 판을 여는 중입니다.</p></div></section>`;
 }
 
+// The representation planner's 대지 다이어그램 tab: the site analysis diagrams (the same cards as the
+// table's panel), each with its range at once (좁게·기본·넓게, kept for the project) and its files,
+// and 전부 받기 for every ready diagram as SVGs in one zip.
+function diagramsTab(name) {
+  const data = ui.siteDiagrams;
+  if (!data) {
+    return ui.siteDiagramsError
+      ? `<section class="site-diagram-tab"><p class="error-text" role="alert">다이어그램을 그릴 자료를 받지 못했습니다. ${escape(ui.siteDiagramsError)}</p>
+          <p class="muted">대지를 조회했는지 확인한 뒤 <button type="button" class="secondary small" data-diagram="reload">다시 불러오기</button></p></section>`
+      : '<p class="muted" role="status">주변 자료를 모으는 중입니다.</p>';
+  }
+  const busy = ui.siteDiagramsBusy;
+  const ready = data.diagrams.filter((d) => d.ready).length;
+  const cards = diagramCards(data, {
+    choice: siteDiagramChoice,
+    url: (d, choice) => `${projectApi(name)}/site/diagrams/${encodeURIComponent(d.kind)}?${siteDiagramQuery(d.kind, choice)}&v=${ui.siteDiagramsVersion}`,
+  });
+  return `<section class="site-diagram-tab" aria-label="대지 다이어그램">
+    <div class="site-diagram-head">
+      <button type="button" class="primary small" data-diagram="export-all" ${busy || !ready ? 'disabled' : ''}>${busy === 'export-all' ? '<span class="spinner" aria-hidden="true"></span>묶는 중' : '전부 받기 (SVG zip)'}</button>
+      <span class="muted small-text">그릴 수 있는 ${ready}개를 지금 고른 범위로 한 번에 받습니다.</span>
+    </div>
+    <p class="site-note">범위는 다이어그램마다 바로 바뀌고 이 프로젝트에 저장됩니다(제도판의 다이어그램 패널과 같은 값). 기본은 지름 1 km 안팎, 그림자는 동지에 대지를 가리는 건물을 담는 크기입니다. 파일에 담을 수 있는 공공 자료만 씁니다${data.source ? ` (건물: ${escape(data.source)})` : ''}.</p>
+    <div class="diagram-cards is-wide">${cards}</div>
+  </section>`;
+}
+
 function chatTab(name, agent, expert) {
   const busy = jobRunning();
   const chat = activeChat();
@@ -327,7 +356,7 @@ export function expertPage(name, agent) {
       <a class="icon-button" href="${projectUrl(name)}" aria-label="전문가 화면 닫기">×</a></header></section>`;
   }
   const extra = expertPageTabs(agent);
-  const known = !['model', 'slides'].includes(currentRoute.tab) || extra.some((t) => t.id === currentRoute.tab);
+  const known = !['model', 'diagrams', 'slides'].includes(currentRoute.tab) || extra.some((t) => t.id === currentRoute.tab);
   const tab = (currentRoute.tab === 'chat' && !expert.chat) || !known ? 'doc' : currentRoute.tab;
   const status = expertStatus(expert, ui.job);
   const tabs = [
@@ -337,7 +366,7 @@ export function expertPage(name, agent) {
     ...extra.map((t) => [t.id, t.label, expertPath(name, agent, t.id)]),
   ];
   const body = tab === 'chat' ? chatTab(name, agent, expert) : tab === 'versions' ? versionsTab(name, agent)
-    : tab === 'model' ? modelTab() : tab === 'slides' ? slidesTab(name) : docTab(name, agent, expert);
+    : tab === 'model' ? modelTab() : tab === 'diagrams' ? diagramsTab(name) : tab === 'slides' ? slidesTab(name) : docTab(name, agent, expert);
   return `<section class="expert-page" aria-label="${escape(expert.name)}">
     <header class="expert-head"><div>
       <h1>${escape(expert.name)}</h1>
