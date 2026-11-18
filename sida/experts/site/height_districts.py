@@ -15,8 +15,9 @@ by a person (2026-11-17 지훈 "할때마다 읽어오는건 안돼"), and at ru
    still drawn by VWorld under its older notice number (2026-11-17 실제 대지로 확인: 이태원동
    137-23 is 2019-0362, 한남동 810 is 0000-0000), so the pieces of the notice's region are matched
    to its kept zones the same way;
-4. a zone measured from the ground with one figure (base "ground", max_m) gives the height; one
-   from the road or the sea, or none matched, is shown as the notice says, with no figure.
+4. a zone measured from the ground with one figure (base "ground", max_m) gives the height; a zone
+   set in floors (max_floors, "3층이하": 대구) gives that many floors at the envelope's floor height;
+   one from the road or the sea, or none matched, is shown as the notice says, with no figure.
 
 The 비고 of the zones (2026-11-17 지훈 "비고란 처리도 해"):
 - 높이 산정 (height_rule): the height is to the top of the building; rooftop stair and lift towers
@@ -225,22 +226,27 @@ def rooftop_allowance(notice_name: str | None) -> float | None:
     return float(value) if value else None
 
 
+FLOOR_SLACK = 1e-6  # m added to a height set in floors, so n × floor height still counts as n floors in floats
+
+
 def line(found: dict, *, entered: float | None, use_relaxed: bool = False,
-         public_land: bool | None = None) -> tuple[dict | None, float | None]:
+         public_land: bool | None = None, floor_height: float | None = None) -> tuple[dict | None, float | None]:
     """The card's height line (_height_line) with links to 토지이음 where the designer reads the
     height or the notice (eum.py): the parcel's 토지이용계획 and the notice search."""
-    out, height = _height_line(found, entered=entered, use_relaxed=use_relaxed, public_land=public_land)
+    out, height = _height_line(found, entered=entered, use_relaxed=use_relaxed, public_land=public_land,
+                               floor_height=floor_height)
     if out is not None and not entered and found["status"] != "error":
         out["links"] = eum.height_links(found.get("pnus") or [], found.get("notices_seen") or [])
     return out, height
 
 
 def _height_line(found: dict, *, entered: float | None, use_relaxed: bool = False,
-                 public_land: bool | None = None) -> tuple[dict | None, float | None]:
+                 public_land: bool | None = None, floor_height: float | None = None) -> tuple[dict | None, float | None]:
     """The card's height line for what pick() found and the height it cuts the envelope to (or
     None): (line, height). `entered`: the height the designer typed, which wins. `use_relaxed`: the
     designer looks at the relaxed height (완화, needs the committee's review). `public_land`: whether
-    the site's parcels are 국·공유지 (all True / all False; None when unknown or mixed)."""
+    the site's parcels are 국·공유지 (all True / all False; None when unknown or mixed). `floor_height`:
+    the envelope's floor height (m), turning a zone set in floors (max_floors) into a height."""
     notice = found.get("notice") or ""
     zone = found.get("zone")
     where = _label(found["district"], zone) if zone else ""
@@ -269,6 +275,8 @@ def _height_line(found: dict, *, entered: float | None, use_relaxed: bool = Fals
         how += f". 브이월드 조각은 예전 고시 번호({', '.join(found['kept_as'])})로 그려져 있으나 이 고시에서 바뀌지 않은 구역"
     note = f". {zone['note']}" if zone.get("note") else ""
     quote = f"{where}: {zone['limit']}" + (f" — 높이 산정: {rule}" if rule else "")
+    if zone.get("base") == "ground" and zone.get("max_floors") and not zone.get("max_m"):
+        return _floors_line(found, zone, where, how, note, quote, notice, floor_height)
     if zone.get("base") != "ground" or not zone.get("max_m"):
         return _line("check", zone["limit"], f"{where}({how}). 도로면·해발 기준이라 한 가지 높이로 쓰지 않음, 원문 확인{note}",
                      quote, notice), None
@@ -298,6 +306,24 @@ def _height_line(found: dict, *, entered: float | None, use_relaxed: bool = Fals
         return _line("check", f"{value} (대조 전)", f"{where}({how}){extra}{note}. 고시 표를 사람이 원문과 대조하기 전이라 "
                      "볼륨을 자르지 않음. 맞으면 높이 칸에 넣기", quote, notice), None
     return _line(status, value, f"{where}({how}){extra}{note}", quote, notice), height
+
+
+def _floors_line(found: dict, zone: dict, where: str, how: str, note: str, quote: str, notice: str,
+                 floor_height: float | None) -> tuple[dict, float | None]:
+    """A zone set in floors ("3층이하", 대구광역시 고시): the envelope keeps that many floors at its own
+    floor height (2026-11-18 지훈 "층수로 자르기"); the height in m follows the floor height."""
+    floors = int(zone["max_floors"])
+    if not floor_height:
+        return _line("check", f"{floors}층", f"{where}({how}). 층수로 정한 높이라 층높이가 있어야 볼륨을 자름{note}",
+                     quote, notice), None
+    height = floors * floor_height
+    value = f"{floors}층 ({height:g}m)"
+    detail = (f"{where}({how}). 고시가 층수로 정함: 층높이 {floor_height:g}m로 {floors}층까지 세움"
+              f"(층높이를 바꾸면 높이도 바뀜){note}")
+    if not found.get("verified"):
+        return _line("check", f"{value} (대조 전)", f"{detail}. 고시 표를 사람이 원문과 대조하기 전이라 볼륨을 자르지 않음",
+                     quote, notice), None
+    return _line("read", value, detail, quote, notice), height + FLOOR_SLACK
 
 
 def _notice(name: str) -> dict | None:

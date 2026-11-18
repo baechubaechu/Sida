@@ -4,7 +4,7 @@
 # checked by a person; the app reads only this file (2026-11-17 지훈 "할때마다 읽어오는건 안돼").
 # A notice whose `verified` is null is shown but does not cut the envelope.
 #
-# Zone fields: number (도면표시번호), limit (원문 그대로), max_m (m), base: ground(지표면, 높이 산정은 height_rule) | road
+# Zone fields: number (도면표시번호), limit (원문 그대로), max_m (m), max_floors (층수로 정한 구역: 볼륨을 그 층수까지), base: ground(지표면, 높이 산정은 height_rule) | road
 # (도로면 기준, road_offset_m) | sea(해발), relaxed_m (비고의 완화: 위원회 심의를 거쳐야 하므로 자동 적용
 # 하지 않음), area_m2 (조서의 면적, VWorld 조각과 짝짓는 데 씀), location (조서의 위치).
 # kept: 이 고시에 기정 행만 있는 구역(바뀌지 않음). VWorld는 이 구역을 예전 고시 번호로 그려 두므로, 표에 없는
