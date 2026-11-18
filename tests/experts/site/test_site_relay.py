@@ -90,10 +90,10 @@ def test_a_pc_without_packs_draws_the_relays_ground_like_the_packs(heights, rela
     local = context3d.ground(frame, 80, folder=heights)
     assert remote["relative"] and remote["ground_elev"] == 0 and not local["relative"]
     assert remote["half"] == local["half"] and remote["grid"].shape == local["grid"].shape
-    xs, ys = np.meshgrid(np.linspace(-80, 80, 9), np.linspace(-80, 80, 9))
+    xs, ys = np.meshgrid(np.linspace(-80, 80, 41), np.linspace(-80, 80, 41))
     on_remote = context3d.sample(remote["grid"], remote["half"], remote["step"], xs.ravel(), ys.ravel())
     on_local = context3d.sample(local["grid"], local["half"], local["step"], xs.ravel(), ys.ravel())
-    assert np.abs(on_remote - on_local).max() < 0.05
+    assert np.abs(on_remote - on_local).max() < 0.011  # the same tiles at the seams: only cm rounding apart
     # The contours are drawn on the PC from the joined grid, at whole 5 m above the sea.
     elev0 = local["ground_elev"]
     drawn = context3d.grid_contours(local["grid"] + elev0, local["half"], local["step"], context3d.CONTOUR_EVERY)
@@ -180,3 +180,15 @@ def test_surroundings_take_the_relays_ledger_and_ask_data_go_kr_only_for_the_res
     assert tall["height"] == 11.2 and tall["height_source"] == "ledger"
     assert "1111010100100020000" not in live and "1111010100100010000" in live  # the site itself: live
     assert out["ledger_source"]["month"] == "2026-09"
+
+
+def test_at_a_seam_a_point_takes_the_tile_whose_own_square_holds_it():
+    # Two tiles meeting at x = 10, each with two border cells over the other (solved apart: 1 m vs 2 m).
+    west = {"x0": 0.0, "y0": 0.0, "dx": 2.0, "dy": 2.0, "z": np.full((6, 8), 1.0), "core": [0.0, 0.0, 10.0, 10.0]}
+    east = {"x0": 6.0, "y0": 0.0, "dx": 2.0, "dy": 2.0, "z": np.full((6, 8), 2.0), "core": [10.0, 0.0, 20.0, 10.0]}
+    x = np.array([7.0, 9.9, 10.0, 12.0])
+    got = context3d._tiles_sample([west, east], x, np.full(4, 5.0))
+    assert got.tolist() == [1.0, 1.0, 2.0, 2.0]  # either order of the tiles
+    assert context3d._tiles_sample([east, west], x, np.full(4, 5.0)).tolist() == [1.0, 1.0, 2.0, 2.0]
+    old = [{k: v for k, v in p.items() if k != "core"} for p in (east, west)]  # an answer without cores
+    assert context3d._tiles_sample(old, x, np.full(4, 5.0)).tolist() == [2.0, 2.0, 2.0, 2.0]
