@@ -20,7 +20,8 @@ else the file's own name (AL_D010_26_…, 연속수치지형도_부산.zip, N3L_
 layer files inside a zip. --plan shows what was found, on what grounds, and does nothing else;
 files it cannot place are listed and skipped (put them in a folder named after their 시·도).
 
-Then, per 시·도: the box is the files' own extent; each pack is made with build_terrain_pack.py
+Then, per 시·도: the box is the files' own extent cut to the 시·도's boundary box from 브이월드
+(LT_C_ADSIDO_INFO, plus about 1 km: a few buildings in a file sit far outside it); each pack is made with build_terrain_pack.py
 into a work folder and put in place only if it does not hold far less than the pack it replaces
 (fewer than 95% of the buildings, lines or areas: a broken download; --accept-drop to take it);
 then the ground is solved ahead with build_ground_tiles.py (the 시·도's box, after bringing the
@@ -29,7 +30,9 @@ Last, scripts/check_region_packs.py writes its one-page report.
 
 Run it again after a stop and it carries on: unpacked zips are not unpacked again, a pack whose
 downloads have not changed (name, size, time) is not made again (--force to), the ground carries
-on where it stopped. What was made from what is kept in <out>/region_packs.json.
+on where it stopped. What was made from what is kept in <out>/region_packs.json. Without the
+boundary (no 브이월드 key, no network, --no-api) the packs are made from the files' extent and
+the ground is left for a run that has it.
 
 Needs the packages for making packs: pip install -e ".[pack]"  (pyshp, pyproj)
 """
@@ -55,7 +58,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from sida.console import configure_stdio  # noqa: E402
-from sida.experts.site import ground_tiles, regions, terrain_pack  # noqa: E402
+from sida.experts.site import ground_tiles, landapi, regions, terrain_pack  # noqa: E402
 
 KINDS = ("buildings", "contours", "areas")
 LAYERS = {
@@ -71,6 +74,7 @@ MIN_SHARE = 0.95  # of the pack it replaces
 SHP_PARTS = (".shp", ".shx", ".dbf", ".prj", ".cpg")
 STATE = "region_packs.json"
 PAD = 0.002  # degrees added around the files' extent
+SIDO_PAD = 0.01  # degrees added around a 시·도's boundary box (about 1 km)
 TILE_SECONDS = 35.0  # worker-seconds per ground tile (Seoul: 3,276 tiles, 8 workers, about 4 hours)
 
 AL_D010 = re.compile(r"^AL_D010_(\d{2})_(\d{8})\.zip$", re.IGNORECASE)
@@ -283,29 +287,52 @@ def gather(sources: list[Source], dest: Path) -> Path:
 
 
 def shp_box(shp: Path | None = None, *, zpath: Path | None = None) -> list[float] | None:
-    """west, south, east, north (degrees) of a shapefile, or of the one in a zip, from its header."""
+    """west, south, east, north (degrees) of a shapefile, or of all the ones in a zip, from their headers."""
     import shapefile  # pyshp
     from pyproj import CRS, Transformer
 
-    if zpath is not None:
-        with zipfile.ZipFile(zpath) as z:
-            prj = next((n for n in z.namelist() if n.lower().endswith(".prj")), None)
-            prj_text = z.read(prj).decode("ascii", "ignore") if prj else ""
-        reader = shapefile.Reader(str(zpath))
-    else:
-        prj_path = next((p for p in (shp.with_suffix(".prj"), shp.with_suffix(".PRJ")) if p.exists()), None)
-        prj_text = prj_path.read_text(encoding="ascii", errors="ignore") if prj_path else ""
-        reader = shapefile.Reader(str(shp))
+    boxes = []
+    for opened, prj_text in terrain_pack.zip_shapefiles(zpath if zpath is not None else shp):
+        reader = shapefile.Reader(opened)
+        try:
+            if not len(reader):
+                continue
+            x0, y0, x1, y1 = reader.bbox[:4]
+        finally:
+            reader.close()
+        crs = CRS.from_wkt(prj_text) if prj_text else CRS.from_epsg(5186)  # 중부원점, as build_terrain_pack takes it
+        boxes.append(list(Transformer.from_crs(crs, "EPSG:4326", always_xy=True).transform_bounds(
+            x0, y0, x1, y1, densify_pts=21)))
+    if not boxes:
+        return None
+    return [min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)]
+
+
+def sido_boxes(log) -> dict[str, list[float]]:
+    """The 시·도 boundary boxes from 브이월드 ({} when they cannot be had: no key, no network)."""
     try:
-        if not len(reader):
-            return None
-        x0, y0, x1, y1 = reader.bbox[:4]
-    finally:
-        reader.close()
-    crs = CRS.from_wkt(prj_text) if prj_text else CRS.from_epsg(5186)  # 중부원점, as build_terrain_pack takes it
-    west, south, east, north = Transformer.from_crs(crs, "EPSG:4326", always_xy=True).transform_bounds(
-        x0, y0, x1, y1, densify_pts=21)
-    return [west, south, east, north]
+        return landapi.sido_boxes()
+    except Exception as exc:  # noqa: BLE001 — any failure only means no boundary to cut by
+        log(f"시·도 경계를 받지 못함 ({exc.__class__.__name__}): 받은 파일의 범위를 그대로 씀, 지형 계산은 건너뜀")
+        return {}
+
+
+def region_box(region: regions.Region, sido: dict) -> list[float] | None:
+    """The box of a 시·도's boundary (all its codes, old ones too), with SIDO_PAD around it."""
+    boxes = [sido[c] for c in region.codes if c in sido]
+    if not boxes:
+        return None
+    return [min(b[0] for b in boxes) - SIDO_PAD, min(b[1] for b in boxes) - SIDO_PAD,
+            max(b[2] for b in boxes) + SIDO_PAD, max(b[3] for b in boxes) + SIDO_PAD]
+
+
+def clip(box: list[float] | None, bound: list[float] | None) -> list[float] | None:
+    """box cut to bound: a few stray shapes far outside the 시·도 (a building in the Seoul file
+    drawn at 129.9°E) must not stretch the packs and the ground over half the country."""
+    if box is None or bound is None:
+        return box
+    out = [max(box[0], bound[0]), max(box[1], bound[1]), min(box[2], bound[2]), min(box[3], bound[3])]
+    return out if out[0] < out[2] and out[1] < out[3] else None
 
 
 def union(boxes) -> list[float] | None:
@@ -379,7 +406,7 @@ def make_pack(region: regions.Region, kind: str, given: str, box, stamp: list, d
     """One pack of a region, unless made already from the same downloads. Returns what happened."""
     target = args.out / f"{region.name}-{kind}{terrain_pack.SUFFIX}"
     record = state.setdefault("regions", {}).setdefault(region.name, {}).setdefault(kind, {})
-    if (not args.force and record.get("inputs") == stamp and target.exists()
+    if (not args.force and record.get("inputs") == stamp and record.get("box") == box and target.exists()
             and record.get("pack") == [target.stat().st_size, target.stat().st_mtime_ns]):
         log(f"  {kind}: unchanged downloads, kept {target.name}")
         return "kept"
@@ -437,7 +464,8 @@ def wanted_regions(text: str) -> set[str] | None:
     return out
 
 
-def plan_lines(groups: dict[str, list[Source]], lost: list[Source], workers: int, out: Path) -> list[str]:
+def plan_lines(groups: dict[str, list[Source]], lost: list[Source], workers: int, out: Path,
+               sido: dict | None = None) -> list[str]:
     lines = []
     for name, sources in groups.items():
         region = regions.by_name(name)
@@ -445,13 +473,21 @@ def plan_lines(groups: dict[str, list[Source]], lost: list[Source], workers: int
         for s in sources:
             kinds = ", ".join(sorted(s.kinds)) or "?"
             lines.append(f"  - {s.path.name}: {kinds} [{s.basis}]" + (f" ({s.note})" if s.note else ""))
-        box = union(shp_box(zpath=s.path) for s in sources if "buildings" in s.kinds)
-        if box:
+        files_box = union(shp_box(zpath=s.path) for s in sources if "buildings" in s.kinds)
+        bound = region_box(region, sido or {})
+        box = clip(files_box, bound)
+        if files_box and bound is None:
+            lines.append(f"  건물 범위 {box_text(files_box)}: 시·도 경계를 받지 못해 지형 칸을 어림하지 않음")
+        elif files_box and box is None:
+            lines.append(f"  건물 범위 {box_text(files_box)}가 시·도 경계 {box_text(bound)}와 겹치지 않음")
+        elif box:
+            if box != files_box:
+                lines.append(f"  건물 파일 범위 {box_text(files_box)}는 시·도 밖의 건물이 섞여 넓음 → 시·도 경계로 자름")
             tiles = ground_tiles.tiles_in_box(*box)
             have = set().union(*(ground_tiles.done(p) for p in ground_tiles.files(out))) if out.is_dir() else set()
             todo = len([t for t in tiles if t not in have])
             hours = todo * TILE_SECONDS / max(1, workers) / 3600
-            lines.append(f"  건물 범위 {box_text(box)}: 지형 칸 {len(tiles)}개 중 {todo}개를 풀어야 함"
+            lines.append(f"  범위 {box_text(box)}: 지형 칸 {len(tiles)}개 중 {todo}개를 풀어야 함"
                          f"(작업자 {workers}개로 어림 {hours:.1f}시간, 바다·빈 칸은 더 빠름)")
     if lost:
         lines.append("어느 시·도인지 모르는 파일 (시·도 이름 폴더에 넣어 주세요):")
@@ -467,6 +503,8 @@ def main() -> int:
     ap.add_argument("--plan", action="store_true", help="show what was found and stop")
     ap.add_argument("--no-ground", action="store_true", help="make the packs, not the ground tiles")
     ap.add_argument("--no-check", action="store_true", help="no report at the end")
+    ap.add_argument("--no-api", action="store_true",
+                    help="no 시·도 boundary from 브이월드: the files' own extent, and no ground")
     ap.add_argument("--force", action="store_true", help="make packs again even from unchanged downloads")
     ap.add_argument("--accept-drop", action="store_true", help="take a new pack that holds far less than the old")
     ap.add_argument("--keep-unpacked", action="store_true", help="keep the unpacked shapefiles after the packs")
@@ -490,8 +528,9 @@ def main() -> int:
             lost.append(s)
         elif only is None or s.region.name in only:
             groups.setdefault(s.region.name, []).append(s)
+    sido = {} if args.no_api or not groups else sido_boxes(log)
     if args.plan or not groups:
-        for line in plan_lines(groups, lost, args.workers, args.out) or ["받은 파일을 찾지 못함"]:
+        for line in plan_lines(groups, lost, args.workers, args.out, sido) or ["받은 파일을 찾지 못함"]:
             log(line)
         return 0 if groups or args.plan else 1
 
@@ -508,10 +547,14 @@ def main() -> int:
             boxes = [shp_box(zpath=buildings[-1].path)] if buildings else []
             files = {kind: map_files(folder, kind) if folder else [] for kind in LAYERS}
             boxes += [shp_box(p) for kind in LAYERS for p in files[kind]]
-            box = union(boxes)
-            if box is None:
+            files_box = union(boxes)
+            if files_box is None:
                 raise RuntimeError("no shapes in the downloads")
-            log(f"  box {box_text(box)}")
+            bound = region_box(region, sido)
+            box = clip(files_box, bound)
+            if box is None:
+                raise RuntimeError(f"the downloads ({box_text(files_box)}) miss the 시·도 ({box_text(bound)})")
+            log(f"  box {box_text(box)}" + (f" (files {box_text(files_box)}, cut to the 시·도)" if box != files_box else ""))
             results = {}
             if buildings:
                 newest = buildings[-1]
@@ -528,7 +571,10 @@ def main() -> int:
                 shutil.rmtree(folder, ignore_errors=True)
             contours = args.out / f"{name}-contours{terrain_pack.SUFFIX}"
             if not args.no_ground and contours.exists():
-                solve_ground(region, box, args, log)
+                if bound is None:
+                    log("  ground skipped: no 시·도 boundary to bound it (브이월드 key?), run again to solve it")
+                else:
+                    solve_ground(region, box, args, log)
         except (RuntimeError, OSError, zipfile.BadZipFile, sqlite3.Error, ValueError) as exc:
             failed.append(name)
             log(f"  failed: {exc}")

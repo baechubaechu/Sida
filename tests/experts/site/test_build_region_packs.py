@@ -114,6 +114,7 @@ def downloads(tmp_path, monkeypatch):
 
     monkeypatch.setattr(brp, "run_script", run_script)
     monkeypatch.setattr(brp, "shp_box", lambda shp=None, *, zpath=None: [129.0, 35.0, 129.5, 35.4])
+    monkeypatch.setattr(brp.landapi, "sido_boxes", lambda: {"26": [128.5, 34.5, 130.0, 36.0]})
     argv = ["brp", "--raw", str(raw), "--out", str(out), "--no-check", "--workers", "2"]
     return argv, calls, sizes, out
 
@@ -192,6 +193,44 @@ def test_neighbouring_tiles_files_are_brought_up_to_date_first(downloads, monkey
     assert [a[1] for a in ground] == ["ulsan", "busan"]
     assert ground[0][ground[0].index("--box") + 1] == "129.20000,35.30000,129.50000,35.70000"
     assert "--skip-others" not in ground[0]
+
+
+def test_a_few_stray_buildings_far_away_do_not_stretch_the_box(downloads, monkeypatch, capsys):
+    # The Seoul file of 2026-11-09 holds buildings drawn as far as 129.9°E: its header box reached
+    # 부산, and the ground would have been solved over 94,000 tiles instead of 3,300.
+    argv, calls, sizes, out = downloads
+    monkeypatch.setattr(brp, "shp_box", lambda shp=None, *, zpath=None: [128.9, 33.4, 131.0, 35.4])
+    monkeypatch.setattr(brp.landapi, "sido_boxes", lambda: {"26": [128.76, 34.88, 129.31, 35.39], "11": [126.7, 37.4, 127.2, 37.7]})
+    monkeypatch.setattr(sys, "argv", [*argv, "--plan"])
+    assert brp.main() == 0
+    text = capsys.readouterr().out
+    assert "시·도 경계로 자름" in text and "범위 128.89800,34.87000,129.32000,35.40000" in text
+    monkeypatch.setattr(sys, "argv", argv)
+    assert brp.main() == 0
+    boxes = {a[a.index("--box") + 1] for s, a in calls if "--box" in a}
+    assert boxes == {"128.89800,34.87000,129.32000,35.40000"}  # packs and ground alike
+    # a pack made over a box that has since changed is made again, though the downloads are the same
+    monkeypatch.setattr(brp.landapi, "sido_boxes", lambda: {"26": [128.76, 34.88, 129.35, 35.39]})
+    calls.clear()
+    assert brp.main() == 0
+    assert len([s for s, _ in calls if s == "build_terrain_pack.py"]) == 3
+
+
+def test_without_the_boundary_the_packs_are_made_and_the_ground_waits(downloads, monkeypatch, capsys):
+    argv, calls, sizes, out = downloads
+
+    def no_key():
+        raise RuntimeError("no key")
+
+    monkeypatch.setattr(brp.landapi, "sido_boxes", no_key)
+    monkeypatch.setattr(sys, "argv", argv)
+    assert brp.main() == 0
+    assert [s for s, _ in calls] == ["build_terrain_pack.py"] * 3
+    assert "ground skipped" in capsys.readouterr().out
+    calls.clear()
+    monkeypatch.setattr(sys, "argv", [*argv, "--plan", "--no-api"])
+    assert brp.main() == 0
+    assert "시·도 경계를 받지 못해 지형 칸을 어림하지 않음" in capsys.readouterr().out
 
 
 def test_only_the_시도_asked_for(downloads, monkeypatch):

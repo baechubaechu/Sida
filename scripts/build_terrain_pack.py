@@ -212,42 +212,36 @@ def build(args, staging: Path, cleanup: ExitStack) -> int:
                 print(f"no AL_D010_<시도>_<날짜>.zip in {source}")
                 return 1
             source = dated[-1][1]
-        reader = shapefile.Reader(str(source), encoding="cp949")
-        names = [f[0] for f in reader.fields[1:]]
-        at = {k: names.index(col) for k, col in BUILDING_COLUMNS.items()}
-        if source.suffix.lower() == ".zip":
-            import zipfile
-
-            with zipfile.ZipFile(source) as z:
-                prj = next((n for n in z.namelist() if n.lower().endswith(".prj")), None)
-                prj_text = z.read(prj).decode("ascii", "ignore") if prj else ""
-        else:
-            prj_text = Path(str(source)[:-4] + ".prj").read_text(encoding="ascii", errors="ignore")
-        crs = CRS.from_wkt(prj_text) if prj_text else CRS.from_epsg(5186)  # the file's 중부원점 by default
-        tr = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
-        back = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
-        xs, ys = back.transform([west, east, west, east], [south, south, north, north])
-        own = (min(xs), min(ys), max(xs), max(ys))
         date = ""
         path, conn = pack("buildings", "")
         count = 0
-        for i, shape in enumerate(reader.iterShapes()):
-            if not shape.points or outside(shape.bbox, own):
-                continue
-            row = reader.record(i)
-            attrs = {k: row[j] for k, j in at.items()}
-            attrs["date"] = str(attrs.get("date") or "")
-            date = max(date, attrs["date"])
-            for key in ("height", "floors"):
-                try:
-                    attrs[key] = float(attrs[key]) or None
-                except (TypeError, ValueError):
-                    attrs[key] = None
-            lons, lats = tr.transform(*zip(*parts(shape)[0], strict=True))
-            terrain_pack.add_building(conn, [list(p) for p in zip(lons, lats, strict=True)], attrs)
-            count += 1
-            if count % 100000 == 0:
-                print(f"{count} buildings so far")
+        for opened, prj_text in terrain_pack.zip_shapefiles(source):
+            reader = shapefile.Reader(opened, encoding="cp949")
+            names = [f[0] for f in reader.fields[1:]]
+            at = {k: names.index(col) for k, col in BUILDING_COLUMNS.items()}
+            crs = CRS.from_wkt(prj_text) if prj_text else CRS.from_epsg(5186)  # the file's 중부원점 by default
+            tr = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+            back = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+            xs, ys = back.transform([west, east, west, east], [south, south, north, north])
+            own = (min(xs), min(ys), max(xs), max(ys))
+            for i, shape in enumerate(reader.iterShapes()):
+                if not shape.points or outside(shape.bbox, own):
+                    continue
+                row = reader.record(i)
+                attrs = {k: row[j] for k, j in at.items()}
+                attrs["date"] = str(attrs.get("date") or "")
+                date = max(date, attrs["date"])
+                for key in ("height", "floors"):
+                    try:
+                        attrs[key] = float(attrs[key]) or None
+                    except (TypeError, ValueError):
+                        attrs[key] = None
+                lons, lats = tr.transform(*zip(*parts(shape)[0], strict=True))
+                terrain_pack.add_building(conn, [list(p) for p in zip(lons, lats, strict=True)], attrs)
+                count += 1
+                if count % 100000 == 0:
+                    print(f"{count} buildings so far")
+            reader.close()
         if not count:
             raise ValueError("no buildings found in the requested area")
         conn.execute("UPDATE meta SET value = ? WHERE key = 'source_date'", (args.source_date or date,))

@@ -1,4 +1,5 @@
 import sys
+import zipfile
 from types import SimpleNamespace
 
 import pytest
@@ -151,3 +152,43 @@ def test_areas_read_sheets_and_the_numbered_files_of_a_continuous_download(tmp_p
         (tmp_path / name).touch()
     found = [p.relative_to(tmp_path).as_posix() for p in build_terrain_pack.layer_files(tmp_path, "N3A_E0032111")]
     assert sorted(found) == ["N3A_E0032111_11.shp", "N3A_E0032111_12.shp", "sheet1/N3A_E0032111.shp"]
+
+
+def test_buildings_are_read_from_every_shapefile_of_a_split_download(tmp_path, monkeypatch):
+    # 브이월드 cuts a large 시·도 into files of a million buildings inside one zip
+    # (AL_D010_41_….shp, ….(2).shp, ….(3).shp); pyshp alone refuses a zip with more than one.
+    shapefile = pytest.importorskip("shapefile")
+    transformer = SimpleNamespace(transform=lambda x, y: (x, y))
+    monkeypatch.setitem(sys.modules, "pyproj", SimpleNamespace(
+        CRS=SimpleNamespace(from_wkt=lambda wkt: wkt, from_epsg=lambda code: code),
+        Transformer=SimpleNamespace(from_crs=lambda *args, **kw: transformer)))
+    stems = ["AL_D010_41_20261109", "AL_D010_41_20261109(2)"]
+    folder = tmp_path / "files"
+    folder.mkdir()
+    for n, stem in enumerate(stems):
+        w = shapefile.Writer(str(folder / stem), shapeType=shapefile.POLYGON, encoding="cp949")
+        for col in build_terrain_pack.BUILDING_COLUMNS.values():
+            w.field(col, "C", 30)
+        x = 0.5 + n * 0.5
+        w.poly([[[x, 0.5], [x + 0.1, 0.5], [x + 0.1, 0.6], [x, 0.5]]])
+        w.record(f"41{n:017d}", "주택", "9", "3", "", "", "20261101")
+        w.close()
+        (folder / f"{stem}.prj").write_text("KOREA_TM")
+    download = tmp_path / "AL_D010_41_20261109.zip"
+    with zipfile.ZipFile(download, "w") as z:
+        for f in sorted(folder.iterdir()):
+            z.write(f, f.name)
+    out = tmp_path / "out"
+    monkeypatch.setattr(sys, "argv", ["build", "--name", "gyeonggi", "--box", "0,0,2,2",
+                                     "--buildings", str(download), "--out", str(out)])
+    monkeypatch.setattr(build_terrain_pack, "configure_stdio", lambda: None)
+    assert build_terrain_pack.main() == 0
+    houses = terrain_pack.query(0, 0, 2, 2, folder=out)["buildings"]
+    assert sorted(h["pnu"] for h in houses) == ["4100000000000000000", "4100000000000000001"]
+    assert [(name.rsplit("/", 1)[-1], prj) for name, prj in terrain_pack.zip_shapefiles(download)] == [
+        ("AL_D010_41_20261109(2).shp", "KOREA_TM"), ("AL_D010_41_20261109.shp", "KOREA_TM")]
+    single = tmp_path / "one.zip"
+    with zipfile.ZipFile(single, "w") as z:
+        for f in sorted(folder.glob(f"{stems[0]}.*")):
+            z.write(f, f.name)
+    assert terrain_pack.zip_shapefiles(single) == [(str(single), "KOREA_TM")]  # pyshp opens the zip as it is

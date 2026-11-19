@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import zipfile
 from contextlib import closing
 from pathlib import Path
 
@@ -175,6 +176,30 @@ def add_map_building(conn: sqlite3.Connection, ring: list[list[float]], floors: 
         (json.dumps([[round(x, 7), round(y, 7)] for x, y in ring], separators=(",", ":")), float(floors), use or ""),
     )
     conn.execute("INSERT INTO map_buildings_box VALUES (?, ?, ?, ?, ?)", (cur.lastrowid, min(lons), max(lons), min(lats), max(lats)))
+
+
+def zip_shapefiles(path: Path) -> list[tuple[str, str]]:
+    """
+    (what pyshp opens, the .prj text) for each shapefile in a download: a zip may hold several
+    (브이월드 cuts GIS건물통합정보 into files of a million buildings: AL_D010_41_….shp, ….(2).shp),
+    which pyshp opens one at a time as "<zip>/<name inside>.shp". A loose .shp is itself.
+    The .prj is the shapefile's own, else any in the zip, else "".
+    """
+    path = Path(path)
+    if path.suffix.lower() != ".zip":
+        prj = Path(str(path)[:-4] + ".prj")
+        return [(str(path), prj.read_text(encoding="ascii", errors="ignore") if prj.exists() else "")]
+    with zipfile.ZipFile(path) as z:
+        names = z.namelist()
+        shps = sorted(n for n in names if n.lower().endswith(".shp"))
+        prjs = {n[:-4].lower(): n for n in names if n.lower().endswith(".prj")}
+        any_prj = next(iter(sorted(prjs.values())), None)
+        out = []
+        for shp in shps:
+            prj = prjs.get(shp[:-4].lower(), any_prj)
+            out.append((str(path) if len(shps) == 1 else f"{path}/{shp}",
+                        z.read(prj).decode("ascii", "ignore") if prj else ""))
+    return out
 
 
 def packs(folder: Path | None = None) -> list[Path]:
