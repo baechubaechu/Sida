@@ -156,7 +156,7 @@ python scripts/build_ledger_pack.py --zip "<표제부 zip>" --name seoul --sigun
 
 - 국내 서버가 매일 밤 `relay/ledger/ledger_pull.py`(systemd `ledger-pull.timer`)를 돌립니다. 건축HUB 대용량 목록에서 최신 표제부(업무코드 0303, 0302 총괄표제부 아님)의 파일 ID를 읽고, 지난번과 같으면 끝냅니다. 새 달이면 zip을 받아(이어받기 안 됨, 잘못된 ID에도 200·빈 응답이라 크기·zip 검사) 시·도마다 묶음 하나(16개, `sida/experts/site/regions.py`, 옛 시·도 코드 포함)를 zip을 한 번만 읽어 만들고, 한 시·도라도 행이 없거나 지난달의 95%보다 적으면 그달 전체를 버립니다(2026-11-17부터 전국, 전에는 서울만). 통과한 묶음은 gzip으로 `/opt/sida-kr/data/ledger/`(추가 스토리지)에 두고 `manifest.json`(기준 달, 행 수, 크기, SHA-256)을 고칩니다. 중계 서버가 필지를 찾아볼 수 있게 압축 안 한 묶음(`<이름>-<YYYY-MM>.ledger.sqlite`, 목록에는 없음)도 옆에 둡니다. 전월분은 매달 20일쯤 올라옵니다.
 - 중계 서버가 `GET /relay/ledger/manifest.json`, `GET /relay/ledger/<파일>`로 내줍니다(Sida 키 필요, `manifest.json`에 있는 파일만).
-- 묶음이 없는 PC는 묶음을 받지 않고 대지 주변 필지의 표제부만 서버에 묻습니다(`site_relay.ledger`, `POST /relay/ledger/lookup`, 2026-11-18). 서버에도 없는 필지는 지금처럼 API로 묻습니다.
+- 묶음이 없는 PC는 묶음을 받지 않고 대지 주변 필지의 표제부만 서버에 묻습니다(`site_relay.ledger`, `POST /relay/ledger/lookup`, 2026-11-18). 500개씩 나눠 묻고, 한 번이 실패해도 다음 묶음은 계속 묻습니다(두 번 연달아 실패하거나 키가 거절되면 멈춤). 서버에도 없거나 답을 못 받은 필지는 지금처럼 API로 묻습니다. 대장 묶음은 행을 PNU 순서로 저장해 한 동네 필지를 몇 번에 읽습니다(2026-11-19, 순서 없이 저장된 묶음은 서버에서 2,000개에 26초).
 - 앱(`ledger_sync.py`)은 이 PC에 이미 묶음이 있을 때만, 주변 3D를 만들 때 하루에 한 번 뒤에서 목록을 보고, 같은 이름의 묶음보다 새 달이면 받아서 크기·SHA-256·묶음 안의 기준 달과 행 수를 확인한 뒤 바꿔 끼웁니다. 실패하면 지난 묶음을 그대로 쓰고 다음 날 다시 봅니다. 마지막 확인은 `context_data/ledger_sync.json`에 남습니다.
 - `GET /api/site/ledger`: 이 PC의 묶음(이름, 기준 달, 행 수)과 마지막 확인(`checked_at`, `updated`, `error`: `no_relay`·`refused`·`network`·`bad_manifest`·`bad_file`·`disk`), `running`, `relay`(Sida 키가 있는지). `POST /api/site/ledger/update`: 지금 확인(`started`, 이 PC에 없는 묶음도 받음).
 

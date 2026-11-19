@@ -117,6 +117,10 @@ def build_many(source: Path, outs: dict[Path, tuple[str, ...]], *, month: str = 
     """
     Several packs from one reading of the bulk file (~806만 lines): {out: 시군구 code prefixes}, each
     pack replaced. Returns {out: rows kept}. A line goes to the first pack whose prefixes it starts with.
+    The lines are gathered in a scratch file next to each pack (<out>.raw) and written to the pack in
+    PNU order, so the parcels of one neighbourhood (which share their leading digits) sit on the
+    same pages: a lookup of a site's surroundings reads a few runs of the file instead of one page
+    per parcel (2,000 parcels took 26 s on the relay's disk when the rows lay in file order).
     """
     cols = ["pnu", *TEXTS, *NUMBERS]
     insert = f"INSERT INTO rows ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})"
@@ -128,9 +132,9 @@ def build_many(source: Path, outs: dict[Path, tuple[str, ...]], *, month: str = 
     try:
         for out in outs:
             out.parent.mkdir(parents=True, exist_ok=True)
-            tmp = out.with_name(out.name + ".part")
-            tmp.unlink(missing_ok=True)
-            conns[out] = sqlite3.connect(tmp)
+            for tmp in (_raw(out), _part(out)):
+                tmp.unlink(missing_ok=True)
+            conns[out] = sqlite3.connect(_raw(out))
             conns[out].executescript(_SCHEMA)
         n = 0
         for n, values in enumerate(lines(source), 1):
@@ -152,22 +156,40 @@ def build_many(source: Path, outs: dict[Path, tuple[str, ...]], *, month: str = 
                 batch.clear()
             if n % 500_000 == 0:
                 log(f"  {sum(kept.values())} rows kept, {n} lines read")
-        for out, conn in conns.items():
-            conn.executemany(insert, batches[out])
+        for out, raw in conns.items():
+            raw.executemany(insert, batches[out])
             kept[out] += len(batches[out])
-            conn.execute("CREATE INDEX rows_pnu ON rows (pnu)")
-            meta = {"format": str(FORMAT), "source": "국토교통부 건축물대장 표제부 (건축HUB 대용량 데이터 제공)",
-                    "month": month or month_of(source.name), "file": source.name,
-                    "prefixes": ",".join(outs[out]), "rows": str(kept[out])}
-            conn.executemany("INSERT INTO meta (key, value) VALUES (?, ?)", meta.items())
-            conn.commit()
-            conn.close()
-            out.with_name(out.name + ".part").replace(out)
+            raw.commit()
+            raw.close()
+            with closing(sqlite3.connect(_part(out))) as conn:
+                conn.executescript(_SCHEMA)
+                conn.execute("ATTACH DATABASE ? AS raw", (str(_raw(out)),))
+                conn.execute(f"INSERT INTO rows ({', '.join(cols)}) SELECT {', '.join(cols)} FROM raw.rows "
+                             "ORDER BY pnu, rowid")  # noqa: S608 (column names are ours)
+                conn.commit()
+                conn.execute("DETACH DATABASE raw")
+                conn.execute("CREATE INDEX rows_pnu ON rows (pnu)")
+                meta = {"format": str(FORMAT), "source": "국토교통부 건축물대장 표제부 (건축HUB 대용량 데이터 제공)",
+                        "month": month or month_of(source.name), "file": source.name,
+                        "prefixes": ",".join(outs[out]), "rows": str(kept[out]), "order": "pnu"}
+                conn.executemany("INSERT INTO meta (key, value) VALUES (?, ?)", meta.items())
+                conn.commit()
+            _raw(out).unlink(missing_ok=True)
+            _part(out).replace(out)
     finally:
         for out, conn in conns.items():
             conn.close()
-            out.with_name(out.name + ".part").unlink(missing_ok=True)
+            _raw(out).unlink(missing_ok=True)
+            _part(out).unlink(missing_ok=True)
     return kept
+
+
+def _raw(out: Path) -> Path:
+    return out.with_name(out.name + ".raw")
+
+
+def _part(out: Path) -> Path:
+    return out.with_name(out.name + ".part")
 
 
 # ---------------------------------------------------------------------------

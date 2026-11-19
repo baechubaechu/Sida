@@ -37,7 +37,8 @@ LEDGER_PATH = "/relay/ledger/lookup"
 FORMAT = 2  # context3d.SHARED_FORMAT: answers kept in an older format are asked again
 ASK_RADIUS = 500.0  # m: the app's largest range (context3d.MAX_RADIUS)
 MAX_RADIUS = 1500.0  # m: the most the relay sends (a 3 km side)
-MAX_PNUS = 2000  # PNUs per ledger lookup
+MAX_PNUS = 500  # PNUs per ledger lookup (the relay takes up to 2,000; a smaller part stays well inside TIMEOUT)
+LEDGER_MISSES = 2  # ledger parts in a row that may fail before the rest are not asked
 TIMEOUT = 30
 CACHE = "cache"
 CACHE_BYTES = 500_000_000
@@ -173,20 +174,31 @@ def ground(lon: float, lat: float, radius: float, *, folder: Path | None = None)
 def ledger(pnus) -> tuple[dict[str, list[dict]], dict | None]:
     """
     ({pnu: rows} for the PNUs the relay's packs cover, {"month": …} or None), like
-    ledger_pack.lookup; ({}, None) when the relay can't be asked.
+    ledger_pack.lookup; ({}, None) when the relay can't be asked. The PNUs go MAX_PNUS at a time
+    (sorted, so each part is one neighbourhood); a part that fails is left to the caller (data.go.kr)
+    and the next one is still asked, unless there is no relay or key, the key is refused, or
+    LEDGER_MISSES parts in a row have failed.
     """
     wanted = sorted(set(pnus))
     asked = set(wanted)
     found: dict[str, list[dict]] = {}
     month = ""
+    misses = 0
     for k in range(0, len(wanted), MAX_PNUS):
         try:
             answer = _ask(LEDGER_PATH, {"pnus": wanted[k:k + MAX_PNUS]})
-        except SiteRelayError:
-            break
+        except SiteRelayError as exc:
+            misses += 1
+            if exc.kind in ("no_relay", "refused") or misses >= LEDGER_MISSES:
+                break
+            continue
         rows = answer.get("rows") if isinstance(answer, dict) else None
         if not isinstance(rows, dict):
-            break
+            misses += 1
+            if misses >= LEDGER_MISSES:
+                break
+            continue
+        misses = 0
         for pnu, got in rows.items():
             if pnu in asked and isinstance(got, list):
                 found[pnu] = [r for r in got if isinstance(r, dict)]

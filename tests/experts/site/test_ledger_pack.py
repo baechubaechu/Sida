@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import zipfile
+from contextlib import closing
 from pathlib import Path
 
 from sida.experts.site import context3d, datago, ledger_pack
@@ -76,3 +78,17 @@ def test_the_surroundings_read_the_pack_and_ask_only_next_to_the_site(tmp_path, 
     assert asked == ["1111010100100010000"]  # the site's parcel, asked live
     east = next(b for b in out["buildings"] if b["height"] == 33.3)
     assert east["height_source"] == "ledger" and east["floors"] == 9
+
+
+def test_a_pack_keeps_its_rows_in_pnu_order_and_leaves_no_scratch_files(tmp_path):
+    pnus = ["1111011900109990000", "1111011900100020001", "1111011900105000000", "1111011900100020000"]
+    extra = [line_for(p, 100.0 + k, 10.0, 3) for k, p in enumerate(pnus)]
+    out = tmp_path / "packs" / f"t{ledger_pack.SUFFIX}"
+    assert ledger_pack.build(bulk_zip(tmp_path, extra=extra), out, ("11",), log=lambda _m: None) == 5  # + the 종로 line
+    with closing(sqlite3.connect(out)) as conn:
+        stored = [pnu for (pnu,) in conn.execute("SELECT pnu FROM rows ORDER BY rowid")]
+        assert stored == sorted(stored) and len(stored) == 5  # neighbours share pages: one read per run
+        assert dict(conn.execute("SELECT key, value FROM meta"))["order"] == "pnu"
+    assert [p.name for p in out.parent.iterdir()] == [out.name]  # no .raw or .part left
+    rows, _meta = ledger_pack.lookup(pnus, out.parent)
+    assert [rows[p][0]["building_area_m2"] for p in pnus] == [100.0, 101.0, 102.0, 103.0]
