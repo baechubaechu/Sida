@@ -9,6 +9,8 @@ The site card puts these above the full facts, in this order:
 3. 높이: the site's 지역·지구 whose names bring a height limit of their own (data/site_rules.yaml
    height_words), named as the government names them.
 4. 정북일조: whether 건축법 제61조제1항 applies, by the 용도지역's name.
+   조경: the 대지의 조경 the ordinance asks, by 연면적 (sida/experts/landscape/rules.py card_line;
+   it carries the ratio `tiers` so the table can set a scheme's 연면적 against them).
 5. 따로 정한 계획: areas whose own plan may override the base figures (plan_words), to check.
 
 Every line says how sure it is (`status`): "read" (read by rule), "conditional" (holds, with a
@@ -24,6 +26,7 @@ from functools import lru_cache
 import yaml
 
 from sida.config import ROOT
+from sida.experts.landscape import rules as landscape_rules
 from sida.experts.site import eum, site_facts
 
 RULES_PATH = ROOT / "data" / "site_rules.yaml"
@@ -135,6 +138,11 @@ def card(facts: dict | None) -> list[dict]:
     sunlight = sunlight_line(facts)
     if sunlight:
         lines.append(sunlight)
+    s = facts["summary"]
+    green = landscape_rules.card_line([z["zone"] for z in zoning], s.get("municipality") or "",
+                                      s["total_area_m2"] if s.get("area_complete") else None)
+    if green:
+        lines.append(green)
     plans = _named(facts, rules["plan_words"], set(heights))
     if plans:
         lines.append(_line("plan", "check", "따로 정한 계획", ", ".join(plans), "구역의 계획이 높이·용적률·건축선을 따로 정했을 수 있음, 계획 내용 확인"))

@@ -1,0 +1,143 @@
+# What the 자동 조경 (sida/experts/landscape/) and the site card's 조경 line apply: 대지의 조경
+# (건축법 제42조, 시행령 제27조, 시·도 건축 조례), the planting counts of the 조경기준 (국토교통부 고시)
+# and 공개 공지 (건축법 제43조, 시행령 제27조의2, 시·도 건축 조례). The app reads only this file:
+# nothing is fetched at run time. Every figure was copied from the 원문 on law.go.kr; when a statute,
+# ordinance or notice changes, compare it again and update its `verified` date (null: not yet
+# compared, and the card says so).
+#
+# 대조한 판 (2026-11-20, law.go.kr 현행): 건축법 법률 제21880호(시행 2026-11-12), 건축법 시행령
+# 대통령령 제36817호(시행 2026-11-12), 서울특별시 건축 조례 제10170호(시행 2026-11-12), 조경기준
+# 국토교통부고시 제2021-1778호(시행 2022-01-07).
+
+# 대지의 조경 (건축법 제42조①): a site of at least `min_site_m2` gets 조경 by the 시·도 ordinance's
+# ratio, except where 시행령 제27조① says not.
+landscape:
+  law: 건축법 제42조제1항
+  min_site_m2: 200
+  text: >-
+    ① 면적이 200제곱미터 이상인 대지에 건축을 하는 건축주는 용도지역 및 건축물의 규모에 따라 해당
+    지방자치단체의 조례로 정하는 기준에 따라 대지에 조경이나 그 밖에 필요한 조치를 하여야 한다. 다만, 조경이
+    필요하지 아니한 건축물로서 대통령령으로 정하는 건축물에 대하여는 조경 등의 조치를 하지 아니할 수 있으며,
+    옥상 조경 등 대통령령으로 따로 기준을 정하는 경우에는 그 기준에 따른다.
+  # 시행령 제27조①: the zones where no 조경 need be done (words the 용도지역 name holds; 제9호's
+  # 관리지역 etc. except in a 지구단위계획구역, which the card leaves to the designer). The other
+  # exceptions depend on the use and are quoted for the designer, not applied.
+  exempt_zones: [녹지지역, 관리지역, 농림지역, 자연환경보전지역]
+  exempt_law: 건축법 시행령 제27조제1항
+  exempt_text: >-
+    법 제42조제1항 단서에 따라 다음 각 호의 어느 하나에 해당하는 건축물에 대하여는 조경 등의 조치를 하지 않을
+    수 있다. 1. 녹지지역에 건축하는 건축물 2. 면적 5천 제곱미터 미만인 대지에 건축하는 공장 3. 연면적의 합계가
+    1천500제곱미터 미만인 공장 4. 「산업집적활성화 및 공장설립에 관한 법률」 제2조제14호에 따른 산업단지의 공장
+    5. 대지에 염분이 함유되어 있는 경우 또는 건축물 용도의 특성상 조경 등의 조치를 하기가 곤란하거나 조경 등의
+    조치를 하는 것이 불합리한 경우로서 건축조례로 정하는 건축물 6. 축사 7. 법 제20조제1항에 따른 가설건축물
+    8. 연면적의 합계가 1천500제곱미터 미만인 물류시설(주거지역 또는 상업지역에 건축하는 것은 제외한다)로서
+    국토교통부령으로 정하는 것 9. 「국토의 계획 및 이용에 관한 법률」에 따라 지정된 자연환경보전지역ㆍ농림지역
+    또는 관리지역(지구단위계획구역으로 지정된 지역은 제외한다)의 건축물 10. (관광지·휴양업 시설·골프장 등 중
+    건축조례로 정하는 건축물) 11. 「산지관리법」 제2조제1호의 산지 또는 그 경계로부터 최단거리가 50미터 이내인
+    대지에 건축하는 변전소
+  # 시행령 제27조③: 옥상 조경. The generator lays out the ground only; the card quotes it.
+  roof_law: 건축법 시행령 제27조제3항
+  roof_text: >-
+    건축물의 옥상에 법 제42조제2항에 따라 국토교통부장관이 고시하는 기준에 따라 조경이나 그 밖에 필요한 조치를
+    하는 경우에는 옥상부분 조경면적의 3분의 2에 해당하는 면적을 법 제42조제1항에 따른 대지의 조경면적으로
+    산정할 수 있다. 이 경우 조경면적으로 산정하는 면적은 법 제42조제1항에 따른 조경면적의 100분의 50을 초과할
+    수 없다.
+  verified: 2026-11-20
+  # The 시·도 ordinances' ratio of the 대지면적 by the building's 연면적 합계 (the 시·도 name as the
+  # site facts' municipality starts). `tiers`: [[연면적 at least ㎡, % of the 대지면적], ...], the
+  # first that fits from the top. `small_site`: a site under `below` ㎡ asks `pct`% whatever the
+  # 연면적 (서울 제24조③).
+  regions:
+    서울특별시:
+      law: 서울특별시 건축 조례 제24조
+      tiers: [[2000, 15], [1000, 10], [0, 5]]
+      small_site: {below: 300, pct: 5}
+      text: >-
+        ① 면적 200제곱미터 이상인 대지에 건축물을 건축하고자 하는 자는 법 제42조제1항에 따라 다음 각 호의
+        기준에 따른 식수 등 조경에 필요한 면적(이하 "조경면적"이라 한다)을 확보하여야 한다. 1. 연면적의 합계가
+        2천제곱미터 이상인 건축물 : 대지면적의 15퍼센트 이상 2. 연면적의 합계가 1천제곱미터 이상 2천제곱미터
+        미만인 건축물 : 대지면적의 10퍼센트 이상 3. 연면적의 합계가 1천제곱미터 미만인 건축물 : 대지면적의
+        5퍼센트 이상 5. 「서울특별시 도시계획 조례」제45조제2항에 따른 학교이적지 안의 건축물 : 대지면적의
+        30퍼센트 이상 ③ 제1항 및 영 제27조제2항제4호에도 불구하고 면적 200제곱미터 이상 300제곱미터 미만인
+        대지에 건축하는 건축물의 조경면적은 대지면적의 5퍼센트 이상으로 한다.
+      verified: 2026-11-20
+
+# 조경기준 (국토교통부 고시): 식재 수량 per ㎡ of the 조경면적 by the words of the 용도지역 name
+# (the first that fits), and the least share of planting.
+planting:
+  law: 조경기준 제7조제1항
+  per_m2:
+    - [상업, {trees: 0.1, shrubs: 1.0}]
+    - [공업, {trees: 0.3, shrubs: 1.0}]
+    - [주거, {trees: 0.2, shrubs: 1.0}]
+    - [녹지, {trees: 0.2, shrubs: 1.0}]
+  text: >-
+    1. 조경면적 1제곱미터마다 교목 및 관목의 수량은 다음 각목의 기준에 적합하게 식재하여야 한다. 다만
+    조경의무면적을 초과하여 설치한 부분에는 그러하지 아니하다. 가. 상업지역 : 교목 0.1주 이상, 관목 1.0주 이상
+    나. 공업지역 : 교목 0.3주 이상, 관목 1.0주 이상 다. 주거지역 : 교목 0.2주 이상, 관목 1.0주 이상
+    라. 녹지지역 : 교목 0.2주 이상, 관목 1.0주 이상
+  # 조경기준 제4조: 식재면적 at least half the 조경의무면적; one planted piece at least 1 m a side and 1 ㎡.
+  planted_share: 50
+  least_side_m: 1.0
+  share_law: 조경기준 제4조
+  share_text: >-
+    조경면적은 식재된 부분의 면적과 조경시설공간의 면적을 합한 면적으로 산정하며 다음 각 호의 기준에 적합하게
+    배치하여야 한다. 1. 식재면적은 당해 지방자치단체의 조례에서 정하는 조경면적(이하 "조경의무면적"이라 한다)의
+    100분의 50 이상(이하 "식재의무면적"이라 한다)이어야 한다. 2. 하나의 식재면적은 한 변의 길이가 1미터
+    이상으로서 1제곱미터 이상이어야 한다. 3. 하나의 조경시설공간의 면적은 10제곱미터 이상이어야 한다.
+  # 제7조②: big trees count as 2, 4 or 8 (the generator counts every tree as one: the least).
+  weight_text: >-
+    수고 4미터 이상(낙엽교목은 흉고직경 12센티미터 또는 근원직경 15센티미터 이상, 상록교목은 수관폭 2미터 이상)인
+    수목 1주는 교목 2주, 수고 5미터 이상(흉고 18·근원 20센티미터, 상록 수관폭 3미터 이상)은 4주, 흉고직경
+    25센티미터 또는 근원직경 30센티미터 이상(상록 수관폭 5미터 이상)은 8주를 식재한 것으로 산정한다(제7조제2항).
+  verified: 2026-11-20
+
+# 공개 공지 (건축법 제43조①, 시행령 제27조의2): in the zones named, a building of one of the uses
+# whose 바닥면적 합계 is at least `min_floor_m2` keeps an open space of the ordinance's ratio of the
+# 대지면적 (at most 10%). A region may name more uses (`extra_uses`).
+open_space:
+  law: 건축법 제43조제1항, 시행령 제27조의2
+  zones: [일반주거지역, 준주거지역, 상업지역, 준공업지역]
+  min_floor_m2: 5000
+  uses:
+    culture: 문화 및 집회시설
+    religion: 종교시설
+    sales: 판매시설(농수산물유통시설 제외)
+    transit: 운수시설
+    office: 업무시설
+    lodging: 숙박시설
+    medical: 의료시설
+    sports: 운동시설
+    amusement: 위락시설
+    funeral: 장례식장
+  # The statute names the first six (운수시설: 여객용만); the others only where a region's ordinance does.
+  statute_uses: [culture, religion, sales, transit, office, lodging]
+  text: >-
+    ① 법 제43조제1항에 따라 다음 각 호의 어느 하나에 해당하는 건축물의 대지에는 공개 공지 또는 공개 공간을
+    설치해야 한다. 1. 문화 및 집회시설, 종교시설, 판매시설(「농수산물 유통 및 가격안정에 관한 법률」에 따른
+    농수산물유통시설은 제외한다), 운수시설(여객용 시설만 해당한다), 업무시설 및 숙박시설로서 해당 용도로 쓰는
+    바닥면적의 합계가 5천 제곱미터 이상인 건축물 ② 공개공지등의 면적은 대지면적의 100분의 10 이하의 범위에서
+    건축조례로 정한다. 이 경우 법 제42조에 따른 조경면적과 (매장유산의 현지보존 조치 면적)을 공개공지등의 면적으로
+    할 수 있다.
+  verified: 2026-11-20
+  regions:
+    서울특별시:
+      law: 서울특별시 건축 조례 제26조
+      uses: [culture, sales, office, lodging, medical, sports, amusement, religion, transit, funeral]
+      tiers: [[5000, 10]]
+      # 제26조②: at the widest road, at most 2 places of at least 90 ㎡ each, at least 9 m wide.
+      least_piece_m2: 90
+      least_width_m: 9
+      text: >-
+        ① 1. 대상건축물 : 다음 각 목의 어느 하나에 해당하는 시설로서 해당 용도로 쓰는 바닥면적의 합계가
+        5천제곱미터 이상인 건축물 가.문화 및 집회시설 나.판매시설(농수산물유통시설은 제외) 다.업무시설
+        라.숙박시설 마.의료시설 바.운동시설 사.위락시설 아.종교시설 자.운수시설 차.장례식장 2. 면적 : 제1호 각
+        목의 어느 하나에 해당하는 건축물이 확보하여야 하는 공개공지 등의 면적은 대지면적의 10퍼센트 이상으로
+        한다. 다만, 영 제31조제2항에 따라 지정한 건축선 후퇴부분의 면적은 공개공지 등의 면적에 포함하지
+        아니하며, 필로티구조로 구획되거나 지하에 설치된 부분의 면적은 2분의 1로 한정하여 공개공지 등의 면적으로
+        산입한다. ② 1. 대지에 접한 도로 중 가장 넓은 도로변(한 면이 4분의 1 이상 접할 것)으로서 일반인의
+        접근(계단 이용 제외) 및 이용이 편리한 장소에 가로환경과 조화를 이루는 소공원(쌈지공원)형태로 설치한다.
+        2. 2개소 이내로 설치하되, 1개소의 최소 면적은 90제곱미터 이상으로 한다. 다만, 설치 의무 면적이
+        90제곱미터 미만인 경우에는 1개소에 해당 면적 확보시 최소면적 기준을 충족한 것으로 본다. 3. 최소폭은
+        9미터 이상으로 한다.
+      verified: 2026-11-20

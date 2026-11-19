@@ -1806,3 +1806,24 @@ test('site diagrams are asked for and named as chosen', async () => {
   assert.equal(m.siteDiagramLabel({ kind: 'sun_path', title: '태양 궤적', ranges: {} }, {}), '태양 궤적');
   assert.deepEqual(m.TOOL_GROUPS.find((g) => g.id === 'around').items, ['around', 'diagrams', 'model-panel']);
 });
+
+test('a scheme sets its floor area against the site card 조경 ratios and the ground it leaves', async () => {
+  const { propertiesOf, landscapeNeed } = await import('../../webui/app/board-model.js');
+  const line = { id: 'landscape', status: 'conditional', tiers: [[2000, 15], [1000, 10], [0, 5]] };
+  // 28 × 25 = 700 ㎡ on 8 floors: 5,600 ㎡ asks 15% of 1,584 ㎡
+  const mass = { id: 'm', kind: 'mass', title: '안 A', floor_height: 4, blocks: [{ u: 0, v: 0, w: 28, d: 25, floors: 8 }] };
+  const site = { areaM2: 1584, bcr: null, far: null, landscape: line };
+  const row = (label) => propertiesOf([mass], site).rows.find((r) => r[0] === label)?.[1];
+  assert.equal(row('조경'), '237.6㎡ 이상 (대지면적의 15%)');
+  assert.equal(row('조경 여유'), '매스 밖 땅 884㎡, 646.4㎡ 남음');
+  // a small building asks the lowest tier; a building over almost all the site leaves too little
+  assert.equal(landscapeNeed(line, 1000, 800, 200).ratio, 5);
+  const tight = landscapeNeed(line, 1000, 3000, 900);
+  assert.deepEqual([tight.need, tight.left], [150, 100]);
+  const over = propertiesOf([{ ...mass, blocks: [{ u: 0, v: 0, w: 39, d: 39, floors: 2 }] }], site).rows.find((r) => r[0] === '조경 여유')[1];
+  assert.ok(over.endsWith('모자람'), over);
+  // where the site asks none, or no line came: no rows
+  assert.deepEqual(landscapeNeed({ status: 'none', detail: '녹지지역' }, 1000, 3000, 100), { none: '녹지지역' });
+  assert.equal(propertiesOf([mass], { ...site, landscape: { status: 'none' } }).rows.some((r) => r[0] === '조경'), false);
+  assert.equal(propertiesOf([mass], { ...site, landscape: null }).rows.some((r) => r[0] === '조경'), false);
+});

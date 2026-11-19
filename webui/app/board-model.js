@@ -1122,7 +1122,21 @@ export function massFigures(blocks, site = null) {
     farCap: area ? cap(site.far) : null,
     bcrFrom: site?.bcrFrom || '법정',
     farFrom: site?.farFrom || '법정',
+    green: area ? landscapeNeed(site?.landscape, area, gross, footprint) : null,
   };
+}
+
+// The 대지의 조경 a scheme asks, from the site card's 조경 line (`line`: its `tiers` of [연면적 at
+// least ㎡, % of the site], sida/experts/landscape/rules.py card_line): {ratio, need, left} with
+// `left` the ground the blocks leave, or {none: why} where the site asks none; null when the line
+// gives no ratio (the card says why).
+export function landscapeNeed(line, area, gross, footprint) {
+  if (!line || !(area > 0)) return null;
+  if (line.status === 'none') return { none: line.detail || '해당 없음' };
+  if (!Array.isArray(line.tiers) || !line.tiers.length) return null;
+  const tier = line.tiers.find(([least]) => gross >= least) || line.tiers[line.tiers.length - 1];
+  const ratio = tier[1];
+  return { ratio, need: (area * ratio) / 100, left: Math.max(area - footprint, 0) };
 }
 
 const pct = (v) => `${Math.round(v * 10) / 10}%`;
@@ -1146,6 +1160,11 @@ function schemeRatioRows(f, prefix = '') {
   const rows = [[`${prefix}건폐율`, ratioText(f.coverage, f.bcr, f.bcrFrom)], [`${prefix}용적률`, ratioText(f.far, f.farCap, f.farFrom)]];
   if (f.bcr !== null) rows.push(['건폐율 여유', roomText(f.footprint, f.bcr, f.area)]);
   if (f.farCap !== null) rows.push(['용적률 여유', roomText(f.gross, f.farCap, f.area)]);
+  if (f.green && !f.green.none) {
+    const { ratio, need, left } = f.green;
+    rows.push(['조경', `${m2(need)} 이상 (대지면적의 ${ratio}%)`],
+      ['조경 여유', left + 1e-9 >= need ? `매스 밖 땅 ${m2(left)}, ${m2(left - need)} 남음` : `매스 밖 땅 ${m2(left)}, ${m2(need - left)} 모자람`]);
+  }
   return rows;
 }
 
