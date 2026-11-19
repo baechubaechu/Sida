@@ -168,6 +168,28 @@ def test_ledger_rows_come_from_the_relay_in_parts_and_only_for_what_was_asked(re
     assert site_relay.ledger(["1"]) == ({}, None)
 
 
+def test_a_failed_ledger_part_is_left_out_and_the_next_parts_are_still_asked(relay_on, monkeypatch):
+    monkeypatch.setattr(site_relay, "MAX_PNUS", 1)
+    relay_on["ledger"] = {p: [{"name": p}] for p in "123456"}
+    post = site_relay._http_post
+    failing = {"2": "network", "4": "network", "5": "network"}
+
+    def flaky(url, body):
+        kind = failing.get(body["pnus"][0])
+        if kind:
+            relay_on["asked"].append((url, body))
+            raise site_relay.SiteRelayError(kind)
+        return post(url, body)
+
+    monkeypatch.setattr(site_relay, "_http_post", flaky)
+    found, meta = site_relay.ledger(list("123456"))
+    assert sorted(found) == ["1", "3"] and meta["month"] == "2026-09"  # 2 failed alone; 4 and 5 in a row: 6 not asked
+    assert [b["pnus"] for _u, b in relay_on["asked"]] == [["1"], ["2"], ["3"], ["4"], ["5"]]
+    relay_on["asked"].clear()
+    failing.update({"1": "refused"})
+    assert site_relay.ledger(list("123")) == ({}, None) and len(relay_on["asked"]) == 1  # a refused key: stop at once
+
+
 def test_surroundings_take_the_relays_ledger_and_ask_data_go_kr_only_for_the_rest(relay_on, tmp_path, monkeypatch):
     fake_vworld_layers(monkeypatch)
     monkeypatch.setattr(context3d, "LIVE_NEAR", 0.0)  # every parcel off the site is "far"

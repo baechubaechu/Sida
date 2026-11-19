@@ -96,7 +96,7 @@ docker compose exec relay python -m relay.admin refuse <요청 id>
 
 ### 대지 하나의 대장 찾기
 
-묶음이 없는 PC는 묶음을 통째로 받지 않고, 대지 주변 필지의 표제부만 묻습니다(`POST /relay/ledger/lookup`, `{"pnus": [...]}` 최대 2,000개 → `{"rows": {pnu: [...]}, "month"}`). 서버는 `/ledger`의 압축 안 푼 `*.ledger.sqlite`에서 찾습니다(`ledger_pull`이 gzip 옆에 남김). 하루 한도에 함께 셉니다.
+묶음이 없는 PC는 묶음을 통째로 받지 않고, 대지 주변 필지의 표제부만 묻습니다(`POST /relay/ledger/lookup`, `{"pnus": [...]}` 최대 2,000개 → `{"rows": {pnu: [...]}, "month"}`). 서버는 `/ledger`의 압축 안 푼 `*.ledger.sqlite`에서 찾습니다(`ledger_pull`이 gzip 옆에 남김). 하루 한도에 함께 셉니다. 묶음은 행을 PNU 순서로 저장해 이웃 필지가 디스크에 붙어 있습니다(2026-11-19부터 만든 묶음, meta `order`=`pnu`). 앱은 500개씩 나눠 묻습니다.
 
 ## 공유 (보기 링크와 댓글)
 
