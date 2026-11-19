@@ -406,11 +406,62 @@ def test_a_piece_the_land_plan_shows_is_no_height_district_any_more_is_left_asid
 
 
 def test_the_pieces_left_on_vworld_only_are_in_the_table():
-    """The 11 pieces checked on 2026-11-19 (토지이음 and 3 points each: no 고도지구); 우록리·상리동·영주동 are
-    still 고도지구 (their first parcel's 토지이음 page was empty) and are not listed."""
+    """The 17 pieces checked on 2026-11-19 (토지이음: no 고도지구); 우록리·상리동·영주동 are still 고도지구
+    (their first parcel's 토지이음 page was empty) and are not listed."""
     gone = height_districts.load_table()["not_in_effect"]
-    assert len(gone) == 11 and all(e["area_m2"] > 0 and e["parcel"] for e in gone)
+    assert len(gone) == 17 and all(e["area_m2"] > 0 and e["parcel"] for e in gone)
     assert not any(e["sigg"] in ("서구", "중구") or e["dnum"] in ("0006",) for e in gone)
     found = height_districts.pick([piece(116066, dyear="0000", dnum="0000", sigg="수성구", sido="대구광역시")],
                                   facts("대구광역시 수성구 범어동 854"))
     assert found["status"] == "none"
+
+
+def test_a_piece_under_another_number_is_tied_to_its_zone_by_the_table(monkeypatch):
+    """VWorld draws some zones under a later 지형도면 notice's number or 0000 (2026-11-19 토지이음 확인):
+    piece_zones ties that one piece (시도·시군구·number·area) to its zone; the same number elsewhere is not."""
+    table = copy.deepcopy(height_districts.load_table())
+    table["piece_zones"] = [{"sido": "대구광역시", "sigg": "동구", "dyear": "0000", "dnum": "0000", "area_m2": 60000,
+                             "notice": "대구광역시 고시 제2013-27호", "district": "불로봉무지구(봉무)", "number": 11,
+                             "parcel": "대구광역시 동구 봉무동 1", "eum": "고도지구(5층이하)", "checked": "2026-11-19"}]
+    monkeypatch.setattr(height_districts, "load_table", lambda: table)
+    found = height_districts.pick([piece(60000, dyear="0000", dnum="0000", sigg="동구", sido="대구광역시")],
+                                  facts("대구광역시 동구 봉무동 2"))
+    assert (found["status"], found["zone"]["number"], found["drawn_as"], found["kept_as"]) == ("matched", 11, "piece", ["0000-0000"])
+    line, height = height_districts.line(found, entered=None, floor_height=3.0)
+    assert line["value"] == "5층 (15m)" and "0000-0000" in line["detail"] and height == pytest.approx(15)
+    other = height_districts.pick([piece(60000, dyear="0000", dnum="0000", sigg="북구", sido="대구광역시")],
+                                  facts("대구광역시 북구 노곡동 1"))
+    assert other["status"] == "unknown_notice"
+
+
+def test_the_pieces_tied_to_zones_name_zones_of_the_table():
+    """piece_zones (2026-11-19 토지이음 확인): each names one height of a zone in the table, and no piece is
+    both tied and left aside. 부산 2004-100 20번 is drawn as 2005-0004."""
+    table = height_districts.load_table()
+    for e in table["piece_zones"]:
+        zones = [z for n, z in height_districts._zones(height_districts._notice(e["notice"])) if n == e["district"]
+                 and z["number"] == e["number"]]
+        assert zones and len({z["limit"] for z in zones}) == 1, (e["notice"], e["district"], e["number"])
+    tied, gone = ({(e["sido"], e["sigg"], e["dyear"], e["dnum"], e["area_m2"]) for e in table[key]}
+                  for key in ("piece_zones", "not_in_effect"))
+    assert not tied & gone
+    found = height_districts.pick([piece(10314, dyear="2005", dnum="0004", sigg="동래구", sido="부산광역시")],
+                                  facts("부산광역시 동래구 안락동 421-38"))
+    assert (found["notice"], found["zone"]["number"]) == ("부산광역시 고시 제2004-100호", 20)
+    assert height_districts.line(found, entered=None)[1] == 18
+
+
+def test_a_piece_whose_height_only_the_land_plan_shows_says_it_and_cuts_nothing():
+    """piece_heights (no notice original, 2026-11-19 지훈 "넣고 보여 주기만"): the 토지이음 wording is shown,
+    marked to be checked, and the envelope is not cut; differing parcels are said."""
+    found = height_districts.pick([piece(295211, dyear="2004", dnum="0050", sigg="동구", sido="대구광역시")],
+                                  facts("대구광역시 동구 도동 978-158"))
+    line, height = height_districts.line(found, entered=None, floor_height=3.0)
+    assert (found["status"], line["status"], line["value"], height) == ("eum_only", "check", "5층이하 (토지이음)", None)
+    assert line["source"] == "토지이음" and "자르지 않음" in line["detail"]
+    mixed = height_districts.pick([piece(72702, sigg="동구", sido="대구광역시", dyear="0000", dnum="0000")],
+                                  facts("대구광역시 동구 용수동 611-1"))
+    assert "필지마다 표기가 다름" in height_districts.line(mixed, entered=None)[0]["detail"]
+    nothing = height_districts.pick([piece(5000, dyear="2004", dnum="0050", sigg="동구", sido="대구광역시")],
+                                    facts("대구광역시 동구 도동 1"))
+    assert nothing["status"] == "unknown_notice"  # another piece of that number: not the one checked

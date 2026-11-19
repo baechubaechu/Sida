@@ -21,6 +21,14 @@ by a person (2026-11-17 지훈 "할때마다 읽어오는건 안돼"), and at ru
    a 최저고도 zone (minimum_m: the least height to build to) is said and cuts nothing;
    one from the road or the sea, or none matched, is shown as the notice says, with no figure.
 
+A piece VWorld draws under a number of no notice in the table (a later 지형도면·지적재조사 notice, or
+0000) that 토지이음 shows is a zone of a notice in the table (`piece_zones`: same 시도·시군구·number and
+area, checked at its parcels, 2026-11-19) is matched to that zone.
+
+A piece of no zone in the table whose height 토지이음 shows (`piece_heights`: no notice original found,
+2026-11-19 지훈 "넣고 보여 주기만") gives a line with that wording, from 토지이음 and to be checked; it
+cuts nothing.
+
 A piece VWorld still draws where 토지이음 shows no 고도지구 any more (`not_in_effect`: checked at a
 parcel of that piece, 2026-11-19 지훈 "적어두자") is left aside: with no other piece under the site,
 nothing is said of a 고도지구 ("고도지구 있는 필지만 고도지구 얘기 해주고").
@@ -178,8 +186,14 @@ def _match(zones: list[tuple[str, dict]], pieces: list[dict], site: set, zoning:
 
 def _lifted(piece: dict) -> dict | None:
     """The `not_in_effect` entry for a piece (same 시도·시군구·notice number, area within AREA_TOLERANCE), or None."""
+    return _piece_entry(piece, "not_in_effect")
+
+
+def _piece_entry(piece: dict, key: str) -> dict | None:
+    """The entry of the table's list `key` (not_in_effect, piece_zones) that is this piece: same 시도·시군구·notice
+    number and an area within AREA_TOLERANCE, or None."""
     props = piece["properties"]
-    for entry in load_table().get("not_in_effect") or []:
+    for entry in load_table().get(key) or []:
         if (str(props.get("sido_name") or ""), str(props.get("sigg_name") or ""), *_id(piece)) == (
                 entry["sido"], entry["sigg"], entry["dyear"], entry["dnum"]) \
                 and abs(piece_area(piece["shape"]) - entry["area_m2"]) <= entry["area_m2"] * AREA_TOLERANCE:
@@ -189,12 +203,14 @@ def _lifted(piece: dict) -> dict | None:
 
 def pick(pieces: list[dict], facts: dict) -> dict:
     """
-    What the 고도지구 pieces under the site say: {"status": "matched" | "candidates" | "unknown_notice"
+    What the 고도지구 pieces under the site say: {"status": "matched" | "candidates" | "unknown_notice" | "eum_only"
     | "none" (no piece, or only pieces 토지이음 shows are no 고도지구 any more; or "error" from the
     caller when the lookup failed), "notice", "verified", "district",
     "zone", "matched_by" ("area" | "location" | "zoning", "+zoning" when the 용도지역 narrowed it),
+    "eum" (status "eum_only": the piece_heights entries of the pieces, no zone in the table),
     "kept_as" (the other numbers VWorld draws the zone with), "drawn_as" ("kept": an unchanged zone under
-    its older number; "alias": a number the table's vworld_also gives the notice), "candidates", "notices_seen"}.
+    its older number; "alias": a number the table's vworld_also gives the notice; "piece": a piece the table's
+    piece_zones ties to a zone), "candidates", "notices_seen"}.
     """
     table = load_table()["notices"]
     seen = sorted({_id(p) for p in pieces})
@@ -210,11 +226,23 @@ def pick(pieces: list[dict], facts: dict) -> dict:
     zoning = {z["zone"] for z in (facts.get("summary") or {}).get("zoning") or []}
     known = [n for n in table if (n["vworld"]["dyear"], n["vworld"]["dnum"]) in seen]
     aliased = [(n, a) for n in table for a in n.get("vworld_also") or [] if (a["dyear"], a["dnum"]) in seen]
+    linked = [(p, e) for p in pieces if (e := _piece_entry(p, "piece_zones"))]
     if known:
         notice = max(known, key=lambda n: (n["vworld"]["dyear"], n["vworld"]["dnum"]))
         mine = [p for p in pieces if _id(p) == (notice["vworld"]["dyear"], notice["vworld"]["dnum"])]
         zones = _zones(notice)
         found, how = _match(zones, mine, site, zoning)
+    elif linked:
+        # a piece drawn under a number of no notice in the table, checked on 토지이음 to be a zone of one (piece_zones)
+        found = [(z_name, z) for _p, e in linked for z_name, z in _zones(_notice(e["notice"]) or {"districts": {}})
+                 if z_name == e["district"] and z.get("number") == e["number"]]
+        notice, how, zones = _notice(linked[0][1]["notice"]), "piece", found
+        if notice is None:
+            out["status"] = "unknown_notice"
+            return out
+        if len({e["notice"] for _p, e in linked}) > 1:
+            found = []  # pieces of zones of two notices: not one height
+        out.update(kept_as=sorted({f"{e['dyear']}-{e['dnum']}" for _p, e in linked}), drawn_as="piece")
     elif aliased:
         # pieces VWorld draws under another number for some districts of a notice (its vworld_also)
         notice, alias = aliased[0]
@@ -236,7 +264,11 @@ def pick(pieces: list[dict], facts: dict) -> dict:
                 out.update(kept_as=out["notices_seen"], drawn_as="kept")
                 break
         if notice is None:
-            out["status"] = "unknown_notice"
+            shown = [e for p in pieces if (e := _piece_entry(p, "piece_heights"))]
+            if shown:  # no notice in the table, but 토지이음 shows the height (piece_heights)
+                out.update(status="eum_only", eum=shown)
+            else:
+                out["status"] = "unknown_notice"
             return out
     out.update(notice=notice["notice"], verified=notice.get("verified"))
     if len(_distinct(found)) == 1 and how != "zoning_conflict":
@@ -251,6 +283,7 @@ def pick(pieces: list[dict], facts: dict) -> dict:
 
 
 HOW = {"area": "고도지구 조각 넓이가 고시 표의 면적과 맞음", "location": "대지 지번이 고시 표의 위치에 있음",
+       "piece": "고시 번호가 다른 고도지구 조각을 토지이음 토지이용계획으로 확인해 이 구역으로 봄",
        "zoning": "대지의 용도지역이 고시 표의 구역과 맞음"}
 
 
@@ -295,6 +328,16 @@ def _height_line(found: dict, *, entered: float | None, use_relaxed: bool = Fals
     if found["status"] == "error":
         return _line("check", "입력 필요", "고도지구 조각을 받지 못함(연결 실패). 고시에서 높이를 찾아 입력하거나 다시 열기"), None
     rule = " ".join((_notice(notice) or {}).get("height_rule", "").split())
+    if found["status"] == "eum_only":
+        e = found["eum"][0]
+        inner = re.findall(r"고도지구\(([^)]*)\)", e["eum"])
+        value = " / ".join(dict.fromkeys(inner)) or e["eum"]
+        differ = "" if e.get("parcels_agree", True) else (
+            ". 조각 안 필지마다 표기가 다름: " + "; ".join(e.get("checked_parcels") or []))
+        return _line("check", f"{value} (토지이음)", f"고도지구 조각({', '.join(found['notices_seen'])})의 고시가 높이 표에 없어 "
+                     f"토지이음 토지이용계획 표기를 보여 줌({e['parcel']}: {e['eum']}, {e['checked']} 확인){differ}. 고시 원문과 "
+                     "대조하지 않아 볼륨을 자르지 않음. 대지 필지의 토지이용계획을 확인하고 맞으면 높이 칸에 넣기",
+                     e["eum"], "토지이음"), None
     if found["status"] == "unknown_notice":
         return _line("check", "입력 필요", f"고도지구 고시({', '.join(found['notices_seen'])})의 높이 표가 아직 없음. 고시에서 높이를 찾아 입력"), None
     if found["status"] == "candidates":
@@ -304,7 +347,9 @@ def _height_line(found: dict, *, entered: float | None, use_relaxed: bool = Fals
     how = HOW.get(base_how, "")
     if narrowed:
         how += ", 용도지역으로 구역을 가림"
-    if found.get("drawn_as") == "alias":
+    if found.get("drawn_as") == "piece":
+        how += f"(브이월드 조각 번호 {', '.join(found['kept_as'])})"
+    elif found.get("drawn_as") == "alias":
         how += f". 브이월드 조각 번호({', '.join(found['kept_as'])})는 이 고시의 {found['district']} 구역으로 봄(높이 표의 vworld_also)"
     elif found.get("kept_as"):
         how += f". 브이월드 조각은 예전 고시 번호({', '.join(found['kept_as'])})로 그려져 있으나 이 고시에서 바뀌지 않은 구역"
