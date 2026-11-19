@@ -9,6 +9,8 @@
 # 하지 않음), area_m2 (조서의 면적, VWorld 조각과 짝짓는 데 씀), location (조서의 위치).
 # kept: 이 고시에 기정 행만 있는 구역(바뀌지 않음). VWorld는 이 구역을 예전 고시 번호로 그려 두므로, 표에 없는
 #   번호의 조각이라도 같은 구의 kept 구역과 넓이·지번이 맞으면 그 구역으로 봄.
+# minimum_m: 최저고도(그 높이 이상으로 지어야 함, 볼륨 상한 아님), minimum_source: 그 근거 원문. superseded_by: 뒤 고시로
+#   바뀐 행(짝짓기에 쓰지 않음). old: 이 고시가 번호를 새로 매기기 전 번호.
 # public_land_max_m: 국·공유지(토지소유정보의 소유구분)이면 이 높이. zoning: 이 구역이 해당하는 용도지역(사유서).
 
 notices:
@@ -88,3 +90,870 @@ notices:
       redevelopment: "북한산·남산·구기평창: 정비사업 등 경관관리 가이드라인 준수, 위원회 심의(자문) 거쳐 최대 45m 범위 등 내 완화(가이드라인은 시장이 별도로 정함)"
       remodeling: "북한산·남산·구기평창: 높이 초과 아파트 주택법 리모델링 시 완화 가능"
       hotel: "남산: 지정 이전 건축으로 높이 초과된 관광숙박시설(호텔업) 기존 높이까지 완화"
+
+  # ---- 대구광역시 ----
+  # 대구광역시 고도지구 (data/height_districts.yaml 꼴). 2026-11-18 PC에서 옮김, 지훈 대조 2026-11-18.
+  # 높이는 대부분 층수(max_floors). 대구 조서 비고는 면적 증감 기록뿐이라 note 없음. # 주석은 옮긴 사람의 설명.
+  # superseded_by: 뒤 고시로 바뀐 행(높이에 쓰지 않음). minimum_m: 최저고도지구(상한 아님).
+  - notice: 대구광역시 고시 제2021-177호
+    notice_date: 2021-06-30
+    region: 대구광역시
+    # 토지이음 seq=503894(공보 제1258호 31~34쪽, 쪽 그림). 검산: 계 증) 1,577,127 = 11구역 증분 합, 행마다 변경-기정 = 비고 증분
+    # 사유(31·33·34·35·37~43): 금회 도시자연공원구역에서 해제 되는 지역에 대해 주변지역과 동일한 높이 관리를 위해 고도지구(3층 이하) 지정
+    # 조서 비고는 구역별 '증) N㎡'뿐(높이 조건 없음)
+    vworld: {layer: LT_C_UQ123, dyear: "2021", dnum: "0177"}
+    verified: 2026-11-18
+    districts:
+      "대니산지구(자모)":
+        zones:
+          - {number: 31, location: "달성군 현풍읍 자모리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 1195629, was: 914877}
+      "대니산지구(송담)":
+        zones:
+          - {number: 33, location: "달성군 구지면 도동리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 553391, was: 533898}
+      "대니산지구(밤마)":
+        zones:
+          - {number: 34, location: "달성군 구지면 오설리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 55411, was: 15680}
+      "대니산지구(오리)":
+        zones:
+          - {number: 35, location: "달성군 구지면 오설리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 398736, was: 272736}
+      "대니산지구(징리)":
+        zones:
+          - {number: 37, location: "달성군 구지면 징리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 290327, was: 276677}
+      "대니산지구(수모지)":
+        zones:
+          - {number: 38, location: "달성군 구지면 수리리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 52713, was: 32374}
+      "대니산지구(화산)":
+        zones:
+          - {number: 39, location: "달성군 구지면 수리리, 화산리 현풍읍 대리, 지리, 원교리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 3550064, was: 2832058}
+      "비슬산지구(초곡,쌍계)":
+        zones:
+          - {number: 40, location: "달성군 유가읍 초곡리, 쌍계리, 봉리, 양리, 음리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 2744967, was: 2544282}
+      "비슬산지구(솥골)":
+        zones:
+          - {number: 41, location: "달성군 유가읍 용리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 95497, was: 93098}
+      "비슬산지구(기름실)":
+        zones:
+          - {number: 42, location: "달성군 유가읍 유곡리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 349980, was: 287958}
+      "비슬산지구(가재)":
+        zones:
+          - {number: 43, location: "달성군 유가읍 용리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 311186, was: 217136}
+  - notice: 대구광역시 고시 제2019-293호
+    notice_date: 2019-12-30
+    region: 대구광역시
+    # 토지이음 seq=44706(고시문 PDF 7~18쪽, 글자 층). 검산: 계 '230개소 감) 2,942,698' = 폐지 218곳 3,234,914 - 증가 292,216, 230 = 폐지 218 + 변경 12
+    # 변경 12구역 중 31·33·35·37~43은 2021-177로 다시 변경됨 → 여기 남는 것은 32·36. 사유는 2021-177과 같음
+    # 폐지 사유: 제2종일반주거지역 최고층수 제한 폐지 등 여건 변화에 따른 정비(49~274 북리1 외 217개소, 2003.11.20 대고 제168호의 20층)
+    vworld: {layer: LT_C_UQ123, dyear: "2019", dnum: "0293"}
+    verified: 2026-11-18
+    districts:
+      "대니산지구(자모)":
+        zones:
+          - {number: 31, location: "달성군 현풍읍 자모리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 914877, was: 867440, superseded_by: "대구광역시 고시 제2021-177호"}
+      "대니산지구(도동)":
+        zones:
+          - {number: 32, location: "달성군 구지면 도동리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 66294, was: 58360}
+      "대니산지구(송담)":
+        zones:
+          - {number: 33, location: "달성군 구지면 도동리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 533898, was: 489080, superseded_by: "대구광역시 고시 제2021-177호"}
+      "대니산지구(오리)":
+        zones:
+          - {number: 35, location: "달성군 구지면 오설리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 272736, was: 251560, superseded_by: "대구광역시 고시 제2021-177호"}
+      "대니산지구(애기실)":
+        zones:
+          - {number: 36, location: "달성군 구지면 오설리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 69675, was: 32000}
+      "대니산지구(징리)":
+        zones:
+          - {number: 37, location: "달성군 구지면 징리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 276677, was: 267380, superseded_by: "대구광역시 고시 제2021-177호"}
+      "대니산지구(수모지)":
+        zones:
+          - {number: 38, location: "달성군 구지면 수리리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 32374, was: 28740, superseded_by: "대구광역시 고시 제2021-177호"}
+      "대니산지구(화산)":
+        zones:
+          - {number: 39, location: "달성군 구지면 수리리, 화산리, 달성군 현풍읍 대리, 지리, 원교리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 2832058, was: 2804800, superseded_by: "대구광역시 고시 제2021-177호"}
+      "비슬산지구(초곡,쌍계)":
+        zones:
+          - {number: 40, location: "달성군 유가읍 초곡리, 쌍계리, 봉리, 양리, 음리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 2544282, was: 2464857, superseded_by: "대구광역시 고시 제2021-177호"}
+      "비슬산지구(솥골)":
+        zones:
+          - {number: 41, location: "달성군 유가읍 용리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 93098, was: 89388, superseded_by: "대구광역시 고시 제2021-177호"}
+      "비슬산지구(기름실)":
+        zones:
+          - {number: 42, location: "달성군 유가읍 유곡리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 287958, was: 279100, superseded_by: "대구광역시 고시 제2021-177호"}
+      "비슬산지구(가재)":
+        zones:
+          - {number: 43, location: "달성군 유가읍 용리", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 217136, was: 216142, superseded_by: "대구광역시 고시 제2021-177호"}
+    abolished:
+      - {number: 49, district: "북리1", location: "달성군 논공읍 북리 803-4번지 일원", was: "20층", area_m2: 82200}
+      - {number: 50, district: "북리2", location: "달성군 논공읍 북리 824-178번지 일원", was: "20층", area_m2: 18430}
+      - {number: 51, district: "남리2", location: "달성군 논공읍 남리 578-15번지 일원", was: "20층", area_m2: 12600}
+      - {number: 52, district: "남리3", location: "달성군 논공읍 남리 573-2번지 일원", was: "20층", area_m2: 16790}
+      - {number: 53, district: "성하1", location: "달성군 현풍읍 성하리 435-5번지 일원", was: "20층", area_m2: 440}
+      - {number: 54, district: "부리1", location: "달성군 현풍읍 부리 140번지 일원", was: "20층", area_m2: 1840}
+      - {number: 55, district: "중리1", location: "달성군 현풍읍 중리 486-2번지 일원", was: "20층", area_m2: 9830}
+      - {number: 56, district: "상리2", location: "달성군 현풍읍 상리 188번지 일원", was: "20층", area_m2: 2210}
+      - {number: 57, district: "하리3", location: "달성군 현풍읍 중리 94-2번지 일원", was: "20층", area_m2: 2830}
+      - {number: 58, district: "읍내1", location: "북구 읍내동 780-5번지 일원", was: "20층", area_m2: 3450}
+      - {number: 59, district: "읍내3", location: "북구 읍내동 394-5번지 일원", was: "20층", area_m2: 2700}
+      - {number: 60, district: "읍내4", location: "북구 읍내동 1234-7번지 일원", was: "20층", area_m2: 21530}
+      - {number: 61, district: "읍내5", location: "북구 읍내동 455번지 일원", was: "20층", area_m2: 5000}
+      - {number: 62, district: "읍내6", location: "북구 읍내동 943-4번지 일원", was: "20층", area_m2: 1490}
+      - {number: 63, district: "읍내7", location: "북구 읍내동 1171번지 일원", was: "20층", area_m2: 35020}
+      - {number: 64, district: "읍내8", location: "북구 읍내동 1060번지 일원", was: "20층", area_m2: 6620}
+      - {number: 66, district: "태전4", location: "북구 태전동 304-4번지 일원", was: "20층", area_m2: 1370}
+      - {number: 67, district: "태전5", location: "북구 태전동 254-3번지 일원", was: "20층", area_m2: 8600}
+      - {number: 68, district: "태전6", location: "북구 태전동 256-26번지 일원", was: "20층", area_m2: 14980}
+      - {number: 69, district: "태전7", location: "북구 태전동 682-31번지 일원", was: "20층", area_m2: 12490}
+      - {number: 70, district: "태전8", location: "북구 태전동 881-3번지 일원", was: "20층", area_m2: 59110}
+      - {number: 71, district: "태전9", location: "북구 태전동 714-2번지 일원", was: "20층", area_m2: 15830}
+      - {number: 72, district: "태전11", location: "북구 태전동 1075-10번지 일원", was: "20층", area_m2: 12530}
+      - {number: 73, district: "태전13", location: "북구 태전동 532-1번지 일원", was: "20층", area_m2: 19270}
+      - {number: 74, district: "복현2", location: "북구 복현2동 936-8번지 일원", was: "20층", area_m2: 6760}
+      - {number: 75, district: "복현3", location: "북구 복현2동 37번지 일원", was: "20층", area_m2: 3940}
+      - {number: 76, district: "검단3", location: "북구 검단동 1128-3번지 일원", was: "20층", area_m2: 22270}
+      - {number: 77, district: "불로2", location: "동구 불로동 산1-13번지 일원", was: "20층", area_m2: 7480}
+      - {number: 78, district: "매천2", location: "북구 매천동 612-10번지 일원", was: "20층", area_m2: 7990}
+      - {number: 79, district: "노곡2", location: "북구 노곡동 580-2번지 일원", was: "20층", area_m2: 122148}
+      - {number: 80, district: "노원3", location: "북구 노원동2가 246번지 일원", was: "20층", area_m2: 8700}
+      - {number: 81, district: "원대2", location: "서구 원대동3가 1375-9번지 일원", was: "20층", area_m2: 1420}
+      - {number: 82, district: "비산2", location: "서구 비산5동 1195-5번지 일원", was: "20층", area_m2: 13150}
+      - {number: 84, district: "비산4", location: "서구 비산1동 733번지 일원", was: "20층", area_m2: 6380}
+      - {number: 85, district: "원대4", location: "서구 원대동1가 640번지 일원", was: "20층", area_m2: 3510}
+      - {number: 86, district: "원대5", location: "서구 원대동1가 79번지 일원", was: "20층", area_m2: 2340}
+      - {number: 87, district: "침산2", location: "북구 침산3동 457-7번지 일원", was: "20층", area_m2: 7670}
+      - {number: 88, district: "침산5", location: "북구 침산2동 286-1번지 일원", was: "20층", area_m2: 10610}
+      - {number: 89, district: "산격1", location: "북구 산격1동 724-12번지 일원", was: "20층", area_m2: 54150}
+      - {number: 90, district: "산격5", location: "북구 산격4동 1224-2번지 일원", was: "20층", area_m2: 2080}
+      - {number: 91, district: "산격6", location: "북구 산격2동 505번지 일원", was: "20층", area_m2: 21460}
+      - {number: 92, district: "산격8", location: "북구 산격2동 503-1번지 일원", was: "20층", area_m2: 45700}
+      - {number: 93, district: "산격9", location: "북구 산격2동 493번지 일원", was: "20층", area_m2: 16200}
+      - {number: 94, district: "신암1", location: "동구 신암1동 666-10번지 일원", was: "20층", area_m2: 2140}
+      - {number: 95, district: "대현1", location: "북구 대현1동 25-13번지 일원", was: "20층", area_m2: 3160}
+      - {number: 96, district: "대현2", location: "북구 대현1동 190-11번지 일원", was: "20층", area_m2: 11420}
+      - {number: 97, district: "대현3", location: "북구 대현1동 202-8번지 일원", was: "20층", area_m2: 1930}
+      - {number: 98, district: "대현5", location: "북구 대현2동 442-6번지 일원", was: "20층", area_m2: 33010}
+      - {number: 99, district: "복현5", location: "북구 복현2동 630번지 일원", was: "20층", area_m2: 50210}
+      - {number: 100, district: "신암3", location: "동구 신암4동 677-7번지 일원", was: "20층", area_m2: 1780}
+      - {number: 101, district: "신암4", location: "동구 신암4동 676-11번지 일원", was: "20층", area_m2: 1230}
+      - {number: 102, district: "불로4", location: "동구 불로동 959번지 일원", was: "20층", area_m2: 23790}
+      - {number: 103, district: "불로5", location: "동구 불로동 1040-1번지 일원", was: "20층", area_m2: 6080}
+      - {number: 104, district: "불로6", location: "동구 불로동 1000-40번지 일원", was: "20층", area_m2: 2090}
+      - {number: 105, district: "불로7", location: "동구 불로동 1021번지 일원", was: "20층", area_m2: 5510}
+      - {number: 106, district: "지저2", location: "동구 지저동 711번지 일원", was: "20층", area_m2: 7460}
+      - {number: 107, district: "지저3", location: "동구 지저동 757-5번지 일원", was: "20층", area_m2: 16690}
+      - {number: 108, district: "지저4", location: "동구 지저동 780-3번지 일원", was: "20층", area_m2: 8340}
+      - {number: 109, district: "지저5", location: "동구 지저동 786-2번지 일원", was: "20층", area_m2: 5750}
+      - {number: 110, district: "지저6", location: "동구 지저동 798-2번지 일원", was: "20층", area_m2: 3510}
+      - {number: 111, district: "신암5", location: "동구 신암5동 1107-78번지 일원", was: "20층", area_m2: 34500}
+      - {number: 112, district: "신암8", location: "동구 신암5동 152번지 일원", was: "20층", area_m2: 20900}
+      - {number: 113, district: "입석2", location: "동구 입석동 1932-5번지 일원", was: "20층", area_m2: 8640}
+      - {number: 114, district: "검사1", location: "동구 검사동 1021번지 일원", was: "20층", area_m2: 10080}
+      - {number: 115, district: "효목1", location: "동구 효목1동 55번지 일원", was: "20층", area_m2: 67970}
+      - {number: 117, district: "효목5", location: "동구 효목1동 144-3번지 일원", was: "20층", area_m2: 4800}
+      - {number: 118, district: "효목6", location: "동구 효목1동 138-8번지 일원", was: "20층", area_m2: 3220}
+      - {number: 119, district: "효목7", location: "동구 효목1동 166-1번지 일원", was: "20층", area_m2: 2230}
+      - {number: 120, district: "효목8", location: "동구 효목1동 199-18번지 일원", was: "20층", area_m2: 1900}
+      - {number: 121, district: "검사3", location: "동구 검사동 963-8번지 일원", was: "20층", area_m2: 11600}
+      - {number: 122, district: "방촌2", location: "동구 방촌동 1050-71번지 일원", was: "20층", area_m2: 61220}
+      - {number: 123, district: "방촌3", location: "동구 방촌동 1067-1번지 일원", was: "20층", area_m2: 5800}
+      - {number: 124, district: "방촌4", location: "동구 방촌동 1084-13번지 일원", was: "20층", area_m2: 6280}
+      - {number: 125, district: "방촌5", location: "동구 방촌동 1096-1번지 일원", was: "20층", area_m2: 74840}
+      - {number: 126, district: "방촌6", location: "동구 방촌동 1084-30번지 일원", was: "20층", area_m2: 73070}
+      - {number: 127, district: "용계1", location: "동구 용계동 1119번지 일원", was: "20층", area_m2: 35400}
+      - {number: 128, district: "방촌8", location: "동구 방촌동 1119-1번지 일원", was: "20층", area_m2: 65090}
+      - {number: 129, district: "용계3", location: "동구 용계동 467-1번지 일원", was: "20층", area_m2: 50530}
+      - {number: 130, district: "용계5", location: "동구 용계동 755-10번지 일원", was: "20층", area_m2: 14360}
+      - {number: 131, district: "만촌1", location: "수성구 만촌1동 271-9번지 일원", was: "20층", area_m2: 22260}
+      - {number: 132, district: "죽전1", location: "달서구 죽전동 74-11번지 일원", was: "20층", area_m2: 22050}
+      - {number: 133, district: "죽전2", location: "달서구 죽전동 399번지 일원", was: "20층", area_m2: 2400}
+      - {number: 134, district: "죽전3", location: "달서구 죽전동 251번지 일원", was: "20층", area_m2: 17350}
+      - {number: 135, district: "죽전4", location: "달서구 죽전동 40-1번지 일원", was: "20층", area_m2: 7260}
+      - {number: 136, district: "중리1", location: "서구 중리동 706-2번지 일원", was: "20층", area_m2: 1630}
+      - {number: 137, district: "중리2", location: "서구 중리동 707-5번지 일원", was: "20층", area_m2: 1810}
+      - {number: 138, district: "죽전5", location: "달서구 죽전동 55-3번지 일원", was: "20층", area_m2: 1860}
+      - {number: 139, district: "죽전6", location: "달서구 죽전동 49-5번지 일원", was: "20층", area_m2: 4590}
+      - {number: 140, district: "내당2", location: "서구 내당4동 339번지 일원", was: "20층", area_m2: 13530}
+      - {number: 141, district: "내당3", location: "서구 내당4동 358-2번지 일원", was: "20층", area_m2: 3450}
+      - {number: 142, district: "내당4", location: "서구 내당4동 460-5번지 일원", was: "20층", area_m2: 6200}
+      - {number: 143, district: "평리2", location: "서구 평리4동 1411-1번지 일원", was: "20층", area_m2: 4790}
+      - {number: 144, district: "평리3", location: "서구 평리4동 1439-1번지 일원", was: "20층", area_m2: 6120}
+      - {number: 145, district: "내당5", location: "서구 내당4동 254-4번지 일원", was: "20층", area_m2: 1690}
+      - {number: 147, district: "용계6", location: "동구 용계동 878-3번지 일원", was: "20층", area_m2: 2300}
+      - {number: 148, district: "내당7", location: "서구 내당1동 202-6번지 일원", was: "20층", area_m2: 38430}
+      - {number: 149, district: "내당9", location: "서구 내당1동 11-8번지 일원", was: "20층", area_m2: 44360}
+      - {number: 150, district: "내당10", location: "서구 내당1동 216-3번지 일원", was: "20층", area_m2: 1620}
+      - {number: 151, district: "비산5", location: "서구 비산4동 331-36번지 일원", was: "20층", area_m2: 8610}
+      - {number: 152, district: "내당12", location: "서구 내당2,3동 906-2번지 일원", was: "20층", area_m2: 3330}
+      - {number: 153, district: "대명1", location: "남구 대명3,7동 2519-5번지 일원", was: "20층", area_m2: 3550}
+      - {number: 154, district: "대명2", location: "남구 대명2,8동 1797-10번지 일원", was: "20층", area_m2: 610}
+      - {number: 155, district: "이천1", location: "남구 이천동 650번지 일원", was: "20층", area_m2: 36780}
+      - {number: 156, district: "동인2", location: "중구 동인동3가 343번지 일원", was: "20층", area_m2: 1110}
+      - {number: 157, district: "효목9", location: "동구 효목2동 639번지 일원", was: "20층", area_m2: 1470}
+      - {number: 158, district: "월성1", location: "달서구 월성1,2동 500번지 일원", was: "20층", area_m2: 300310}
+      - {number: 159, district: "본동4", location: "달서구 본동 943-2번지 일원", was: "20층", area_m2: 1340}
+      - {number: 160, district: "본동5", location: "달서구 본동 755번지 일원", was: "20층", area_m2: 2540}
+      - {number: 161, district: "본동6", location: "달서구 본동 781번지 일원", was: "20층", area_m2: 760}
+      - {number: 162, district: "본동7", location: "달서구 본동 828번지 일원", was: "20층", area_m2: 2470}
+      - {number: 163, district: "두류1", location: "달서구 두류3동 629-6번지 일원", was: "20층", area_m2: 10160}
+      - {number: 164, district: "성당1", location: "달서구 성당2동 16-11번지 일원", was: "20층", area_m2: 3950}
+      - {number: 165, district: "성당2", location: "달서구 성당2동 425-2번지 일원", was: "20층", area_m2: 1890}
+      - {number: 166, district: "성당3", location: "달서구 성당2동 828-3번지 일원", was: "20층", area_m2: 1850}
+      - {number: 167, district: "송현3", location: "달서구 송현2동 120-2번지 일원", was: "20층", area_m2: 2940}
+      - {number: 168, district: "송현4", location: "달서구 송현2동 137-1번지 일원", was: "20층", area_m2: 1680}
+      - {number: 169, district: "송현5", location: "달서구 송현2동 161번지 일원", was: "20층", area_m2: 3540}
+      - {number: 170, district: "송현6", location: "달서구 송현2동 156-3번지 일원", was: "20층", area_m2: 1420}
+      - {number: 171, district: "송현7", location: "달서구 송현2동 977-2번지 일원", was: "20층", area_m2: 38890}
+      - {number: 172, district: "송현8", location: "달서구 송현2동 1918번지 일원", was: "20층", area_m2: 920}
+      - {number: 173, district: "송현9", location: "달서구 송현2동 1914-9번지 일원", was: "20층", area_m2: 1930}
+      - {number: 174, district: "성당4", location: "달서구 성당1동 525-6번지 일원", was: "20층", area_m2: 1540}
+      - {number: 175, district: "성당5", location: "달서구 성당1동 208-2번지 일원", was: "20층", area_m2: 1520}
+      - {number: 176, district: "대명3", location: "남구 대명4동 3055-81번지 일원", was: "20층", area_m2: 1660}
+      - {number: 177, district: "대명4", location: "남구 대명4동 3051-16번지 일원", was: "20층", area_m2: 1740}
+      - {number: 178, district: "성당6", location: "달서구 성당1동 70번지 일원", was: "20층", area_m2: 10040}
+      - {number: 179, district: "성당7", location: "달서구 성당1동 87-1번지 일원", was: "20층", area_m2: 5790}
+      - {number: 180, district: "두류3", location: "달서구 두류2동 1244-6번지 일원", was: "20층", area_m2: 4760}
+      - {number: 181, district: "대명10", location: "남구 대명10동 1638-5번지 일원", was: "20층", area_m2: 2680}
+      - {number: 182, district: "대명14", location: "남구 대명4동 3044-8번지 일원", was: "20층", area_m2: 2910}
+      - {number: 183, district: "대명16", location: "남구 대명4동 3008번지 일원", was: "20층", area_m2: 3700}
+      - {number: 184, district: "대명17", location: "남구 대명4동 3007-34번지 일원", was: "20층", area_m2: 3190}
+      - {number: 185, district: "대명18", location: "남구 대명1동 1719번지 일원", was: "20층", area_m2: 2390}
+      - {number: 186, district: "대명19", location: "남구 대명1동 1220-24번지 일원", was: "20층", area_m2: 6150}
+      - {number: 187, district: "대명20", location: "남구 대명1동 629-70번지 일원", was: "20층", area_m2: 3490}
+      - {number: 188, district: "대명21", location: "남구 대명1동 780-3번지 일원", was: "20층", area_m2: 2930}
+      - {number: 189, district: "대명23", location: "남구 대명3,7동 1733-7번지 일원", was: "20층", area_m2: 650}
+      - {number: 190, district: "대명25", location: "남구 대명5동 1854-1번지 일원", was: "20층", area_m2: 6350}
+      - {number: 191, district: "대명26", location: "남구 대명5동 1701-7번지 일원", was: "20층", area_m2: 30200}
+      - {number: 192, district: "대명28", location: "남구 대명9동 461-1번지 일원", was: "20층", area_m2: 1240}
+      - {number: 193, district: "대명29", location: "남구 대명9동 2680-17번지 일원", was: "20층", area_m2: 23630}
+      - {number: 194, district: "대명30", location: "남구 대명2,8동 2014-143번지 일원", was: "20층", area_m2: 13280}
+      - {number: 195, district: "봉덕4", location: "남구 봉덕3동 718-1번지 일원", was: "20층", area_m2: 4980}
+      - {number: 196, district: "봉덕5", location: "남구 봉덕3동 1329-2번지 일원", was: "20층", area_m2: 74290}
+      - {number: 197, district: "봉덕6", location: "남구 봉덕1동 491-8번지 일원", was: "20층", area_m2: 8210}
+      - {number: 198, district: "이천2", location: "남구 이천동 287-10번지 일원", was: "20층", area_m2: 20330}
+      - {number: 199, district: "이천3", location: "남구 이천동 214-456번지 일원", was: "20층", area_m2: 15040}
+      - {number: 200, district: "수성5", location: "수성구 수성1가동 288번지 일원", was: "20층", area_m2: 3460}
+      - {number: 201, district: "봉덕9", location: "남구 봉덕2동 999-1번지 일원", was: "20층", area_m2: 1460}
+      - {number: 202, district: "봉덕10", location: "남구 봉덕2동 869-24번지 일원", was: "20층", area_m2: 25150}
+      - {number: 203, district: "중동2", location: "수성구 중동 551-1번지 일원", was: "20층", area_m2: 9040}
+      - {number: 204, district: "중동3", location: "수성구 중동 336-2번지 일원", was: "20층", area_m2: 990}
+      - {number: 205, district: "중동7", location: "수성구 중동 345-9번지 일원", was: "20층", area_m2: 2270}
+      - {number: 206, district: "봉덕11", location: "남구 봉덕3동 1292-213번지 일원", was: "20층", area_m2: 5610}
+      - {number: 207, district: "봉덕12", location: "남구 봉덕2동 1581-30번지 일원", was: "20층", area_m2: 107630}
+      - {number: 208, district: "중동8", location: "수성구 중동 411-1번지 일원", was: "20층", area_m2: 6930}
+      - {number: 209, district: "상동3", location: "수성구 상동 156-2번지 일원", was: "20층", area_m2: 2840}
+      - {number: 210, district: "상동4", location: "수성구 상동 141번지 일원", was: "20층", area_m2: 6560}
+      - {number: 211, district: "상동6", location: "수성구 상동 247번지 일원", was: "20층", area_m2: 8060}
+      - {number: 212, district: "상동7", location: "수성구 상동 293번지 일원", was: "20층", area_m2: 1540}
+      - {number: 213, district: "상동8", location: "수성구 상동 594-3번지 일원", was: "20층", area_m2: 1660}
+      - {number: 214, district: "수성7", location: "수성구 수성1가동 613번지 일원", was: "20층", area_m2: 55800}
+      - {number: 215, district: "범어1", location: "수성구 범어1동 644, 643-4번지 일원", was: "20층", area_m2: 5570}
+      - {number: 216, district: "범어3", location: "수성구 범어1동 908-4번지 일원", was: "20층", area_m2: 4160}
+      - {number: 217, district: "범어4", location: "수성구 범어1동 238-46번지 일원", was: "20층", area_m2: 8740}
+      - {number: 218, district: "범어5", location: "수성구 범어1동 248-2번지 일원", was: "20층", area_m2: 3460}
+      - {number: 219, district: "범어6", location: "수성구 범어1동 산159-1번지 일원", was: "20층", area_m2: 10860}
+      - {number: 220, district: "범어8", location: "수성구 범어4동 산129-2번지 일원", was: "20층", area_m2: 6820}
+      - {number: 221, district: "범어9", location: "수성구 범어4동 75-2번지 일원", was: "20층", area_m2: 6189}
+      - {number: 222, district: "범어10", location: "수성구 범어4동 77-15번지 일원", was: "20층", area_m2: 13890}
+      - {number: 224, district: "만촌5", location: "수성구 만촌3동 1025-5번지 일원", was: "20층", area_m2: 12240}
+      - {number: 225, district: "만촌6", location: "수성구 만촌3동 1050-142번지 일원", was: "20층", area_m2: 1950}
+      - {number: 226, district: "만촌9", location: "수성구 만촌3동 857-33번지 일원", was: "20층", area_m2: 7340}
+      - {number: 227, district: "만촌10", location: "수성구 만촌3동 860번지 일원", was: "20층", area_m2: 6440}
+      - {number: 228, district: "만촌14", location: "수성구 만촌3동 862-2번지 일원", was: "20층", area_m2: 2480}
+      - {number: 229, district: "만촌15", location: "수성구 만촌3동 811-55번지 일원", was: "20층", area_m2: 52180}
+      - {number: 230, district: "파동1", location: "수성구 파동 197-1번지 일원", was: "20층", area_m2: 6130}
+      - {number: 231, district: "만촌16", location: "수성구 만촌3동 1172-1번지 일원", was: "20층", area_m2: 12410}
+      - {number: 232, district: "황금1", location: "수성구 황금1동 69-3번지 일원", was: "20층", area_m2: 10590}
+      - {number: 233, district: "황금2", location: "수성구 황금1동 425번지 일원", was: "20층", area_m2: 26060}
+      - {number: 234, district: "이곡1", location: "달서구 이곡동 278-1번지 일원", was: "20층", area_m2: 680}
+      - {number: 235, district: "황금3", location: "수성구 황금1동 162번지 일원", was: "20층", area_m2: 10590}
+      - {number: 236, district: "황금4", location: "수성구 황금1동 203-5, 282번지 일원", was: "20층", area_m2: 47910}
+      - {number: 237, district: "황금6", location: "수성구 황금1동 505번지 일원", was: "20층", area_m2: 11090}
+      - {number: 238, district: "시지2", location: "수성구 시지동 148-2번지 일원", was: "20층", area_m2: 4380}
+      - {number: 239, district: "시지5", location: "수성구 시지동 386번지 일원", was: "20층", area_m2: 28930}
+      - {number: 240, district: "시지6", location: "수성구 시지동 374번지 일원", was: "20층", area_m2: 11000}
+      - {number: 241, district: "설화2", location: "달성군 화원읍 설화리 563-2번지 일원", was: "20층", area_m2: 7040}
+      - {number: 242, district: "성산2", location: "달성군 화원읍 성산리 505번지 일원", was: "20층", area_m2: 10220}
+      - {number: 243, district: "천내2", location: "달성군 화원읍 천내리 330번지 일원", was: "20층", area_m2: 6230}
+      - {number: 244, district: "대곡1", location: "달서구 대곡동 15-4번지 일원", was: "20층", area_m2: 32640}
+      - {number: 245, district: "진천1", location: "달서구 진천동 782번지 일원", was: "20층", area_m2: 3860}
+      - {number: 247, district: "진천3", location: "달서구 진천동 705번지 일원", was: "20층", area_m2: 7930}
+      - {number: 249, district: "진천5", location: "달서구 진천동 251-37번지 일원", was: "20층", area_m2: 16000}
+      - {number: 250, district: "진천6", location: "달서구 진천동 205-1번지 일원", was: "20층", area_m2: 27080}
+      - {number: 251, district: "대곡4", location: "달서구 대곡동 1018번지 일원", was: "20층", area_m2: 1710}
+      - {number: 253, district: "신매4", location: "수성구 신매동 162번지 일원", was: "20층", area_m2: 19130}
+      - {number: 254, district: "상인2", location: "달서구 상인2동 1149번지 일원", was: "20층", area_m2: 4320}
+      - {number: 255, district: "상인3", location: "달서구 상인2동 1145-5번지 일원", was: "20층", area_m2: 3910}
+      - {number: 256, district: "파동2", location: "수성구 파동 581-28번지 일원", was: "20층", area_m2: 18810}
+      - {number: 257, district: "파동3", location: "수성구 파동 70-3번지 일원", was: "20층", area_m2: 6260}
+      - {number: 258, district: "파동6", location: "수성구 파동 193-1번지 일원", was: "20층", area_m2: 5350}
+      - {number: 259, district: "파동8", location: "수성구 파동 574-1번지 일원", was: "20층", area_m2: 610}
+      - {number: 260, district: "파동10", location: "수성구 파동 297번지 일원", was: "20층", area_m2: 11820}
+      - {number: 261, district: "용계리2", location: "달성군 가창면 용계리 565-14번지 일원", was: "20층", area_m2: 18820}
+      - {number: 262, district: "지산1", location: "수성구 지산동 761번지 일원", was: "20층", area_m2: 38580}
+      - {number: 263, district: "범어12", location: "수성구 범어4동 102번지 일원", was: "20층", area_m2: 3020}
+      - {number: 264, district: "두산1", location: "수성구 두산동 745-13번지 일원", was: "20층", area_m2: 750}
+      - {number: 265, district: "두산2", location: "수성구 두산동 789-6번지 일원", was: "20층", area_m2: 19850}
+      - {number: 266, district: "지산4", location: "수성구 지산동 1190번지 일원", was: "20층", area_m2: 20370}
+      - {number: 267, district: "지산5", location: "수성구 지산동 1195-2번지 일원", was: "20층", area_m2: 900}
+      - {number: 268, district: "지산6", location: "수성구 지산동 1196-2번지 일원", was: "20층", area_m2: 3820}
+      - {number: 269, district: "지산7", location: "수성구 지산동 1208번지 일원", was: "20층", area_m2: 22797}
+      - {number: 270, district: "범물2", location: "수성구 범물2동 879번지 일원", was: "20층", area_m2: 5780}
+      - {number: 271, district: "매호4", location: "수성구 매호동 991-3번지 일원", was: "20층", area_m2: 5220}
+      - {number: 272, district: "황금9", location: "수성구 황금2동 655번지 일원", was: "20층", area_m2: 530}
+      - {number: 273, district: "황금7", location: "수성구 황금1동 414번지 일원", was: "20층", area_m2: 3290}
+      - {number: 274, district: "내당13", location: "서구 내당4동 458-46번지 일원", was: "20층", area_m2: 1090}
+  - notice: 대구광역시 고시 제2013-27호
+    notice_date: 2013-02-28
+    region: 대구광역시
+    # 토지이음 seq=8202(제9차 도시관리계획 정비 조서 HWP 글자). 검산: 최고고도지구 계 '7개소 감)26,242' 일치
+    # 79 노곡2·99 복현5·226 만촌9 변경분은 2019-293에서 폐지 → 남는 것은 11
+    # 11번 사유: 기 준공된 아파트(20층)의 토지이용 현실화를 위해 축소
+    vworld: {layer: LT_C_UQ123, dyear: "2013", dnum: "0027"}
+    verified: 2026-11-18
+    districts:
+      "불로봉무지구(봉무)":
+        zones:
+          - {number: 11, location: "동구 봉무동", limit: "5층", max_m: null, max_floors: 5, base: "ground", area_m2: 130639, was: 146199}
+      "노곡2":
+        zones:
+          - {number: 79, location: "북구 노곡동 580-2번지 일원", limit: "20층", max_m: null, max_floors: 20, base: "ground", area_m2: 122148, was: 121430, superseded_by: "대구광역시 고시 제2019-293호"}
+      "복현5":
+        zones:
+          - {number: 99, location: "북구 복현2동 630번지 일원", limit: "20층", max_m: null, max_floors: 20, base: "ground", area_m2: 50210, was: 54290, superseded_by: "대구광역시 고시 제2019-293호"}
+      "만촌9":
+        zones:
+          - {number: 226, location: "수성구만촌3동 857-33번지 일원", limit: "20층", max_m: null, max_floors: 20, base: "ground", area_m2: 7340, was: 7810, superseded_by: "대구광역시 고시 제2019-293호"}
+    abolished:
+      - {number: 65, district: "태전3", location: "북구 태전동 59-8번지 일원", was: "20층", area_m2: 1780}
+      - {number: 248, district: "진천4", location: "달서구 진천동 482-3번지 일원", was: "20층", area_m2: 890}
+      - {number: 252, district: "구라2", location: "달성군 구라리 1734-2번지 일원", was: "20층", area_m2: 4180}
+  - notice: 대구광역시 고시 제2012-42호
+    notice_date: 2012-04-30
+    region: 대구광역시
+    # 토지이음 seq=311488(공보 제856호 31~32쪽, 쪽 그림). 검산: 계 '12개 지구 838,404' = 10행 360,963 + 277 145,485 + 288 331,956
+    # 조서 281 '용산1'·282 '용산2'가 사유서에는 '용산2'·'용산3'(조서를 따름). 사유: 토지구획정리사업지구 단독주택용지 정주환경 / 택지개발지구 높이계획 미수립 용지 높이관리
+    vworld: {layer: LT_C_UQ123, dyear: "2012", dnum: "0042"}
+    verified: 2026-11-18
+    districts:
+      "학정":
+        zones:
+          - {number: 277, location: "북구 학정동 184-3번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 145485, superseded_by: "대구광역시 고시 제2012-66호"}  # 2012-66에서 194,392로 확장 변경됨
+      "구암1":
+        zones:
+          - {number: 278, location: "북구 구암동 693-1번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 1900}
+      "구암2":
+        zones:
+          - {number: 279, location: "북구 구암동 574번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 2514}
+      "신당":
+        zones:
+          - {number: 280, location: "달서구 신당동 1749-7번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 1788}
+      "용산1":
+        zones:
+          - {number: 281, location: "달서구 용산동 499-7번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 1787}
+      "용산2":
+        zones:
+          - {number: 282, location: "달서구 용산동 934-4번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 4530}
+      "대곡":
+        zones:
+          - {number: 283, location: "달서구 대곡동 1015번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 28880}
+      "상인":
+        zones:
+          - {number: 284, location: "달서구 상인3동 1579-7번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 1448}
+      "세천":
+        zones:
+          - {number: 285, location: "달성군 다사읍 세천리 74번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 315578}
+      "천내1":
+        zones:
+          - {number: 286, location: "달성군 화원읍 천내리 103번지일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 1517}
+      "천내2":
+        zones:
+          - {number: 287, location: "달성군 화원읍 천내리 124번지일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 1021}
+      "금포":
+        zones:
+          - {number: 288, location: "달성군 논공읍 금포리 1365번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 331956, superseded_by: "대구광역시 고시 제2012-66호"}  # 2012-66에서 금포1, 422,120으로 확장 변경됨
+  - notice: 대구광역시 고시 제2012-66호
+    notice_date: 2012-07-02
+    region: 대구광역시
+    # 토지이음 seq=313417(공보 제863호 76~79쪽, 쪽 그림). 검산: 계 '20개 지구 1,078,491' = 신설 18곳 939,420 + 증 48,907 + 증 90,164
+    # 사유: 277·288 단독주택지와 인접 높이관리 / 289 불로천 하천경관·조망권 / 290~306 소규모 농촌취락 자연환경 보호·경관
+    vworld: {layer: LT_C_UQ123, dyear: "2012", dnum: "0066"}
+    verified: 2026-11-18
+    districts:
+      "학정":
+        zones:
+          - {number: 277, location: "북구 학정동 184-3번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 194392, was: 145485}
+      "금포1":
+        zones:
+          - {number: 288, location: "달성군 논공읍 금포리 1365번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 422120, was: 331956}
+      "불로8":
+        zones:
+          - {number: 289, location: "동구 불로동 615-7번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 5110}
+      "대평":
+        zones:
+          - {number: 290, location: "달성군 하빈면 대평리 149번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 49980}
+      "하산":
+        zones:
+          - {number: 291, location: "달성군 하빈면 하산리 1034번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 87010}
+      "봉촌1":
+        zones:
+          - {number: 292, location: "달성군 하빈면 봉촌리 1088-30번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 32250}
+      "봉촌2":
+        zones:
+          - {number: 293, location: "달성군 하빈면 봉촌리 116번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 121410}
+      "삼리":
+        zones:
+          - {number: 294, location: "달성군 논공읍 삼리리 49-1번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 9760}
+      "금포2":
+        zones:
+          - {number: 295, location: "달성군 논공읍 금포리 1876-1번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 32880}
+      "노이1":
+        zones:
+          - {number: 296, location: "달성군 논공읍 노이리 1208번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 29360}
+      "노이2":
+        zones:
+          - {number: 297, location: "달성군 논공읍 노이리 1016번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 34610}
+      "노이3":
+        zones:
+          - {number: 298, location: "달성군 논공읍 노이리 260번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 71350}
+      "하리4":
+        zones:
+          - {number: 299, location: "달성군 논공읍 하리 210-1번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 45050}
+      "응암":
+        zones:
+          - {number: 300, location: "달성군 구지면 응암리 38번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 53970}
+      "신기":
+        zones:
+          - {number: 301, location: "달성군 현풍면 신기리 225-2번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 44670}
+      "가태":
+        zones:
+          - {number: 302, location: "달성군 유가면 가태리 448-1번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 63580}
+      "평촌":
+        zones:
+          - {number: 303, location: "달성군 구지면 평촌리 606번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 63090}
+      "예현":
+        zones:
+          - {number: 304, location: "달성군 구지면 예현리 231-1번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 86380}
+      "목단":
+        zones:
+          - {number: 305, location: "달성군 구지면 목단리 199-6번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 70350}
+      "유산":
+        zones:
+          - {number: 306, location: "달성군 구지면 유산리 152번지 일원", limit: "7층", max_m: null, max_floors: 7, base: "ground", area_m2: 38610}
+  - notice: 대구광역시 고시 제2022-316호
+    notice_date: 2022-11-21
+    region: 대구광역시
+    # 토지이음 seq=539824(정정고시 HWP 글자). 2017-145호 누락 정정. 기정 320,277 → 변경 310,466 (감 9,811) 일치
+    # 최저고도지구(최저 높이)라 볼륨 상한으로 쓰지 않음. 최초 결정 대고제55호(06.03.10)
+    vworld: {layer: LT_C_UQ123, dyear: "2022", dnum: "0316"}
+    verified: 2026-11-18
+    districts:
+      "안심부도심":
+        zones:
+          - {number: 3, location: "동구 율암동 일원", limit: "9.9m", max_m: null, minimum_m: 9.9, minimum_source: "∙ 최저고도지구 면적축소 - A = 320,277㎡ → 310,466㎡ (감 9,811㎡) ∙ 도시개발사업을 위한 용도지구 변경", base: "ground", area_m2: 310466}
+  - notice: 대구광역시 고시 제2007-158호
+    notice_date: 2007-08-20
+    region: 대구광역시
+    # 토지이음 seq=254044(공보 제644호 21~24쪽, 쪽 그림). 계 253개소 30,560,125 / 집단식 소계 15개소 6,586,480(행 합계 검산은 못 함)
+    # 이 고시에서 번호를 새로 매김: old = 기정 행 번호. 7층 179곳(전부 폐지)·20층 59곳 절은 옮기지 않음
+    # 지훈 대조 2026-11-19(대조 페이지에 나중에 추가)
+    vworld: {layer: LT_C_UQ123, dyear: "2007", dnum: "0158"}
+    verified: 2026-11-19
+    districts:
+      "지묘지구":
+        zones:
+          - {number: 6, old: 3, location: "동구 지묘동 일원", limit: "해발 110m이하", max_m: null, base: "sea", area_m2: 430180, was: 429800}  # 면적증가(증 380㎡)
+      "파계지구":
+        zones:
+          - {number: 9, old: 13, location: "동구 덕곡, 송정동 일원", limit: "2층이하", max_floors: 2, base: "ground", area_m2: 4961860, was: 6129020}  # 팔공산자연공원 편입지역 폐지(감 1,167,160㎡)
+      "동화지구":
+        zones:
+          - {number: 10, old: 2, location: "동구 신무동 일원(팔공산자연공원 해제지역)", limit: "2층이하", max_floors: 2, base: "ground", area_m2: 19964950, was: 19963480}  # 면적증가(증 1,470㎡)
+          - {number: 10, old: 14, location: "동구 백안, 진인동 일원", limit: "2층이하", max_floors: 2, base: "ground", area_m2: 16426550, was: 19963480}  # 면적감소(감 3,536,930㎡). 원문에 변경 번호가 위 행과 같은 10으로 적혀 있음
+      "불로봉무지구(봉무)":
+        zones:
+          - {number: 11, old: 4, location: "동구 봉무동 일원", limit: "5층이하", max_floors: 5, base: "ground", area_m2: 395360, was: 426940, superseded_by: "대구광역시 고시 제2013-27호"}  # 2013-27에서 기정 146,199 → 130,639 축소(2007-158 변경값 395,360과 다름, 그 사이 변경 고시 미확인)
+      "와룡산지구(가르뱅이)":
+        zones:
+          - {number: 13, old: 6, location: "서구 상리동 일원", limit: "5층이하", max_floors: 5, base: "ground", area_m2: 46240, was: 42760}  # 면적증가(증 3,480㎡)
+      "와룡산지구(상리4)":
+        zones:
+          - {number: 19, old: 5, location: "서구 상리동 일원", limit: "3층이하", max_floors: 3, base: "ground", area_m2: 793150, was: 796630}  # 면적감소(감 3,480㎡)
+      "만촌지구":
+        zones:
+          - {number: 20, location: "수성구 만촌동 1458-2일원", limit: "7층이하", max_floors: 7, base: "ground", area_m2: 31450}  # 고도지구 신설
+      "현내지구":
+        zones:
+          - {number: 24, old: 7, location: "달성군 하빈면 현내리 일원", limit: "15층이하", max_floors: 15, base: "ground", area_m2: 436890}  # 높이제한 변경(5층 → 15층)
+      "교항지구":
+        zones:
+          - {number: 25, old: 8, location: "달성군 옥포면 교항리 일원", limit: "15층이하", max_floors: 15, base: "ground", area_m2: 344030}  # 높이제한 변경(5층 → 15층)
+      "본리지구(옥계)":
+        zones:
+          - {number: 26, old: 9, location: "달성군 옥포면 본리리 일원", limit: "15층이하", max_floors: 15, base: "ground", area_m2: 344030}  # 높이제한 변경(5층 → 15층)
+      "본리지구(간경)":
+        zones:
+          - {number: 27, old: 10, location: "달성군 옥포면 본리리 일원", limit: "15층이하", max_floors: 15, base: "ground", area_m2: 276300}  # 높이제한 변경(5층 → 15층)
+      "본리지구":
+        zones:
+          - {number: 28, old: 11, location: "달성군 옥포면 본리리 일원", limit: "15층이하", max_floors: 15, base: "ground", area_m2: 88430}  # 높이제한 변경(5층 → 15층)
+      "본리지구(길목)":
+        zones:
+          - {number: 29, old: 12, location: "달성군 옥포면 본리리 일원", limit: "15층이하", max_floors: 15, base: "ground", area_m2: 258200}  # 높이제한 변경(5층 → 15층)
+    abolished:
+      - {number: 13, district: "냉천유원지지구(냉천2)", location: "달성군 가창면 용계리 일원", was: "3층이하", area_m2: 62670}
+  - notice: 대구광역시 고시 제2005-53호
+    notice_date: 2005-03-10
+    region: 대구광역시
+    # 토지이음 seq=226722(공보 제541호 54~59쪽, 쪽 그림). 합계 행 없음, 변경 면적 = 기정 면적 모두 확인
+    # 옛 번호 체계(1~53). 높이 표기만 'Nm·N층이하' → 'N층이하'. 사유: 건축물의 1개층이 4m이상 되는 경우가 있으므로 미터법에 의한 높이제한을 삭제하여 원활한 건축도모
+    # 뒤 고시로 번호가 바뀐 구역은 superseded_by, 바뀌었다는 고시를 못 찾은 구역은 kept: true(지금 번호 미상)
+    vworld: {layer: LT_C_UQ123, dyear: "2005", dnum: "0053"}
+    verified: 2026-11-18
+    districts:
+      "파계지구":
+        zones:
+          - {number: 1, location: "동구 덕곡·중대·송정동일원", limit: "2층이하", max_m: null, max_floors: 2, base: "ground", area_m2: 6129020, superseded_by: "대구광역시 고시 제2007-158호"}  # → 2007-158 9번 파계
+      "동화지구":
+        zones:
+          - {number: 2, location: "동구 신무·용수·미곡·도학·백안·진인·능성동 일원", limit: "2층이하", max_m: null, max_floors: 2, base: "ground", area_m2: 19963480, superseded_by: "대구광역시 고시 제2007-158호"}  # → 2007-158 10번 동화
+      "불로봉무지구(봉무)":
+        zones:
+          - {number: 3, location: "동구 봉무동 일원", limit: "5층이하", max_m: null, max_floors: 5, base: "ground", area_m2: 426940, superseded_by: "대구광역시 고시 제2007-158호"}  # → 2007-158 11번 불로봉무(봉무)
+      "불로봉무지구(불로)":
+        zones:
+          - {number: 4, location: "동구 불로동 일원", limit: "5층이하", max_m: null, max_floors: 5, base: "ground", area_m2: 357450, kept: true}
+      "현내지구":
+        zones:
+          - {number: 5, location: "달성군 하빈면 현내리 일원", limit: "5층이하", max_m: null, max_floors: 5, base: "ground", area_m2: 436890, superseded_by: "대구광역시 고시 제2007-158호"}  # → 2007-158 24번 현내
+      "와룡산지구(상리2)":
+        zones:
+          - {number: 6, location: "서구 상리동 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 54960, kept: true}
+      "와룡산지구(가르뱅이)":
+        zones:
+          - {number: 7, location: "서구 상리동 일원", limit: "5층이하", max_m: null, max_floors: 5, base: "ground", area_m2: 42760, superseded_by: "대구광역시 고시 제2007-158호"}  # → 2007-158 13번 와룡산(가르뱅이)
+      "와룡산지구(상리4)":
+        zones:
+          - {number: 8, location: "서구 상리동 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 796630, superseded_by: "대구광역시 고시 제2007-158호"}  # → 2007-158 19번 와룡산(상리4)
+      "와룡산지구(세방골)":
+        zones:
+          - {number: 9, location: "서구 상리동 일원", limit: "5층이하", max_m: null, max_floors: 5, base: "ground", area_m2: 66400, kept: true}
+      "와룡산지구(상리1)":
+        zones:
+          - {number: 10, location: "서구 상리동 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 16060, kept: true}
+      "와룡산지구(대치골)":
+        zones:
+          - {number: 11, location: "서구 상리동 일원", limit: "5층이하", max_m: null, max_floors: 5, base: "ground", area_m2: 135180, kept: true}
+      "와룡산지구(상리3)":
+        zones:
+          - {number: 12, location: "서구 상리동 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 28690, kept: true}
+      "만촌보성타운지구":
+        zones:
+          - {number: 20, location: "수성구 만촌동 일원", limit: "15층이하", max_m: null, max_floors: 15, base: "ground", area_m2: 48075, kept: true}
+      "만촌태왕리더스지구":
+        zones:
+          - {number: 21, location: "수성구 만촌동 일원", limit: "15층이하", max_m: null, max_floors: 15, base: "ground", area_m2: 20000, kept: true}
+      "화원유원지지구(구라)":
+        zones:
+          - {number: 26, location: "달성군 화원읍 성산리 일원", limit: "5층이하", max_m: null, max_floors: 5, base: "ground", area_m2: 19410, kept: true}
+      "화원유원지지구(와촌)":
+        zones:
+          - {number: 27, location: "달성군 화원읍 성산리 일원", limit: "5층이하", max_m: null, max_floors: 5, base: "ground", area_m2: 91560, kept: true}
+      "화원유원지지구(윗잔매)":
+        zones:
+          - {number: 28, location: "달성군 화원읍 성산리 일원", limit: "5층이하", max_m: null, max_floors: 5, base: "ground", area_m2: 312360, kept: true}
+      "교항지구":
+        zones:
+          - {number: 29, location: "달성군 옥포면 교항리 일원", limit: "5층이하", max_m: null, max_floors: 5, base: "ground", area_m2: 344030, superseded_by: "대구광역시 고시 제2007-158호"}  # → 2007-158 25번 교항
+      "본리지구(옥계)":
+        zones:
+          - {number: 30, location: "달성군 옥포면 본리리 일원", limit: "5층이하", max_m: null, max_floors: 5, base: "ground", area_m2: 344030, superseded_by: "대구광역시 고시 제2007-158호"}  # → 2007-158 26번 본리(옥계)
+      "본리지구(길목)":
+        zones:
+          - {number: 31, location: "달성군 옥포면 본리리 일원", limit: "5층이하", max_m: null, max_floors: 5, base: "ground", area_m2: 258200, superseded_by: "대구광역시 고시 제2007-158호"}  # → 2007-158 29번 본리(길목)
+      "본리지구":
+        zones:
+          - {number: 32, location: "달성군 옥포면 본리리 일원", limit: "5층이하", max_m: null, max_floors: 5, base: "ground", area_m2: 88430, superseded_by: "대구광역시 고시 제2007-158호"}  # → 2007-158 28번 본리
+      "본리지구(간경)":
+        zones:
+          - {number: 33, location: "달성군 옥포면 본리리 일원", limit: "5층이하", max_m: null, max_floors: 5, base: "ground", area_m2: 276300, superseded_by: "대구광역시 고시 제2007-158호"}  # → 2007-158 27번 본리(간경)
+      "냉천유원지지구(냉천1)":
+        zones:
+          - {number: 34, location: "달성군 가창면 용계리 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 37830, kept: true}
+      "냉천유원지지구(대한중석)":
+        zones:
+          - {number: 35, location: "달성군 가창면 용계리 일원", limit: "5층이하", max_m: null, max_floors: 5, base: "ground", area_m2: 558640, kept: true}
+      "냉천유원지지구(냉천2)":
+        zones:
+          - {number: 36, location: "달성군 가창면 용계리 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 62670, superseded_by: "대구광역시 고시 제2007-158호"}  # 2007-158에서 폐지(13 냉천2)
+      "가창지구(우록)":
+        zones:
+          - {number: 37, location: "달성군 가창면 우록리 일원", limit: "5층이하", max_m: null, max_floors: 5, base: "ground", area_m2: 66400, kept: true}
+      "가창지구":
+        zones:
+          - {number: 38, location: "달성군 가창면 삼산리 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 1729150, kept: true}
+      "가창지구(녹문·범동)":
+        zones:
+          - {number: 39, location: "달성군 가창면 삼산리 일원", limit: "5층이하", max_m: null, max_floors: 5, base: "ground", area_m2: 141200, kept: true}
+      "김흥지구":
+        zones:
+          - {number: 40, location: "달성군 옥포면 김흥리 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 2534830, kept: true}
+      "대니산지구(자모)":
+        zones:
+          - {number: 41, location: "달성군 현풍면 자모리 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 867440, superseded_by: "대구광역시 고시 제2021-177호"}  # → 31번(2019-293·2021-177)
+      "대니산지구(도동)":
+        zones:
+          - {number: 42, location: "달성군 구지면 도동리 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 58360, superseded_by: "대구광역시 고시 제2019-293호"}  # → 32번(2019-293)
+      "대니산지구(송담)":
+        zones:
+          - {number: 43, location: "달성군 구지면 도동리 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 489080, superseded_by: "대구광역시 고시 제2021-177호"}  # → 33번
+      "대니산지구(밤마)":
+        zones:
+          - {number: 44, location: "달성군 구지면 오설리 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 15680, superseded_by: "대구광역시 고시 제2021-177호"}  # → 34번
+      "대니산지구(오리)":
+        zones:
+          - {number: 45, location: "달성군 구지면 오설리 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 251560, superseded_by: "대구광역시 고시 제2021-177호"}  # → 35번
+      "대니산지구(애기실)":
+        zones:
+          - {number: 46, location: "달성군 구지면 징리 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 32000, superseded_by: "대구광역시 고시 제2019-293호"}  # → 36번(2019-293)
+      "대니산지구(징리)":
+        zones:
+          - {number: 47, location: "달성군 구지면 징리 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 267380, superseded_by: "대구광역시 고시 제2021-177호"}  # → 37번
+      "대니산지구(수모지)":
+        zones:
+          - {number: 48, location: "달성군 구지면 수리 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 28740, superseded_by: "대구광역시 고시 제2021-177호"}  # → 38번
+      "대니산지구(화산)":
+        zones:
+          - {number: 49, location: "달성군 구지면 수리·화산리 현풍면 대리·지리·원교리 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 2804800, superseded_by: "대구광역시 고시 제2021-177호"}  # → 39번
+      "비슬산지구(초곡·쌍계)":
+        zones:
+          - {number: 50, location: "달성군 유가면 초곡리·쌍계리·봉리·양리·음리 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 3919420, superseded_by: "대구광역시 고시 제2021-177호"}  # → 40번
+      "비슬산지구(솥골)":
+        zones:
+          - {number: 51, location: "달성군 유가면 용리 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 97590, superseded_by: "대구광역시 고시 제2021-177호"}  # → 41번
+      "비슬산지구(기름실)":
+        zones:
+          - {number: 52, location: "달성군 유가면 유곡리 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 279100, superseded_by: "대구광역시 고시 제2021-177호"}  # → 42번
+      "비슬산지구(가재)":
+        zones:
+          - {number: 53, location: "달성군 유가면 용리 일원", limit: "3층이하", max_m: null, max_floors: 3, base: "ground", area_m2: 230000, superseded_by: "대구광역시 고시 제2021-177호"}  # → 43번
+    abolished:
+      - {number: 13, district: "수창지구", location: "중구 수창동 일원", was: "33m·10층이하", area_m2: 38600}
+      - {number: 14, district: "인교지구", location: "중구 인교동 일원", was: "33m·10층이하", area_m2: 64800}
+      - {number: 15, district: "동산1지구", location: "중구 동산동 일원", was: "33m·10층이하", area_m2: 14000}
+      - {number: 16, district: "동산2지구", location: "중구 동산동 일원", was: "33m·10층이하", area_m2: 30000}
+      - {number: 17, district: "남산지구", location: "중구 남산동 일원", was: "33m·10층이하", area_m2: 90600}
+      - {number: 18, district: "봉산지구", location: "중구 봉산동 일원", was: "33m·10층이하", area_m2: 180800}
+      - {number: 19, district: "만촌지구", location: "수성구 만촌·범어동 일원", was: "9.9m이하", area_m2: 1761043}
+      - {number: 22, district: "송현지구", location: "남구 대명동 일원 달서구 송현동 일원", was: "12m·3층이하", area_m2: 737700}
+      - {number: 23, district: "대명지구", location: "남구 대명동 일원", was: "9.9m이하", area_m2: 1184158}
+      - {number: 24, district: "수성지구", location: "수성구 중·상·황금·두산·지산동 일원", was: "9.9m이하", area_m2: 2381748}
+      - {number: 25, district: "수성유원지구(묵넘어)", location: "수성구 두산동 일원", was: "9.9m·3층이하", area_m2: 40400}
+
+  # ---- 부산광역시·경기도 ----
+  # 부산광역시·경기도 고도지구, 지훈 대조 2026-11-19 (data/height_districts.yaml 꼴). 2026-11-18 PC에서 옮김.
+  # 층수만 있는 구역은 max_m null + max_floors. 노면이하는 base: road, road_offset_m 0. # 주석은 옮긴 사람의 설명(원문 아님).
+  # superseded_by: 뒤 고시로 바뀐 행(높이에 쓰지 않음).
+  - notice: 부산광역시 고시 제2025-320호
+    notice_date: 2025-08-13
+    region: 부산광역시
+    # 토지이음 고시정보 seq=616342(첨부 '2030년부산도시관리계획(재정비).pdf' 11~15쪽, 글자 층에서 옮김). 2030년 부산도시관리계획 재정비.
+    # 검산: 조서에 고도지구 계 행이 없음. 변경 15 부산진성 38,080 = 기정 15·16·17·18 합(3,980+15,500+12,000+6,600) 일치.
+    #   나머지 변경 행은 면적이 기정과 같음(높이·위치·지구명만 바뀜). 바뀌지 않은 구역(6,7,9~11,14,20,21,23,25,26,28,31…)은 이 고시에 없음.
+    vworld: {layer: LT_C_UQ123, dyear: "2025", dnum: "0320"}
+    verified: 2026-11-19
+    relaxation:
+      redevelopment: "정비사업 등 연계 완화기준 — 적용대상: 남부민, 부민, 동대신, 영주, 시민아파트, 보수아파트지구. 주거환경 개선을 위한 정비사업 등 추진 시 경관 및 건축계획 가이드라인을 준수하여 市 도시계획 관련 위원회 심의를 거쳐 건축높이 완화 가능(가이드라인은 부산광역시장이 별도로 정함)"
+      gaya: "높이 완화기준 — 적용대상: 가야지구. 주거환경 개선을 위한 정비사업에 한해 市 도시계획(공동) 위원회 심의를 거쳐 최대 해발고도 216m 이하 범위 내 완화 가능"
+    districts:
+      "남부민지구":
+        zones:
+          - {number: 1, location: "남부민동 436 ~ 아미동2가 39-134", limit: "노면이하 (정비사업 등 연계 완화)", max_m: null, base: "road", road_offset_m: 0, area_m2: 82500}  # 최초 결정 건고 제6호(1972.08.26.); 정비사업 등 연계 완화(위원회 심의, 가이드라인은 시장이 별도로 정함)
+      "부민지구":
+        zones:
+          - {number: 2, location: "부민동3가 22-15 ~ 서대신동1가 283", limit: "노면이하 (정비사업 등 연계 완화)", max_m: null, base: "road", road_offset_m: 0, area_m2: 15000}  # 최초 결정 건고 제6호(1972.08.26.); 정비사업 등 연계 완화(위원회 심의, 가이드라인은 시장이 별도로 정함)
+      "동대신지구":
+        zones:
+          - {number: 4, location: "동대신동3가 258-309 ~ 대청동4가 7-1", limit: "노면이하 (정비사업 등 연계 완화)", max_m: null, base: "road", road_offset_m: 0, area_m2: 70500}  # 최초 결정 건고 제6호(1972.08.26.); 정비사업 등 연계 완화(위원회 심의, 가이드라인은 시장이 별도로 정함)
+      "영주지구":
+        zones:
+          - {number: 5, location: "영주동 91-7 ~ 초량동 793-401", limit: "노면이하 (정비사업 등 연계 완화)", max_m: null, base: "road", road_offset_m: 0, area_m2: 51000}  # 최초 결정 건고 제6호(1972.08.26.); 정비사업 등 연계 완화(위원회 심의, 가이드라인은 시장이 별도로 정함)
+      "시민아파트지구":
+        zones:
+          - {number: 12, location: "중구 영주동 산1-229", limit: "21m이하 (정비사업 등 연계 완화)", max_m: 21.0, base: "ground", area_m2: 19875}  # 최초 결정 부고 제239호(1983.09.20.); 정비사업 등 연계 완화(위원회 심의, 가이드라인은 시장이 별도로 정함)
+      "보수아파트지구":
+        zones:
+          - {number: 13, location: "동대신동2가 87-129 ~ 영주동 103-131", limit: "15m이하 (정비사업 등 연계 완화)", max_m: 15.0, base: "ground", area_m2: 170813}  # 최초 결정 부고 제239호(1983.09.20.); 정비사업 등 연계 완화(위원회 심의, 가이드라인은 시장이 별도로 정함)
+      "부산진성지구":
+        zones:
+          - {number: 15, location: "동구 범일동 614-1번지 일원", limit: "12m이하", max_m: 12.0, base: "ground", area_m2: 38080}  # 기정 15·16·17·18(최고고도지구 10m, 3,980+15,500+12,000+6,600)을 합쳐 12m로 변경
+      "안락1지구":
+        zones:
+          - {number: 19, location: "안락동 425-1번지 일원", limit: "27m이하", max_m: 27.0, base: "ground", area_m2: 31060, was_limit: "21m이하"}  # 최초 결정 부고 제235호(1991.07.09.)
+      "가야지구":
+        zones:
+          - {number: 22, location: "부산진구 개금동 633-12번지 일원", limit: "5층이하 (완화시 해발고도 216m이하)", max_m: null, max_floors: 5, base: "ground", area_m2: 60500}  # 최초 결정 부고 제2000-3호(2000.1.8.); 정비사업에 한해 시 도시계획(공동)위원회 심의를 거쳐 최대 해발고도 216m 이하 범위 내 완화 가능(sea)
+      "고신대학1지구":
+        zones:
+          - {number: 24, location: "영도구 청학동 483-1번지 일원", limit: "12m이하", max_m: 12.0, base: "ground", area_m2: 22200, was_limit: "3층이하"}  # 최초 결정 부고 제2000-3호(2000.1.8.)
+      "서대신3(1)지구":
+        zones:
+          - {number: 29, location: "서구 서대신동3가 31-12번지 일원", limit: "20m이하", max_m: 20.0, base: "ground", area_m2: 22000, was_limit: "12m이하"}  # 최초 결정 부고 제2000-3호(2000.01.08.)
+      "서대신3(2)지구":
+        zones:
+          - {number: 30, location: "서구 서대신동3가 704-92번지 일원", limit: "15m이하", max_m: 15.0, base: "ground", area_m2: 6200, was_limit: "9m이하"}  # 최초 결정 부고 제2000-3호(2000.01.08.)
+      "안락3지구":
+        zones:
+          - {number: 32, location: "안락동 770-1번지 일원", limit: "27m이하", max_m: 27.0, base: "ground", area_m2: 38540, was_limit: "21m이하"}  # 최초 결정 부고 제100호(2004.04.14.)
+    abolished:
+      - {number: 3, district: "서대신지구", location: "서대신동 508 ~ 서대신동 511", was: "노면이하", area_m2: 9900}
+      - {number: 8, district: "수정3지구", location: "수정동 525 ~ 수정동 487", was: "노면이하", area_m2: 3000}
+      - {number: 27, district: "수영공원지구", location: "수영구 수영동 299-1번지 일원", was: "10m이하", area_m2: 57800}  # 역사문화환경보전지역 중첩
+  - notice: 부산광역시 고시 제2004-100호
+    notice_date: 2004-04-14
+    region: 부산광역시
+    # 토지이음 고시정보 seq=216996(부산시보 제1109호 13쪽, 글자 층 없음 → 쪽 그림에서 옮김). 안락동 최고고도지구 3곳만 다룸.
+    # 검산: 20번 52,540 → 14,000 (감 38,540) = 사유서 일치, 32번 38,540 = 20번 감소분. 19·32번은 2025-320에서 27m로 다시 바뀜(superseded_by) → 지금 유효한 것은 20.
+    # 브이월드에 2004-0100 번호 조각은 없음(20번 조각이 어느 번호로 그려졌는지 미확인).
+    vworld: {layer: LT_C_UQ123, dyear: "2004", dnum: "0100"}
+    verified: 2026-11-19
+    districts:
+      "고도지구(최고고도지구)":
+        zones:
+          - {number: 19, location: "동래구 안락동425번지 일원", limit: "21m 이하", max_m: 21.0, base: "ground", area_m2: 31060, was_limit: "15m 이하", superseded_by: "부산광역시 고시 제2025-320호"}  # 기정 66번(15m 이하, '91.7.9) → 변경 19번 21m 이하. 2025-320에서 27m이하로 다시 변경. 사유: 반송로 동측 15m 최고고도지구를 충렬사 본전에서 가시권 방해가 되지 않는 21m 최고고도지구로 완화
+          - {number: 20, location: "동래구 안락동422번지 일원", limit: "18m 이하", max_m: 18.0, base: "ground", area_m2: 14000, was: 52540, was_limit: "18m 이하"}  # 기정 67번 → 변경 20번. 충렬로 북측 남측 18m 최고고도지구 중 충렬로 접한 일부(14,000㎡) 존치. 기정 번호 67, 최초 '91.7.9
+          - {number: 32, location: "동래구 안락동770번지 일원", limit: "21m이하", max_m: 21.0, base: "ground", area_m2: 38540, was_limit: "18m 이하", superseded_by: "부산광역시 고시 제2025-320호"}  # 기정 67번(18m 이하, 52,540) 중 일부. 2025-320에서 27m이하로 다시 변경. 사유: 충렬로 남측 등 그 외 구간에 대하여 가시권 방해가 되지 않는 범위에서 21m 최고고도지구로 완화
+  - notice: 경기도 고시 제2003-146호
+    notice_date: 2003-06-21
+    region: 경기도
+    # 토지이음 고시정보 seq=209357. 검산: 계 행 없음(신설 18곳). 관보 제15427호 74~75쪽, 글자 층 없음 → 쪽 그림에서 옮김. 수원도시계획(재정비) 변경결정, 화성(華城) 조망 최고고도지구
+    # 뒤 고시(수원 2024-237 용도지구 변경·폐지 등)로 바뀌었는지 미확인
+    vworld: {layer: LT_C_UQ123, dyear: "2003", dnum: "0146"}
+    verified: 2026-11-19
+    districts:
+      "서호,여기산 조망 1지구":
+        zones:
+          - {number: 2, location: "화서동 220-4일원", limit: "3층이하, 11m이하", max_m: 11.0, max_floors: 3, base: "ground", area_m2: 278030}
+      "서호,여기산조망2지구":
+        zones:
+          - {number: 3, location: "화서동 149일원", limit: "5층이하, 18m이하", max_m: 18.0, max_floors: 5, base: "ground", area_m2: 51120}
+      "서호,여기산조망3지구":
+        zones:
+          - {number: 4, location: "화서동 166-15일원", limit: "7층이하, 25m이하", max_m: 25.0, max_floors: 7, base: "ground", area_m2: 50040}
+      "서호,여기산조망4지구":
+        zones:
+          - {number: 5, location: "화서동 184-20일원", limit: "10층이하,35m이하", max_m: 35.0, max_floors: 10, base: "ground", area_m2: 79480}
+      "서호, 여기산조망 5지구":
+        zones:
+          - {number: 6, location: "화서동 96-2일원", limit: "해발 100m이하", max_m: null, base: "sea", area_m2: 182820}
+      "만석거조망1지구":
+        zones:
+          - {number: 7, location: "송죽동 410-1일원", limit: "4층이하, 14m이하", max_m: 14.0, max_floors: 4, base: "ground", area_m2: 70650}
+      "만석거 조망2 지구":
+        zones:
+          - {number: 8, location: "송죽동 398-4일원", limit: "5층이하, 18m이하", max_m: 18.0, max_floors: 5, base: "ground", area_m2: 69620}
+      "만석거 조망3지구":
+        zones:
+          - {number: 9, location: "정자동 37-8일원", limit: "6층이하, 21m이하", max_m: 21.0, max_floors: 6, base: "ground", area_m2: 65680}
+      "만석거 조망4지구":
+        zones:
+          - {number: 10, location: "정자동 50-45일원", limit: "7층이하, 25m이하", max_m: 25.0, max_floors: 7, base: "ground", area_m2: 43120}
+      "만석거 조망5지구":
+        zones:
+          - {number: 11, location: "정자동 36-25일원", limit: "10층이하, 35m이하", max_m: 35.0, max_floors: 10, base: "ground", area_m2: 40050}
+      "수원천 조망지구":
+        zones:
+          - {number: 12, location: "영화동 380-9일원", limit: "3층이하, 11m이하", max_m: 11.0, max_floors: 3, base: "ground", area_m2: 46900}
+      "제2운동장 조망지구":
+        zones:
+          - {number: 13, location: "우만동 492-12일원", limit: "7층이하, 25m이하", max_m: 25.0, max_floors: 7, base: "ground", area_m2: 513000}
+      "장안문1지구":
+        zones:
+          - {number: 14, location: "영화동 327-8일원", limit: "4층이하, 13m이하", max_m: 13.0, max_floors: 4, base: "ground", area_m2: 72900}
+      "장안문2지구":
+        zones:
+          - {number: 15, location: "영화동 335-5일원", limit: "5층이하, 16m이하", max_m: 16.0, max_floors: 5, base: "ground", area_m2: 31820}
+      "장안문3지구":
+        zones:
+          - {number: 16, location: "영화동 338-3일원", limit: "6층이하, 20m이하", max_m: 20.0, max_floors: 6, base: "ground", area_m2: 15480}
+      "팔달문지구":
+        zones:
+          - {number: 17, location: "팔달로3가 100-1일원", limit: "4층이하, 13m이하", max_m: 13.0, max_floors: 4, base: "ground", area_m2: 61060}
+      "화성1지구":
+        zones:
+          - {number: 18, location: "북수동 141일원", limit: "4층이하, 14m이하", max_m: 14.0, max_floors: 4, base: "ground", area_m2: 31720}
+      "화성2지구":
+        zones:
+          - {number: 19, location: "북수동 351일원", limit: "6층이하, 21m이하", max_m: 21.0, max_floors: 6, base: "ground", area_m2: 330800}
+  - notice: 경기도 수원시 고시 제2015-92호
+    notice_date: 2015-04-20
+    region: 경기도
+    # 토지이음 고시정보 seq=344636. 검산: 신설 1곳, 행 안에서 일치(글자 층)
+    vworld: {layer: LT_C_UQ123, dyear: "2015", dnum: "0092"}
+    verified: 2026-11-19
+    districts:
+      "원천":
+        zones:
+          - {number: 20, location: "영통구 원천동 333-3 일원", limit: "20층 이하", max_m: null, max_floors: 20, base: "ground", area_m2: 49944}  # 원천동 준공업지역 고밀개발 지양
+  - notice: 경기도 안산시 고시 제2018-176호
+    notice_date: 2018-10-31
+    region: 경기도
+    # 토지이음 고시정보 seq=386909. 검산: 2번 178,438 → 193,084 (증 14,646), 3번 315,035 → 278,028 (감 37,007) 사유서 일치
+    vworld: {layer: LT_C_UQ123, dyear: "2018", dnum: "0176"}
+    verified: 2026-11-19
+    districts:
+      "팔곡동 지구":
+        zones:
+          - {number: 2, location: "팔곡이동 403 일원", limit: "7층이하", max_m: null, max_floors: 7, base: "ground", area_m2: 193084, was: 178438}  # 최초 결정 경고 제2004-144호(2004.05.24); 사유서: 경계선 관통대지 및 소규모 단절토지 주거지역 변경에 따른 연계 변경
+      "건건동 지구":
+        zones:
+          - {number: 3, location: "건건동 618-1 일원", limit: "7층이하", max_m: null, max_floors: 7, base: "ground", area_m2: 278028, was: 315035, superseded_by: "경기도 안산시 고시 제2025-278호"}  # 최초 결정 경고 제2004-144호(2004.05.24); 2025-278에서 고도제한 내용 변경됨(가로주택정비사업 15층 이하)
+  - notice: 경기도 안산시 고시 제2025-278호
+    notice_date: 2025-11-26
+    region: 경기도
+    # 토지이음 고시정보 seq=624137. 검산: 면적 변경 없음(278,028), 제한 내용만 변경
+    vworld: {layer: LT_C_UQ123, dyear: "2025", dnum: "0278"}
+    verified: 2026-11-19
+    districts:
+      "건건동 지구":
+        zones:
+          - {number: 3, location: "건건동 660-14 일원", limit: "7층 이하 (가로주택 정비사업 15층 이하)", max_m: null, max_floors: 7, base: "ground", area_m2: 278028}  # 최초 결정 경고제2004-144호; 「빈집 및 소규모주택 정비에 관한 특례법」에 따른 가로주택정비사업 등에 대하여는 15층 이하
+  - notice: 경기도 과천시 고시 제2014-73호
+    notice_date: 2014-10-20
+    region: 경기도
+    # 토지이음 고시정보 seq=338741. 검산: 1번 130,133 + 132 = 130,265, 2번 126,928 + 412 = 127,340 일치
+    vworld: {layer: LT_C_UQ123, dyear: "2014", dnum: "0073"}
+    verified: 2026-11-19
+    districts:
+      "문원1단지":
+        zones:
+          - {number: 1, location: "문원동 15-92 일원", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 130265, was: 130133}  # 최초 결정 경고 제2001-254호(01.12.1)
+      "문원2단지":
+        zones:
+          - {number: 2, location: "문원동 115-163 일원", limit: "3층", max_m: null, max_floors: 3, base: "ground", area_m2: 127340, was: 126928}  # 최초 결정 경고 제2001-254호(01.12.1)
+  - notice: 경기도 시흥시 고시 제2016-232호
+    notice_date: 2016-12-27
+    region: 경기도
+    # 토지이음 고시정보 seq=365421. 검산: 394,530 → 384,882 (감 9,648) 사유서 일치
+    vworld: {layer: LT_C_UQ123, dyear: "2016", dnum: "0232"}
+    verified: 2026-11-19
+    districts:
+      "오이도이주추가단지":
+        zones:
+          - {number: 1, location: "정왕동1998-5번지 일원", limit: "층수: 7층이하", max_m: null, max_floors: 7, base: "ground", area_m2: 384882, was: 394530}  # 최초 결정 경기도고시 제2003-63(2003.4.18)
+
+# 브이월드에는 고도지구 조각이 남아 있지만 토지이음 토지이용계획에서 고도지구가 아닌 조각(폐지된 옛 고도지구로 보임).
+# 조각마다 대표 필지 1곳을 토지이음에서, 안쪽 점 3곳을 브이월드 토지이용계획으로 봐서 4곳 모두 고도지구 없음(2026-11-19 PC 확인).
+# 앱은 시도·시군구·고시 번호가 같고 넓이(area_m2, piece_area)가 3% 안인 조각을 없는 것으로 보고, 그 조각만 있는 대지는
+# 고도지구를 말하지 않음(2026-11-19 지훈 "고도지구 있는 필지만 고도지구 얘기 해주고"). 우록리(2004-0006)·상리동(2005-0001)·
+# 부산 영주동(2005-0002)은 다시 보니 고도지구가 있어 넣지 않음.
+not_in_effect:
+  - {sido: 대구광역시, sigg: 동구, dyear: "1999", dnum: "0028", area_m2: 1854447, parcel: "대구광역시 동구 신천동 742", eum: "중심상업지역, 방화지구, 시가지경관지구(중심), 중요시설물보호지구(공용), 도시철도(저촉)", checked: 2026-11-19}
+  - {sido: 대구광역시, sigg: 달서구, dyear: "2003", dnum: "0001", area_m2: 742164, parcel: "대구광역시 달서구 감삼동 521", eum: "도시지역, 중심상업지역, 방화지구, 시가지경관지구(중심)", checked: 2026-11-19}
+  - {sido: 대구광역시, sigg: 수성구, dyear: "0000", dnum: "0000", area_m2: 116066, parcel: "대구광역시 수성구 범어동 854", eum: "일반상업지역, 자연녹지지역, 중심상업지역, 방화지구, 시가지경관지구(중심), 중요시설물보호지구(공용)", checked: 2026-11-19}
+  - {sido: 대구광역시, sigg: 수성구, dyear: "0000", dnum: "0000", area_m2: 224174, parcel: "대구광역시 수성구 범어동 21-8", eum: "일반상업지역, 방화지구", checked: 2026-11-19}
+  - {sido: 대구광역시, sigg: 수성구, dyear: "0000", dnum: "0000", area_m2: 39132, parcel: "대구광역시 수성구 범어동 2291", eum: "일반상업지역, 중심상업지역, 방화지구, 시가지경관지구(중심), 중요시설물보호지구(공용), 지구단위계획구역", checked: 2026-11-19}
+  - {sido: 대구광역시, sigg: 수성구, dyear: "0000", dnum: "0000", area_m2: 70263, parcel: "대구광역시 수성구 범어동 869", eum: "토지이음 열람 빈 페이지(지번 없음) / 브이월드 토지이용계획: 일반상업지역, 자연녹지지역, 제1종일반주거지역", checked: 2026-11-19}
+  - {sido: 대구광역시, sigg: 수성구, dyear: "0000", dnum: "0000", area_m2: 47017, parcel: "대구광역시 수성구 범어동 858-3", eum: "중심상업지역, 방화지구", checked: 2026-11-19}
+  - {sido: 대구광역시, sigg: 수성구, dyear: "0000", dnum: "0000", area_m2: 4300, parcel: "대구광역시 수성구 범어동 2299", eum: "토지이음 열람 빈 페이지(지번 없음) / 브이월드 토지이용계획: 일반상업지역, 중심상업지역", checked: 2026-11-19}
+  - {sido: 대구광역시, sigg: 수성구, dyear: "0000", dnum: "0000", area_m2: 2372, parcel: "대구광역시 수성구 범어동 2017", eum: "제3종일반주거지역, 중심상업지역, 방화지구, 시가지경관지구(중심)", checked: 2026-11-19}
+  - {sido: 대구광역시, sigg: 동구, dyear: "2004", dnum: "0002", area_m2: 9195, parcel: "대구광역시 동구 효목동 601-3", eum: "일반상업지역, 방화지구", checked: 2026-11-19}
+  - {sido: 부산광역시, sigg: 금정구, dyear: "1999", dnum: "0000", area_m2: 2286, parcel: "부산광역시 동래구 명륜동 2-63", eum: "준주거지역", checked: 2026-11-19}  # 브이월드 sigg는 금정구, 필지는 동래구

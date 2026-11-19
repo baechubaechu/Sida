@@ -57,7 +57,8 @@ def test_the_places_a_zones_location_names_carry_their_gu_and_dong():
 def test_the_table_holds_the_notices_areas():
     for notice in height_districts.load_table()["notices"]:
         for d in notice["districts"].values():
-            assert sum(z["area_m2"] for z in d["zones"]) == d["total_m2"]  # checked against the notice's 사유서
+            if "total_m2" in d:  # checked against the notice's 사유서 (대구 notices give no district totals)
+                assert sum(z["area_m2"] for z in d["zones"]) == d["total_m2"]
     assert piece_area_ok(19109)
 
 
@@ -275,24 +276,7 @@ def test_the_height_line_links_to_the_parcels_land_use_page_and_the_notice():
     assert "links" not in entered  # the designer's own height needs no pointer
 
 
-FLOORS_NOTICE = {  # a zone set in floors, as 대구광역시 고시 writes them ("3층이하")
-    "notice": "대구광역시 고시 제2021-177호", "notice_date": "2021-06-30", "region": "대구광역시",
-    "vworld": {"layer": "LT_C_UQ123", "dyear": "2021", "dnum": "0177"}, "verified": "2026-11-18",
-    "districts": {"대니산지구(자모)": {"zones": [
-        {"number": 31, "location": "달성군 현풍읍 자모리", "limit": "3층", "max_m": None, "max_floors": 3,
-         "base": "ground", "area_m2": 1195629}]}},
-}
-
-
-@pytest.fixture
-def floors_table(monkeypatch):
-    table = copy.deepcopy(height_districts.load_table())
-    table["notices"].append(copy.deepcopy(FLOORS_NOTICE))
-    monkeypatch.setattr(height_districts, "load_table", lambda: table)
-    return table
-
-
-def test_a_zone_set_in_floors_keeps_that_many_floors_at_the_envelopes_floor_height(floors_table):
+def test_a_zone_set_in_floors_keeps_that_many_floors_at_the_envelopes_floor_height():
     found = height_districts.pick([piece(1195629, dyear="2021", dnum="0177", sigg="달성군", sido="대구광역시")],
                                   facts("대구광역시 달성군 현풍읍 자모리 1"))
     assert (found["status"], found["zone"]["number"]) == ("matched", 31)
@@ -306,7 +290,7 @@ def test_a_zone_set_in_floors_keeps_that_many_floors_at_the_envelopes_floor_heig
     assert (line["value"], height) == ("3층 (9.9m) (대조 전)", None)
 
 
-def test_the_envelope_of_a_zone_set_in_floors_stands_that_many_floors(floors_table, monkeypatch):
+def test_the_envelope_of_a_zone_set_in_floors_stands_that_many_floors(monkeypatch):
     from tests.experts.site.test_envelope import PLAN
 
     limits = site_facts.load_limits()["zones"]["일반상업지역"]
@@ -322,3 +306,111 @@ def test_the_envelope_of_a_zone_set_in_floors_stands_that_many_floors(floors_tab
         assert len(out["levels"]) == 3 and out["district_height_m"] == round(3 * fh, 2)
         assert out["height_district"]["max_floors"] == 3
         assert all(s["height_m"] <= round(3 * fh, 1) for s in out["schemes"]) and out["schemes"]
+
+
+def test_a_lowest_height_zone_is_said_and_a_row_a_later_notice_changed_is_left_out(monkeypatch):
+    table = copy.deepcopy(height_districts.load_table())
+    table["notices"].append({
+        "notice": "대구광역시 고시 제2022-316호", "region": "대구광역시", "verified": "2026-11-18",
+        "vworld": {"layer": "LT_C_UQ123", "dyear": "2022", "dnum": "0316"},
+        "districts": {"안심부도심": {"zones": [
+            {"number": 3, "location": "동구 율암동 일원", "limit": "9.9m", "max_m": None, "minimum_m": 9.9,
+             "minimum_source": "사유서: 최저고도지구 면적축소", "base": "ground", "area_m2": 310466}]}}})
+    table["notices"].append({
+        "notice": "대구광역시 고시 제2012-42호", "region": "대구광역시", "verified": "2026-11-18",
+        "vworld": {"layer": "LT_C_UQ123", "dyear": "2012", "dnum": "0042"},
+        "districts": {"대구 고도지구": {"zones": [
+            {"number": 288, "location": "달성군 논공읍 금포리 1365번지 일원", "limit": "7층", "max_m": None, "max_floors": 7,
+             "base": "ground", "area_m2": 331956, "superseded_by": "대구광역시 고시 제2012-66호"},
+            {"number": 283, "location": "달서구 대곡동 1015번지 일원", "limit": "7층", "max_m": None, "max_floors": 7,
+             "base": "ground", "area_m2": 28880}]}}})
+    monkeypatch.setattr(height_districts, "load_table", lambda: table)
+    low = height_districts.pick([piece(310466, dyear="2022", dnum="0316", sigg="동구", sido="대구광역시")],
+                                facts("대구광역시 동구 율암동 1"))
+    line, height = height_districts.line(low, entered=None, floor_height=3.0)
+    assert (line["value"], height) == ("최저 9.9m 이상", None) and "최저고도지구 면적축소" in line["detail"]
+    # a row the next notice changed does not match; the site's 지번 in a "…번지 일원" location does
+    old = height_districts.pick([piece(331956, dyear="2012", dnum="0042", sigg="달성군", sido="대구광역시")],
+                                facts("대구광역시 달성군 논공읍 금포리 1365"))
+    assert old["status"] == "candidates" and not old["candidates"]
+    by_jibun = height_districts.pick([piece(5000, dyear="2012", dnum="0042", sigg="달서구", sido="대구광역시")],
+                                     facts("대구광역시 달서구 대곡동 1015"))
+    assert (by_jibun["status"], by_jibun["zone"]["number"], by_jibun["matched_by"]) == ("matched", 283, "location")
+
+
+def test_the_daegu_notices_are_in_the_table_as_checked():
+    """대구광역시 고시 (2026-11-18 지훈 대조): heights in floors, a 최저고도 zone, rows later notices changed."""
+    notices = {n["notice"]: n for n in height_districts.load_table()["notices"] if n["region"] == "대구광역시"}
+    rows = {name: [z for d in n["districts"].values() for z in d["zones"]] for name, n in notices.items()}
+    assert sum(z["area_m2"] for z in rows["대구광역시 고시 제2012-42호"]) == 838404  # 조서 계
+    assert sum(a["area_m2"] for a in notices["대구광역시 고시 제2019-293호"]["abolished"]) == 3234914  # 사유서 폐지 218곳
+    assert len(notices["대구광역시 고시 제2019-293호"]["abolished"]) == 218
+    for name, zones in rows.items():
+        for z in zones:  # each zone gives one kind of height: m, floors, a lowest height, or 해발 shown as written
+            kinds = [k for k in ("max_m", "max_floors", "minimum_m") if z.get(k)]
+            assert len(kinds) == 1 or (not kinds and z["base"] == "sea"), (name, z["number"])
+    # 2012-66 widened 288 금포: a piece of the newer notice is that zone; the 2012-42 row is not used
+    found = height_districts.pick([piece(422120, dyear="2012", dnum="0066", sigg="달성군", sido="대구광역시")],
+                                  facts("대구광역시 달성군 논공읍 금포리 1365"))
+    line, height = height_districts.line(found, entered=None, floor_height=3.0)
+    assert (found["zone"]["number"], line["value"]) == (288, "7층 (21m)") and height == pytest.approx(21)
+    low = height_districts.pick([piece(310466, dyear="2022", dnum="0316", sigg="동구", sido="대구광역시")],
+                                facts("대구광역시 동구 율암동 1"))
+    line, height = height_districts.line(low, entered=None, floor_height=3.0)
+    assert (line["value"], height) == ("최저 9.9m 이상", None)  # a lowest height cuts nothing
+
+
+def test_the_busan_and_gyeonggi_notices_match_locations_that_name_no_gu():
+    """부산·경기 고시 (2026-11-19 지훈 대조): the 조서 gives only the 동 ("송죽동 410-1일원"), VWorld names the
+    구 ("수원시 장안구"); a zone set in both floors and m ("4층이하, 14m이하") cuts to the lower."""
+    notices = {n["notice"]: n for n in height_districts.load_table()["notices"] if n["region"] in ("부산광역시", "경기도")}
+    assert len(notices) == 8 and all(n["verified"] for n in notices.values())
+    jangan = {"sigg": "수원시 장안구", "sido": "경기도"}
+    near = height_districts.pick([piece(70650, dyear="2003", dnum="0146", **jangan)], facts("경기도 수원시 장안구 송죽동 1"))
+    assert [c["number"] for c in near["candidates"]] == [7, 8]  # 70,650 and 69,620㎡ are within 3%: the 지번 decides
+    found = height_districts.pick([piece(70650, dyear="2003", dnum="0146", **jangan)], facts("경기도 수원시 장안구 송죽동 410-1"))
+    assert (found["status"], found["zone"]["number"], found["matched_by"]) == ("matched", 7, "area")
+    line, height = height_districts.line(found, entered=None, floor_height=3.3)
+    assert line["value"] == "4층 (13.2m)" and height == pytest.approx(13.2)  # 4 floors are lower than 14m
+    line, height = height_districts.line(found, entered=None, floor_height=4.0)
+    assert line["value"] == "14m" and height == 14  # 4 floors of 4m are 16m: 14m holds
+    by_jibun = height_districts.pick([piece(5000, dyear="2003", dnum="0146", **jangan)],
+                                     facts("경기도 수원시 장안구 송죽동 410-1"))
+    assert (by_jibun["zone"]["number"], by_jibun["matched_by"]) == (7, "location")
+    # 2025-320 raised 안락1 to 27m: the 2004-100 row (21m) is a row a later notice changed
+    anrak = height_districts.pick([piece(31060, dyear="2025", dnum="0320", sigg="동래구", sido="부산광역시")],
+                                  facts("부산광역시 동래구 안락동 425-1"))
+    assert height_districts.line(anrak, entered=None)[1] == 27
+    road = height_districts.pick([piece(82500, dyear="2025", dnum="0320", sigg="서구", sido="부산광역시")],
+                                 facts("부산광역시 서구 남부민동 436"))
+    assert height_districts.line(road, entered=None)[0]["value"].startswith("노면이하")  # from the road: shown, not cut
+
+
+def test_a_piece_the_land_plan_shows_is_no_height_district_any_more_is_left_aside(monkeypatch):
+    """VWorld still draws some abolished 고도지구 (2026-11-19 토지이음 확인, 지훈 "적어두자"): such a piece is
+    left aside, so a site under it alone gets no 고도지구 line ("고도지구 있는 필지만 고도지구 얘기 해주고")."""
+    table = copy.deepcopy(height_districts.load_table())
+    table["not_in_effect"] = [{"sido": "대구광역시", "sigg": "수성구", "dyear": "0000", "dnum": "0000", "area_m2": 50000,
+                               "parcel": "대구광역시 수성구 범어동 1", "eum": "제2종일반주거지역", "checked": "2026-11-19"}]
+    monkeypatch.setattr(height_districts, "load_table", lambda: table)
+    gone = piece(50000, dyear="0000", dnum="0000", sigg="수성구", sido="대구광역시")
+    found = height_districts.pick([gone], facts("대구광역시 수성구 범어동 2"))
+    assert found["status"] == "none" and height_districts.line(found, entered=None) == (None, None)
+    other_gu = piece(50000, dyear="0000", dnum="0000", sigg="동구", sido="대구광역시")  # same number elsewhere: not this entry
+    assert height_districts.pick([other_gu], facts("대구광역시 동구 능성동 1"))["status"] == "unknown_notice"
+    other_size = piece(80000, dyear="0000", dnum="0000", sigg="수성구", sido="대구광역시")
+    assert height_districts.pick([other_size], facts("대구광역시 수성구 범어동 2"))["status"] == "unknown_notice"
+    kept = height_districts.pick([gone, piece(310466, dyear="2022", dnum="0316", sigg="동구", sido="대구광역시")],
+                                 facts("대구광역시 동구 율암동 1"))
+    assert (kept["status"], kept["zone"]["number"]) == ("matched", 3)
+
+
+def test_the_pieces_left_on_vworld_only_are_in_the_table():
+    """The 11 pieces checked on 2026-11-19 (토지이음 and 3 points each: no 고도지구); 우록리·상리동·영주동 are
+    still 고도지구 (their first parcel's 토지이음 page was empty) and are not listed."""
+    gone = height_districts.load_table()["not_in_effect"]
+    assert len(gone) == 11 and all(e["area_m2"] > 0 and e["parcel"] for e in gone)
+    assert not any(e["sigg"] in ("서구", "중구") or e["dnum"] in ("0006",) for e in gone)
+    found = height_districts.pick([piece(116066, dyear="0000", dnum="0000", sigg="수성구", sido="대구광역시")],
+                                  facts("대구광역시 수성구 범어동 854"))
+    assert found["status"] == "none"
