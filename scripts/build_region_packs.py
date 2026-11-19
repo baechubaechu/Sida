@@ -15,6 +15,10 @@ What it reads (브이월드 공간정보 다운로드, as downloaded; zips are r
     as zips (one per layer or several, cut into numbered pieces, zips inside zips) or unzipped
     .shp files; a zip cut with 7-Zip (name.zip.001, .002 …) is joined first.
 
+The newer 연속수치지형도 downloads are cut by number over the whole country, not by 시·도
+((연속수치지형도)등고선_001.zip …, named in Korean): put them in a folder named 전국 (or anywhere,
+when nothing names a 시·도) and each 시·도 takes the shapefiles whose header box reaches its boundary.
+
 Which 시·도 a file is for: the nearest folder named after one (부산, 부산광역시, busan, 26, 26_부산),
 else the file's own name (AL_D010_26_…, 연속수치지형도_부산.zip, N3L_F0010000_26.zip), else the
 layer files inside a zip. --plan shows what was found, on what grounds, and does nothing else;
@@ -46,6 +50,7 @@ import os
 import re
 import shutil
 import sqlite3
+import struct
 import subprocess
 import sys
 import time
@@ -82,6 +87,12 @@ LAYER = re.compile(r"(N3[ALP]_[A-Z]\d{7})(?:_(\d{1,3}))?(?!\d)", re.IGNORECASE)
 DATE = re.compile(r"(?<!\d)(20\d{2})(\d{2})(\d{2})(?!\d)")
 JOIN_PART = re.compile(r"^(.+\.zip)\.(\d{3})$", re.IGNORECASE)
 SPANNED = re.compile(r"\.z\d{2}$", re.IGNORECASE)
+KOREAN_LAYERS = (  # 브이월드 names the newer 연속수치지형도 downloads in Korean: (연속수치지형도)등고선_001.zip
+    ("등고선", "N3L_F0010000"), ("표고점", "N3P_F0020000"), ("도로경계_면", "N3A_A0010000"),
+    ("보도_면", "N3A_A0033320"), ("하천경계", "N3A_E0010001"), ("실폭하천", "N3A_E0032111"),
+    ("호소", "N3A_E0052114"), ("건물", "N3A_B0010000"),
+)
+SHARED = "전국"  # a folder for downloads cut by number over the whole country, not by 시·도
 
 
 @dataclass
@@ -115,13 +126,21 @@ def _korean(name: str, info: zipfile.ZipInfo) -> str:
         return name
 
 
+def _layer_of(name: str) -> str | None:
+    """The 수치지형도 layer code a file name gives: its own code (N3L_F0010000_3), else its Korean
+    name ((연속수치지형도)등고선_001; a line layer such as 하천경계_선 is not the area layer)."""
+    if m := LAYER.search(name):
+        return m.group(1).upper()
+    for korean, code in KOREAN_LAYERS:
+        at = name.find(korean)
+        if at >= 0 and not name[at + len(korean):].startswith("_선") and not (korean == "건물" and "AL_D010" in name):
+            return code
+    return None
+
+
 def _kinds_of(names) -> set[str]:
-    stems = {Path(n).stem.upper() for n in names}
-    found = set()
-    for kind, layers in LAYERS.items():
-        if any(s == layer or s.startswith(layer + "_") for s in stems for layer in layers):
-            found.add(kind)
-    return found
+    codes = {_layer_of(Path(n).stem) for n in names} - {None}
+    return {kind for kind, layers in LAYERS.items() if codes & set(layers)}
 
 
 def _date(name: str) -> str:
@@ -132,6 +151,8 @@ def _date(name: str) -> str:
 def _region_of(path: Path, raw: Path) -> tuple[regions.Region | None, str]:
     """The region a file's folders or own name tell, and which: ('folder' or 'name')."""
     for parent in path.relative_to(raw).parents:
+        if parent.name == SHARED:
+            break
         if parent != Path(".") and (region := regions.find(parent.name)):
             return region, "folder"
     stem = path.name.split(".")[0]
@@ -185,7 +206,7 @@ def _zip_source(path: Path, raw: Path, as_if: Path | None = None) -> Source:
             names = [_korean(i.filename, i) for i in z.infolist()]
     except (zipfile.BadZipFile, OSError) as exc:
         return Source(path, region, basis, note=f"zip을 열지 못함: {type(exc).__name__}")
-    kinds = _kinds_of(names)
+    kinds = _kinds_of(names) or (_kinds_of([named.name]) if any(n.lower().endswith(".shp") for n in names) else set())
     inner = [n for n in names if n.lower().endswith(".zip")]
     if inner and not kinds:
         kinds = set(LAYERS)  # zips inside (1:5,000 sheets): what they hold shows once unpacked
@@ -228,9 +249,12 @@ def _safe(name: str) -> Path | None:
     return Path(*bits)
 
 
-def unpack(zpath: Path, dest: Path, stamp: list | None = None) -> None:
+def unpack(zpath: Path, dest: Path, stamp: list | None = None, hint: str | None = None) -> None:
     """The shapefile parts of a zip (and of the zips inside it) under dest, once: a marker with the
-    zip's name, size and time says it is done."""
+    zip's name, size and time says it is done. A shapefile without its layer code in its name gets
+    the code the zip's name gives put in front (등고선_001.shp → N3L_F0010000_등고선_001.shp), so the
+    pack maker finds it."""
+    hint = hint or _layer_of(zpath.stem)
     marker = dest / ".unpacked"
     want = json.dumps(stamp or [zpath.name, zpath.stat().st_size, zpath.stat().st_mtime_ns])
     if marker.exists() and marker.read_text(encoding="utf-8") == want:
@@ -244,6 +268,8 @@ def unpack(zpath: Path, dest: Path, stamp: list | None = None) -> None:
             if rel is None or info.is_dir():
                 continue
             suffix = rel.suffix.lower()
+            if suffix in SHP_PARTS and not LAYER.search(rel.stem) and (code := _layer_of(rel.stem) or hint):
+                rel = rel.with_name(f"{code}_{rel.name}")
             if suffix in SHP_PARTS:
                 (dest / rel).parent.mkdir(parents=True, exist_ok=True)
                 with z.open(info) as src, open(dest / rel, "wb") as out:
@@ -254,31 +280,56 @@ def unpack(zpath: Path, dest: Path, stamp: list | None = None) -> None:
                 with z.open(info) as src, open(inner, "wb") as out:
                     shutil.copyfileobj(src, out, 1 << 20)
                 try:
-                    unpack(inner, dest / rel.with_suffix(""), ["inner", info.file_size, info.CRC])
+                    unpack(inner, dest / rel.with_suffix(""), ["inner", info.file_size, info.CRC],
+                           _layer_of(rel.stem) or hint)
                 finally:
                     inner.unlink(missing_ok=True)
     marker.write_text(want, encoding="utf-8")
 
 
-def gather(sources: list[Source], dest: Path) -> Path:
-    """The map files of one region under dest: zips unpacked, loose shapefiles linked (or copied)."""
+def gather(sources: list[Source], dest: Path, pieces: list[Path] = ()) -> Path:
+    """The map files of one region under dest: zips unpacked, loose shapefiles and the pieces of the
+    nationwide downloads that reach it linked (or copied)."""
     dest.mkdir(parents=True, exist_ok=True)
     for source in sources:
         tag = hashlib.sha1(str(source.path).encode("utf-8")).hexdigest()[:8]
         if source.path.suffix.lower() == ".zip":
             unpack(source.path, dest / f"{source.path.stem}-{tag}")
-            continue
-        folder = dest / f"loose-{tag}"
-        folder.mkdir(exist_ok=True)
-        for suffix in SHP_PARTS:
-            for src in (source.path.with_suffix(suffix), source.path.with_suffix(suffix.upper())):
-                target = folder / (source.path.stem + suffix)
-                if src.exists() and not target.exists():
-                    try:
-                        os.link(src, target)
-                    except OSError:
-                        shutil.copy2(src, target)
+        else:
+            link_parts(source.path, dest / f"loose-{tag}")
+    for shp in pieces:
+        link_parts(shp, dest / f"{SHARED}-{hashlib.sha1(str(shp.parent).encode('utf-8')).hexdigest()[:8]}")
     return dest
+
+
+def link_parts(shp: Path, folder: Path) -> None:
+    """A shapefile's parts (.shp, .shx, .dbf, .prj, .cpg) in folder: hard links, else copies."""
+    folder.mkdir(parents=True, exist_ok=True)
+    for suffix in SHP_PARTS:
+        for src in (shp.with_suffix(suffix), shp.with_suffix(suffix.upper())):
+            target = folder / (shp.stem + suffix)
+            if src.exists() and not target.exists():
+                try:
+                    os.link(src, target)
+                except OSError:
+                    shutil.copy2(src, target)
+
+
+def shared_pieces(sources: list[Source], work: Path) -> list[tuple[Path, list[float], Source]]:
+    """Each shapefile of the nationwide downloads, unpacked once under <work>/전국, with its box."""
+    out = []
+    for source in sources:
+        tag = hashlib.sha1(str(source.path).encode("utf-8")).hexdigest()[:8]
+        if source.path.suffix.lower() == ".zip":
+            folder = work / SHARED / f"{source.path.stem}-{tag}"
+            unpack(source.path, folder)
+            shps = sorted(p for p in folder.rglob("*") if p.suffix.lower() == ".shp")
+        else:
+            shps = [source.path]
+        for shp in shps:
+            if _layer_of(shp.stem) and (box := shp_box(shp)):
+                out.append((shp, box, source))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -286,20 +337,41 @@ def gather(sources: list[Source], dest: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def _headers(path: Path):
+    """(the box in the file's own units, its .prj text) of each shapefile in a zip or of a loose
+    .shp, from the first 100 bytes of the .shp (no need to unpack a 1 GB layer to know where it is).
+    Empty files are left out; zips inside a zip are not looked into."""
+    def box_of(head: bytes):
+        if len(head) < 100 or struct.unpack(">i", head[24:28])[0] * 2 <= 100:
+            return None
+        return struct.unpack("<4d", head[36:68])
+
+    path = Path(path)
+    if path.suffix.lower() != ".zip":
+        prj = next((p for p in (path.with_suffix(".prj"), path.with_suffix(".PRJ")) if p.exists()), None)
+        with open(path, "rb") as f:
+            box = box_of(f.read(100))
+        if box:
+            yield box, prj.read_text(encoding="ascii", errors="ignore") if prj else ""
+        return
+    with zipfile.ZipFile(path) as z:
+        names = z.namelist()
+        prjs = {n[:-4].lower(): n for n in names if n.lower().endswith(".prj")}
+        any_prj = next(iter(sorted(prjs.values())), None)
+        for shp in sorted(n for n in names if n.lower().endswith(".shp")):
+            with z.open(shp) as f:
+                box = box_of(f.read(100))
+            prj = prjs.get(shp[:-4].lower(), any_prj)
+            if box:
+                yield box, z.read(prj).decode("ascii", "ignore") if prj else ""
+
+
 def shp_box(shp: Path | None = None, *, zpath: Path | None = None) -> list[float] | None:
     """west, south, east, north (degrees) of a shapefile, or of all the ones in a zip, from their headers."""
-    import shapefile  # pyshp
     from pyproj import CRS, Transformer
 
     boxes = []
-    for opened, prj_text in terrain_pack.zip_shapefiles(zpath if zpath is not None else shp):
-        reader = shapefile.Reader(opened)
-        try:
-            if not len(reader):
-                continue
-            x0, y0, x1, y1 = reader.bbox[:4]
-        finally:
-            reader.close()
+    for (x0, y0, x1, y1), prj_text in _headers(zpath if zpath is not None else shp):
         crs = CRS.from_wkt(prj_text) if prj_text else CRS.from_epsg(5186)  # 중부원점, as build_terrain_pack takes it
         boxes.append(list(Transformer.from_crs(crs, "EPSG:4326", always_xy=True).transform_bounds(
             x0, y0, x1, y1, densify_pts=21)))
@@ -495,6 +567,26 @@ def plan_lines(groups: dict[str, list[Source]], lost: list[Source], workers: int
     return lines
 
 
+def shared_plan_lines(shared: list[Source], sido: dict, only: set[str] | None) -> list[str]:
+    """What the nationwide downloads hold and which 시·도 each reaches (from the zips' headers)."""
+    if not shared:
+        return []
+    lines = [f"{SHARED} 파일 (시·도마다 닿는 조각만 골라 씀):"]
+    for s in shared:
+        kinds = ", ".join(sorted(s.kinds))
+        box = None if s.note.startswith("안에 zip") else shp_box(zpath=s.path) if s.path.suffix.lower() == ".zip" else shp_box(s.path)
+        if not sido:
+            reach = "시·도 경계를 받지 못해 나눌 수 없음"
+        elif box is None:
+            reach = "안의 zip을 풀어야 범위를 앎" if s.note.startswith("안에 zip") else "도형 없음"
+        else:
+            names = [r.label for r in regions.REGIONS if (b := region_box(r, sido)) and meets(box, b)
+                     and (only is None or r.name in only)]
+            reach = ", ".join(names) or "닿는 시·도 없음"
+        lines.append(f"  - {s.path.name}: {kinds} → {reach}")
+    return lines
+
+
 def main() -> int:
     configure_stdio()
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0].strip())
@@ -522,17 +614,32 @@ def main() -> int:
 
     sources = find_sources(args.raw, args.work)
     groups: dict[str, list[Source]] = {}
-    lost = []
+    lost, shared = [], []
     for s in sources:
-        if s.region is None or not s.kinds:
+        if s.region is None and s.kinds and not s.kinds - set(LAYERS):
+            shared.append(s)  # cut by number over the whole country: used by every 시·도 it reaches
+        elif s.region is None or not s.kinds:
             lost.append(s)
         elif only is None or s.region.name in only:
             groups.setdefault(s.region.name, []).append(s)
-    sido = {} if args.no_api or not groups else sido_boxes(log)
-    if args.plan or not groups:
-        for line in plan_lines(groups, lost, args.workers, args.out, sido) or ["받은 파일을 찾지 못함"]:
+    sido = {} if args.no_api or not (groups or shared) else sido_boxes(log)
+    if args.plan or not (groups or shared):
+        lines = plan_lines(groups, lost, args.workers, args.out, sido) + shared_plan_lines(shared, sido, only)
+        for line in lines or ["받은 파일을 찾지 못함"]:
             log(line)
-        return 0 if groups or args.plan else 1
+        return 0 if groups or shared or args.plan else 1
+
+    pieces: dict[str, list[tuple[Path, Source]]] = {}
+    if shared and not sido:
+        log(f"{SHARED} 파일 {len(shared)}개는 시·도 경계가 있어야 나눌 수 있어 건너뜀")
+    elif shared:
+        log(f"{SHARED} 파일 {len(shared)}개를 풀어 시·도마다 닿는 조각을 고름")
+        for shp, piece_box, source in shared_pieces(shared, args.work):
+            for region in regions.REGIONS:
+                bound = region_box(region, sido)
+                if bound and meets(piece_box, bound) and (only is None or region.name in only):
+                    pieces.setdefault(region.name, []).append((shp, source))
+                    groups.setdefault(region.name, [])
 
     args.out.mkdir(parents=True, exist_ok=True)
     state = read_state(args.out)
@@ -542,8 +649,11 @@ def main() -> int:
         log(f"{region.label} ({name})")
         try:
             buildings = sorted((s for s in group if "buildings" in s.kinds), key=lambda s: s.date)
+            mine = pieces.get(name, [])
             maps = [s for s in group if s.kinds & set(LAYERS)]
-            folder = gather(maps, args.work / name / "unpacked") if maps else None
+            maps += list({id(src): src for _, src in mine}.values())
+            folder = gather([s for s in maps if s not in shared], args.work / name / "unpacked",
+                            [shp for shp, _ in mine]) if maps else None
             boxes = [shp_box(zpath=buildings[-1].path)] if buildings else []
             files = {kind: map_files(folder, kind) if folder else [] for kind in LAYERS}
             boxes += [shp_box(p) for kind in LAYERS for p in files[kind]]
@@ -580,6 +690,8 @@ def main() -> int:
             log(f"  failed: {exc}")
         finally:
             write_state(args.out, state)
+    if shared and only is None and not failed and not args.keep_unpacked:
+        shutil.rmtree(args.work / SHARED, ignore_errors=True)
     if lost:
         log("어느 시·도인지 모르는 파일은 건너뜀 (--plan으로 확인)")
     if not args.no_check:
