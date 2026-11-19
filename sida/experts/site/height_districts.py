@@ -17,7 +17,13 @@ by a person (2026-11-17 지훈 "할때마다 읽어오는건 안돼"), and at ru
    to its kept zones the same way;
 4. a zone measured from the ground with one figure (base "ground", max_m) gives the height; a zone
    set in floors (max_floors, "3층이하": 대구) gives that many floors at the envelope's floor height;
+   one set in both ("3층이하, 11m이하": 수원) gives the lower of the two;
+   a 최저고도 zone (minimum_m: the least height to build to) is said and cuts nothing;
    one from the road or the sea, or none matched, is shown as the notice says, with no figure.
+
+A piece VWorld still draws where 토지이음 shows no 고도지구 any more (`not_in_effect`: checked at a
+parcel of that piece, 2026-11-19 지훈 "적어두자") is left aside: with no other piece under the site,
+nothing is said of a 고도지구 ("고도지구 있는 필지만 고도지구 얘기 해주고").
 
 The 비고 of the zones (2026-11-17 지훈 "비고란 처리도 해"):
 - 높이 산정 (height_rule): the height is to the top of the building; rooftop stair and lift towers
@@ -74,9 +80,9 @@ def _places(location: str) -> set[tuple[str, str, str]]:
     out = set()
     gu = dong = ""
     for part in re.split(r"[,/]", location or ""):
-        for word in part.replace("일대", " ").split():
-            word = word.strip()
-            if word.endswith("구") and len(word) > 1:
+        for word in re.sub(r"(일대|일원)", " ", part).split():
+            word = word.strip().removesuffix("번지")
+            if word.endswith(("구", "군")) and len(word) > 1:
                 gu, dong = word, ""
             elif re.search(r"(동|가|리)\d*$", word) or re.search(r"동\d+가$", word):
                 m = re.match(r"^(.*?(?:동\d*가|동\d*|가|리))(\d+(?:-\d+)?)?$", word)
@@ -88,19 +94,31 @@ def _places(location: str) -> set[tuple[str, str, str]]:
     return out
 
 
+def _names_gu(location: str) -> bool:
+    """Whether a zone's location names its 구·군 (부산·경기 tables often give only the 동: "안락동 425-1번지 일원")."""
+    return any(w.endswith(("구", "군")) and len(w) > 1 for w in re.split(r"[,/\s]+", location or ""))
+
+
+def _in_place(location: str, site: set) -> bool:
+    """Whether a zone's location names one of the site's 지번; a location naming no 구 matches on 동 and 지번."""
+    return any((gu == sgu or not gu) and dong == sdong and jibun == sjibun
+               for gu, dong, jibun in _places(location) for sgu, sdong, sjibun in site)
+
+
 def _site_places(facts: dict) -> set[tuple[str, str, str]]:
     """(구, 동, 지번) of the site's parcels by their 지번 addresses ("서울특별시 중구 신당동 355-7")."""
     out = set()
     for p in facts.get("parcels") or []:
         words = (p.get("address") or "").split()
-        gu = next((w for w in words if w.endswith("구")), "")
+        gu = next((w for w in words if w.endswith(("구", "군")) and not w.endswith("광역시")), "")
         if len(words) >= 2 and JIBUN.match(words[-1].removeprefix("산")):
             out.add((gu, words[-2], words[-1]))
     return out
 
 
 def _zones(notice: dict) -> list[tuple[str, dict]]:
-    return [(name, z) for name, d in notice["districts"].items() for z in d["zones"]]
+    """The zones a notice still sets: a row a later notice changed (`superseded_by`) is left out."""
+    return [(name, z) for name, d in notice["districts"].items() for z in d["zones"] if not z.get("superseded_by")]
 
 
 def _label(name: str, zone: dict) -> str:
@@ -112,7 +130,7 @@ def _id(piece: dict) -> tuple[str, str]:
 
 
 def _distinct(found: list[tuple[str, dict]]) -> set:
-    return {(z.get("max_m"), z.get("base"), z["limit"]) for _n, z in found}
+    return {(z.get("max_m"), z.get("max_floors"), z.get("base"), z["limit"]) for _n, z in found}
 
 
 def _names_dong(location: str, gu: str, dong: str) -> bool:
@@ -136,17 +154,19 @@ def _match(zones: list[tuple[str, dict]], pieces: list[dict], site: set, zoning:
     for p in pieces:
         area = piece_area(p["shape"])
         sigg = str(p["properties"].get("sigg_name") or "")
-        near = [(n, z) for n, z in zones if not sigg or sigg in z["location"]]  # VWorld cuts pieces at the 구
+        # VWorld cuts pieces at the 구 ("수원시 영통구"); a location naming no 구 is kept
+        near = [(n, z) for n, z in zones if not sigg or not _names_gu(z["location"])
+                or any(w in z["location"] for w in sigg.split())]
         found += [(n, z) for n, z in near if abs(area - z["area_m2"]) <= z["area_m2"] * AREA_TOLERANCE]
     how = "area"
     if not found:
-        found, how = [(n, z) for n, z in zones if _places(z["location"]) & site], "location"
+        found, how = [(n, z) for n, z in zones if _in_place(z["location"], site)], "location"
     if not found and zoning:  # zones told apart by 용도지역 only (북한산 주변: 1종 20m, 2종 이상 28m)
         found = [(n, z) for n, z in zones if z.get("zoning") and _fits_zoning(z, zoning)
                  and any(_names_dong(z["location"], gu, dong) for gu, dong, _j in site)]
         how = "zoning"
     if len(_distinct(found)) > 1:
-        found = [(n, z) for n, z in found if _places(z["location"]) & site] or found
+        found = [(n, z) for n, z in found if _in_place(z["location"], site)] or found
     if len(_distinct(found)) > 1 or any(not _fits_zoning(z, zoning) for _n, z in found):
         fitting = [(n, z) for n, z in found if _fits_zoning(z, zoning)]
         if not fitting:
@@ -156,10 +176,22 @@ def _match(zones: list[tuple[str, dict]], pieces: list[dict], site: set, zoning:
     return found, how
 
 
+def _lifted(piece: dict) -> dict | None:
+    """The `not_in_effect` entry for a piece (same 시도·시군구·notice number, area within AREA_TOLERANCE), or None."""
+    props = piece["properties"]
+    for entry in load_table().get("not_in_effect") or []:
+        if (str(props.get("sido_name") or ""), str(props.get("sigg_name") or ""), *_id(piece)) == (
+                entry["sido"], entry["sigg"], entry["dyear"], entry["dnum"]) \
+                and abs(piece_area(piece["shape"]) - entry["area_m2"]) <= entry["area_m2"] * AREA_TOLERANCE:
+            return entry
+    return None
+
+
 def pick(pieces: list[dict], facts: dict) -> dict:
     """
     What the 고도지구 pieces under the site say: {"status": "matched" | "candidates" | "unknown_notice"
-    | "none" (or "error" from the caller when the lookup failed), "notice", "verified", "district",
+    | "none" (no piece, or only pieces 토지이음 shows are no 고도지구 any more; or "error" from the
+    caller when the lookup failed), "notice", "verified", "district",
     "zone", "matched_by" ("area" | "location" | "zoning", "+zoning" when the 용도지역 narrowed it),
     "kept_as" (the other numbers VWorld draws the zone with), "drawn_as" ("kept": an unchanged zone under
     its older number; "alias": a number the table's vworld_also gives the notice), "candidates", "notices_seen"}.
@@ -169,8 +201,11 @@ def pick(pieces: list[dict], facts: dict) -> dict:
     out = {"status": "none", "notice": None, "verified": None, "district": "", "zone": None, "matched_by": "",
            "kept_as": [], "drawn_as": "", "candidates": [], "notices_seen": [f"{y}-{n}" for y, n in seen],
            "pnus": [str(p.get("pnu") or "") for p in facts.get("parcels") or []]}
+    pieces = [p for p in pieces if not _lifted(p)]
     if not pieces:
         return out
+    seen = sorted({_id(p) for p in pieces})
+    out["notices_seen"] = [f"{y}-{n}" for y, n in seen]
     site = _site_places(facts)
     zoning = {z["zone"] for z in (facts.get("summary") or {}).get("zoning") or []}
     known = [n for n in table if (n["vworld"]["dyear"], n["vworld"]["dnum"]) in seen]
@@ -275,6 +310,10 @@ def _height_line(found: dict, *, entered: float | None, use_relaxed: bool = Fals
         how += f". 브이월드 조각은 예전 고시 번호({', '.join(found['kept_as'])})로 그려져 있으나 이 고시에서 바뀌지 않은 구역"
     note = f". {zone['note']}" if zone.get("note") else ""
     quote = f"{where}: {zone['limit']}" + (f" — 높이 산정: {rule}" if rule else "")
+    if zone.get("minimum_m") and not zone.get("max_m") and not zone.get("max_floors"):
+        source = f". 근거: {zone['minimum_source']}" if zone.get("minimum_source") else ""
+        return _line("read", f"최저 {zone['minimum_m']:g}m 이상", f"{where}({how}). 최저고도: {zone['minimum_m']:g}m 이상으로 "
+                     f"지어야 하는 높이라 볼륨 위를 자르지 않음{source}{note}", quote, notice), None
     if zone.get("base") == "ground" and zone.get("max_floors") and not zone.get("max_m"):
         return _floors_line(found, zone, where, how, note, quote, notice, floor_height)
     if zone.get("base") != "ground" or not zone.get("max_m"):
@@ -292,6 +331,17 @@ def _height_line(found: dict, *, entered: float | None, use_relaxed: bool = Fals
         else:
             extra = ". 대지가 국·공유지가 아님(토지소유정보)"
     status, value = "read", f"{height:g}m"
+    if zone.get("max_floors"):  # "3층이하, 11m이하" (수원): both hold, so the lower one
+        floors = int(zone["max_floors"])
+        if not floor_height:
+            extra += f". {floors}층 이하도 함께 정함(층높이가 없어 층수는 따지지 않음)"
+        elif floors * floor_height < height:
+            height, value = floors * floor_height + FLOOR_SLACK, f"{floors}층 ({floors * floor_height:g}m)"
+            extra += (f". {floors}층 이하와 {zone['max_m']:g}m 이하를 함께 정함: 층높이 {floor_height:g}m로 "
+                      f"{floors}층이 더 낮아 그 높이로 자름")
+        else:
+            extra += (f". {floors}층 이하도 함께 정함: 층높이 {floor_height:g}m로 {floors}층은 "
+                      f"{floors * floor_height:g}m라 {zone['max_m']:g}m가 더 낮음")
     if zone.get("relaxed_m"):
         if use_relaxed:
             height, status, value = float(zone["relaxed_m"]), "conditional", f"{zone['relaxed_m']:g}m (완화)"
