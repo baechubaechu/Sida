@@ -24,6 +24,7 @@ import { measureMethods } from './table-measure.js';
 import { peopleMethods } from './table-people.js';
 import { sectionMethods } from './table-section.js';
 import { envelopeMethods } from './table-envelope.js';
+import { landscapeMethods } from './table-landscape.js';
 import { commentsMethods } from './table-comments.js';
 import { diagramsMethods } from './table-diagrams.js';
 
@@ -90,6 +91,13 @@ export class DraftingTable {
     this.envelopeOn = false;
     this.envelopeBusy = false;
     this.envelopeRequest = null;
+    this.landscape = null; // 자동 조경 (GET .../landscape): the three plans, asked when opened (table-landscape.js)
+    this.landscapeOn = false; // the card is open
+    this.landscapeBusy = false;
+    this.landscapeRequest = null;
+    this.landscapeAsked = false; // a placed plan was asked for once the site was known
+    this.landscapeKey = ''; // the mass schemes the plans were drawn around
+    this.landscapeDrawing = null; // the corners clicked while a region is drawn
     this.siteDiagrams = null; // 대지분석 다이어그램 (GET .../site/diagrams), asked for when the panel opens (table-diagrams.js)
     this.diagramsOpen = false;
     this.diagramsBusy = false;
@@ -126,6 +134,7 @@ export class DraftingTable {
       <div class="block-tags" aria-hidden="true"></div>
       <p class="table-ui around-legend" aria-label="주변 3D 범례" hidden></p>
       <section class="table-ui envelope-card" aria-label="법규 볼륨" hidden></section>
+      <section class="table-ui envelope-card landscape-card" aria-label="자동 조경" hidden></section>
       <section class="table-ui diagram-panel" aria-label="대지분석 다이어그램" hidden></section>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
       <section class="table-ui peek" aria-label="종이 내용" hidden></section>
@@ -151,7 +160,8 @@ export class DraftingTable {
       tags: this.root.querySelector('.block-tags'),
       eye: this.root.querySelector('.eye-bar'),
       aroundLegend: this.root.querySelector('.around-legend'),
-      envelope: this.root.querySelector('.envelope-card'),
+      envelope: this.root.querySelector('.envelope-card:not(.landscape-card)'),
+      landscape: this.root.querySelector('.landscape-card'),
       diagrams: this.root.querySelector('.diagram-panel'),
       tray: this.root.querySelector('.tray'),
       form: this.root.querySelector('.scheme-form'),
@@ -194,6 +204,7 @@ export class DraftingTable {
       this.around = null;
       this.drawAround();
       this.forgetEnvelope();
+      this.forgetLandscape();
       this.forgetDiagrams();
     }
     this.figures = view.figures || {};
@@ -202,6 +213,8 @@ export class DraftingTable {
     // after a board read that briefly came without the site.
     if (this.site?.plan) { this.readRange(); this.restoreAround(); }
     this.papers = (view.papers || []).map((p) => ({ ...p }));
+    this.landscapeMassesChanged();
+    if (this.site?.plan) this.restoreLandscape();
     const bounds = siteBounds(this.site);
     const moved = JSON.stringify(bounds) !== JSON.stringify(this.bounds);
     this.bounds = bounds;
@@ -296,6 +309,10 @@ export class DraftingTable {
         if (!this.site?.plan && !this.envelopeOn) return '대지를 먼저 정해야 법규 볼륨을 계산할 수 있습니다.';
         this.toggleEnvelope();
         return '';
+      case 'landscape':
+        if (!this.site?.plan && !this.landscapeOn) return '대지를 먼저 정해야 조경을 그릴 수 있습니다.';
+        this.toggleLandscape();
+        return '';
       case 'diagram':
         if (!this.site?.plan && !this.diagramsOpen) return '대지를 먼저 정해야 대지분석 다이어그램을 그릴 수 있습니다.';
         this.toggleDiagrams();
@@ -377,8 +394,9 @@ export class DraftingTable {
     const people = new THREE.Group(); // the scale figures standing up (3D), in plan metres
     const peopleMarks = new THREE.Group(); // the same people as circles in plan
     const envelope = new THREE.Group(); // 법규 볼륨: the room the rules leave, see-through
-    scene.add(lot, masses, traces, draft, around, people, peopleMarks, envelope);
-    this.gl = { renderer, cssRenderer, scene, cssScene, camera, sun, desk, grid, catcher, horizon, lot, masses, traces, draft, around, people, peopleMarks, envelope, labels: [], objects: new Map(), raycaster: new THREE.Raycaster() };
+    const landscape = new THREE.Group(); // 자동 조경: the plan shown or placed
+    scene.add(lot, masses, traces, draft, around, people, peopleMarks, envelope, landscape);
+    this.gl = { renderer, cssRenderer, scene, cssScene, camera, sun, desk, grid, catcher, horizon, lot, masses, traces, draft, around, people, peopleMarks, envelope, landscape, labels: [], objects: new Map(), raycaster: new THREE.Raycaster() };
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(this.root);
   }
@@ -417,7 +435,7 @@ export class DraftingTable {
 
   render() {
     if (!this.gl || !this.root.isConnected || !this.root.clientWidth) return;
-    const { renderer, cssRenderer, scene, cssScene, camera, desk, grid, catcher, horizon, lot, masses, traces, around, people, peopleMarks, envelope, labels, objects } = this.gl;
+    const { renderer, cssRenderer, scene, cssScene, camera, desk, grid, catcher, horizon, lot, masses, traces, around, people, peopleMarks, envelope, landscape, labels, objects } = this.gl;
     const v = this.view;
     const eye = this.eye; // at eye level: the camera stands in the street and everything stands up
     if (eye) this.aimEye(camera, eye);
@@ -427,6 +445,8 @@ export class DraftingTable {
     masses.scale.z = rise;
     envelope.scale.z = rise;
     envelope.visible = this.envelopeOn && !(eye && this.eyeBefore);
+    landscape.scale.z = rise; // the ground stays flat, the trees rise with the masses
+    landscape.visible = !(eye && this.eyeBefore);
     masses.visible = !(eye && this.eyeBefore); // 지금 건물: the street as it is, without the masses
     // People stand up with the masses; while the table lies near flat they are circles in plan.
     people.scale.z = rise;
@@ -638,6 +658,8 @@ export class DraftingTable {
         hint: '대지 주변의 지형과 건물을 3D로 보기 (공공 자료로 만든 참고용 모형). 범위·모양·등고선은 레이어 패널의 주변 줄에서 정합니다', icon: 'around' },
       envelope: { attr: 'data-ui="envelope"', pressed: this.envelopeOn, off: !(this.site?.plan && !this.envelopeBusy), label: this.envelopeBusy ? '법규 볼륨 계산 중' : '법규 볼륨', cmd: 'envelope',
         hint: '정북일조·건폐율·용적률로 대지에 지을 수 있는 볼륨과 참고 매스 보기 (공공 자료와 조문으로 계산한 참고용)', icon: 'envelope' },
+      landscape: { attr: 'data-ui="landscape"', pressed: this.landscapeOn, off: !(this.site?.plan && !this.landscapeBusy), label: this.landscapeBusy ? '조경 그리는 중' : '자동 조경', cmd: 'landscape',
+        hint: '매스 밖 땅(또는 그린 영역)에 정형·자연형·광장형 조경 세 안을 조례·조경기준대로 그려 보고 하나를 제도판에 놓기', icon: 'landscape' },
       diagrams: { attr: 'data-ui="diagrams"', pressed: this.diagramsOpen, off: !this.site?.plan, label: '대지분석 다이어그램', cmd: 'diagram',
         hint: '피겨-그라운드·건물 높이·용도·도로·물과 나무·지형·동지 그림자·태양 궤적·거리 반경을 규칙대로 그린 도면 (주변 3D 범위의 공공 자료)', icon: 'diagrams' },
       'model-panel': { attr: 'data-ui="model-panel"', label: '모형 바닥', cmd: 'base', hint: '표현 계획자의 모형 탭: 모형 판 크기·축척을 정해 레이저 커팅 파일 받기', icon: 'base' },
@@ -767,6 +789,7 @@ export class DraftingTable {
 
   save(id, changes) {
     const saved = this.hooks.update(id, changes);
+    if ('blocks' in changes || 'floor_height' in changes) this.landscapeMassesChanged(); // the 조경 is drawn around them
     if (changesPanel(changes)) this.hooks.edited?.(); // the 속성 panel shows the new values now
     return saved;
   }
@@ -839,4 +862,4 @@ export class DraftingTable {
   }
 }
 
-Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods, eyeMethods, measureMethods, peopleMethods, sectionMethods, envelopeMethods, commentsMethods, diagramsMethods);
+Object.assign(DraftingTable.prototype, blocksMethods, aroundMethods, papersMethods, detailMethods, pointerMethods, eyeMethods, measureMethods, peopleMethods, sectionMethods, envelopeMethods, landscapeMethods, commentsMethods, diagramsMethods);

@@ -70,6 +70,7 @@
 | `webapp.py` | FastAPI 앱: `/api` 아래 JSON API와 `webui/app/` 화면 |
 | `experts/site/` | 대지 사실: 정부 토지 API(`landapi.py`, `datago.py`), 필지 → 대지·법정 수치·확인 항목(`site_facts.py` + `data/zoning_limits.yaml`), 주변 3D([`site-context.md`](site-context.md)), 법규 볼륨(`envelope.py`, [`site-envelope.md`](site-envelope.md)), 대지분석 다이어그램(`site_diagrams.py`, [`site-diagrams.md`](site-diagrams.md)) |
 | `experts/regulation/` | 법령 검색(`rag.py`, `lawapi.py`, `law_search.py`, [`law-search-api.md`](law-search-api.md)), 조례 조문과 건폐율·용적률 읽기(`ordinance.py`, `hwp.py`, [`site-ordinance.md`](site-ordinance.md)) |
+| `experts/landscape/` | 조경: 조경면적·식재 수량·공개 공지 규칙(`rules.py` + `data/landscape_rules.yaml`), 정형·자연형·광장형 자동 조경(`generator.py`, `landscape.py`, [`landscape.md`](landscape.md)) |
 | `experts/model/` | 대지 모형 판의 JSON API와 표현 계획자에게 주는 모형 자료 |
 | `experts/rhino/` | 라이노 플러그인이 쓰는 JSON API: 스냅샷과 수치, 다이어그램, 실시간 패널([`rhino-api.md`](rhino-api.md)). |
 | `experts/presentation/` | 발표 편집자의 슬라이드 목록을 PowerPoint·PDF로 만들기([`presentation.md`](presentation.md)) |

@@ -1827,3 +1827,36 @@ test('a scheme sets its floor area against the site card 조경 ratios and the g
   assert.equal(propertiesOf([mass], { ...site, landscape: { status: 'none' } }).rows.some((r) => r[0] === '조경'), false);
   assert.equal(propertiesOf([mass], { ...site, landscape: null }).rows.some((r) => r[0] === '조경'), false);
 });
+
+test('the 자동 조경 card shows the plans with their checks, the trees by kind and a drawn region closed', async () => {
+  const m = await import('../../webui/app/board-model.js');
+  assert.equal(m.landscapeCard(null), null);
+  assert.equal(m.landscapeCard({ plans: [] }), null);
+  const data = {
+    settings: { style: 'natural', seed: 1, use: 'office', placed: true, region: null },
+    site_area_m2: 1584, gross_m2: 4800, mass: 'm1', masses: [{ id: 'm1', title: '안 A' }], region_drawn: false, roads_note: '',
+    requirement: { landscape: { ratio: 15 } }, uses: [{ key: 'office', label: '업무시설' }, { key: 'other', label: '그 밖의 용도' }],
+    plans: [
+      { style: 'formal', label: '정형 · 축선', about: 'a', checks: [{ id: 'landscape', ok: true }, { id: 'trees', ok: false }], trees: [] },
+      { style: 'natural', label: '자연형 · 산책', about: 'b', checks: [{ id: 'landscape', ok: true }, { id: 'shrubs', ok: null }],
+        trees: [{ x: 1, y: 2, r: 2.2, kind: 'sun' }, { x: 5, y: 2, r: 2.2, kind: 'shade' }, { x: 9, y: 2, r: 1.6, kind: 'planter' }, { x: 9, y: 9, r: 2.2, kind: 'sun' }] },
+    ],
+  };
+  const card = m.landscapeCard(data);
+  assert.deepEqual(card.plans.map((p) => [p.style, p.selected, p.short]), [['formal', false, 1], ['natural', true, 0]]);
+  assert.deepEqual(card.plans[0].checks.map((c) => [c.state, c.label]), [['ok', '맞음'], ['short', '모자람']]);
+  assert.deepEqual(card.plans[1].checks[1].state, 'info');
+  assert.deepEqual(card.figures, [['대지면적', '1584㎡'], ['연면적', '4800㎡ (매스안)'], ['조경 기준', '대지면적의 15% 이상']]);
+  assert.equal(card.uses.find((u) => u.selected).key, 'office');
+  assert.equal(card.placed, true);
+  // the plan shown is the settings' style; its trees grouped by kind, standing on the ground given
+  const shown = m.landscapeShown(data);
+  assert.equal(shown.style, 'natural');
+  const groups = m.landscapeTreeGroups(shown, 3);
+  assert.deepEqual(groups.map((g) => [g.kind, g.trees.points.length, g.trees.crown]), [['sun', 2, 4.4], ['shade', 1, 4.4], ['planter', 1, 3.2]]);
+  assert.deepEqual(groups[0].trees.points[0], [1, 2, 3]);
+  // a region: a double click's second point and a closing click on the first are dropped
+  assert.deepEqual(m.landscapeRing([[0, 0], [10, 0], [10, 10], [10.1, 10], [0.1, 0.1]]), [[0, 0], [10, 0], [10, 10]]);
+  assert.equal(m.landscapeRing([[0, 0], [10, 0], [10.1, 0]]), null);
+  assert.ok(m.TOOL_GROUPS.find((g) => g.id === 'mass').items.includes('landscape'));
+});
