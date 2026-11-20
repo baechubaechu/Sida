@@ -4,7 +4,9 @@ A pack is one SQLite file (standard library only) made once from the 국토지�
 연속수치지형도 downloads (등고선 N3L_F0010000, 표고점 N3P_F0020000, CC BY) by
 scripts/build_terrain_pack.py. Points are [lon, lat] in EPSG:4326, so the site code can put
 them in the drawing table's own frame (board.site_plan). An R*Tree index on each line's and
-point's box makes a site's neighbourhood a fast query.
+point's box makes a site's neighbourhood a fast query. A contour line's points are kept as
+bytes (pack_points: whole 1e-7 degrees, about 1 cm, as differences, zlib), about a fifth of the
+text form; packs made before (FORMAT 1) keep them as JSON text and read the same.
 
 Packs live in ~/Sida/context_data (TERRAIN_DIR) — raw and processed map data never go in the
 repository. `query` reads every pack there that covers the box.
@@ -34,12 +36,15 @@ from __future__ import annotations
 import json
 import sqlite3
 import zipfile
+import zlib
 from contextlib import closing
 from pathlib import Path
 
+import numpy as np
+
 TERRAIN_DIR = Path.home() / "Sida" / "context_data"
 SUFFIX = ".terrain.sqlite"
-FORMAT = 1
+FORMAT = 2  # 2: contour points as pack_points bytes (1: JSON text)
 KINDS = ("road", "sidewalk", "water")
 # What a building keeps from GIS건물통합정보: PNU, 용도, 높이 (m), 지상층수, 건물명, 동명, 기준일.
 BUILDING_FIELDS = ("pnu", "use", "height", "floors", "name", "dong", "date")
@@ -77,19 +82,34 @@ def create(path: Path, meta: dict) -> sqlite3.Connection:
     return conn
 
 
-def add_contour(conn: sqlite3.Connection, elev: float, points: list[list[float]]) -> None:
-    """One contour line: its elevation (m above sea level) and [lon, lat] points."""
+def pack_points(points) -> bytes:
+    """[lon, lat] points (a list or an n×2 array) as bytes: whole 1e-7 degrees (about 1 cm), each
+    point as its difference from the one before, all lons then all lats as int32, zlib."""
+    whole = np.rint(np.asarray(points, dtype=float)[:, :2] * 1e7).astype(np.int64)
+    steps = np.diff(whole, axis=0, prepend=np.zeros((1, 2), dtype=np.int64))
+    return zlib.compress(steps.T.astype("<i4").tobytes(), 6)
+
+
+def unpack_points(data: bytes) -> list[list[float]]:
+    """The [lon, lat] points pack_points wrote."""
+    steps = np.frombuffer(zlib.decompress(data), dtype="<i4").reshape(2, -1)
+    return (np.cumsum(steps, axis=1, dtype=np.int64) / 1e7).T.tolist()
+
+
+def _line(value) -> list[list[float]]:
+    """A contour's points as stored: bytes (FORMAT 2) or JSON text (FORMAT 1)."""
+    return unpack_points(value) if isinstance(value, bytes) else json.loads(value)
+
+
+def add_contour(conn: sqlite3.Connection, elev: float, points) -> None:
+    """One contour line: its elevation (m above sea level) and [lon, lat] points (a list or an n×2 array)."""
     if len(points) < 2:
         return
-    lons = [p[0] for p in points]
-    lats = [p[1] for p in points]
-    cur = conn.execute(
-        "INSERT INTO contours (elev, points) VALUES (?, ?)",
-        (float(elev), json.dumps([[round(x, 7), round(y, 7)] for x, y in points], separators=(",", ":"))),
-    )
+    xy = np.asarray(points, dtype=float)[:, :2]
+    cur = conn.execute("INSERT INTO contours (elev, points) VALUES (?, ?)", (float(elev), pack_points(xy)))
     conn.execute(
         "INSERT INTO contours_box VALUES (?, ?, ?, ?, ?)",
-        (cur.lastrowid, min(lons), max(lons), min(lats), max(lats)),
+        (cur.lastrowid, float(xy[:, 0].min()), float(xy[:, 0].max()), float(xy[:, 1].min()), float(xy[:, 1].max())),
     )
 
 
@@ -280,7 +300,7 @@ def query(west: float, south: float, east: float, north: float, folder: Path | N
                 for t in ("contours_box", "spots_box", "road_points_box"))
             if lines or points or areas or houses or mapped or roads or paint or marks or has_heights:
                 out["sources"].append(dict(conn.execute("SELECT key, value FROM meta")))
-        out["contours"] += [{"elev": elev, "points": json.loads(text)} for elev, text in lines]
+        out["contours"] += [{"elev": elev, "points": _line(value)} for elev, value in lines]
         out["spots"] += [[lon, lat, elev] for lon, lat, elev in points]
         out["areas"] += [{"kind": kind, "ring": json.loads(text)} for kind, text in areas]
         out["buildings"] += [{"ring": json.loads(ring), **json.loads(attrs)} for ring, attrs in houses]

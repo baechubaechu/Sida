@@ -332,3 +332,27 @@ def test_nationwide_pieces_go_to_each_시도_they_reach(downloads, monkeypatch, 
     calls.clear()
     assert brp.main() == 0
     assert [s for s, _ in calls if s == "build_terrain_pack.py"] == []  # same downloads: nothing made again
+
+
+def test_contours_and_areas_are_cut_to_the_시도_and_made_again_when_made_a_new_way(downloads, monkeypatch):
+    argv, calls, sizes, out = downloads
+    monkeypatch.setattr(sys, "argv", [*argv, "--no-ground"])
+    assert brp.main() == 0
+    sido = {next(a for a in args if a[2:] in sizes): args[args.index("--sido") + 1] if "--sido" in args else None
+            for s, args in calls if s == "build_terrain_pack.py"}
+    assert sido == {"--buildings": None, "--contours": "26", "--areas": "26"}
+    # packs from before (no layout recorded, another format): contours and areas are made again,
+    # and holding fewer lines once cut to the 시·도 does not count as a broken download
+    state = json.loads((out / brp.STATE).read_text(encoding="utf-8"))
+    for kind in ("buildings", "contours", "areas"):
+        state["regions"]["busan"][kind].pop("layout", None)
+    (out / brp.STATE).write_text(json.dumps(state), encoding="utf-8")
+    sizes["contours"] = 2
+    calls.clear()
+    assert brp.main() == 0
+    assert [next(a for a in args if a[2:] in sizes) for s, args in calls if s == "build_terrain_pack.py"] == [
+        "--contours", "--areas"]
+    assert brp.counts(out / f"busan-contours{terrain_pack.SUFFIX}", "contours")["contours"] == 2
+    calls.clear()
+    assert brp.main() == 0
+    assert [s for s, _ in calls if s == "build_terrain_pack.py"] == []

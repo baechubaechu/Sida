@@ -477,3 +477,19 @@ def test_a_relay_address_without_an_access_key_is_no_key(fake_vworld, monkeypatc
     with pytest.raises(LandApiError) as info:
         landapi.search_parcels("금정동 689")
     assert info.value.kind == "no_key" and fake_vworld.calls == []
+
+
+def test_sido_outlines_ask_for_each_code_and_keep_only_its_shapes():
+    asked = []
+
+    def http_get(url, params):
+        asked.append(params["attrFilter"])
+        code = params["attrFilter"].rsplit(":", 1)[1]
+        features = [] if code == "29" else [{"properties": {"ctprvn_cd": code}, "geometry": {
+            "type": "Polygon", "coordinates": [[[126.0, 34.0], [127.0, 34.0], [127.0, 35.0], [126.0, 34.0]]]}}]
+        return {"response": {"status": "OK" if features else "NOT_FOUND", "page": {"total": 1},
+                             "result": {"featureCollection": {"features": features}}}}
+
+    shapes = landapi.sido_outlines(["12", "29"], http_get=http_get)
+    assert asked == ["ctprvn_cd:=:12", "ctprvn_cd:=:29"]
+    assert [s["type"] for s in shapes] == ["Polygon"]

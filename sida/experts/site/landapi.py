@@ -349,6 +349,20 @@ def sido_boxes(*, http_get: HttpGet | None = None) -> dict[str, list[float]]:
     return out
 
 
+def sido_outlines(codes, *, http_get: HttpGet | None = None) -> list[dict]:
+    """
+    The GeoJSON geometries of the 시·도 with these 2-digit codes (a code VWorld no longer has is
+    left out), for cutting nationwide map downloads to a 시·도 (scripts/build_terrain_pack.py).
+    Kept in memory for that run only, never written anywhere (이용약관 제19조).
+    """
+    out = []
+    for code in codes:
+        for feature in _feature_list("LT_C_ADSIDO_INFO", http_get, attr_filter=f"ctprvn_cd:=:{code}", geometry=True):
+            if str((feature.get("properties") or {}).get("ctprvn_cd") or "") == code and feature.get("geometry"):
+                out.append(feature["geometry"])
+    return out
+
+
 def _coordinates(value):
     """Every [lon, lat] in a GeoJSON coordinates array, at any depth."""
     if isinstance(value, (list, tuple)) and len(value) >= 2 and all(isinstance(v, (int, float)) for v in value[:2]):

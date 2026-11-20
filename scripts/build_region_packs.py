@@ -25,9 +25,12 @@ layer files inside a zip. --plan shows what was found, on what grounds, and does
 files it cannot place are listed and skipped (put them in a folder named after their 시·도).
 
 Then, per 시·도: the box is the files' own extent cut to the 시·도's boundary box from 브이월드
-(LT_C_ADSIDO_INFO, plus about 1 km: a few buildings in a file sit far outside it); each pack is made with build_terrain_pack.py
-into a work folder and put in place only if it does not hold far less than the pack it replaces
-(fewer than 95% of the buildings, lines or areas: a broken download; --accept-drop to take it);
+(LT_C_ADSIDO_INFO, plus about 1 km: a few buildings in a file sit far outside it), and contours
+and areas are cut to the boundary itself plus about 1 km (build_terrain_pack.py --sido: a box
+takes in the neighbouring 시·도, and a nationwide piece reaches far past it); each pack is made with
+build_terrain_pack.py into a work folder and put in place only if it does not hold far less than the pack it replaces
+(fewer than 95% of the buildings, lines or areas: a broken download; --accept-drop to take it;
+not compared when the pack is made a new way: another terrain_pack.FORMAT or boundary);
 then the ground is solved ahead with build_ground_tiles.py (the 시·도's box, after bringing the
 neighbouring 시·도's tiles files up to the new packs, and leaving out tiles another file has).
 Last, scripts/check_region_packs.py writes its one-page report.
@@ -80,6 +83,7 @@ SHP_PARTS = (".shp", ".shx", ".dbf", ".prj", ".cpg")
 STATE = "region_packs.json"
 PAD = 0.002  # degrees added around the files' extent
 SIDO_PAD = 0.01  # degrees added around a 시·도's boundary box (about 1 km)
+OUTLINED = ("contours", "areas")  # kinds cut to the 시·도 boundary itself, not only its box
 TILE_SECONDS = 35.0  # worker-seconds per ground tile (Seoul: 3,276 tiles, 8 workers, about 4 hours)
 
 AL_D010 = re.compile(r"^AL_D010_(\d{2})_(\d{8})\.zip$", re.IGNORECASE)
@@ -473,12 +477,21 @@ def run_script(script: str, args: list[str], log) -> None:
         raise RuntimeError(f"{script} stopped with exit code {done.returncode}")
 
 
+def layout(kind: str, codes: list[str]) -> dict | None:
+    """How a pack of this kind is made beyond its downloads and box: for contours and areas, the
+    pack format and the 시·도 boundary it is cut to. A change makes the pack again."""
+    return {"format": terrain_pack.FORMAT, "sido": codes} if kind in OUTLINED else None
+
+
 def make_pack(region: regions.Region, kind: str, given: str, box, stamp: list, date: str, args, state: dict,
-              log) -> str:
-    """One pack of a region, unless made already from the same downloads. Returns what happened."""
+              log, codes: list[str] | None = None) -> str:
+    """One pack of a region, unless made already from the same downloads. Returns what happened.
+    `codes`: the 시·도 codes 브이월드 has a boundary for, to cut contours and areas to."""
     target = args.out / f"{region.name}-{kind}{terrain_pack.SUFFIX}"
     record = state.setdefault("regions", {}).setdefault(region.name, {}).setdefault(kind, {})
+    how = layout(kind, codes or [])
     if (not args.force and record.get("inputs") == stamp and record.get("box") == box and target.exists()
+            and record.get("layout") == how
             and record.get("pack") == [target.stat().st_size, target.stat().st_mtime_ns]):
         log(f"  {kind}: unchanged downloads, kept {target.name}")
         return "kept"
@@ -486,13 +499,18 @@ def make_pack(region: regions.Region, kind: str, given: str, box, stamp: list, d
     shutil.rmtree(staging, ignore_errors=True)
     staging.mkdir(parents=True)
     extra = ["--source-date", date] if date else []
+    if kind in OUTLINED and codes:
+        extra += ["--sido", ",".join(codes)]
     run_script("build_terrain_pack.py", ["--name", region.name, "--box", box_text(box), f"--{kind}", given,
                                          "--out", str(staging), *extra], log)
     made = staging / target.name
     old, new = counts(target, kind), counts(made, kind)
+    remade = target.exists() and record.get("layout") != how
     record.update({"checked_at": time.strftime("%Y-%m-%d %H:%M"), "counts": new, "previous": old,
                    "box": box, "inputs": None, "refused": []})
-    less = shrunk(old, new)
+    less = [] if remade else shrunk(old, new)  # cut or stored another way: the counts do not compare
+    if remade:
+        log(f"  {kind}: made the new way (format {terrain_pack.FORMAT}, cut to the 시·도), not compared with the old pack")
     if less and not args.accept_drop:
         record["refused"] = less
         record["counts"] = old
@@ -502,7 +520,7 @@ def make_pack(region: regions.Region, kind: str, given: str, box, stamp: list, d
     shutil.move(str(made), str(target))
     shutil.rmtree(staging, ignore_errors=True)
     record.update({"inputs": stamp, "pack": [target.stat().st_size, target.stat().st_mtime_ns],
-                   "made": time.strftime("%Y-%m-%d %H:%M")})
+                   "made": time.strftime("%Y-%m-%d %H:%M"), "layout": how})
     log(f"  {kind}: {target.name} {new}")
     return "made"
 
@@ -674,7 +692,8 @@ def main() -> int:
                 if files[kind]:
                     stamp = sorted(s.stamp() for s in maps if kind in s.kinds)
                     date = max((s.date for s in maps if kind in s.kinds), default="")
-                    results[kind] = make_pack(region, kind, str(folder), box, stamp, date, args, state, log)
+                    results[kind] = make_pack(region, kind, str(folder), box, stamp, date, args, state, log,
+                                              [c for c in region.codes if c in sido])
             state.setdefault("regions", {}).setdefault(name, {})["box"] = box
             write_state(args.out, state)
             if folder and not args.keep_unpacked and "refused" not in results.values():
