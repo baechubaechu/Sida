@@ -70,6 +70,17 @@ export async function runCommandLine() {
   c.typed = remember(c.typed, text);
   drafts.delete('command');
   c.pick = 0;
+  if (line.kind === 'landscape') {
+    ui.pane = 'board';
+    if (!table) say('조경: 제도판을 아직 불러오지 못했습니다.', 'warn');
+    else {
+      const problem = table.landscapeCommand(line);
+      say(problem ? `조경: ${problem}` : `조경 — ${line.words.length ? `${line.words.join(', ')}(으)로 다시 그립니다.` : '자동 조경 카드를 엽니다.'}`, problem ? 'warn' : 'info');
+    }
+    render(false);
+    focusCommandLine();
+    return;
+  }
   if (line.kind === 'command') {
     if (line.viaKorean) say(`한글 자판으로 친 '${text.trim()}'을(를) ${line.command.name}(으)로 읽었습니다.`);
     runCommand(name, line.command);

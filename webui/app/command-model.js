@@ -111,12 +111,84 @@ export function findCommand(word) {
 }
 
 // What Enter does with the line: { kind: 'empty' } | { kind: 'command', command, viaKorean }
-// | { kind: 'ask', text }. Everything that is not one command word goes to the Conductor.
+// | { kind: 'landscape', ... } (readLandscape) | { kind: 'ask', text }. Everything that is not one
+// command word, or a short 조경 line every word of which is read by rule, goes to the Conductor.
 export function readLine(text) {
   const value = String(text ?? '').trim();
   if (!value) return { kind: 'empty' };
   const found = findCommand(value);
-  return found ? { kind: 'command', ...found } : { kind: 'ask', text: value };
+  if (found) return { kind: 'command', ...found };
+  const landscape = readLandscape(value);
+  return landscape ? { kind: 'landscape', ...landscape } : { kind: 'ask', text: value };
+}
+
+// ------------------------------------------------------------------ 조경 in a few words
+
+// "조경 광장 넓게 나무 더", "조경 자연형 관목 없이 길 2m" (2026-11-20 4단계 견본): the 자동 조경's
+// knobs turned by rule, no AI. The line starts with 조경; each following word must be read, or
+// the whole line goes to the Conductor (which may propose a layout of its own). Returns
+// { style, tune: {plaza?, trees?, path?, hedge?}, reset, shuffle, place, compare, words } or null.
+const LANDSCAPE_STYLES = { 정형: 'formal', 자연형: 'natural', 광장형: 'plaza' };
+const PLAZA_WORDS = { 작게: 'small', 좁게: 'small', 보통: 'normal', 기본: 'normal', 넓게: 'wide', 크게: 'wide', 최대: 'widest' };
+const TREE_WORDS = { 더: 'more', '25%': 'more', '+25%': 'more', 많이: 'most', '50%': 'most', '+50%': 'most', 최대: 'room', 가득: 'room', 자리만큼: 'room',
+  법정: 'law', 기본: 'law', 보통: 'law' };
+const LANDSCAPE_SAY = {
+  plaza: { small: '광장 작게', normal: '광장 보통', wide: '광장 넓게', widest: '광장 아주 넓게' },
+  trees: { law: '나무 법정 수량', more: '나무 25% 더', most: '나무 50% 더', room: '나무 자리만큼' },
+  style: { formal: '정형', natural: '자연형', plaza: '광장형' },
+};
+const metres = (w) => {
+  const m = /^(\d+(?:\.\d+)?)m?$/.exec(w);
+  return m ? Number(m[1]) : null;
+};
+export function readLandscape(text) {
+  const words = String(text ?? '').trim().split(/[\s,]+/).filter(Boolean);
+  if (words[0] !== '조경') return null;
+  const out = { style: null, tune: {}, reset: false, shuffle: false, place: false, compare: false, words: [] };
+  for (let i = 1; i < words.length; i += 1) {
+    const w = words[i];
+    const next = words[i + 1];
+    if (LANDSCAPE_STYLES[w]) { out.style = LANDSCAPE_STYLES[w]; out.words.push(w); continue; }
+    if (w === '광장') {
+      if (next === '아주' || (next === '더' && words[i + 2] === '넓게')) {
+        if (words[i + 2] !== '넓게' && words[i + 2] !== '크게') return null;
+        out.tune.plaza = 'widest'; i += 2;
+      } else if (PLAZA_WORDS[next]) { out.tune.plaza = PLAZA_WORDS[next]; i += 1; } else return null;
+      out.words.push(LANDSCAPE_SAY.plaza[out.tune.plaza]);
+      continue;
+    }
+    if (w === '나무' || w === '교목') {
+      if (next === '더' && words[i + 2] === '많이') { out.tune.trees = 'most'; i += 2; } else if (TREE_WORDS[next]) { out.tune.trees = TREE_WORDS[next]; i += 1; } else return null;
+      out.words.push(LANDSCAPE_SAY.trees[out.tune.trees]);
+      continue;
+    }
+    if (w === '길') {
+      const v = next === '기본' ? null : next === '넓게' ? 3 : next === '좁게' ? 1.5 : metres(next ?? '');
+      if (v === null && next !== '기본') return null;
+      if (v !== null && !(v >= 1.5 && v <= 4)) return null;
+      out.tune.path = v; i += 1;
+      out.words.push(v === null ? '길 폭 기본' : `길 ${v.toFixed(1)}m`);
+      continue;
+    }
+    if (w === '관목' || w === '관목띠') {
+      let at = i + 1;
+      if (words[at] === '띠') at += 1;
+      const said = words[at];
+      const v = ['없이', '없음', '빼기', '빼고'].includes(said) ? 0 : said === '기본' ? null : said === '넓게' ? 3 : said === '좁게' ? 1 : metres(said ?? '');
+      if (v === null && said !== '기본') return null;
+      if (v !== null && !(v === 0 || (v >= 1 && v <= 3))) return null;
+      out.tune.hedge = v; i = at;
+      out.words.push(v === null ? '관목 띠 기본' : v === 0 ? '관목 띠 없음' : `관목 띠 ${v.toFixed(1)}m`);
+      continue;
+    }
+    if (w === '처음대로' || w === '초기화') { out.reset = true; out.words.push('조절 처음대로'); continue; }
+    if (w === '다시' && next === '섞기') { out.shuffle = true; out.words.push('다시 섞기'); i += 1; continue; }
+    if (w === '섞기') { out.shuffle = true; out.words.push('다시 섞기'); continue; }
+    if (w === '놓기') { out.place = true; out.words.push('제도판에 놓기'); continue; }
+    if (w === '비교') { out.compare = true; out.words.push('비교'); continue; }
+    return null;
+  }
+  return out;
 }
 
 // Commands to offer while one word is being typed: exact names first, then names and short

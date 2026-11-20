@@ -39,6 +39,16 @@ imports a domain by name and adding a domain touches no shared file. `hooks.py` 
       reason code ("no_site": no site looked up yet), or None. Asked only for runs the
       Conductor chooses; the expert is then not run and the designer is told (event
       "run_skipped"). The first domain that answers is used. A designer's own run is not asked.
+  conductor_tools(project_dir: Path) -> list[dict]
+      Tools the Conductor may call for the domain, when its model takes tool calls and the
+      drawing table is on: [{"name", "description", "parameters" (JSON schema)}], in English.
+      A name must be the domain's own (not the core's run_expert, read_module, read_board,
+      propose_paper). Asked once per Conductor turn, so it must be quick and never raise.
+  conductor_call(project_dir: Path, name: str, arguments: dict) -> dict
+      Carry out one of the domain's tools: {"result": English text the Conductor reads next,
+      "notice": one line for the designer in their language, "open": what the screen should
+      show, e.g. "landscape" ("" for nothing)}. ValueError(reason) refuses the call: the
+      Conductor is told the reason and the designer is told it was refused.
   api_router(load_config, core) -> fastapi.APIRouter
       JSON routes of the domain for the web UI. `core(fn, ...)` runs a core function and
       turns application errors into HTTP errors (see webapp.core).
@@ -142,6 +152,42 @@ def run_needs(config: dict, agent: dict, project_dir: Path, hooks=None) -> str |
         if reason:
             return str(reason)
     return None
+
+
+def conductor_tool_specs(project_dir: Path, hooks=None) -> list[dict]:
+    """The domains' Conductor tools ([] for a domain whose hook fails: a message must go on)."""
+    specs, seen = [], set()
+    for _domain, module in domain_hooks() if hooks is None else hooks:
+        offer = getattr(module, "conductor_tools", None)
+        if offer is None or getattr(module, "conductor_call", None) is None:
+            continue
+        try:
+            tools = list(offer(project_dir))
+        except Exception:
+            continue
+        for tool in tools:
+            if isinstance(tool, dict) and tool.get("name") and tool["name"] not in seen:
+                seen.add(tool["name"])
+                specs.append({k: tool[k] for k in ("name", "description", "parameters") if k in tool})
+    return specs
+
+
+def call_conductor_tool(project_dir: Path, name: str, arguments: dict, hooks=None) -> dict:
+    """Carry out a domain's Conductor tool: {"result", "notice", "open"}. ValueError(reason) when the
+    domain refuses it or no domain has the tool ("unknown_tool")."""
+    for _domain, module in domain_hooks() if hooks is None else hooks:
+        offer, call = getattr(module, "conductor_tools", None), getattr(module, "conductor_call", None)
+        if offer is None or call is None:
+            continue
+        try:
+            names = {tool.get("name") for tool in offer(project_dir) if isinstance(tool, dict)}
+        except Exception:
+            continue
+        if name in names:
+            done = call(project_dir, name, arguments if isinstance(arguments, dict) else {})
+            return {"result": str(done.get("result") or ""), "notice": str(done.get("notice") or ""),
+                    "open": str(done.get("open") or "")}
+    raise ValueError("unknown_tool")
 
 
 def expert_routers(load_config, core, hooks=None) -> list:

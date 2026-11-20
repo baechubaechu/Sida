@@ -73,6 +73,8 @@
 | `views_shown` | `files` | 그림이 질문과 함께 갔음. 작은 안내 줄 |
 | `views_unseen` | `reason` | **알림**: `views: true`였지만 그림 없이 글만 갔음. `reason`은 `model`(Conductor 모델이 그림을 볼 수 없음. 보내 보고 거절당한 경우도 같은 이벤트) 또는 `none`(그림을 만들지 못함) |
 | `tray_failed` | `reason` | Conductor가 만든 종이가 거부됨(`limit`이면 한 메시지에 3장을 넘김). Conductor가 이유를 받고 다시 하거나 설계자에게 말함 |
+| `domain_tool` | `name`, `notice`, `open` | 영역의 Conductor 도구가 실행됨(예: `propose_landscape` 조경 제안, `docs/landscape.md`). `notice`는 설계자에게 보일 한 줄, `open`은 화면이 열 것(`landscape`: 자동 조경 카드, 없으면 `""`) |
+| `domain_tool_failed` | `name`, `reason` | 영역이 Conductor의 도구 호출을 거부함(`limit`이면 한 메시지에서 AI 섹션 종이와 합쳐 3번을 넘김). Conductor가 이유를 받음 |
 
 ## 그림과 함께 보낸 메시지
 

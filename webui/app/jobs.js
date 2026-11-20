@@ -172,6 +172,8 @@ function handleEvent(event) {
   if (event.kind === 'tray_added' && ui.project) {
     loadBoard(ui.project).then(() => table?.openTray());
   }
+  // A domain's Conductor tool (sida/experts): the table shows what it made (조경 제안: the card).
+  if (event.kind === 'domain_tool' && event.data?.open === 'landscape') table?.showLandscapeProposal();
   const sitePageHash = ui.project ? sitePageFor(event, ui.project, ui.site) : null;
   if (sitePageHash && location.hash !== sitePageHash) location.hash = sitePageHash;
   if (event.kind === 'run_skipped' && event.data?.reason === 'no_site' && ui.project) askForSite(ui.project, event.data.address);

@@ -121,11 +121,14 @@ namespace SidaRhino
         /// 자동 조경 around the snapshot's buildings in the region picked (a ring of [x, y] metres in the
         /// snapshot's frame, or null for the whole lot): {drawing, lines, roads_note, plan}.
         /// </summary>
-        public JsonDocument Landscape(string project, string snapshotId, IReadOnlyList<double[]>? region, string style, int? seed)
+        public JsonDocument Landscape(string project, string snapshotId, IReadOnlyList<double[]>? region, string style, int? seed,
+            IReadOnlyDictionary<string, object?>? tune = null)
         {
             var body = new Dictionary<string, object?> { ["snapshot"] = snapshotId, ["region"] = region, ["style"] = style };
             if (seed != null)
                 body["seed"] = seed;
+            if (tune != null)  // the knobs (plaza, trees, path, hedge); left out: the drafting table's
+                body["tune"] = tune;
             var content = new StringContent(JsonSerializer.Serialize(body, JsonOptions), Encoding.UTF8, "application/json");
             var response = Sent(() => Http.PostAsync($"{BaseUrl}/api/projects/{Uri.EscapeDataString(project)}/landscape/rhino", content)
                 .GetAwaiter().GetResult());

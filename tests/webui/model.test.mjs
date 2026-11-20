@@ -94,6 +94,11 @@ test('drafting table notices: AI papers land in the AI section and board reads a
   assert.equal(added.toast, true);
   assert.match(eventNotice({ kind: 'tray_failed', data: { reason: 'limit' } }).text, /넘어/);
   assert.match(eventNotice({ kind: 'tray_failed', data: { reason: 'bad block' } }).text, /bad block/);
+  const proposed = eventNotice({ kind: 'domain_tool', data: { name: 'propose_landscape', notice: '조경 제안을 놓았습니다.', open: 'landscape' } });
+  assert.deepEqual(proposed, { text: '조경 제안을 놓았습니다.', tone: 'success', toast: true });
+  assert.equal(eventNotice({ kind: 'domain_tool', data: { name: 'x', notice: '' } }), null);
+  assert.match(eventNotice({ kind: 'domain_tool_failed', data: { reason: 'bad plaza' } }).text, /bad plaza/);
+  assert.match(eventNotice({ kind: 'domain_tool_failed', data: { reason: 'limit' } }).text, /넘어/);
   assert.equal(eventNotice({ kind: 'reading', data: { file: 'board/mass-a' } }).text, '제도판 종이 mass-a를 읽는 중입니다.');
   assert.equal(eventNotice({ kind: 'reading', data: { file: 'site_reader.md' } }).text, 'site_reader.md를 읽는 중입니다.');
 });

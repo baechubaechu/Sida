@@ -431,6 +431,74 @@ def test_a_cloud_conductor_puts_a_scheme_in_the_ai_section(make_session, table, 
     assert saved["papers"][1]["blocks"][0]["floors"] == 5 and len(saved["tray"]) == 1
 
 
+def test_a_cloud_conductor_calls_a_domains_own_tool(make_session, table, mock_config, monkeypatch):
+    from sida import experts
+
+    monkeypatch.setattr(conductor, "_NO_TOOLS", set())
+    mock_config["conductor"]["board_context"] = "full"
+    done = []
+
+    def call(project_dir, name, arguments):
+        if arguments.get("size") == "huge":
+            raise ValueError("bad size")
+        done.append(arguments)
+        return {"result": "Garden g1 laid out: 24 trees.", "notice": "정원 제안을 놓았습니다.", "open": "garden"}
+
+    spec = {"name": "propose_garden", "description": "Lay out a garden.", "parameters": {"type": "object"}}
+    clash = {"name": "read_board", "description": "a domain may not take a core tool's name"}
+    garden = SimpleNamespace(conductor_tools=lambda project_dir: [spec, clash], conductor_call=call)
+    monkeypatch.setattr(experts, "domain_hooks", lambda: [("garden", garden)])
+
+    class Tools:
+        name = "tools"
+
+        def __init__(self):
+            self.calls = []
+            self.replies = [
+                ("", [{"name": "propose_garden", "arguments": {"size": "huge"}}]),
+                ("", [{"name": "propose_garden", "arguments": {"size": "wide"}}]),
+                ("정원 제안을 두었습니다.", []),
+            ]
+
+        def chat_tools(self, model, messages, tools, temperature, max_tokens, **kw):
+            self.calls.append({"messages": messages, "tools": [t["name"] for t in tools]})
+            text, calls = self.replies.pop(0)
+            return text, calls, {}
+
+    c = Tools()
+    s = make_session(c_provider=c)
+    s.events = []
+    s.emit = lambda kind, data: s.events.append((kind, data))
+    turn = engine.converse(s, "정원 넓게")
+    assert turn.replies == ["정원 제안을 두었습니다."]
+    assert c.calls[0]["tools"] == ["run_expert", "read_expert_output", "read_board", "propose_paper", "propose_garden"]
+    assert [d for k, d in s.events if k == "domain_tool_failed"] == [{"name": "propose_garden", "reason": "bad size"}]
+    assert "The propose_garden call was refused: bad size" in _texts(c.calls[1]["messages"])
+    assert done == [{"size": "wide"}]
+    assert [d for k, d in s.events if k == "domain_tool"] == [{"name": "propose_garden", "notice": "정원 제안을 놓았습니다.", "open": "garden"}]
+    assert "Garden g1 laid out: 24 trees." in _texts(c.calls[2]["messages"])
+
+
+def test_a_local_conductor_is_not_given_the_domains_tools(make_session, table, mock_config, monkeypatch):
+    from sida import experts
+
+    monkeypatch.setattr(conductor, "_NO_TOOLS", set())
+    mock_config["conductor"]["board_context"] = "names"
+    garden = SimpleNamespace(conductor_tools=lambda project_dir: [{"name": "propose_garden"}], conductor_call=lambda *a: {})
+    monkeypatch.setattr(experts, "domain_hooks", lambda: [("garden", garden)])
+    seen = []
+
+    class Tools:
+        name = "tools"
+
+        def chat_tools(self, model, messages, tools, temperature, max_tokens, **kw):
+            seen.append([t["name"] for t in tools])
+            return "네.", [{"name": "propose_garden", "arguments": {}}], {}
+
+    turn = engine.converse(make_session(c_provider=Tools()), "정원")
+    assert seen == [["run_expert", "read_expert_output"]] and turn.replies == ["네."]
+
+
 def test_an_expert_run_lays_its_result_in_the_ai_section(make_session, scripted, table, mock_config):
     mock_config["state_update"]["mode"] = "off"
     w = scripted(["## 결과\n- 북측 동이 높음"] * 2)

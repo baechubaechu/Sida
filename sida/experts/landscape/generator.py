@@ -19,6 +19,11 @@ style's own settings (`STYLES`):
    광장 (광장형); 2.5 m off the buildings, clear of the paths, apart from each other. Then more
    where room is left until the 조경기준's count is met, or as many as fit.
 
+The designer (or the Conductor, for them) may turn four knobs (`Tune`, 2026-11-20 4단계): the
+plaza's size, how many trees beyond the count, the path width and the shrub band's width. They only
+change the numbers the steps above use; the layout is still the rules', and every result is checked
+again by landscape.checks.
+
 Every tree counts as one (조경기준 제7조② counts big trees as more: the count is the least).
 """
 
@@ -45,7 +50,7 @@ STYLES = {
     "plaza": {"label": "광장형 · 도로변 개방", "path": 2.4, "crown": 1.8, "spacing": 6.0, "plaza_share": 0.35, "plaza_least": 60.0,
               "about": "도로 쪽을 넓게 포장하고 나무는 식재함에, 녹지는 이웃 경계 쪽 띠로"},
 }
-HEDGE = 1.5  # m: the shrub band along the neighbours' edges
+HEDGE = 1.5  # m: the shrub band along the neighbours' edges (Tune.hedge changes it)
 TREE_OFF_BUILDING = 2.5  # m from a wall to a trunk
 TREE_OFF_PATH = 1.0  # m from a path's edge to a trunk
 TREE_OFF_EDGE = 1.5  # m from the region's edge to a trunk
@@ -55,6 +60,74 @@ SHADE_HOURS = 5  # of the 7 hours 9–15 on the winter solstice
 SHADE_STEP = 1.0  # m: the grid the shade is counted on
 MAX_TREES = 400
 KINDS = ("lawn", "shade", "hedge", "path", "plaza", "paving")
+
+
+PLAZA_SIZES = {"small": 0.5, "normal": 1.0, "wide": 1.8, "widest": 2.5}  # times the style's plaza
+TREE_COUNTS = {"law": 1.0, "more": 1.25, "most": 1.5, "room": None}  # times the count; None: as many as fit
+PATH_RANGE = (1.5, 4.0)  # m
+HEDGE_RANGE = (1.0, 3.0)  # m, or 0 for none (a band under 1 m would be paved: 조경기준 제4조)
+
+
+@dataclass(frozen=True)
+class Tune:
+    """The knobs on a layout. None for `path`/`hedge`: the style's own."""
+
+    plaza: str = "normal"
+    trees: str = "law"
+    path: float | None = None
+    hedge: float | None = None
+
+    @classmethod
+    def read(cls, raw) -> Tune:
+        """From a dict as the API and landscape.json hold it (missing keys: the defaults).
+        ValueError naming the knob for a bad value."""
+        if raw is None:
+            return cls()
+        if not isinstance(raw, dict) or set(raw) - {"plaza", "trees", "path", "hedge"}:
+            raise ValueError("tune")
+        plaza = raw.get("plaza", "normal")
+        if plaza not in PLAZA_SIZES:
+            raise ValueError("plaza")
+        trees = raw.get("trees", "law")
+        if trees not in TREE_COUNTS:
+            raise ValueError("trees")
+
+        def metres(key, low, high, zero_ok=False):
+            v = raw.get(key)
+            if v is None:
+                return None
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not (low <= v <= high or (zero_ok and v == 0)):
+                raise ValueError(key)
+            return round(float(v), 1)
+
+        return cls(plaza, trees, metres("path", *PATH_RANGE), metres("hedge", *HEDGE_RANGE, zero_ok=True))
+
+    def as_dict(self) -> dict:
+        return {"plaza": self.plaza, "trees": self.trees, "path": self.path, "hedge": self.hedge}
+
+    def words(self) -> list[str]:
+        """What differs from the defaults, in the designer's words ("광장 넓게", "길 2.0m")."""
+        out = []
+        if self.plaza != "normal":
+            out.append({"small": "광장 작게", "wide": "광장 넓게", "widest": "광장 아주 넓게"}[self.plaza])
+        if self.trees != "law":
+            out.append({"more": "나무 25% 더", "most": "나무 50% 더", "room": "나무 자리만큼"}[self.trees])
+        if self.path is not None:
+            out.append(f"길 {self.path:.1f}m")
+        if self.hedge is not None:
+            out.append("관목 띠 없음" if self.hedge == 0 else f"관목 띠 {self.hedge:.1f}m")
+        return out
+
+
+def tuned(style: str, tune: Tune) -> dict:
+    """The style's settings with the knobs turned (`plaza_scale`, `hedge` and `trees` added)."""
+    s = dict(STYLES[style])
+    s["plaza_scale"] = PLAZA_SIZES[tune.plaza]
+    if tune.path is not None:
+        s["path"] = tune.path
+    s["hedge"] = HEDGE if tune.hedge is None else tune.hedge
+    s["trees"] = TREE_COUNTS[tune.trees]
+    return s
 
 
 @dataclass
@@ -228,9 +301,10 @@ def _widest_road(inputs: Inputs):
     return max(inputs.roads, key=lambda r: ((r["width"] or 0), r["line"].length))["line"]
 
 
-def _plaza(style: str, inputs: Inputs, region, doors: list[dict], lines: list[LineString]):
-    s = STYLES[style]
+def _plaza(style: str, s: dict, inputs: Inputs, region, doors: list[dict], lines: list[LineString]):
     target = max(inputs.open_space_m2 or 0.0, s["plaza_share"] * region.area, s["plaza_least"])
+    # Tune.plaza scales the plaza the style would make, never below the 공개 공지 the rules ask
+    target = max(inputs.open_space_m2 or 0.0, target * s["plaza_scale"])
     target = min(target, 0.6 * region.area)
     road = _widest_road(inputs)
     edge = road if road is not None else inputs.lot.boundary
@@ -257,12 +331,12 @@ def _plaza(style: str, inputs: Inputs, region, doors: list[dict], lines: list[Li
     at = main.interpolate(0.35 if main.coords[0] != doors[0]["gate"].coords[0] else 0.65, normalized=True)
     side = 1 if len(lines) % 2 == 0 else -1
     ox, oy = doors[0]["normal"]
-    centre = Point(at.x + side * -oy * (STYLES[style]["path"] + 1), at.y + side * ox * (STYLES[style]["path"] + 1))
+    centre = Point(at.x + side * -oy * (s["path"] + 1), at.y + side * ox * (s["path"] + 1))
     return _clean(_grow(lambda r: _clean(centre.buffer(r, 24).intersection(region)), target, 1.0, 40.0))
 
 
-def _place_trees(style: str, inputs: Inputs, zones: dict, lines: list[LineString], shade, rng: random.Random) -> list[dict]:
-    s = STYLES[style]
+def _place_trees(style: str, s: dict, inputs: Inputs, zones: dict, lines: list[LineString], shade, rng: random.Random) -> list[dict]:
+    hedge = s["hedge"]
     planted = _clean(unary_union([zones["lawn"], zones["shade"], zones["hedge"]]))
     walls = unary_union([b for b, _ in inputs.buildings]) if inputs.buildings else None
     path_union = unary_union(lines) if lines else None
@@ -316,8 +390,8 @@ def _place_trees(style: str, inputs: Inputs, zones: dict, lines: list[LineString
         if not neighbours.is_empty:
             for part in getattr(neighbours, "geoms", [neighbours]):
                 if part.length >= 3:
-                    edge_room = inputs.region.buffer(-HEDGE / 2 - 0.3).boundary
-                    near = edge_room.intersection(part.buffer(HEDGE + 1.5))
+                    edge_room = inputs.region.buffer(-hedge / 2 - 0.3).boundary
+                    near = edge_room.intersection(part.buffer(hedge + 1.5))
                     for seg in getattr(near, "geoms", [near]):
                         if seg.geom_type == "LineString" and seg.length >= 1:
                             for k in range(int(seg.length // s["spacing"]) + 1):
@@ -345,13 +419,14 @@ def _place_trees(style: str, inputs: Inputs, zones: dict, lines: list[LineString
                     if len(trees) < MAX_TREES and fits(x, y, s["spacing"] - 0.5, inner, off_path=s["path"] / 2 + PLANTER / 2 + 0.3):
                         add(x, y, "planter")
         if not neighbours.is_empty:
-            along(neighbours, HEDGE + 1.2, s["spacing"] - 1, s["spacing"] - 1.5)
+            along(neighbours, hedge + 1.2, s["spacing"] - 1, s["spacing"] - 1.5)
     # scattered (the 자연형's own, and every style's top-up to the count)
     need = inputs.trees_needed if inputs.trees_needed else int(planted.area // 45)
     spacing = s["spacing"] if style == "natural" else s["spacing"] - 1.5
     x0, y0, x1, y1 = planted.bounds if not planted.is_empty else (0, 0, 0, 0)
     tries = 0
     want = max(need, int(planted.area // 30)) if style == "natural" else need
+    want = MAX_TREES if s["trees"] is None else math.ceil(want * s["trees"])  # Tune.trees
     while len(trees) < min(want, MAX_TREES) and tries < 6000 and not planted.is_empty:
         tries += 1
         x, y = rng.uniform(x0, x1), rng.uniform(y0, y1)
@@ -373,13 +448,14 @@ def _rings(geom) -> list[dict]:
     return out
 
 
-def generate(inputs: Inputs, style: str) -> dict:
+def generate(inputs: Inputs, style: str, tune: Tune | None = None) -> dict:
     """
     One layout: {"style", "label", "about", "zones": {kind: [{"outer", "holes"}]}, "paths": [{"line",
     "width"}], "trees": [{"x", "y", "r", "kind"}], "doors": [[x, y]], "areas": {kind: ㎡ in the lot},
-    "planting_m2", "trees_in_lot", "plaza_m2", "plaza_width_ok"}.
+    "planting_m2", "trees_in_lot", "plaza_m2", "plaza_width_ok", "tune": Tune.as_dict()}.
     """
-    s = STYLES[style]
+    tune = tune or Tune()
+    s = tuned(style, tune)
     rng = random.Random(inputs.seed * 101 + list(STYLES).index(style))
     region = _clean(inputs.region)
     road_union = unary_union([r["line"] for r in inputs.roads]) if inputs.roads else None
@@ -387,20 +463,20 @@ def generate(inputs: Inputs, style: str) -> dict:
     lines = _paths(style, doors, region, rng)
     path_area = _clean(unary_union([ln.buffer(s["path"] / 2, cap_style="flat") for ln in lines]).intersection(region)) if lines else Polygon()
     # the plaza is paved through: the paths stop at it (so its width is not cut by them)
-    plaza = _clean(_plaza(style, inputs, region, doors, lines).intersection(region))
+    plaza = _clean(_plaza(style, s, inputs, region, doors, lines).intersection(region))
     path_area = _clean(path_area.difference(plaza))
     free = _clean(region.difference(path_area).difference(plaza))
     neighbours = inputs.lot.boundary
     if road_union is not None:
         neighbours = neighbours.difference(road_union.buffer(0.5))
-    hedge = _clean(neighbours.buffer(HEDGE).intersection(free)) if not neighbours.is_empty else Polygon()
+    hedge = _clean(neighbours.buffer(s["hedge"]).intersection(free)) if s["hedge"] > 0 and not neighbours.is_empty else Polygon()
     hedge = _opening(hedge, LEAST_SIDE)
     free = _clean(free.difference(hedge))
     green = _opening(free, LEAST_SIDE)
     paving = _clean(free.difference(green))  # what is too thin to plant
     shade = shade_area(green, inputs.buildings, inputs.latitude)
     zones = {"lawn": _clean(green.difference(shade)), "shade": shade, "hedge": hedge, "path": path_area, "plaza": plaza, "paving": paving}
-    trees = _place_trees(style, inputs, zones, lines, shade, rng)
+    trees = _place_trees(style, s, inputs, zones, lines, shade, rng)
     lot = inputs.lot
     areas = {k: round(v.intersection(lot).area, 1) for k, v in zones.items()}
     in_lot = [t for t in trees if lot.contains(Point(t["x"], t["y"]))]
@@ -418,4 +494,5 @@ def generate(inputs: Inputs, style: str) -> dict:
         "trees_in_lot": len(in_lot),
         "plaza_m2": areas["plaza"],
         "plaza_width_ok": plaza_width_ok,
+        "tune": tune.as_dict(),
     }

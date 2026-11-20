@@ -100,3 +100,25 @@ def test_worker_prompt_places_facts_before_state_and_knowledge_after_outputs():
     )
     order = [prompt.index(x) for x in ("BRIEF", "FACTS-BLOCK", "STATE", "OUTPUTS", "KNOWLEDGE-BLOCK")]
     assert order == sorted(order)
+
+
+def test_the_domains_conductor_tools_are_offered_and_called_by_name():
+    def boom(project_dir):
+        raise RuntimeError("broken")
+
+    calls = []
+    hooks = [
+        ("a", hook(conductor_tools=lambda p: [{"name": "tool_a", "description": "A", "parameters": {}, "extra": 1}],
+                   conductor_call=lambda p, name, args: calls.append((name, args)) or {"result": "done", "notice": "됨", "open": "a"})),
+        ("b", hook(conductor_tools=boom, conductor_call=lambda *a: {})),  # a failing hook is left out
+        ("c", hook(conductor_tools=lambda p: [{"name": "tool_a"}, {"name": "tool_c"}])),  # no conductor_call: none
+        ("d", hook(conductor_tools=lambda p: [{"name": "tool_a"}, "junk", {"name": "tool_d"}], conductor_call=lambda *a: {"result": 3})),
+    ]
+    specs = experts.conductor_tool_specs(Path("."), hooks)
+    assert [s["name"] for s in specs] == ["tool_a", "tool_d"] and specs[0] == {"name": "tool_a", "description": "A", "parameters": {}}
+    assert experts.call_conductor_tool(Path("."), "tool_a", {"x": 1}, hooks) == {"result": "done", "notice": "됨", "open": "a"}
+    assert calls == [("tool_a", {"x": 1})]
+    assert experts.call_conductor_tool(Path("."), "tool_d", None, hooks) == {"result": "3", "notice": "", "open": ""}
+    for name in ("tool_c", "nope"):
+        with pytest.raises(ValueError, match="unknown_tool"):
+            experts.call_conductor_tool(Path("."), name, {}, hooks)

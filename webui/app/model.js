@@ -224,6 +224,10 @@ export function eventNotice(event) {
     case 'tray_failed': return notice(data.reason === 'limit'
       ? '한 번에 AI 섹션에 놓을 수 있는 종이 수를 넘어 더 놓지 않았습니다.'
       : `Conductor가 만든 종이가 거부됐습니다. ${data.reason || ''}`.trim(), 'warn');
+    case 'domain_tool': return data.notice ? notice(data.notice, 'success', true) : null;
+    case 'domain_tool_failed': return notice(data.reason === 'limit'
+      ? '한 번에 할 수 있는 제안 수를 넘어 더 하지 않았습니다.'
+      : `Conductor의 요청을 처리하지 못했습니다. ${data.reason || ''}`.trim(), 'warn');
     case 'unknown_agent': return notice('Conductor가 없는 전문가를 불러서 실행하지 않았습니다.', 'warn');
     case 'action_recovered': return notice('Conductor 답에서 다음 동작을 다시 읽었습니다.');
     case 'run_skipped': return data.reason === 'no_site'

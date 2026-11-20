@@ -2724,19 +2724,65 @@ export const LANDSCAPE_KINDS = [
 export const LANDSCAPE_TREE_COLORS = { sun: 0x6f9f58, shade: 0x4f7f62, planter: 0x7aa060, trunk: 0x8a7a62 };
 const LANDSCAPE_STATE = { true: ['ok', '맞음'], false: ['short', '모자람'], null: ['info', '참고'] };
 
-// The card: the three plans as tabs (the one in settings picked) with their checks, and the
-// region, the mass scheme and the use as the designer can change them.
-export function landscapeCard(data) {
+// The knobs (generator.Tune, 2026-11-20 4단계): the plaza against the style's own, the trees
+// against the 조경기준 count, the path and the shrub band widths (m; null: the style's own).
+export const LANDSCAPE_PLAZA = [['small', '작게'], ['normal', '보통'], ['wide', '넓게'], ['widest', '아주 넓게']];
+export const LANDSCAPE_TREES = [['law', '법정 수량'], ['more', '+25%'], ['most', '+50%'], ['room', '자리만큼']];
+export const LANDSCAPE_PATH = [1.5, 4];
+export const LANDSCAPE_HEDGE = [0, 3]; // 0: none; under 1 m a band is paved, so 0.1–0.9 is taken as 0 or 1
+export const LANDSCAPE_HEDGE_DEFAULT = 1.5;
+export const LANDSCAPE_TUNE = { plaza: 'normal', trees: 'law', path: null, hedge: null };
+const LANDSCAPE_STYLE_WORDS = { formal: '정형', natural: '자연형', plaza: '광장형' };
+
+// A shrub band width from the slider: 0, or 1–3 m by 0.1.
+export function landscapeHedge(value) {
+  const v = Math.min(LANDSCAPE_HEDGE[1], Math.max(0, Number(value) || 0));
+  if (v < 0.5) return 0;
+  return Math.max(1, Math.round(v * 10) / 10);
+}
+
+// The knobs' words as the generator's Tune.words gives them ("광장 넓게", "나무 50% 더").
+export function landscapeTuneWords(tune) {
+  const t = { ...LANDSCAPE_TUNE, ...(tune || {}) };
+  const out = [];
+  if (t.plaza !== 'normal') out.push({ small: '광장 작게', wide: '광장 넓게', widest: '광장 아주 넓게' }[t.plaza]);
+  if (t.trees !== 'law') out.push({ more: '나무 25% 더', most: '나무 50% 더', room: '나무 자리만큼' }[t.trees]);
+  if (t.path != null) out.push(`길 ${Number(t.path).toFixed(1)}m`);
+  if (t.hedge != null) out.push(Number(t.hedge) === 0 ? '관목 띠 없음' : `관목 띠 ${Number(t.hedge).toFixed(1)}m`);
+  return out.filter(Boolean);
+}
+
+const landscapeChecks = (p) => (p?.checks || []).map((c) => {
+  const [state, label] = LANDSCAPE_STATE[String(c.ok ?? null)];
+  return { ...c, state, label };
+});
+
+// The card: the three plans as tabs (the one in settings picked) with their checks, the knobs,
+// the Conductor's proposals (`preview`: the one looked at instead of the style), and the region,
+// the mass scheme and the use as the designer can change them.
+export function landscapeCard(data, preview = null) {
   if (!data?.plans?.length) return null;
   const style = data.settings?.style;
+  const looked = (data.proposals || []).find((k) => k.id === preview) || null;
   const plans = data.plans.map((p) => {
-    const checks = (p.checks || []).map((c) => {
-      const [state, label] = LANDSCAPE_STATE[String(c.ok ?? null)];
-      return { ...c, state, label };
-    });
-    return { style: p.style, label: p.label, about: p.about, selected: p.style === style, checks,
+    const checks = landscapeChecks(p);
+    return { style: p.style, label: p.label, about: p.about, selected: !looked && p.style === style, checks,
       short: checks.filter((c) => c.state === 'short').length };
   });
+  const proposals = (data.proposals || []).map((k) => {
+    const checks = landscapeChecks(k.plan);
+    return { id: k.id, title: k.title || k.id, reason: k.reason || '', style: k.style, tune: k.tune, seed: k.seed,
+      selected: k === looked, checks, short: checks.filter((c) => c.state === 'short').length,
+      about: [LANDSCAPE_STYLE_WORDS[k.style] || k.style, ...landscapeTuneWords(k.tune)].join(' · ') };
+  });
+  const tune = { ...LANDSCAPE_TUNE, ...(data.settings?.tune || {}) };
+  const shownPlan = data.plans.find((p) => p.style === style) || data.plans[0];
+  const knobs = {
+    ...tune,
+    pathValue: tune.path ?? (shownPlan?.paths?.[0]?.width ?? 2),
+    hedgeValue: tune.hedge ?? LANDSCAPE_HEDGE_DEFAULT,
+    changed: landscapeTuneWords(tune).length > 0,
+  };
   const land = data.requirement?.landscape;
   const figures = [];
   if (data.site_area_m2) figures.push(['대지면적', m2(data.site_area_m2)]);
@@ -2744,13 +2790,85 @@ export function landscapeCard(data) {
   if (land?.ratio) figures.push(['조경 기준', `대지면적의 ${land.ratio}% 이상`]);
   const uses = (data.uses || []).map((u) => ({ ...u, selected: u.key === data.settings?.use }));
   return {
-    title: '자동 조경', plans, figures, uses, masses: data.masses || [], mass: data.mass,
+    title: '자동 조경', plans, proposals, proposal: proposals.find((k) => k.selected) || null, knobs, figures, uses,
+    masses: data.masses || [], mass: data.mass,
     regionDrawn: Boolean(data.region_drawn), placed: Boolean(data.settings?.placed), note: data.roads_note || '',
   };
 }
 
-// The plan the settings show (null without plans).
-export const landscapeShown = (data) => data?.plans?.find((p) => p.style === data.settings?.style) || data?.plans?.[0] || null;
+// The plan the settings show, or the proposal looked at (null without plans).
+export function landscapeShown(data, preview = null) {
+  const looked = preview ? (data?.proposals || []).find((k) => k.id === preview) : null;
+  if (looked?.plan) return looked.plan;
+  return data?.plans?.find((p) => p.style === data.settings?.style) || data?.plans?.[0] || null;
+}
+
+// What placing a proposal keeps: its style, knobs and seed, placed on the table.
+export const landscapeTakeProposal = (k) => ({ style: k.style, tune: { ...LANDSCAPE_TUNE, ...(k.tune || {}) }, seed: k.seed, placed: true });
+
+// The comparison (비교): the three styles with the knobs set and the Conductor's proposals side by
+// side, each against the plan placed (or, with none placed, the one shown): [{key, kind, head,
+// title, plan, placed, rows: [{label, value, state, diff}]}]. A diff is "(+57)" against that plan.
+export function landscapeCompare(data) {
+  if (!data?.plans?.length) return [];
+  const s = data.settings || {};
+  const base = data.plans.find((p) => p.style === s.style) || data.plans[0];
+  const sameTune = (tune) => JSON.stringify({ ...LANDSCAPE_TUNE, ...(tune || {}) }) === JSON.stringify({ ...LANDSCAPE_TUNE, ...(s.tune || {}) });
+  const tuneWords = landscapeTuneWords(s.tune);
+  const cols = data.plans.map((p) => {
+    const here = p === base;
+    return { key: p.style, kind: 'style', plan: p, placed: here && Boolean(s.placed),
+      head: here ? (s.placed ? '제도판에 놓인 안' : '보고 있는 안') : '세 안 중',
+      title: [LANDSCAPE_STYLE_WORDS[p.style] || p.style, ...(tuneWords.length ? tuneWords : ['그대로'])].join(' · ') };
+  });
+  for (const k of data.proposals || []) {
+    if (!k.plan) continue;
+    const placed = Boolean(s.placed) && k.style === s.style && k.seed === s.seed && sameTune(k.tune);
+    cols.push({ key: k.id, kind: 'proposal', plan: k.plan, placed, head: 'Conductor 제안', title: k.title || k.id, reason: k.reason || '' });
+  }
+  const check = (plan, id) => (plan.checks || []).find((c) => c.id === id);
+  const state = (c) => (c ? LANDSCAPE_STATE[String(c.ok ?? null)] : null);
+  const diff = (a, b, unit = '') => {
+    const d = Math.round((a - b) * 10) / 10;
+    return Math.abs(d) < 0.5 ? '' : `(${d > 0 ? '+' : '−'}${Math.round(Math.abs(d))}${unit})`;
+  };
+  return cols.map((col) => {
+    const p = col.plan;
+    const mine = col.plan === base;
+    const land = check(p, 'landscape');
+    const trees = check(p, 'trees');
+    const a = p.areas || {};
+    const rows = [ // the checked figures as the checks word them (the Conductor is told the same)
+      { label: '조경면적', value: land?.value || `${Math.round(p.planting_m2 ?? 0)}㎡`, state: state(land), diff: mine ? '' : diff(p.planting_m2 ?? 0, base.planting_m2 ?? 0) },
+      { label: '잔디 · 음지 · 관목 띠', value: `${Math.round(a.lawn ?? 0)} · ${Math.round(a.shade ?? 0)} · ${Math.round(a.hedge ?? 0)}㎡`, state: null, diff: '' },
+      { label: '교목', value: trees?.value || `${p.trees_in_lot ?? 0}주`, state: state(trees), diff: mine ? '' : diff(p.trees_in_lot ?? 0, base.trees_in_lot ?? 0) },
+      { label: '광장(포장)', value: `${Math.round(p.plaza_m2 ?? 0)}㎡`, state: null, diff: mine ? '' : diff(p.plaza_m2 ?? 0, base.plaza_m2 ?? 0) },
+    ];
+    const open = check(p, 'open_space');
+    if (open) rows.push({ label: '공개 공지', value: String(open.value ?? ''), state: state(open), diff: '' });
+    return { ...col, rows };
+  });
+}
+
+// A small plan of a layout as SVG (north up): the ground kinds in the table's colours and the trees.
+export function landscapeMiniPlan(plan, { width = 200, height = 200, label = '' } = {}) {
+  const parts = LANDSCAPE_KINDS.flatMap(([kind, , color]) => (plan?.zones?.[kind] || []).map((r) => ({ r, color })));
+  const pts = parts.flatMap(({ r }) => r.outer);
+  if (!pts.length) return '';
+  const xs = pts.map((p) => p[0]); const ys = pts.map((p) => p[1]);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const pad = 2;
+  const k = Math.min((width - 2 * pad) / Math.max(x1 - x0, 1), (height - 2 * pad) / Math.max(y1 - y0, 1));
+  const ox = (width - (x1 - x0) * k) / 2; const oy = (height - (y1 - y0) * k) / 2;
+  const X = (x) => Math.round((ox + (x - x0) * k) * 10) / 10;
+  const Y = (y) => Math.round((oy + (y1 - y) * k) * 10) / 10;
+  const ring = (r) => `M${r.map(([x, y]) => `${X(x)} ${Y(y)}`).join('L')}Z`;
+  const hex = (c) => `#${c.toString(16).padStart(6, '0')}`;
+  const ground = parts.map(({ r, color }) => `<path d="${[r.outer, ...(r.holes || [])].map(ring).join('')}" fill="${hex(color)}" fill-rule="evenodd"/>`).join('');
+  const trees = (plan.trees || []).map((t) => `<circle cx="${X(t.x)}" cy="${Y(t.y)}" r="${Math.max(1.2, Math.round(t.r * k * 10) / 10)}" fill="${hex(LANDSCAPE_TREE_COLORS[t.kind] || LANDSCAPE_TREE_COLORS.sun)}" fill-opacity=".9"/>`).join('');
+  const title = label ? `<title>${label.replace(/[<&>"]/g, '')}</title>` : '';
+  return `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img"${label ? ` aria-label="${label.replace(/[<&>"]/g, '')}"` : ' aria-hidden="true"'}>${title}${ground}${trees}</svg>`;
+}
 
 // The trees of a plan by kind as treeTriangles takes them, standing on `base`: [{kind, trees}].
 export function landscapeTreeGroups(plan, base = 0) {

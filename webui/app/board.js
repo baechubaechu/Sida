@@ -101,6 +101,7 @@ function tableHooks(name) {
     // keeping the designer's choices (PUT, answers with the plans again).
     landscape: (placedOnly = false) => api(`${projectApi(name)}/landscape${placedOnly ? '?placed_only=true' : ''}`),
     saveLandscape: (changes) => api(`${projectApi(name)}/landscape`, { method: 'PUT', body: changes }),
+    dropLandscapeProposal: (id) => api(`${projectApi(name)}/landscape/proposals/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     // 대지분석 다이어그램 (GET .../site/diagrams, site_diagrams.py): the kinds with the kept choices,
     // a diagram's picture address, keeping a choice, the picture as a file (SVG as drawn, PNG made here).
     siteDiagrams: () => api(`${projectApi(name)}/site/diagrams`),

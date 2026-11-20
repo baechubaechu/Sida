@@ -98,6 +98,8 @@ export class DraftingTable {
     this.landscapeAsked = false; // a placed plan was asked for once the site was known
     this.landscapeKey = ''; // the mass schemes the plans were drawn around
     this.landscapeDrawing = null; // the corners clicked while a region is drawn
+    this.landscapePreview = ''; // the Conductor's proposal looked at on the card ('' : the style picked)
+    this.landscapeComparing = false; // 비교 is open
     this.siteDiagrams = null; // 대지분석 다이어그램 (GET .../site/diagrams), asked for when the panel opens (table-diagrams.js)
     this.diagramsOpen = false;
     this.diagramsBusy = false;
@@ -135,6 +137,7 @@ export class DraftingTable {
       <p class="table-ui around-legend" aria-label="주변 3D 범례" hidden></p>
       <section class="table-ui envelope-card" aria-label="법규 볼륨" hidden></section>
       <section class="table-ui envelope-card landscape-card" aria-label="자동 조경" hidden></section>
+      <section class="table-ui landscape-compare" aria-label="조경안 비교" hidden></section>
       <section class="table-ui diagram-panel" aria-label="대지분석 다이어그램" hidden></section>
       <aside class="table-ui tray" aria-label="AI 섹션"></aside>
       <section class="table-ui peek" aria-label="종이 내용" hidden></section>
@@ -162,6 +165,7 @@ export class DraftingTable {
       aroundLegend: this.root.querySelector('.around-legend'),
       envelope: this.root.querySelector('.envelope-card:not(.landscape-card)'),
       landscape: this.root.querySelector('.landscape-card'),
+      landscapeCompare: this.root.querySelector('.landscape-compare'),
       diagrams: this.root.querySelector('.diagram-panel'),
       tray: this.root.querySelector('.tray'),
       form: this.root.querySelector('.scheme-form'),

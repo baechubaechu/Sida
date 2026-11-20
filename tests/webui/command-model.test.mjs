@@ -130,3 +130,24 @@ test('around, clip, base and deck are commands for what only had a button', () =
   assert.equal(findCommand('around').command.group, 'view');
   assert.deepEqual(readLine('deck 만들어 줘'), { kind: 'ask', text: 'deck 만들어 줘' });
 });
+
+test('a short 조경 line turns the knobs by rule; anything it cannot read goes to the Conductor', () => {
+  const read = (s) => readLine(s);
+  assert.deepEqual(read('조경 광장 넓게 나무 더'), { kind: 'landscape', style: null, tune: { plaza: 'wide', trees: 'more' }, reset: false, shuffle: false,
+    place: false, compare: false, words: ['광장 넓게', '나무 25% 더'] });
+  assert.equal(read('조경 광장 아주 넓게').tune.plaza, 'widest');
+  assert.equal(read('조경 광장 더 넓게').tune.plaza, 'widest');
+  assert.equal(read('조경 나무 50%').tune.trees, 'most');
+  assert.equal(read('조경 나무 더 많이').tune.trees, 'most');
+  assert.equal(read('조경 교목 자리만큼').tune.trees, 'room');
+  const natural = read('조경 자연형 관목 없이 길 2m');
+  assert.deepEqual([natural.style, natural.tune], ['natural', { hedge: 0, path: 2 }]);
+  assert.deepEqual(read('조경 관목 띠 1.5m 길 기본').tune, { hedge: 1.5, path: null });
+  const more = read('조경 처음대로 다시 섞기 놓기 비교');
+  assert.deepEqual([more.reset, more.shuffle, more.place, more.compare], [true, true, true, true]);
+  assert.deepEqual(read('조경'), { kind: 'landscape', style: null, tune: {}, reset: false, shuffle: false, place: false, compare: false, words: [] });
+  // out of range or not a knob: the Conductor's to answer
+  for (const s of ['조경 길 5m', '조경 관목 0.5', '조경 좀 예쁘게', '조경 광장', '조경 광장 아주', '광장 넓게', '조경을 넓게 해 줘']) {
+    assert.equal(read(s).kind, 'ask', s);
+  }
+});
