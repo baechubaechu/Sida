@@ -20,6 +20,16 @@ CC BY). Only what lies in the box is kept. Each kind of source goes in its own p
                    the lane lines and road marks themselves, with their Type and Kind codes, for
                    drawing (road_marks.py); a mark keeps the direction of the link it names
 
+Contour lines are thinned to the fewest points within CONTOUR_TOLERANCE (0.5 m) of the drawn
+line (Douglas–Peucker, in the file's own metres): 1:5,000 contours have a point every 1–2 m,
+and the ground is solved on a 2 m grid. --contours-tolerance 0 keeps every point.
+
+  --sido CODES     cut what --contours and --areas find to these 시·도 (2-digit codes, comma
+                   separated) and OUTLINE_PAD (about 1 km) around them, not just to the box: the
+                   nationwide numbered downloads reach far past a 시·도, and its box takes in its
+                   neighbours. The boundary comes from 브이월드 (LT_C_ADSIDO_INFO) for this run
+                   only and is not kept. A contour crossing the edge keeps its part inside.
+
 Needs two packages the app itself does not: pip install -e ".[pack]"  (pyshp, pyproj)
 
     python scripts/build_terrain_pack.py --name seoul --box 126.76,37.41,127.19,37.72 \\
@@ -27,6 +37,7 @@ Needs two packages the app itself does not: pip install -e ".[pack]"  (pyshp, py
     python scripts/build_terrain_pack.py --name seoul-junggu --box 126.96,37.54,127.03,37.58 --areas DIR
     python scripts/build_terrain_pack.py --name seoul --box 126.76,37.41,127.19,37.72 --buildings DIR
     python scripts/build_terrain_pack.py --name seoul-junggu --box 126.96,37.54,127.03,37.58 --hdmap DIR
+    python scripts/build_terrain_pack.py --name busan --box 128.75,34.87,129.32,35.40 --sido 26 --contours DIR
 
 A pack goes to ~/Sida/context_data/<name>-<kind>.terrain.sqlite (outside the repository).
 """
@@ -44,8 +55,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+import numpy as np  # noqa: E402
+
 from sida.console import configure_stdio  # noqa: E402
-from sida.experts.site import terrain_pack  # noqa: E402
+from sida.experts.site import landapi, terrain_pack  # noqa: E402
 
 SOURCES = {
     "contours": "국토지리정보원 연속수치지형도 등고선(N3L_F0010000)·표고점(N3P_F0020000), CC BY",
@@ -70,6 +83,8 @@ AREA_LAYERS = {
 # 건물명, 동명, 데이터기준일자.
 BUILDING_COLUMNS = {"pnu": "A2", "use": "A9", "height": "A16", "floors": "A26", "name": "A24", "dong": "A25", "date": "A22"}
 DATED = re.compile(r"AL_D010_\d+_(\d{8})\.zip$", re.IGNORECASE)
+CONTOUR_TOLERANCE = 0.5  # m: a thinned contour stays this close to the drawn one
+OUTLINE_PAD = 0.01  # degrees kept around a --sido boundary (about 1 km), as build_region_packs pads its box
 
 
 def main() -> int:
@@ -82,6 +97,9 @@ def main() -> int:
     ap.add_argument("--buildings", type=Path, help="an AL_D010 zip, or a folder holding them")
     ap.add_argument("--hdmap", type=Path, help="정밀도로지도 zips, or a folder of them or of what they unzip to")
     ap.add_argument("--source-date", default="", help="the download's 기준일 / 갱신일 (contours, areas)")
+    ap.add_argument("--sido", default="", help="cut contours and areas to these 시·도 codes (26 or 12,29,46)")
+    ap.add_argument("--contours-tolerance", type=float, default=CONTOUR_TOLERANCE,
+                    help="m a thinned contour may stray from the drawn one (0: keep every point)")
     ap.add_argument("--out", type=Path, default=terrain_pack.TERRAIN_DIR)
     args = ap.parse_args()
     if Path(args.name).name != args.name or args.name in {"", ".", ".."}:
@@ -133,10 +151,12 @@ def build(args, staging: Path, cleanup: ExitStack) -> int:
         path = path.replace(args.out / path.name)
         print(f"wrote {path} ({path.stat().st_size / 1e6:.1f} MB): {counted} in {time.perf_counter() - started:.0f} s")
 
+    area = outline([c.strip() for c in args.sido.split(",") if c.strip()]) if (args.contours or args.areas) else None
+
     if args.contours:
         started = time.perf_counter()
         path, conn = pack("contours", args.source_date)
-        lines = points = 0
+        lines = points = drawn = kept = 0
         for shp in layer_files(args.contours, "N3L_F0010000"):
             tr, own = projected(shp)
             reader = shapefile.Reader(str(shp)[:-4], encoding="cp949")
@@ -146,10 +166,14 @@ def build(args, staging: Path, cleanup: ExitStack) -> int:
                     continue
                 elev = float(reader.record(i)[cont])
                 for part in parts(shape):
-                    lons, lats = tr.transform(*zip(*part, strict=True))
-                    terrain_pack.add_contour(conn, elev, [list(p) for p in zip(lons, lats, strict=True)])
-                    lines += 1
-            print(f"{shp.name}: {lines} contour lines so far")
+                    xy = thin(part, args.contours_tolerance)
+                    lons, lats = tr.transform(xy[:, 0], xy[:, 1])
+                    for piece in inside(area, np.column_stack([lons, lats])):
+                        terrain_pack.add_contour(conn, elev, piece)
+                        lines += 1
+                        kept += len(piece)
+                    drawn += len(part)
+            print(f"{shp.name}: {lines} contour lines so far ({kept} of {drawn} points kept)")
         for shp in layer_files(args.contours, "N3P_F0020000"):
             tr, own = projected(shp)
             reader = shapefile.Reader(str(shp)[:-4], encoding="cp949")
@@ -160,11 +184,12 @@ def build(args, staging: Path, cleanup: ExitStack) -> int:
                 x, y = shape.points[0][:2]
                 if own[0] <= x <= own[2] and own[1] <= y <= own[3]:
                     lon, lat = tr.transform(x, y)
-                    terrain_pack.add_spot(conn, lon, lat, float(reader.record(i)[nume]))
-                    points += 1
+                    if area is None or within(area, lon, lat):
+                        terrain_pack.add_spot(conn, lon, lat, float(reader.record(i)[nume]))
+                        points += 1
         if not (lines or points):
             raise ValueError("no contours or spot heights found in the requested area")
-        done(path, conn, f"{lines} lines, {points} spots", started)
+        done(path, conn, f"{lines} lines ({kept} of {drawn} points kept), {points} spots", started)
 
     if args.areas:
         started = time.perf_counter()
@@ -178,8 +203,10 @@ def build(args, staging: Path, cleanup: ExitStack) -> int:
                         continue
                     for part in parts(shape)[:1]:  # the outer ring; holes are not drawn
                         lons, lats = tr.transform(*zip(*part, strict=True))
-                        terrain_pack.add_area(conn, kind, [list(p) for p in zip(lons, lats, strict=True)])
-                        count += 1
+                        ring = [list(p) for p in zip(lons, lats, strict=True)]
+                        if area is None or reaches(area, ring):
+                            terrain_pack.add_area(conn, kind, ring)
+                            count += 1
         houses = 0
         for shp in layer_files(args.areas, "N3A_B0010000"):
             tr, own = projected(shp)
@@ -197,8 +224,10 @@ def build(args, staging: Path, cleanup: ExitStack) -> int:
                     continue
                 if floors > 0:
                     lons, lats = tr.transform(*zip(*parts(shape)[0], strict=True))
-                    terrain_pack.add_map_building(conn, [list(p) for p in zip(lons, lats, strict=True)], floors, str(row[use_at] or ""))
-                    houses += 1
+                    ring = [list(p) for p in zip(lons, lats, strict=True)]
+                    if area is None or reaches(area, ring):
+                        terrain_pack.add_map_building(conn, ring, floors, str(row[use_at] or ""))
+                        houses += 1
         if not (count or houses):
             raise ValueError("no areas or map buildings found in the requested area")
         done(path, conn, f"{count} areas, {houses} map buildings with floors", started)
@@ -212,42 +241,36 @@ def build(args, staging: Path, cleanup: ExitStack) -> int:
                 print(f"no AL_D010_<시도>_<날짜>.zip in {source}")
                 return 1
             source = dated[-1][1]
-        reader = shapefile.Reader(str(source), encoding="cp949")
-        names = [f[0] for f in reader.fields[1:]]
-        at = {k: names.index(col) for k, col in BUILDING_COLUMNS.items()}
-        if source.suffix.lower() == ".zip":
-            import zipfile
-
-            with zipfile.ZipFile(source) as z:
-                prj = next((n for n in z.namelist() if n.lower().endswith(".prj")), None)
-                prj_text = z.read(prj).decode("ascii", "ignore") if prj else ""
-        else:
-            prj_text = Path(str(source)[:-4] + ".prj").read_text(encoding="ascii", errors="ignore")
-        crs = CRS.from_wkt(prj_text) if prj_text else CRS.from_epsg(5186)  # the file's 중부원점 by default
-        tr = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
-        back = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
-        xs, ys = back.transform([west, east, west, east], [south, south, north, north])
-        own = (min(xs), min(ys), max(xs), max(ys))
         date = ""
         path, conn = pack("buildings", "")
         count = 0
-        for i, shape in enumerate(reader.iterShapes()):
-            if not shape.points or outside(shape.bbox, own):
-                continue
-            row = reader.record(i)
-            attrs = {k: row[j] for k, j in at.items()}
-            attrs["date"] = str(attrs.get("date") or "")
-            date = max(date, attrs["date"])
-            for key in ("height", "floors"):
-                try:
-                    attrs[key] = float(attrs[key]) or None
-                except (TypeError, ValueError):
-                    attrs[key] = None
-            lons, lats = tr.transform(*zip(*parts(shape)[0], strict=True))
-            terrain_pack.add_building(conn, [list(p) for p in zip(lons, lats, strict=True)], attrs)
-            count += 1
-            if count % 100000 == 0:
-                print(f"{count} buildings so far")
+        for opened, prj_text in terrain_pack.zip_shapefiles(source):
+            reader = shapefile.Reader(opened, encoding="cp949")
+            names = [f[0] for f in reader.fields[1:]]
+            at = {k: names.index(col) for k, col in BUILDING_COLUMNS.items()}
+            crs = CRS.from_wkt(prj_text) if prj_text else CRS.from_epsg(5186)  # the file's 중부원점 by default
+            tr = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+            back = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+            xs, ys = back.transform([west, east, west, east], [south, south, north, north])
+            own = (min(xs), min(ys), max(xs), max(ys))
+            for i, shape in enumerate(reader.iterShapes()):
+                if not shape.points or outside(shape.bbox, own):
+                    continue
+                row = reader.record(i)
+                attrs = {k: row[j] for k, j in at.items()}
+                attrs["date"] = str(attrs.get("date") or "")
+                date = max(date, attrs["date"])
+                for key in ("height", "floors"):
+                    try:
+                        attrs[key] = float(attrs[key]) or None
+                    except (TypeError, ValueError):
+                        attrs[key] = None
+                lons, lats = tr.transform(*zip(*parts(shape)[0], strict=True))
+                terrain_pack.add_building(conn, [list(p) for p in zip(lons, lats, strict=True)], attrs)
+                count += 1
+                if count % 100000 == 0:
+                    print(f"{count} buildings so far")
+            reader.close()
         if not count:
             raise ValueError("no buildings found in the requested area")
         conn.execute("UPDATE meta SET value = ? WHERE key = 'source_date'", (args.source_date or date,))
@@ -299,6 +322,64 @@ def build(args, staging: Path, cleanup: ExitStack) -> int:
         done(path, conn, f"{len(cells)} road points, {walks} sidewalks, {lines} lane lines, {marks} road marks "
              f"from {sections} sections", started)
     return 0
+
+
+def thin(part, tolerance: float):
+    """A line's points (n×2 array) thinned to the fewest within `tolerance` of it (Douglas–Peucker,
+    in the line's own units). A tiny closed line that would shrink to a point is kept as it is."""
+    import shapely
+
+    xy = np.asarray(part, dtype=float)[:, :2]
+    if tolerance <= 0 or len(xy) < 3:
+        return xy
+    out = shapely.get_coordinates(shapely.simplify(shapely.linestrings(xy), tolerance, preserve_topology=False))
+    return out if len(out) >= 2 and np.ptp(out, axis=0).any() else xy
+
+
+def outline(codes: list[str]):
+    """The 시·도 with these codes and OUTLINE_PAD around them, as a prepared shapely geometry in
+    lon/lat (None for no codes). Raises ValueError when 브이월드 gives no boundary."""
+    if not codes:
+        return None
+    import shapely
+    from shapely.geometry import shape
+
+    found = [shape(g) for g in landapi.sido_outlines(codes)]
+    if not found:
+        raise ValueError(f"no 시·도 boundary for {','.join(codes)} from 브이월드 (VWORLD_API_KEY or the relay?)")
+    area = shapely.union_all(found).buffer(OUTLINE_PAD).simplify(OUTLINE_PAD / 10)
+    shapely.prepare(area)
+    return area
+
+
+def inside(area, xy) -> list:
+    """The parts of a [lon, lat] line (n×2 array) in the area: the whole line, its pieces inside, or none."""
+    if area is None:
+        return [xy]
+    import shapely
+
+    line = shapely.linestrings(xy)
+    if shapely.contains(area, line):
+        return [xy]
+    if not shapely.intersects(area, line):
+        return []
+    cut = shapely.intersection(line, area)
+    cut = shapely.line_merge(cut) if cut.geom_type == "MultiLineString" else cut
+    return [shapely.get_coordinates(g) for g in shapely.get_parts(cut)
+            if g.geom_type == "LineString" and len(g.coords) >= 2]
+
+
+def within(area, lon: float, lat: float) -> bool:
+    import shapely
+
+    return bool(shapely.contains_xy(area, lon, lat))
+
+
+def reaches(area, ring) -> bool:
+    """Whether a [lon, lat] ring (a ground area, a building) touches the area."""
+    import shapely
+
+    return bool(shapely.intersects(area, shapely.linestrings(ring))) if len(ring) >= 2 else within(area, *ring[0])
 
 
 def cpg_encoding(text: str | None) -> str:

@@ -1,4 +1,5 @@
 import sys
+import zipfile
 from types import SimpleNamespace
 
 import pytest
@@ -151,3 +152,108 @@ def test_areas_read_sheets_and_the_numbered_files_of_a_continuous_download(tmp_p
         (tmp_path / name).touch()
     found = [p.relative_to(tmp_path).as_posix() for p in build_terrain_pack.layer_files(tmp_path, "N3A_E0032111")]
     assert sorted(found) == ["N3A_E0032111_11.shp", "N3A_E0032111_12.shp", "sheet1/N3A_E0032111.shp"]
+
+
+def test_buildings_are_read_from_every_shapefile_of_a_split_download(tmp_path, monkeypatch):
+    # 브이월드 cuts a large 시·도 into files of a million buildings inside one zip
+    # (AL_D010_41_….shp, ….(2).shp, ….(3).shp); pyshp alone refuses a zip with more than one.
+    shapefile = pytest.importorskip("shapefile")
+    transformer = SimpleNamespace(transform=lambda x, y: (x, y))
+    monkeypatch.setitem(sys.modules, "pyproj", SimpleNamespace(
+        CRS=SimpleNamespace(from_wkt=lambda wkt: wkt, from_epsg=lambda code: code),
+        Transformer=SimpleNamespace(from_crs=lambda *args, **kw: transformer)))
+    stems = ["AL_D010_41_20261109", "AL_D010_41_20261109(2)"]
+    folder = tmp_path / "files"
+    folder.mkdir()
+    for n, stem in enumerate(stems):
+        w = shapefile.Writer(str(folder / stem), shapeType=shapefile.POLYGON, encoding="cp949")
+        for col in build_terrain_pack.BUILDING_COLUMNS.values():
+            w.field(col, "C", 30)
+        x = 0.5 + n * 0.5
+        w.poly([[[x, 0.5], [x + 0.1, 0.5], [x + 0.1, 0.6], [x, 0.5]]])
+        w.record(f"41{n:017d}", "주택", "9", "3", "", "", "20261101")
+        w.close()
+        (folder / f"{stem}.prj").write_text("KOREA_TM")
+    download = tmp_path / "AL_D010_41_20261109.zip"
+    with zipfile.ZipFile(download, "w") as z:
+        for f in sorted(folder.iterdir()):
+            z.write(f, f.name)
+    out = tmp_path / "out"
+    monkeypatch.setattr(sys, "argv", ["build", "--name", "gyeonggi", "--box", "0,0,2,2",
+                                     "--buildings", str(download), "--out", str(out)])
+    monkeypatch.setattr(build_terrain_pack, "configure_stdio", lambda: None)
+    assert build_terrain_pack.main() == 0
+    houses = terrain_pack.query(0, 0, 2, 2, folder=out)["buildings"]
+    assert sorted(h["pnu"] for h in houses) == ["4100000000000000000", "4100000000000000001"]
+    assert [(name.rsplit("/", 1)[-1], prj) for name, prj in terrain_pack.zip_shapefiles(download)] == [
+        ("AL_D010_41_20261109(2).shp", "KOREA_TM"), ("AL_D010_41_20261109.shp", "KOREA_TM")]
+    single = tmp_path / "one.zip"
+    with zipfile.ZipFile(single, "w") as z:
+        for f in sorted(folder.glob(f"{stems[0]}.*")):
+            z.write(f, f.name)
+    assert terrain_pack.zip_shapefiles(single) == [(str(single), "KOREA_TM")]  # pyshp opens the zip as it is
+
+
+def test_contours_are_thinned_and_cut_to_the_시도_outline(tmp_path, monkeypatch):
+    # A wavy line inside (its 1 cm wiggles go), a line crossing the outline's edge (its inside
+    # part stays) and a line far outside the outline but inside the box (dropped). Spot heights
+    # outside the outline go too. The outline comes from 브이월드 for the run only.
+    import numpy as np
+
+    wavy = [(0.1 + i * 0.01, 0.1 + (i % 2) * 1e-7) for i in range(51)]  # 0.1 … 0.6, wiggling 1e-7
+    crossing = [(0.2, 0.5), (0.5, 0.5), (0.8, 0.5), (1.5, 0.5)]
+    far = [(1.6, 1.6), (1.7, 1.7)]
+    lines = [SimpleNamespace(bbox=[min(p[0] for p in ps), min(p[1] for p in ps), max(p[0] for p in ps),
+                                   max(p[1] for p in ps)], parts=[0], points=ps) for ps in (wavy, crossing, far)]
+    spots = [SimpleNamespace(points=[p]) for p in [(0.5, 0.5), (1.8, 1.8)]]
+
+    def reader(path, **kw):
+        if path.endswith("N3L_F0010000"):
+            return SimpleNamespace(fields=[("DeletionFlag",), ("CONT",)], iterShapes=lambda: iter(lines),
+                                   record=lambda i: [10 * (i + 1)])
+        return SimpleNamespace(fields=[("DeletionFlag",), ("NUME",)], iterShapes=lambda: iter(spots),
+                               record=lambda i: [7])
+
+    monkeypatch.setitem(sys.modules, "shapefile", SimpleNamespace(Reader=reader))
+    transformer = SimpleNamespace(transform=lambda x, y: (x, y))
+    monkeypatch.setitem(sys.modules, "pyproj", SimpleNamespace(
+        CRS=SimpleNamespace(from_wkt=lambda wkt: wkt),
+        Transformer=SimpleNamespace(from_crs=lambda *args, **kw: transformer)))
+    asked = []
+
+    def outlines(codes, http_get=None):
+        asked.append(list(codes))
+        return [{"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]}]
+
+    monkeypatch.setattr(build_terrain_pack.landapi, "sido_outlines", outlines)
+    for name in ("N3L_F0010000", "N3P_F0020000"):
+        (tmp_path / f"{name}.shp").touch()
+        (tmp_path / f"{name}.prj").write_text("test")
+    out = tmp_path / "out"
+    monkeypatch.setattr(sys, "argv", ["build", "--name", "t", "--box", "0,0,2,2", "--sido", "26",
+                                     "--contours", str(tmp_path), "--out", str(out)])
+    monkeypatch.setattr(build_terrain_pack, "configure_stdio", lambda: None)
+    assert build_terrain_pack.main() == 0
+    assert asked == [["26"]]
+    found = terrain_pack.query(-5, -5, 5, 5, folder=out)
+    by_elev = {c["elev"]: c["points"] for c in found["contours"]}
+    assert sorted(by_elev) == [10, 20]  # the far line is gone
+    assert by_elev[10] == [[0.1, 0.1], [0.6, 0.1]]  # 51 points within 0.5 of a straight line: its ends
+    xs = [p[0] for p in by_elev[20]]
+    assert xs[0] == 0.2 and 1.0 < xs[-1] <= 1.0 + build_terrain_pack.OUTLINE_PAD + 1e-6  # cut at the padded edge
+    assert found["spots"] == [[0.5, 0.5, 7]]
+    # --contours-tolerance 0 keeps every point; no --sido asks 브이월드 nothing
+    asked.clear()
+    monkeypatch.setattr(sys, "argv", ["build", "--name", "t", "--box", "0,0,2,2", "--contours-tolerance", "0",
+                                     "--contours", str(tmp_path), "--out", str(out)])
+    assert build_terrain_pack.main() == 0
+    assert asked == []
+    by_elev = {c["elev"]: c["points"] for c in terrain_pack.query(-5, -5, 5, 5, folder=out)["contours"]}
+    assert len(by_elev[10]) == 51 and sorted(by_elev) == [10, 20, 30]
+    assert np.allclose(by_elev[10], wavy)
+
+
+def test_without_a_boundary_from_vworld_a_cut_pack_is_not_made(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_terrain_pack.landapi, "sido_outlines", lambda codes, http_get=None: [])
+    with pytest.raises(ValueError, match="no 시·도 boundary"):
+        build_terrain_pack.outline(["26"])

@@ -114,6 +114,7 @@ def downloads(tmp_path, monkeypatch):
 
     monkeypatch.setattr(brp, "run_script", run_script)
     monkeypatch.setattr(brp, "shp_box", lambda shp=None, *, zpath=None: [129.0, 35.0, 129.5, 35.4])
+    monkeypatch.setattr(brp.landapi, "sido_boxes", lambda: {"26": [128.5, 34.5, 130.0, 36.0]})
     argv = ["brp", "--raw", str(raw), "--out", str(out), "--no-check", "--workers", "2"]
     return argv, calls, sizes, out
 
@@ -173,7 +174,7 @@ def test_the_plan_lists_what_it_found_and_makes_nothing(downloads, monkeypatch, 
     text = capsys.readouterr().out
     assert "부산광역시 (busan)" in text and "AL_D010_26_20260301.zip: buildings [name]" in text
     assert "contours.zip: contours [folder]" in text and "지형 칸" in text
-    assert "mystery.zip" in text.split("어느 시·도인지 모르는 파일")[1]
+    assert "mystery.zip: areas → 부산광역시" in text.split("전국 파일")[1]  # no 시·도 in its name: used where it reaches
     assert calls == [] and not out.exists()
 
 
@@ -192,6 +193,44 @@ def test_neighbouring_tiles_files_are_brought_up_to_date_first(downloads, monkey
     assert [a[1] for a in ground] == ["ulsan", "busan"]
     assert ground[0][ground[0].index("--box") + 1] == "129.20000,35.30000,129.50000,35.70000"
     assert "--skip-others" not in ground[0]
+
+
+def test_a_few_stray_buildings_far_away_do_not_stretch_the_box(downloads, monkeypatch, capsys):
+    # The Seoul file of 2026-11-09 holds buildings drawn as far as 129.9°E: its header box reached
+    # 부산, and the ground would have been solved over 94,000 tiles instead of 3,300.
+    argv, calls, sizes, out = downloads
+    monkeypatch.setattr(brp, "shp_box", lambda shp=None, *, zpath=None: [128.9, 33.4, 131.0, 35.4])
+    monkeypatch.setattr(brp.landapi, "sido_boxes", lambda: {"26": [128.76, 34.88, 129.31, 35.39], "11": [126.7, 37.4, 127.2, 37.7]})
+    monkeypatch.setattr(sys, "argv", [*argv, "--plan"])
+    assert brp.main() == 0
+    text = capsys.readouterr().out
+    assert "시·도 경계로 자름" in text and "범위 128.89800,34.87000,129.32000,35.40000" in text
+    monkeypatch.setattr(sys, "argv", argv)
+    assert brp.main() == 0
+    boxes = {a[a.index("--box") + 1] for s, a in calls if "--box" in a}
+    assert boxes == {"128.89800,34.87000,129.32000,35.40000"}  # packs and ground alike
+    # a pack made over a box that has since changed is made again, though the downloads are the same
+    monkeypatch.setattr(brp.landapi, "sido_boxes", lambda: {"26": [128.76, 34.88, 129.35, 35.39]})
+    calls.clear()
+    assert brp.main() == 0
+    assert len([s for s, _ in calls if s == "build_terrain_pack.py"]) == 3
+
+
+def test_without_the_boundary_the_packs_are_made_and_the_ground_waits(downloads, monkeypatch, capsys):
+    argv, calls, sizes, out = downloads
+
+    def no_key():
+        raise RuntimeError("no key")
+
+    monkeypatch.setattr(brp.landapi, "sido_boxes", no_key)
+    monkeypatch.setattr(sys, "argv", argv)
+    assert brp.main() == 0
+    assert [s for s, _ in calls] == ["build_terrain_pack.py"] * 3
+    assert "ground skipped" in capsys.readouterr().out
+    calls.clear()
+    monkeypatch.setattr(sys, "argv", [*argv, "--plan", "--no-api"])
+    assert brp.main() == 0
+    assert "시·도 경계를 받지 못해 지형 칸을 어림하지 않음" in capsys.readouterr().out
 
 
 def test_only_the_시도_asked_for(downloads, monkeypatch):
@@ -215,3 +254,107 @@ def test_regions_are_told_from_names_people_write():
     assert regions.by_code("4141010500").name == "gyeonggi"
     assert regions.by_code("42").name == regions.by_code("51").name == "gangwon"
     assert len(regions.REGIONS) == 16
+
+
+def test_layers_are_told_from_the_korean_names_of_the_newer_downloads():
+    assert brp._layer_of("(연속수치지형도)등고선_001") == "N3L_F0010000"
+    assert brp._layer_of("(연속수치지형도)도로경계_면_002") == "N3A_A0010000"
+    assert brp._layer_of("(연속수치지형도)도로경계_선_001") is None  # the line layer is not the area
+    assert brp._layer_of("하천경계_선") is None and brp._layer_of("N3A_E0010001") == "N3A_E0010001"
+    assert brp._layer_of("AL_D010_11_20261109") is None
+    assert brp._kinds_of(["표고점.shp", "N3A_E0032111.shp"]) == {"contours", "areas"}
+
+
+def test_a_shapefile_without_its_code_is_unpacked_under_the_code_its_zip_names(tmp_path):
+    zpath = a_zip(tmp_path / "(연속수치지형도)등고선_001.zip", shp_set("CONTOUR_001"))
+    brp.unpack(zpath, tmp_path / "out")
+    assert sorted(p.name for p in (tmp_path / "out").glob("*.shp")) == ["N3L_F0010000_CONTOUR_001.shp"]
+    assert brp.map_files(tmp_path / "out", "contours") == [tmp_path / "out" / "N3L_F0010000_CONTOUR_001.shp"]
+
+
+def test_the_box_is_read_from_the_shapefile_header_in_the_zip(tmp_path):
+    shapefile = pytest.importorskip("shapefile")
+    w = shapefile.Writer(str(tmp_path / "N3L_F0010000_1"), shapeType=shapefile.POLYLINE)
+    w.field("CONT", "N", 10)
+    w.line([[[200000, 550000], [200100, 550050]]])
+    w.record(10)
+    w.close()
+    empty = shapefile.Writer(str(tmp_path / "N3L_F0010000_2"), shapeType=shapefile.POLYLINE)
+    empty.field("CONT", "N", 10)
+    empty.close()
+    zpath = tmp_path / "pieces.zip"
+    with zipfile.ZipFile(zpath, "w") as z:
+        for f in sorted(tmp_path.glob("N3L_*")):
+            z.write(f, f.name)
+    assert list(brp._headers(zpath)) == [((200000.0, 550000.0, 200100.0, 550050.0), "")]  # the empty one left out
+    assert list(brp._headers(tmp_path / "N3L_F0010000_1.shp")) == [((200000.0, 550000.0, 200100.0, 550050.0), "")]
+
+
+def test_nationwide_pieces_go_to_each_시도_they_reach(downloads, monkeypatch, capsys):
+    # 브이월드 cuts the 연속수치지형도 by number over the whole country ((연속수치지형도)등고선_001.zip …),
+    # not by 시·도: each 시·도 takes the pieces that reach its boundary.
+    argv, calls, sizes, out = downloads
+    raw = Path(argv[argv.index("--raw") + 1])
+    for f in (raw / "부산").iterdir():
+        f.unlink()
+    a_zip(raw / "전국" / "(연속수치지형도)등고선_001.zip", shp_set("CONTOUR_001"))
+    a_zip(raw / "전국" / "(연속수치지형도)등고선_002.zip", shp_set("CONTOUR_002"))
+    far = {"_001": [128.8, 34.9, 129.4, 35.5], "_002": [126.8, 37.4, 127.2, 37.7]}  # the zip or its unpacked shapefile
+
+    def box(shp=None, *, zpath=None):
+        path = zpath or shp
+        if path.name.startswith("AL_D010"):
+            return [129.0, 35.0, 129.5, 35.4]
+        return next(b for k, b in far.items() if k in path.name)
+
+    monkeypatch.setattr(brp, "shp_box", box)
+    monkeypatch.setattr(brp.landapi, "sido_boxes", lambda: {"26": [128.7, 34.8, 129.4, 35.4], "11": [126.7, 37.4, 127.2, 37.7]})
+    seen = {}
+    made = brp.run_script
+
+    def run_script(script, args, log):
+        if script == "build_terrain_pack.py" and "--contours" in args:
+            name = args[args.index("--name") + 1]
+            seen[name] = sorted(p.name for p in Path(args[args.index("--contours") + 1]).rglob("*.shp"))
+        made(script, args, log)
+
+    monkeypatch.setattr(brp, "run_script", run_script)
+    monkeypatch.setattr(sys, "argv", [*argv, "--plan"])
+    assert brp.main() == 0
+    text = capsys.readouterr().out
+    assert "(연속수치지형도)등고선_001.zip: contours → 부산광역시" in text
+    assert "(연속수치지형도)등고선_002.zip: contours → 서울특별시" in text
+    monkeypatch.setattr(sys, "argv", [*argv, "--no-ground"])
+    assert brp.main() == 0
+    assert seen == {"busan": ["N3L_F0010000_CONTOUR_001.shp"], "seoul": ["N3L_F0010000_CONTOUR_002.shp"]}
+    assert (out / f"seoul-contours{terrain_pack.SUFFIX}").exists()  # a 시·도 with nothing but its pieces
+    assert not (out / "region-work" / "전국").exists()  # unpacked once, gone when every 시·도 is done
+    calls.clear()
+    assert brp.main() == 0
+    assert [s for s, _ in calls if s == "build_terrain_pack.py"] == []  # same downloads: nothing made again
+
+
+def test_contours_and_areas_are_cut_to_the_시도_and_made_again_when_made_a_new_way(downloads, monkeypatch):
+    argv, calls, sizes, out = downloads
+    monkeypatch.setattr(sys, "argv", [*argv, "--no-ground"])
+    assert brp.main() == 0
+    sido = {next(a for a in args if a[2:] in sizes): args[args.index("--sido") + 1] if "--sido" in args else None
+            for s, args in calls if s == "build_terrain_pack.py"}
+    assert sido == {"--buildings": None, "--contours": "26", "--areas": "26"}
+    # packs from before (no layout recorded, another format): contours and areas are made again,
+    # and holding fewer lines once cut to the 시·도 does not count as a broken download
+    state = json.loads((out / brp.STATE).read_text(encoding="utf-8"))
+    for kind in ("buildings", "contours", "areas"):
+        state["regions"]["busan"][kind].pop("layout", None)
+    (out / brp.STATE).write_text(json.dumps(state), encoding="utf-8")
+    sizes["contours"] = 2
+    calls.clear()
+    assert brp.main() == 0
+    assert [next(a for a in args if a[2:] in sizes) for s, args in calls if s == "build_terrain_pack.py"] == [
+        "--contours", "--areas"]
+    assert brp.counts(out / f"busan-contours{terrain_pack.SUFFIX}", "contours")["contours"] == 2
+    state = json.loads((out / brp.STATE).read_text(encoding="utf-8"))
+    assert state["regions"]["busan"]["contours"]["previous"] == {}  # the report does not call it a drop
+    calls.clear()
+    assert brp.main() == 0
+    assert [s for s, _ in calls if s == "build_terrain_pack.py"] == []
