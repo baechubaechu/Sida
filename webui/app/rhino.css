@@ -81,6 +81,8 @@ body.rhino-panel { min-height: 100vh; display: flex; flex-direction: column; bac
 /* Diagrams: which ones to draw in the document (all picked until one is left out). A picked one
    is a filled tag with a tick, a left-out one an empty outline. */
 .rp-diagrams:empty { display: none; }
+.rp-landscape .rp-actions { display: flex; gap: 6px; }
+.rp-landscape .rp-actions .rp-draw:first-child { flex: 1; }
 .rp-diagrams { display: grid; gap: 8px; }
 .rp-diagrams h2 { font-size: 13.5px; padding-bottom: 6px; border-bottom: 1px solid var(--text); }
 .rp-hint { font-size: 12px; color: var(--muted); }

@@ -139,3 +139,50 @@ def test_the_placed_plan_reaches_the_export_and_the_conductor(site):
     assert line.startswith("Landscape plan on the drafting table (natural") and "(asks 24)" in line
     landscape.save_settings(site, {"placed": False})
     assert hooks.board_export_layers(site) == [] and hooks.conductor_site(site) == ""
+
+
+def studio_snapshot():
+    from sida.config import ROOT
+    from sida.experts.rhino import snapshot as snap
+
+    raw = json.loads((ROOT / "tests" / "fixtures" / "rhino" / "snapshot_studio.json").read_text(encoding="utf-8"))
+    return snap.clean_snapshot({**raw, "views": []})  # as a saved snapshot holds it
+
+
+def test_a_rhino_snapshots_buildings_and_region_give_one_plan_to_draw_in_place(site):
+    from shapely.geometry import Point
+
+    from sida.experts.landscape import drawing
+
+    shot = studio_snapshot()
+    built = landscape.rhino_buildings(shot)
+    # the housing and shop bodies (the surroundings and the sketch are not buildings), up to their tops
+    assert [(round(b.area), h) for b, h in built] == [(180, 12.0), (180, 4.0), (50, 6.0)]
+    landscape.save_settings(site, {"style": "natural", "seed": 3})
+    made = landscape.rhino_plan(site, shot, region=[[-18, -22], [18, -22], [18, 0], [-18, 0]])
+    plan = made["plan"]
+    assert plan["style"] == "natural" and made["gross_m2"] == 900.0  # the table's style; the snapshot's floor area
+    assert all(t["y"] <= 0.01 for t in plan["trees"]) and plan["trees"]
+    assert not any(b.buffer(2.4).contains(Point(t["x"], t["y"])) for b, _ in built for t in plan["trees"])
+    assert {c["id"] for c in plan["checks"]} >= {"landscape", "trees"}
+    assert landscape.rhino_plan(site, shot, style="plaza", seed=9)["plan"]["style"] == "plaza"
+    for bad, word in (({"style": "baroque"}, "style"), ({"seed": 0}, "seed"), ({"region": [[0, 0], [1, 0]]}, "region"),
+                      ({"region": [[100, 100], [120, 100], [120, 120]]}, "region")):
+        with pytest.raises(ValueError, match=word):
+            landscape.rhino_plan(site, shot, **bad)
+    assert landscape.load_settings(site)["style"] == "natural"  # nothing kept from Rhino
+
+    drawn = drawing.drawing(plan)
+    assert (drawn["kind"], drawn["layer"], drawn["in_place"], drawn["title"]) == ("landscape", "Sida 조경", True, "자동 조경 · 자연형 · 산책")
+    trees = [i for i in drawn["items"] if i["type"] == "tree"]
+    assert len(trees) == len(plan["trees"]) and {i["layer"] for i in trees} == {"교목"}
+    fills = {i["layer"] for i in drawn["items"] if i["type"] == "fill"}
+    assert {"잔디·초화", "관목 띠"} <= fills
+    assert drawn["bounds"][5] == 6.5 and drawn["notes"][0].startswith(("맞음 조경면적", "모자람 조경면적"))
+
+
+def test_the_rhino_panels_styles_are_the_generators():
+    from sida.experts.landscape import generator
+    from sida.experts.rhino import live
+
+    assert live.LANDSCAPE_STYLES == tuple(generator.STYLES)

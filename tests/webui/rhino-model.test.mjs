@@ -1,6 +1,7 @@
 // rhino-model.js: what the Rhino paper and the panel inside Rhino show, from what Sida sent.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { rhinoPaperParts, rhinoViewUrl, rhinoDiagramUrl, diagramFileName, diagramPngSize, limitLines, panelStatus, panelFigures, panelBusy, diagramChoices, layerRows, readFloorHeight, meaningChoices, askContext, askReady, chatRows, readPanelHash, panelHash } from '../../webui/app/rhino-model.js';
 
@@ -183,4 +184,13 @@ test('the panel keeps its tab and talk in its address, and a talk only with its 
   assert.equal(panelHash({ tab: 'chat', project: '', talk: '07' }), '#tab=chat');
   assert.deepEqual(readPanelHash('#tab=chat&talk=07'), { tab: 'chat', project: '', talk: '' });       // a talk without its project is nothing
   assert.deepEqual(readPanelHash('#talk=../x&project=a'), { tab: 'model', project: '', talk: '' });   // not a talk id
+});
+
+test('the panel finds a clicked tab by its tab button, not by the body that says which tab is shown', () => {
+  // The body carries data-tab too, so a bare [data-tab] matched every click and the panel's
+  // buttons (가져오기, 보내기, 그리기, 조경) did nothing.
+  const source = readFileSync(new URL('../../webui/app/rhino-panel.js', import.meta.url), 'utf8');
+  assert.match(source, /document\.body\.dataset\.tab = /);
+  assert.ok(!source.includes("closest('[data-tab]')"));
+  assert.match(source, /closest\('\[role="tab"\]\[data-tab\]'\)/);
 });

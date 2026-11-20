@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, StrictBool
 
 from sida import workspace
-from sida.experts.landscape import landscape
+from sida.experts.landscape import drawing, landscape
 from sida.experts.site import landapi
 from sida.i18n import t
 
@@ -18,6 +18,13 @@ class Settings(BaseModel):
     seed: int | None = None  # 다시 섞기
     use: str | None = None  # the building's use for 공개 공지 (rules.uses), "other" or null
     placed: StrictBool | None = None  # the plan shown is placed on the table
+
+
+class FromRhino(BaseModel):
+    snapshot: str  # the snapshot the plugin just pushed (its building objects stand in the plan)
+    region: list[list[float]] | None = None  # the closed curve picked in Rhino (m, the snapshot's frame); null: the whole lot
+    style: str | None = None  # formal | natural | plaza; null: the table's
+    seed: int | None = None  # null: the table's
 
 
 def create_router(load_config, core) -> APIRouter:
@@ -59,5 +66,33 @@ def create_router(load_config, core) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=t("web_landscape_setting", name=str(exc))) from exc
         return payload(path)
+
+    @router.post("/rhino")
+    def from_rhino(name: str, body: FromRhino) -> dict:
+        """One layout around the building objects of a Rhino snapshot, in the region picked in Rhino,
+        as a drawing instruction the plugin draws in place (drawing.py), with its checks. Nothing is kept."""
+        from sida.experts.rhino import snapshot as snap
+
+        path = core(workspace.find_project, load_config(), name)
+        try:
+            shot = snap.load_snapshot(path, body.snapshot)
+        except snap.SnapshotNotFound as exc:
+            raise HTTPException(status_code=404, detail=t("web_rhino_snapshot_none", id=body.snapshot)) from exc
+        try:
+            made = core(landscape.rhino_plan, path, shot, region=body.region, style=body.style, seed=body.seed)
+        except LookupError as exc:
+            if str(exc) == "no_site":
+                raise HTTPException(status_code=404, detail=t("web_site_none")) from exc
+            raise HTTPException(status_code=400, detail=t("web_landscape_no_plan")) from exc
+        except ValueError as exc:
+            key = {"region_too_big": "web_landscape_region_too_big", "region": "web_landscape_region"}.get(str(exc))
+            detail = t(key) if key else t("web_landscape_setting", name=str(exc))
+            raise HTTPException(status_code=400, detail=detail) from exc
+        except landapi.LandApiError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        plan = made["plan"]
+        return {"drawing": drawing.drawing(plan), "lines": drawing.check_lines(plan), "roads_note": made["roads_note"],
+                "gross_m2": made["gross_m2"],
+                "plan": {k: plan[k] for k in ("style", "label", "about", "checks", "planting_m2", "trees_in_lot", "plaza_m2")}}
 
     return router

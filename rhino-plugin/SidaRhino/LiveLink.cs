@@ -384,6 +384,11 @@ namespace SidaRhino
                 case "push":
                     RhinoApp.RunScript("_SidaPush", false);
                     break;
+                case "landscape":
+                    Commands.SidaLandscapeCommand.Asked = (text("style") ?? "formal",
+                        command.TryGetProperty("shuffle", out var shuffle) && shuffle.ValueKind == JsonValueKind.True);
+                    RhinoApp.RunScript("_SidaLandscape", false);
+                    break;
                 case "set_project":
                     var project = text("project");
                     if (!string.IsNullOrEmpty(project))

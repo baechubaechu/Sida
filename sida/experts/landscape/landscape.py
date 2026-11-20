@@ -234,6 +234,57 @@ def summary_line(plan: dict, need: dict) -> str:
     return ", ".join(parts) + "."
 
 
+def _site(project_dir: Path) -> tuple[dict, dict, object]:
+    """The site facts, the lot's plan on the table and the lot as a shape. LookupError("no_site" |
+    "no_plan") without a site or its boundaries."""
+    facts = site_facts.load_facts(project_dir)
+    if not facts or not facts["summary"]["zoning"]:
+        raise LookupError("no_site")
+    plan = board.site_plan(facts["parcels"])
+    if plan is None:
+        raise LookupError("no_plan")
+    return facts, plan, _lot(plan)
+
+
+def _region(drawn, lot, buildings):
+    """The ground to lay out: the ring drawn (or the lot), kept to the lot, without the buildings.
+    ValueError("region" | "region_too_big")."""
+    taken = unary_union([b for b, _ in buildings]) if buildings else Polygon()
+    region = (Polygon(drawn).buffer(0).intersection(lot) if drawn else lot).difference(taken)  # the lot's only
+    if region.is_empty or region.area < 4:
+        raise ValueError("region")
+    if region.area > MAX_REGION_M2:
+        raise ValueError("region_too_big")
+    return region
+
+
+def _lay_out(project_dir: Path, facts: dict, plan: dict, lot, region, buildings, gross, use, seed, styles, *,
+             http_get=None, kept_only: bool = False) -> dict:
+    """The styles asked laid out in the region and checked: {"need", "plans", "note", "municipality",
+    "area"}."""
+    roads, note = road_edges(project_dir, plan, facts, lot, http_get=http_get, kept_only=kept_only)
+    if not roads:
+        roads = _longest_edge(lot)
+        note = note or "대지가 도로에 닿는 변을 찾지 못해 가장 긴 변을 도로로 봄"
+    s = facts["summary"]
+    zone = s["zoning"][0]["zone"] if len(s["zoning"]) == 1 else ""
+    municipality = s.get("municipality") or ""
+    area = s["total_area_m2"] if s.get("area_complete") else None
+    need = rules.requirement(zone, municipality, area, gross, use)
+    open_ = need["open_space"]
+    inputs = generator.Inputs(
+        region=region, lot=lot, buildings=buildings, roads=roads, latitude=plan["origin"]["lat"],
+        open_space_m2=open_["area_m2"] if open_["status"] == "read" else None,
+        open_space_width=open_.get("least_width_m") if open_["status"] == "read" else None,
+        trees_needed=need["planting"]["trees"], seed=seed)
+    made = []
+    for style in styles:
+        laid = generator.generate(inputs, style)
+        laid["checks"] = checks(laid, need)
+        made.append(laid)
+    return {"need": need, "plans": made, "note": note, "municipality": municipality, "area": area}
+
+
 def plans(project_dir, *, http_get=None, kept_only: bool = False) -> dict:
     """
     The three layouts for the project as it stands: {"settings", "uses", "masses": [{"id", "title"}],
@@ -244,45 +295,17 @@ def plans(project_dir, *, http_get=None, kept_only: bool = False) -> dict:
     edges already kept (no map is asked; the export and the Conductor must be quick).
     """
     project_dir = Path(project_dir)
-    facts = site_facts.load_facts(project_dir)
-    if not facts or not facts["summary"]["zoning"]:
-        raise LookupError("no_site")
-    plan = board.site_plan(facts["parcels"])
-    if plan is None:
-        raise LookupError("no_plan")
+    facts, plan, lot = _site(project_dir)
     settings = load_settings(project_dir)
-    lot = _lot(plan)
     all_masses = [p for p in board.load_board(project_dir)["papers"] if p.get("kind") == "mass" and p.get("blocks")]
     scheme = _scheme(project_dir, settings["mass"])
     buildings = buildings_of(scheme, plan.get("frame"))
     gross = board.blocks_areas(scheme["blocks"])[1] if scheme else None
-    taken = unary_union([b for b, _ in buildings]) if buildings else Polygon()
     drawn = settings["region"]
-    region = (Polygon(drawn).buffer(0).intersection(lot) if drawn else lot).difference(taken)  # the lot's only
-    if region.is_empty or region.area < 4:
-        raise ValueError("region")
-    if region.area > MAX_REGION_M2:
-        raise ValueError("region_too_big")
-    roads, note = road_edges(project_dir, plan, facts, lot, http_get=http_get, kept_only=kept_only)
-    if not roads:
-        roads = _longest_edge(lot)
-        note = note or "대지가 도로에 닿는 변을 찾지 못해 가장 긴 변을 도로로 봄"
-    s = facts["summary"]
-    zone = s["zoning"][0]["zone"] if len(s["zoning"]) == 1 else ""
-    municipality = s.get("municipality") or ""
-    area = s["total_area_m2"] if s.get("area_complete") else None
-    need = rules.requirement(zone, municipality, area, gross, settings["use"])
-    open_ = need["open_space"]
-    inputs = generator.Inputs(
-        region=region, lot=lot, buildings=buildings, roads=roads, latitude=plan["origin"]["lat"],
-        open_space_m2=open_["area_m2"] if open_["status"] == "read" else None,
-        open_space_width=open_.get("least_width_m") if open_["status"] == "read" else None,
-        trees_needed=need["planting"]["trees"], seed=settings["seed"])
-    made = []
-    for style in generator.STYLES:
-        laid = generator.generate(inputs, style)
-        laid["checks"] = checks(laid, need)
-        made.append(laid)
+    region = _region(drawn, lot, buildings)
+    laid = _lay_out(project_dir, facts, plan, lot, region, buildings, gross, settings["use"], settings["seed"], generator.STYLES,
+                    http_get=http_get, kept_only=kept_only)
+    need, made = laid["need"], laid["plans"]
     shown = next(p for p in made if p["style"] == settings["style"])
     line = summary_line(shown, need)
     if settings.get("summary") != line:
@@ -291,17 +314,83 @@ def plans(project_dir, *, http_get=None, kept_only: bool = False) -> dict:
         _write(project_dir, data)
     return {
         "settings": {k: settings[k] for k in SHOWN_SETTINGS},
-        "uses": rules.uses(municipality),
+        "uses": rules.uses(laid["municipality"]),
         "masses": [{"id": p["id"], "title": p.get("title") or ""} for p in all_masses],
         "mass": scheme["id"] if scheme else None,
         "gross_m2": round(gross, 1) if gross is not None else None,
-        "site_area_m2": area,
+        "site_area_m2": laid["area"],
         "region": generator._rings(region),
         "region_drawn": bool(drawn),
-        "roads_note": note,
+        "roads_note": laid["note"],
         "requirement": need,
         "plans": made,
     }
+
+
+# ---------------------------------------------------------------------------
+# from Rhino
+# ---------------------------------------------------------------------------
+
+
+def _even_odd(rings):
+    """A footprint's rings as one shape: a ring inside another is a hole (the snapshot's rule)."""
+    shape = Polygon()
+    for ring in rings:
+        if len(ring) >= 3:
+            shape = shape.symmetric_difference(Polygon(ring).buffer(0))
+    return shape
+
+
+def rhino_buildings(snapshot: dict) -> list[tuple[Polygon, float]]:
+    """The building objects of a Rhino snapshot as footprints with their tops above the ground (m):
+    the objects on layers whose meaning is a building, with a footprint and a height."""
+    from sida.experts.rhino import snapshot as snap
+
+    meaning = snap.meaning_of(snapshot)
+    out = []
+    for item in snapshot.get("objects") or []:
+        if meaning.get(item.get("layer"), "") not in snap.BUILT or not item.get("footprint") or item.get("height") is None:
+            continue
+        shape = _even_odd(item["footprint"])
+        if not shape.is_empty:
+            out.append((shape, max((item.get("base") or 0.0) + item["height"], 0.1)))
+    return out
+
+
+def rhino_plan(project_dir, snapshot: dict, *, region=None, style: str | None = None, seed: int | None = None,
+               use=..., http_get=None) -> dict:
+    """
+    One layout around the building objects of a Rhino snapshot, in the region the designer picked
+    in Rhino (a ring in the snapshot's metres, kept to the lot; None: the whole lot): {"plan"
+    (generator.generate + "checks"), "requirement", "roads_note", "gross_m2"}. The style, seed and
+    use default to the table's (landscape.json); nothing is kept. Errors as `plans`.
+    """
+    from sida.experts.rhino import snapshot as snap
+
+    project_dir = Path(project_dir)
+    facts, plan, lot = _site(project_dir)
+    settings = load_settings(project_dir)
+    style = style or settings["style"]
+    if style not in generator.STYLES:
+        raise ValueError("style")
+    seed = settings["seed"] if seed is None else seed
+    if isinstance(seed, bool) or not isinstance(seed, int) or not SEED_RANGE[0] <= seed <= SEED_RANGE[1]:
+        raise ValueError("seed")
+    use = settings["use"] if use is ... else use
+    if use is not None and use != "other" and use not in rules.load_rules()["open_space"]["uses"]:
+        raise ValueError("use")
+    drawn = None
+    if region is not None:
+        drawn = _ring(region)
+        if drawn is None:
+            raise ValueError("region")
+    buildings = rhino_buildings(snapshot)
+    area = facts["summary"]["total_area_m2"] if facts["summary"].get("area_complete") else None
+    gross = snap.figures(snapshot, area).get("floor_area_m2") if buildings else None
+    laid = _lay_out(project_dir, facts, plan, lot, _region(drawn, lot, buildings), buildings, gross, use, seed, [style],
+                    http_get=http_get)
+    return {"plan": laid["plans"][0], "requirement": laid["need"], "roads_note": laid["note"],
+            "gross_m2": round(gross, 1) if gross else None}
 
 
 def conductor_line(project_dir) -> str:

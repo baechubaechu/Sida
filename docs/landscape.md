@@ -1,9 +1,10 @@
 # 조경 (대지 카드의 조경 줄과 자동 조경)
 
-조경은 두 곳에 있습니다.
+조경은 세 곳에 있습니다.
 
 1. 대지 카드의 "조경" 줄과 매스안 속성의 "조경 / 조경 여유" 줄은 대지에 필요한 조경면적을 보여 줍니다. 대지 카드는 연면적별 비율을 보여 주고, 매스안 속성은 그 안의 연면적으로 계산한 면적과 매스 밖에 남은 땅을 보여 줍니다.
 2. 제도판 도구 막대의 매스 묶음에 있는 "자동 조경" 버튼(명령 `landscape`)은 매스 밖 땅이나 직접 그린 영역에 조경 세 안을 규칙대로 그립니다. 세 안은 정형(축선), 자연형(산책), 광장형(도로변 개방)입니다.
+3. 라이노 플러그인의 `SidaLandscape` 명령(패널의 "라이노에 조경 그리기")은 라이노에서 고른 닫힌 커브 안에 한 안을 라이노 도형으로 그립니다. 아래 "라이노에서"를 보세요.
 
 로직은 `sida/experts/landscape/`에 있습니다.
 
@@ -14,6 +15,7 @@
 | `landscape.py` | 프로젝트, 설정, 검사 |
 | `api.py` | 경로 |
 | `export.py` | CAD·라이노 내보내기 |
+| `drawing.py` | 라이노 플러그인에 줄 그리기 지시 |
 
 화면 코드는 `webui/app/table-landscape.js`에, 카드 도우미는 `webui/app/board-model.js`의 `landscapeCard` 등에 있습니다.
 
@@ -62,6 +64,7 @@
 |---|---|---|
 | `GET /api/projects/{name}/landscape` | `placed_only`(참/거짓, 선택): 참이면 놓은 안이 없을 때 계산하지 않고 `{settings, plans: []}`만 줌. 놓은 안이 있으면 저장한 도로 변만 씀(지도에 묻지 않음). 제도판을 열 때 씀 | 아래 표. 대지 사실이 없으면 `404`, 대지 경계가 없거나 영역에 남는 땅이 없으면 `400`, 영역이 30,000㎡를 넘으면 `400`, 지도 오류는 `502` |
 | `PUT /api/projects/{name}/landscape` | `{mass, region, style, seed, use, placed}` 중 바꿀 것. `region`은 제도판 좌표(m) 고리 3~200점이고 `null`이면 대지 전체. `style`은 `formal`·`natural`·`plaza`. `seed`는 1~9999. `use`는 `uses`의 `key`, `"other"` 또는 `null`. `placed`는 참/거짓 | GET과 같음. 받지 않는 값이면 `400`. 프로젝트 폴더 `landscape.json`에 저장 |
+| `POST /api/projects/{name}/landscape/rhino` | `{snapshot, region, style, seed}`. `snapshot`은 라이노 스냅샷 id(필수), `region`은 고리 3~200점 또는 `null`(대지 전체), `style`·`seed`는 없으면 `landscape.json`의 값 | `{drawing, lines, roads_note, gross_m2, plan: {style, label, about, checks, planting_m2, trees_in_lot, plaza_m2}}`. `drawing`은 `docs/rhino-api.md`의 그리기 지시(`in_place`, 레이어 `Sida 조경`), `lines`는 검사 줄. 스냅샷이 없으면 `404`, 그 밖은 GET과 같음. 아무것도 저장하지 않음 |
 
 | 키 | 뜻 |
 |---|---|
@@ -95,3 +98,14 @@
 | Enter 또는 두 번 누르기 | 영역 닫기 |
 | Esc | 취소 |
 | Backspace | 마지막 점 되돌리기 |
+
+## 라이노에서 (`SidaLandscape`)
+
+라이노에서는 한 안만 그립니다. 순서는 다음과 같습니다.
+
+1. 설계자가 닫힌 평면 커브를 고릅니다. Enter만 누르면 대지 전체입니다. 커브가 폴리라인이면 그 꼭짓점을, 아니면 약 1m 간격 점(12~200개)을 m 단위로 보냅니다.
+2. 플러그인이 지금 모델을 스냅샷으로 먼저 보냅니다(`SidaPush`와 같음).
+3. `POST /landscape/rhino`가 그 스냅샷의 건물 의미 입체를 건물로 씁니다(`landscape.rhino_buildings`: 바닥 외곽선과 `base + height`). 그림자, 벽에서 떨어뜨리기, 문 자리 모두 이 건물로 셉니다. 연면적은 스냅샷 수치의 연면적입니다. 대지, 도로 변, 용도는 제도판과 같습니다.
+4. 플러그인이 그리기 지시를 `Sida 조경` 레이어 아래에 제자리로 그립니다. 바닥 종류는 해치, 길 중심선은 점선, 나무는 평면 원과 수관·줄기 입체입니다.
+
+고른 안(`Style`)과 배치 번호는 라이노 문서에 남습니다(`sida.landscape.style`, `sida.landscape.seed`). 그래서 다시 돌리면 같은 그림을 다시 그리고, `Shuffle`은 다음 번호로 그립니다. 제도판의 `landscape.json`은 읽기만 하고 바꾸지 않습니다. 패널은 실시간 명령 `landscape`(`style`, `shuffle`)로 이 명령을 부릅니다.

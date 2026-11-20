@@ -76,6 +76,8 @@ Sida는 무엇을 어디에 그릴지만 정한 **그리기 지시**를 내고, 
 ```
 
 - `slab`은 `z`에서 `height`만큼 올린 판(고리는 짝홀 규칙), `fill`은 평평한 면(`light`는 옅게), `line`은 꺾은선, `text`의 `size`는 글자 높이입니다. `upright` 글자는 x-z 평면에 서 있습니다(남쪽에서 읽음).
+- `tree`(`{"type": "tree", "at": [x, y, z], "r": 2.5, "height": 6.5, "color": "#6f9f58"}`)는 `at`에 선 나무입니다. 플러그인은 꼭대기가 `height`인 둥근 수관(반지름 `r`)과 줄기로 만듭니다. 조경 그림만 씁니다.
+- 그림의 `layer`는 부모 레이어(없으면 `Sida 다이어그램`), 항목의 `layer`는 그 아래 레이어(없으면 그림의 `title`)입니다. `in_place`가 참인 그림(조경)은 모델 옆이 아니라 좌표 그대로의 자리에 그립니다. 이 레이어들도 의미 `ignore`라 수치에서 빠집니다.
 - `role`이 있는 글자(`title`, `legend`, `caption`)는 그림의 말입니다. 평면 그림(`view: flat`)은 놓인 자리에 그대로 그리고, 축측 그림(`view: axo`)의 SVG는 그림 둘레의 지면에 따로 놓습니다(범례 줄은 `swatch` 색과 함께). 라이노에서는 모두 놓인 자리에 글자로 만듭니다.
 - SVG의 축측은 남서쪽 위에서 본 등각 투영입니다. 평면 그림은 위에서 본 축척 그대로입니다.
 
@@ -93,9 +95,9 @@ Sida는 무엇을 어디에 그릴지만 정한 **그리기 지시**를 내고, 
 
 | 메서드·경로 | 요청 | 응답 |
 |---|---|---|
-| `POST /api/rhino/live` | 플러그인: `{doc, file, units, project, autosync, busy, snapshot, selected, selected_count, notice}`. `busy`는 지금 하는 중인 일(`""`, `pull`, `push`, `draw`). `selected`는 라이노에서 고른 개체의 id(200개까지), `selected_count`는 고른 개체 전체 수. `doc`은 플러그인이 정한 문서 id(라이노 하나에 하나, `rhino-<프로세스 번호>`: 그 라이노의 지금 문서), `snapshot`은 뷰·메시 없는 스냅샷(없으면 `null`), `notice`는 방금 한 일의 결과 `{text, ok}`(선택) | `{rev}`. 패널에 보이는 것이 바뀌었을 때만 `rev`가 오릅니다 |
+| `POST /api/rhino/live` | 플러그인: `{doc, file, units, project, autosync, busy, snapshot, selected, selected_count, notice}`. `busy`는 지금 하는 중인 일(`""`, `pull`, `push`, `draw`, `landscape`). `selected`는 라이노에서 고른 개체의 id(200개까지), `selected_count`는 고른 개체 전체 수. `doc`은 플러그인이 정한 문서 id(라이노 하나에 하나, `rhino-<프로세스 번호>`: 그 라이노의 지금 문서), `snapshot`은 뷰·메시 없는 스냅샷(없으면 `null`), `notice`는 방금 한 일의 결과 `{text, ok}`(선택) | `{rev}`. 패널에 보이는 것이 바뀌었을 때만 `rev`가 오릅니다 |
 | `GET /api/rhino/live?doc=` | 패널. `doc`이 없으면 가장 최근에 물어 온 문서 | `{connected, rev, state}`. `state`는 `{doc, file, units, project, project_known, autosync, busy, selection: {count, bodies, floor_area_m2, footprint_m2}, rhino, layers: [{path, meaning, color, floor_height, objects}], objects, figures, notice: {text, ok, at, n}}`. 도형은 담지 않습니다. 플러그인이 5초 넘게 묻지 않으면 `connected: false` |
-| `POST /api/rhino/commands` | 패널: `{doc, type, …}`. `type`은 `pull`, `push`, `set_project`(`project`), `set_layer`(`path`, `meaning`, `floor_height` m 또는 `null`), `set_autosync`(`on`), `report`, `draw`(`kinds`: 다이어그램 종류 목록. 플러그인이 먼저 보내고(`push`) 그 스냅샷의 그리기 지시를 받아 문서에 그립니다) | `{id}`. 모르는 `type`·의미, 연결된 적 없는 `doc`은 `400` |
+| `POST /api/rhino/commands` | 패널: `{doc, type, …}`. `type`은 `pull`, `push`, `set_project`(`project`), `set_layer`(`path`, `meaning`, `floor_height` m 또는 `null`), `set_autosync`(`on`), `report`, `draw`(`kinds`: 다이어그램 종류 목록. 플러그인이 먼저 보내고(`push`) 그 스냅샷의 그리기 지시를 받아 문서에 그립니다), `landscape`(`style`: `formal`·`natural`·`plaza`, `shuffle`: 참이면 다음 배치. 플러그인이 `SidaLandscape`를 고른 문서 설정으로 돌립니다, `docs/landscape.md`) | `{id}`. 모르는 `type`·의미, 연결된 적 없는 `doc`은 `400` |
 | `GET /api/rhino/commands?doc=&after=` | 플러그인. `after`는 끝낸 마지막 명령 id | `{known, commands: [{id, type, …}]}`. 묻는 것이 곧 연결 신호입니다. 패널이 부탁한 것 말고 Sida가 직접 넣는 명령 `view`도 여기로 옵니다(아래 "뷰를 질문과 함께") |
 | `POST /api/rhino/live/view?doc=&command=&title=` | 플러그인. 명령 `view`의 답: 파일 파트 `view`(PNG 또는 JPEG, 4MB까지), `command`는 그 명령의 id, `title`은 뷰 이름(80자까지) | `{taken}`. 기다리는 질문이 없으면(늦었거나 부탁한 적 없는 그림) `taken: false`이고 그림은 버립니다. 그림이 아니거나 너무 크면 `400` |
 | `GET /api/rhino/prefs` | | `{send_view}`. 질문에 라이노 뷰를 같이 보낼지. 이 PC의 `~/Sida/preferences.json`에 있고 처음에는 `false` |
