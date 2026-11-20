@@ -1639,3 +1639,26 @@ body.moving-float, body.moving-float * { cursor: grabbing !important; user-selec
 .comment-pin.flash { animation: pin-flash 1.2s var(--ease-out) 2; }
 @keyframes pin-flash { 50% { box-shadow: 0 0 0 8px rgb(183 121 31 / .35); } }
 @media (prefers-reduced-motion: reduce) { .comment-pin.flash { animation: none; outline: 3px solid #b7791f; } }
+/* 자동 조경 (table-landscape.js): the 법규 볼륨 card's look, at the right of the table. */
+.landscape-card { left: auto; right: 16px; }
+.landscape-styles { display: flex; }
+.landscape-styles button { flex: 1; position: relative; }
+.landscape-short { position: absolute; top: -6px; right: -4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #b54708; color: #fff;
+  font-size: 10px; font-style: normal; line-height: 16px; text-align: center; }
+.landscape-about { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.landscape-checks .is-ok .envelope-state { color: var(--brand); }
+.landscape-checks .is-short .envelope-state { color: #b54708; font-weight: 700; }
+.landscape-checks summary small { color: var(--muted); }
+.landscape-region { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.landscape-region > span { color: var(--muted); margin-right: 4px; }
+.landscape-region button, .landscape-actions button { padding: 6px 10px; border-radius: 6px; background: var(--surface-subtle); color: var(--brand); font-weight: 700; font-size: 12px; }
+.landscape-region button[aria-pressed="true"] { background: var(--brand); color: #fff; }
+.landscape-region button:hover, .landscape-actions button:hover { background: var(--line); }
+.landscape-region button[aria-pressed="true"]:hover { background: var(--brand); }
+.landscape-field { display: grid; gap: 4px; }
+.landscape-field > span { color: var(--muted); }
+.landscape-field small { margin-left: 4px; }
+.landscape-field select { padding: 6px 8px; }
+.landscape-actions { display: flex; gap: 6px; justify-content: space-between; }
+.landscape-actions .is-primary { background: var(--brand); color: #fff; }
+.landscape-actions .is-primary:hover { background: var(--brand); filter: brightness(1.08); }

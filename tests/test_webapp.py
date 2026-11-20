@@ -688,6 +688,70 @@ def test_site_envelope_api_gives_the_legal_volume_and_reference_schemes(client, 
     assert client.get(url).status_code == 400  # no boundary to work in
 
 
+def test_landscape_api_gives_three_plans_and_keeps_the_choices(client, project, fake_vworld):
+    from sida.experts.site import landapi, site_facts
+
+    url = f"/api/projects/{project.name}/landscape"
+    assert client.get(url).status_code == 404  # no site looked up yet
+    assert client.get("/api/projects/nope/landscape").status_code == 404
+    parcel = landapi.search_parcels("경기도 군포시 금정동 689")[:1]
+    site_facts.save_facts(project.path, site_facts.build_facts("금정동 689-14", parcel))
+
+    before = len(fake_vworld.calls)
+    assert client.get(url, params={"placed_only": True}).json()["plans"] == []  # the table opening: none placed
+    assert len(fake_vworld.calls) == before
+    body = client.get(url).json()
+    assert [p["style"] for p in body["plans"]] == ["formal", "natural", "plaza"] and body["mass"] is None
+    assert body["settings"] == {"mass": None, "region": None, "style": "formal", "seed": 1, "use": None, "placed": False}
+    # 경기도 is not in the rules file yet: the 조경 is to be checked in the ordinance, not guessed
+    assert body["requirement"]["landscape"]["status"] == "check" and body["uses"][-1]["key"] == "other"
+    assert all(p["checks"][0]["ok"] is None for p in body["plans"])
+    client.get(url)
+    assert [c[1]["data"] for c in fake_vworld.calls[before:]] == ["LP_PA_CBND_BUBUN"]  # the roads asked once
+
+    assert client.put(url, json={"style": "baroque"}).status_code == 400
+    assert client.put(url, json={"region": [[0, 0], [1, 1]]}).status_code == 400
+    assert client.put(url, json={"placed": "yes"}).status_code == 422
+    body = client.put(url, json={"style": "natural", "seed": 7, "placed": True}).json()
+    assert (body["settings"]["style"], body["settings"]["seed"], body["settings"]["placed"]) == ("natural", 7, True)
+    placed = client.get(url, params={"placed_only": True}).json()
+    assert len(placed["plans"]) == 3 and placed["settings"]["placed"] is True
+    assert client.put(url, json={"region": [[0, 0], [0.5, 0], [0, 0.5]]}).status_code == 400  # too small to keep
+    assert client.put("/api/projects/nope/landscape", json={}).status_code == 404
+
+    facts = site_facts.load_facts(project.path)
+    facts["parcels"][0]["shape"] = None
+    site_facts.save_facts(project.path, facts)
+    assert client.get(url).status_code == 400  # no boundary to lay out in
+
+
+def test_landscape_from_rhino_draws_one_plan_around_the_snapshot_in_the_region_picked(client, project, fake_vworld):
+    import json as _json
+
+    from sida.experts.site import landapi, site_facts
+
+    raw = _json.loads((ROOT / "tests" / "fixtures" / "rhino" / "snapshot_studio.json").read_text(encoding="utf-8"))
+    body = _json.dumps({**raw, "views": []}).encode("utf-8")
+    pushed = client.post(f"/api/projects/{project.name}/rhino/snapshots", files=[("snapshot", ("snapshot.json", body, "application/json"))])
+    shot = pushed.json()["snapshot"]["id"]
+    url = f"/api/projects/{project.name}/landscape/rhino"
+    assert client.post(url, json={"snapshot": shot}).status_code == 404  # no site looked up yet
+    assert client.post(url, json={"snapshot": "20000101-000000-0001"}).status_code == 404
+    parcel = landapi.search_parcels("경기도 군포시 금정동 689")[:1]
+    site_facts.save_facts(project.path, site_facts.build_facts("금정동 689-14", parcel))
+
+    got = client.post(url, json={"snapshot": shot, "style": "formal", "seed": 2})
+    assert got.status_code == 200, got.text
+    got = got.json()
+    assert got["drawing"]["kind"] == "landscape" and got["drawing"]["in_place"] is True and got["plan"]["style"] == "formal"
+    assert got["gross_m2"] == 900.0 and len(got["lines"]) == len(got["plan"]["checks"])
+    assert any(i["type"] == "tree" for i in got["drawing"]["items"])
+    assert client.post(url, json={"snapshot": shot, "style": "baroque"}).status_code == 400
+    assert client.post(url, json={"snapshot": shot, "region": [[0, 0], [1, 0]]}).status_code == 400
+    assert client.post(url, json={"snapshot": shot, "region": [[900, 900], [950, 900], [950, 950]]}).status_code == 400  # off the lot
+    assert client.post("/api/projects/nope/landscape/rhino", json={"snapshot": shot}).status_code == 404
+
+
 def test_site_diagrams_api_lists_draws_and_keeps_choices(client, project, fake_vworld, monkeypatch):
     from sida.experts.site import landapi, site_diagrams, site_facts
     from tests.experts.site.test_site_diagrams import _around

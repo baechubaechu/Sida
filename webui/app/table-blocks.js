@@ -490,11 +490,12 @@ export const blocksMethods = {
   },
   // ------------------------------------------------------------------ figures while editing
   // The site's area and caps for the figures (siteCard() of the saved site), or just the area the
-  // board was sent; null without either.
+  // board was sent, with the card's 조경 line (its ratios by 연면적); null without either.
   figureSite() {
     const card = this.hooks.siteCard?.();
-    if (card?.areaM2) return card;
-    return this.site?.area_m2 ? { areaM2: this.site.area_m2, bcr: null, far: null } : null;
+    const landscape = (this.site?.rules || []).find((r) => r.id === 'landscape') || null; // the card's 조경 line
+    if (card?.areaM2) return { ...card, landscape };
+    return this.site?.area_m2 ? { areaM2: this.site.area_m2, bcr: null, far: null, landscape } : null;
   },
   // While blocks of the scheme standing in 3D are picked (and so while they are pushed, moved or
   // sized), the band at the foot of the table shows its coverage and FAR against the caps, and

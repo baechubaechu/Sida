@@ -44,10 +44,13 @@ COMMANDS: dict[str, tuple[str, ...]] = {
     "set_autosync": ("on",),                          # push on every save
     "report": (),                                     # say the document again (the panel just opened)
     "draw": ("kinds",),                               # push, then draw these diagrams in the document (diagrams.py)
+    "landscape": ("style", "shuffle"),                # push, then lay out the 조경 in the curve picked (landscape domain)
 }
 # Sida itself also asks the plugin for `view`: a picture of the active viewport as it is now, for a
 # message to the Conductor (want_view). The panel cannot ask for one.
-BUSY = ("", "pull", "push", "draw")  # what the plugin may say it is in the middle of
+BUSY = ("", "pull", "push", "draw", "landscape")  # what the plugin may say it is in the middle of
+
+LANDSCAPE_STYLES = ("formal", "natural", "plaza")  # sida/experts/landscape/generator.py STYLES
 
 _lock = threading.Lock()
 _arrived = threading.Condition(_lock)  # a picture a message waits for has come
@@ -272,6 +275,12 @@ def ask(raw) -> dict:
         if not isinstance(kinds, list) or not kinds or any(k not in diagrams.KINDS for k in kinds):
             raise ValueError("kinds must be a list of " + ", ".join(diagrams.KINDS))
         command["kinds"] = [k for k in diagrams.KINDS if k in kinds]  # each once, in the order they are laid out
+    elif kind == "landscape":
+        style = raw.get("style")
+        if style not in LANDSCAPE_STYLES:
+            raise ValueError("style must be one of " + ", ".join(LANDSCAPE_STYLES))
+        command["style"] = style
+        command["shuffle"] = raw.get("shuffle") is True  # a new seed for the trees and the bends
     with _lock:
         entry = _docs.get(doc)
         if entry is None:

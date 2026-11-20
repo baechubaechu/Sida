@@ -56,6 +56,7 @@ export const pointerMethods = {
       if (e.target.dataset.diagramHour) this.diagramAction('hour', e.target.dataset.diagramHour, e.target.value);
       if (e.target === this.photoInput && this.photoInput.files.length) this.addPhotos([...this.photoInput.files]);
       if (e.target.dataset.detailTitle) this.saveTitle(e.target.dataset.detailTitle, e.target.value);
+      if (e.target.id === 'landscape-use' || e.target.id === 'landscape-mass') this.landscapeSelect(e.target);
     });
     // Photo files dragged in from the desktop land where they are dropped.
     const carriesFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
@@ -137,6 +138,8 @@ export const pointerMethods = {
       return;
     }
     if (t.dataset.envelopePlace !== undefined) { this.placeEnvelopeScheme(t.dataset.envelopePlace); return; }
+    if (t.dataset.landscape) { this.landscapeAction(t.dataset.landscape, t.dataset.value); return; }
+    if (t.dataset.landscapeRegion) { if (t.dataset.landscapeRegion === 'finish') this.finishLandscapeRegion(); else this.cancelLandscapeRegion(); return; }
     if (t.dataset.diagram) { this.diagramAction(t.dataset.diagram, t.dataset.kind, t.dataset.value); return; }
     if (t.dataset.tilt) { this.showView(t.dataset.tilt, t.dataset.corner); return; }
     const id = t.dataset.id;
@@ -155,6 +158,7 @@ export const pointerMethods = {
       case 'photo': this.pickPhotos(); this.drawControls(); break;
       case 'around': this.toggleAround(); break;
       case 'envelope': this.toggleEnvelope(); break;
+      case 'landscape': this.toggleLandscape(); break;
       case 'envelope-height': this.applyEnvelopeHeight(); break;
       case 'envelope-height-clear': this.applyEnvelopeHeight(true); break;
       case 'envelope-use': this.applyEnvelopeUse(); break;
@@ -231,6 +235,8 @@ export const pointerMethods = {
     if (this.eye) { this.gesture = { kind: 'eye', x: e.clientX, y: e.clientY, eye: this.eye, button: e.button, moved: false }; return; }
     // Asked where to stand (눈높이): a left click on the ground stands there; other buttons still move the view.
     if (this.eyePicking && e.button === 0) { this.gesture = { kind: 'eye-pick', x: e.clientX, y: e.clientY, moved: false }; return; }
+    // Drawing the 조경 region: a left click on the ground adds a corner; other buttons still move the view.
+    if (this.landscapeDrawing && e.button === 0 && !e.shiftKey) { this.gesture = { kind: 'landscape-pick', x: e.clientX, y: e.clientY, moved: false }; return; }
     const grip = e.button === 0 && this.gumAxes && e.target.closest('[data-gumball]')?.dataset.gumball;
     if (grip) { this.gesture = this.gumballGesture(grip, e, { handle: true }); return; }
     const corner = e.button === 0 && !e.shiftKey && e.target.closest('[data-grip]'); // Alt and Ctrl change how it resizes
@@ -329,7 +335,7 @@ export const pointerMethods = {
       this.drawPeople();
       return;
     }
-    if (g.kind === 'eye' || g.kind === 'eye-pick') {
+    if (g.kind === 'eye' || g.kind === 'eye-pick' || g.kind === 'landscape-pick') {
       if (!g.moved && Math.hypot(e.clientX - g.x, e.clientY - g.y) < 4) return;
       g.moved = true;
       if (g.kind === 'eye') this.lookEye(g.eye, e.clientX - g.x, e.clientY - g.y);
@@ -514,6 +520,7 @@ export const pointerMethods = {
       if (this.pending) { const view = this.pending; this.pending = null; this.setBoard(view); }
       return;
     }
+    if (g?.kind === 'landscape-pick' && !g.moved && !cancelled) this.landscapePoint(g.x, g.y);
     if ((g?.kind === 'eye' || g?.kind === 'eye-pick') && !g.moved && !cancelled && g.button !== 2) {
       const p = this.eyeHit(g.x, g.y);
       if (g.kind === 'eye-pick') {
@@ -662,6 +669,7 @@ export const pointerMethods = {
     if (!this.gesture && this.pending) { const view = this.pending; this.pending = null; this.setBoard(view); }
   },
   onDouble(e) {
+    if (this.landscapeDrawing) { this.finishLandscapeRegion(); return; }
     const id = e.target.closest('[data-paper]')?.dataset.paper;
     const p = this.papers.find((x) => x.id === id);
     if (p?.kind === 'note') { this.editing = id; this.drawPaper(p); }
@@ -672,6 +680,11 @@ export const pointerMethods = {
     if (typing(e.target) || e.target.closest?.('dialog')) return;
     const k = e.key.toLowerCase();
     if (k === 'escape' && this.toolGroupOpen) { e.preventDefault(); this.toolGroupOpen = ''; this.drawControls(); return; }
+    if (this.landscapeDrawing && !(e.metaKey || e.ctrlKey || e.altKey)) {
+      if (k === 'escape') { e.preventDefault(); this.cancelLandscapeRegion(); return; }
+      if (k === 'enter') { e.preventDefault(); this.finishLandscapeRegion(); return; }
+      if (k === 'backspace') { e.preventDefault(); this.landscapeBack(); return; }
+    }
     if ((this.eye || this.eyePicking) && !(e.metaKey || e.ctrlKey || e.altKey)) {
       const move = this.eye && eyeKey(e.key, e.shiftKey);
       if (move) { e.preventDefault(); this.stepEye(move); return; }

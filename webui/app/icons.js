@@ -31,6 +31,8 @@ const PATHS = {
   trash: '<path d="M3.5 5.5h13M8 5.5V3.5h4v2M5.5 5.5l1 11h7l1-11"/>',
   // 법규 볼륨: a stepped volume under the sloping 정북일조 line.
   envelope: '<path d="M3 17h14M4 17V8h4v-3h4v3h4v9" stroke-dasharray="2.2 1.6"/><path d="M3 6.5 9 3.5"/>',
+  // 자동 조경: two trees on the ground.
+  landscape: '<circle cx="7" cy="7" r="3.5"/><path d="M7 10.5V16"/><circle cx="14" cy="9.5" r="2.5"/><path d="M14 12v4M2.5 16h15"/>',
   around: '<path d="M2.5 16.5h15M3.5 16.5l4-7 3 4.5 2-3 4 5.5"/><path d="M12.5 6.5h3v4"/>',
   tray: '<path d="M10 3v3M10 14v3M3 10h3M14 10h3M5 5l2 2M13 13l2 2M15 5l-2 2M7 13l-2 2"/>',
   person: '<circle cx="10" cy="4.5" r="2"/><path d="M10 7.5v5M6.5 9.5h7M10 12.5l-2.5 5M10 12.5l2.5 5"/>',

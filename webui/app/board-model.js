@@ -1122,7 +1122,21 @@ export function massFigures(blocks, site = null) {
     farCap: area ? cap(site.far) : null,
     bcrFrom: site?.bcrFrom || '법정',
     farFrom: site?.farFrom || '법정',
+    green: area ? landscapeNeed(site?.landscape, area, gross, footprint) : null,
   };
+}
+
+// The 대지의 조경 a scheme asks, from the site card's 조경 line (`line`: its `tiers` of [연면적 at
+// least ㎡, % of the site], sida/experts/landscape/rules.py card_line): {ratio, need, left} with
+// `left` the ground the blocks leave, or {none: why} where the site asks none; null when the line
+// gives no ratio (the card says why).
+export function landscapeNeed(line, area, gross, footprint) {
+  if (!line || !(area > 0)) return null;
+  if (line.status === 'none') return { none: line.detail || '해당 없음' };
+  if (!Array.isArray(line.tiers) || !line.tiers.length) return null;
+  const tier = line.tiers.find(([least]) => gross >= least) || line.tiers[line.tiers.length - 1];
+  const ratio = tier[1];
+  return { ratio, need: (area * ratio) / 100, left: Math.max(area - footprint, 0) };
 }
 
 const pct = (v) => `${Math.round(v * 10) / 10}%`;
@@ -1146,6 +1160,11 @@ function schemeRatioRows(f, prefix = '') {
   const rows = [[`${prefix}건폐율`, ratioText(f.coverage, f.bcr, f.bcrFrom)], [`${prefix}용적률`, ratioText(f.far, f.farCap, f.farFrom)]];
   if (f.bcr !== null) rows.push(['건폐율 여유', roomText(f.footprint, f.bcr, f.area)]);
   if (f.farCap !== null) rows.push(['용적률 여유', roomText(f.gross, f.farCap, f.area)]);
+  if (f.green && !f.green.none) {
+    const { ratio, need, left } = f.green;
+    rows.push(['조경', `${m2(need)} 이상 (대지면적의 ${ratio}%)`],
+      ['조경 여유', left + 1e-9 >= need ? `매스 밖 땅 ${m2(left)}, ${m2(left - need)} 남음` : `매스 밖 땅 ${m2(left)}, ${m2(need - left)} 모자람`]);
+  }
   return rows;
 }
 
@@ -1655,7 +1674,7 @@ export const CONTOUR_STEPS = [1, 2, 5];
 // group's name, on a narrower one each group folds to one button that opens its tools. An item is
 // a tool's id (table-shared.js TOOLS) or a button's (scheme-new, trace, photo, around, model-panel).
 export const TOOL_GROUPS = [
-  { id: 'mass', label: '매스', items: ['rect', 'push', 'move', 'rotate', 'scale', 'erase', 'scheme-new', 'envelope'] },
+  { id: 'mass', label: '매스', items: ['rect', 'push', 'move', 'rotate', 'scale', 'erase', 'scheme-new', 'envelope', 'landscape'] },
   { id: 'measure', label: '재기', items: ['tape', 'radius', 'section'] },
   { id: 'lay', label: '올리기', items: ['note', 'pen', 'person', 'trace', 'photo'] },
   { id: 'around', label: '주변', items: ['around', 'diagrams', 'model-panel'] },
@@ -2691,4 +2710,68 @@ export function siteDiagramLabel(diagram, choice = {}) {
   const hour = diagram.kind === 'shadow' ? (Number.isInteger(choice.hour) ? ` ${choice.hour}시` : ' 9~15시') : '';
   if (diagram.kind === 'sun_path') return diagram.title;
   return `${diagram.title}${hour} (${word}${side ? ` ${side}m` : ''})`;
+}
+
+// ------------------------------------------------------------------ 자동 조경
+// The landscape plans (GET .../landscape, sida/experts/landscape/): three layouts drawn by rule in
+// the region picked (정형·자연형·광장형), each checked against the 조경·교목·공개 공지 the rules ask.
+
+// The ground kinds as the table draws them (bottom first) and their colours.
+export const LANDSCAPE_KINDS = [
+  ['paving', '포장', 0xd8d2c4], ['plaza', '광장(포장)', 0xe6dcc6], ['path', '길', 0xcfc2a6],
+  ['lawn', '잔디·초화', 0xa9c98a], ['shade', '음지 지피', 0x7fa88a], ['hedge', '관목 띠', 0x6f9a5e],
+];
+export const LANDSCAPE_TREE_COLORS = { sun: 0x6f9f58, shade: 0x4f7f62, planter: 0x7aa060, trunk: 0x8a7a62 };
+const LANDSCAPE_STATE = { true: ['ok', '맞음'], false: ['short', '모자람'], null: ['info', '참고'] };
+
+// The card: the three plans as tabs (the one in settings picked) with their checks, and the
+// region, the mass scheme and the use as the designer can change them.
+export function landscapeCard(data) {
+  if (!data?.plans?.length) return null;
+  const style = data.settings?.style;
+  const plans = data.plans.map((p) => {
+    const checks = (p.checks || []).map((c) => {
+      const [state, label] = LANDSCAPE_STATE[String(c.ok ?? null)];
+      return { ...c, state, label };
+    });
+    return { style: p.style, label: p.label, about: p.about, selected: p.style === style, checks,
+      short: checks.filter((c) => c.state === 'short').length };
+  });
+  const land = data.requirement?.landscape;
+  const figures = [];
+  if (data.site_area_m2) figures.push(['대지면적', m2(data.site_area_m2)]);
+  figures.push(['연면적', data.gross_m2 ? `${m2(data.gross_m2)} (매스안)` : '매스안 없음']);
+  if (land?.ratio) figures.push(['조경 기준', `대지면적의 ${land.ratio}% 이상`]);
+  const uses = (data.uses || []).map((u) => ({ ...u, selected: u.key === data.settings?.use }));
+  return {
+    title: '자동 조경', plans, figures, uses, masses: data.masses || [], mass: data.mass,
+    regionDrawn: Boolean(data.region_drawn), placed: Boolean(data.settings?.placed), note: data.roads_note || '',
+  };
+}
+
+// The plan the settings show (null without plans).
+export const landscapeShown = (data) => data?.plans?.find((p) => p.style === data.settings?.style) || data?.plans?.[0] || null;
+
+// The trees of a plan by kind as treeTriangles takes them, standing on `base`: [{kind, trees}].
+export function landscapeTreeGroups(plan, base = 0) {
+  const out = [];
+  for (const kind of ['sun', 'shade', 'planter']) {
+    const own = (plan?.trees || []).filter((t) => t.kind === kind);
+    if (!own.length) continue;
+    const r = Math.max(...own.map((t) => t.r));
+    out.push({ kind, trees: { points: own.map((t) => [t.x, t.y, base]), crown: 2 * r, height: kind === 'planter' ? 5 : 6.5 } });
+  }
+  return out;
+}
+
+// The points clicked for a region, closed: points closer than 0.3 m to the one before are one
+// (a double click adds the same point twice). A ring of 3 or more, or null.
+export function landscapeRing(points) {
+  const out = [];
+  for (const p of points || []) {
+    const last = out[out.length - 1];
+    if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) >= 0.3) out.push([Math.round(p[0] * 100) / 100, Math.round(p[1] * 100) / 100]);
+  }
+  while (out.length > 1 && Math.hypot(out[0][0] - out[out.length - 1][0], out[0][1] - out[out.length - 1][1]) < 0.3) out.pop();
+  return out.length >= 3 ? out : null;
 }
