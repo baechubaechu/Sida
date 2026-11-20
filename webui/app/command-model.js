@@ -49,6 +49,7 @@ export const COMMANDS = [
   { name: 'vworld', aliases: ['vw'], label: '브이월드 3D 지도에 매스안 세워 보기 (건물을 누르면 숨김)', group: 'view' },
   { name: 'around', aliases: ['context'], label: '주변 3D 켜고 끄기 (주변 건물·도로·지형, 설정은 레이어 패널의 주변)', group: 'view' },
   { name: 'envelope', aliases: ['legal', 'volume'], label: '법규 볼륨 켜고 끄기: 정북일조·건폐율·용적률로 지을 수 있는 볼륨과 참고 매스', group: 'view' },
+  { name: 'landscape', aliases: ['green', 'garden'], label: '자동 조경: 매스 밖 땅에 조경 세 안을 조례·조경기준대로 그려 보기', group: 'view' },
   { name: 'clip', aliases: ['cut'], label: '3D 자르기: 단면선으로 3D를 잘라 보기 (다시 하면 끔)', group: 'view' },
   { name: 'diagram', aliases: ['diagrams', 'analysis'], label: '대지분석 다이어그램: 피겨-그라운드·높이·용도·그림자 등 9종 열기', group: 'panel' },
   { name: 'base', aliases: ['modelbase'], label: '모형 바닥: 레이저 커팅 대지 모형 판 열기', group: 'panel' },

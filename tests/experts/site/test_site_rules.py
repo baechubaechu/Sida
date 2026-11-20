@@ -55,13 +55,14 @@ def test_two_provisos_for_the_site_or_one_out_of_range_give_no_figure():
     assert site_facts.limits(facts(districts=MUGYO, far=wild))[0]["ordinance_far"] is None
 
 
-def test_the_card_for_mugyo_45_says_what_applies_in_five_lines():
+def test_the_card_for_mugyo_45_says_what_applies_in_six_lines():
     lines = site_rules.card(facts(districts=MUGYO))
     assert [(x["id"], x["status"], x["value"]) for x in lines] == [
         ("far", "read", "600%"),
         ("bcr", "read", "60%"),
         ("height", "conditional", "대공방어협조구역(위탁고도:77-257m)"),
         ("sunlight", "none", "해당 없음"),
+        ("landscape", "conditional", "대지면적의 5~15%"),
         ("plan", "check", "정비구역, 중점경관관리구역"),
     ]
     far = lines[0]
@@ -113,3 +114,14 @@ def test_the_height_line_links_to_the_parcels_land_use_page():
     height = {x["id"]: x for x in site_rules.card(f)}["height"]
     assert height["links"] == [{"label": "토지이음 토지이용계획(이 필지)",
                                 "url": "https://www.eum.go.kr/web/ar/lu/luLandDet.jsp?pnu=1114010100100450000&mode=search&isNoScr=script&selGbn=umd"}]
+
+
+def test_the_landscape_line_gives_the_seoul_ratios_by_floor_area_with_their_article():
+    green = {x["id"]: x for x in site_rules.card(facts())}["landscape"]
+    assert green["tiers"] == [[2000, 15], [1000, 10], [0, 5]] and green["min_site_m2"] == 200
+    assert green["detail"] == "연면적 2,000㎡ 이상 15% · 1,000㎡ 이상 10% · 그 밖 5%"
+    assert green["source"] == "서울특별시 건축 조례 제24조" and "대지면적의 15퍼센트 이상" in green["quote"]
+    small = {x["id"]: x for x in site_rules.card(facts(area=150))}["landscape"]
+    assert (small["status"], small["value"]) == ("none", "해당 없음") and "200㎡ 미만" in small["detail"]
+    green_zone = {x["id"]: x for x in site_rules.card(facts("자연녹지지역"))}["landscape"]
+    assert green_zone["status"] == "none" and green_zone["source"] == "건축법 시행령 제27조제1항"

@@ -97,6 +97,10 @@ function tableHooks(name) {
     // 법규 볼륨: the envelope and reference schemes of the site, GET .../site/envelope (envelope.py).
     envelope: () => api(`${projectApi(name)}/site/envelope`),
     saveEnvelopeSettings: (changes) => api(`${projectApi(name)}/site/envelope/settings`, { method: 'PUT', body: changes }),
+    // 자동 조경: the three plans (GET .../landscape; placedOnly: only a placed plan, no map asked) and
+    // keeping the designer's choices (PUT, answers with the plans again).
+    landscape: (placedOnly = false) => api(`${projectApi(name)}/landscape${placedOnly ? '?placed_only=true' : ''}`),
+    saveLandscape: (changes) => api(`${projectApi(name)}/landscape`, { method: 'PUT', body: changes }),
     // 대지분석 다이어그램 (GET .../site/diagrams, site_diagrams.py): the kinds with the kept choices,
     // a diagram's picture address, keeping a choice, the picture as a file (SVG as drawn, PNG made here).
     siteDiagrams: () => api(`${projectApi(name)}/site/diagrams`),

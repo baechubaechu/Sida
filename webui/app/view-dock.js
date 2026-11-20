@@ -19,7 +19,10 @@ function propsBody() {
   const papers = all.filter((p) => ui.selected.includes(p.id));
   // A whole group shows as one (its parts and a button to take it apart).
   const group = selectedGroup(all, ui.selected, ui.picked);
-  const props = group ? groupProperties(all, group) : propertiesOf(papers, siteCard(ui.site), papers.length ? [] : pickedBlocks(all, ui.picked), boardLayers(ui.board));
+  const card = siteCard(ui.site);
+  const landscape = (ui.board?.site?.rules || []).find((r) => r.id === 'landscape') || null; // its ratios by 연면적
+  const site = card ? { ...card, landscape } : null;
+  const props = group ? groupProperties(all, group) : propertiesOf(papers, site, papers.length ? [] : pickedBlocks(all, ui.picked), boardLayers(ui.board));
   const inner = props
     ? `<h3 class="side-title">${escape(props.title)}</h3>
       <dl class="props">${props.rows.map(([label, value, field]) => `<dt>${field ? `<label for="prop-${field.key}">${escape(label)}</label>` : escape(label)}</dt><dd>${field ? propField(field, value) : escape(value)}</dd>`).join('')}</dl>

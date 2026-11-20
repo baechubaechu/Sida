@@ -10,7 +10,8 @@ import { chat, chatFor, chatHtml, newTalk, send } from './rhino-chat.js';
 
 const POLL_MS = 1000;
 const BUSY_MS = 20000;  // a button pressed counts as "in progress" this long, unless the plugin says more (rhino-model.js panelBusy)
-const BUSY_WORDS = { pull: '가져오는 중…', push: '보내는 중…', draw: '그리는 중…' };
+const BUSY_WORDS = { pull: '가져오는 중…', push: '보내는 중…', draw: '그리는 중…', landscape: '조경 그리는 중…' };
+const LANDSCAPE_STYLES = [['formal', '정형'], ['natural', '자연형'], ['plaza', '광장형']];
 const named = new URLSearchParams(location.search).get('doc') || '';
 const el = (id) => document.getElementById(id);
 const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -24,6 +25,7 @@ const ui = {
   allLayers: false,
   asked: null,  // the button just pressed: {what, notice (the notice count then), until}
   skipped: [],  // the diagrams the designer left out of "라이노에 그리기"
+  landscapeStyle: 'formal',  // the 조경 style the next "조경 그리기" lays out
   error: '',
   drawn: {},
   sendView: false,  // questions take a picture of the active viewport along (kept on this PC, /api/rhino/prefs)
@@ -151,6 +153,22 @@ function drawDiagrams(state, status, busy) {
     <button type="button" class="secondary rp-draw" data-ask="draw" ${can && picked.length ? '' : 'disabled'}>${busy === 'draw' ? BUSY_WORDS.draw : picked.length ? `라이노에 그리기 (${picked.length}개)` : '그릴 그림을 고르세요'}</button>`);
 }
 
+// 자동 조경 in Rhino: the designer picks a closed curve (or none, for the whole lot) and a style;
+// the plugin sends the model, Sida lays the 조경 out around its buildings and the plugin draws it in
+// place on the "Sida 조경" layer.
+function drawLandscape(state, status, busy) {
+  if (!state || status.code !== 'ready') { draw('rp-landscape', ''); return; }
+  const can = ui.live.connected && !busy;
+  draw('rp-landscape', `
+    <h2>조경</h2>
+    <p class="rp-hint">닫힌 커브를 먼저 고르면 그 안에, 아니면 대지 전체에 조례·조경기준대로 조경을 그립니다. 건물은 지금 모델의 매스이고, "Sida 조경" 레이어에 제자리로 그립니다.</p>
+    <div class="rp-kinds" role="group" aria-label="조경 안">${LANDSCAPE_STYLES.map(([key, word]) => `<button type="button" data-landscape-style="${key}" aria-pressed="${ui.landscapeStyle === key}">${word}</button>`).join('')}</div>
+    <div class="rp-actions">
+      <button type="button" class="secondary rp-draw" data-ask="landscape" ${can ? '' : 'disabled'}>${busy === 'landscape' ? BUSY_WORDS.landscape : '라이노에 조경 그리기'}</button>
+      <button type="button" class="secondary rp-draw" data-ask="landscape-shuffle" ${can ? '' : 'disabled'} title="나무 배치와 굽은 길을 다시 섞어 그리기">다시 섞기</button>
+    </div>`);
+}
+
 function drawFoot(state, status, busy) {
   if (!state) { draw('rp-foot', ''); return; }
   const ready = ui.live.connected && status.code === 'ready';
@@ -177,6 +195,7 @@ function drawAll() {
   drawLayers(state);
   const busy = panelBusy(ui.live, ui.asked, Date.now());
   drawDiagrams(state, status, busy);
+  drawLandscape(state, status, busy);
   drawFoot(state, status, busy);
   drawChat(state, status);
 }
@@ -199,7 +218,8 @@ async function ask(command) {
 document.addEventListener('click', (event) => {
   const asked = event.target.closest('[data-ask]');
   const kind = event.target.closest('[data-kind]');
-  const tab = event.target.closest('[data-tab]');
+  const style = event.target.closest('[data-landscape-style]');
+  const tab = event.target.closest('[role="tab"][data-tab]');  // not the body, whose data-tab says the tab shown
   const example = event.target.closest('[data-example]');
   if (tab) {
     ui.tab = tab.dataset.tab;
@@ -211,10 +231,15 @@ document.addEventListener('click', (event) => {
   } else if (event.target.id === 'rp-new-talk') {
     newTalk();
     el('rp-question').focus();
+  } else if (style) {
+    ui.landscapeStyle = style.dataset.landscapeStyle;
+    drawAll();
   } else if (asked && !asked.disabled) {
     const what = asked.dataset.ask;
-    ui.asked = { what, notice: ui.live.state?.notice?.n || 0, until: Date.now() + BUSY_MS };
-    ask(what === 'draw' ? { type: 'draw', kinds: diagramChoices(ui.diagrams, ui.skipped).picked } : { type: what });
+    const landscape = what === 'landscape' || what === 'landscape-shuffle';
+    ui.asked = { what: landscape ? 'landscape' : what, notice: ui.live.state?.notice?.n || 0, until: Date.now() + BUSY_MS };
+    if (landscape) ask({ type: 'landscape', style: ui.landscapeStyle, shuffle: what === 'landscape-shuffle' });
+    else ask(what === 'draw' ? { type: 'draw', kinds: diagramChoices(ui.diagrams, ui.skipped).picked } : { type: what });
   } else if (kind) {
     const at = ui.skipped.indexOf(kind.dataset.kind);
     if (at < 0) ui.skipped.push(kind.dataset.kind); else ui.skipped.splice(at, 1);

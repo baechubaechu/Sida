@@ -17,12 +17,18 @@ namespace SidaRhino
     ///
     /// Drawing a kind again replaces what was drawn of it before, where it stood. What the
     /// designer has moved or reshaped since is theirs and stays (as with SidaPull).
+    ///
+    /// A drawing may name its own parent layer (`layer`, e.g. "Sida 조경") and an item its own
+    /// sublayer (`layer`, e.g. "교목"; else the drawing's title). One that is `in_place` (the 조경)
+    /// is drawn where its coordinates are, not beside the model. A `tree` item stands a round
+    /// crown on a trunk at `at`: `r` the crown's radius, `height` the top.
     /// </summary>
     public static class Drawer
     {
         public const string ParentLayer = "Sida 다이어그램";
         public const string KindKey = "sida.diagram";
         private static readonly System.Drawing.Color Ink = System.Drawing.Color.FromArgb(32, 38, 45);
+        private static readonly System.Drawing.Color Trunk = System.Drawing.Color.FromArgb(138, 122, 98);
 
         /// <returns>How many objects were made.</returns>
         public static int Draw(RhinoDoc doc, JsonElement drawing)
@@ -46,9 +52,24 @@ namespace SidaRhino
                 obj.CommitChanges();
             }
 
-            var corner = Corner(doc, kind);
-            var move = new Vector3d(corner.X - bounds[0], corner.Y - bounds[1], 0);
-            var layer = Layer(doc, title);
+            var inPlace = drawing.TryGetProperty("in_place", out var inPlaceFlag) && inPlaceFlag.ValueKind == JsonValueKind.True;
+            var parent = drawing.TryGetProperty("layer", out var parentName) && parentName.ValueKind == JsonValueKind.String
+                ? parentName.GetString() ?? ParentLayer : ParentLayer;
+            var move = Vector3d.Zero;
+            if (!inPlace)
+            {
+                var corner = Corner(doc, kind);
+                move = new Vector3d(corner.X - bounds[0], corner.Y - bounds[1], 0);
+            }
+            var layers = new Dictionary<string, int>();
+            int layerOf(JsonElement item)
+            {
+                var name = item.TryGetProperty("layer", out var own) && own.ValueKind == JsonValueKind.String ? own.GetString() ?? title : title;
+                if (!layers.TryGetValue(name, out var index))
+                    layers[name] = index = Layer(doc, parent, name);
+                return index;
+            }
+            var layer = -1;
             var made = new List<Guid>();
 
             Point3d at(double x, double y, double z) => new Point3d(x * toDoc, y * toDoc, z * toDoc) + move;
@@ -90,6 +111,7 @@ namespace SidaRhino
             foreach (var item in drawing.GetProperty("items").EnumerateArray())
             {
                 var type = item.GetProperty("type").GetString();
+                layer = layerOf(item);
                 if (type == "slab")
                 {
                     var z = item.GetProperty("z").GetDouble();
@@ -142,6 +164,17 @@ namespace SidaRhino
                             attributes.LinetypeIndex = linetype.Index;
                         }
                     });
+                }
+                else if (type == "tree")
+                {
+                    var p = item.GetProperty("at");
+                    var foot = at(p[0].GetDouble(), p[1].GetDouble(), p[2].GetDouble());
+                    var r = item.GetProperty("r").GetDouble() * toDoc;
+                    var top = Math.Max(item.GetProperty("height").GetDouble() * toDoc, 2 * r);
+                    add(new Sphere(foot + new Vector3d(0, 0, top - r), r).ToBrep(), Colour(item.GetProperty("color").GetString()));
+                    var trunk = top - r * 1.6;
+                    if (trunk > tolerance)
+                        add(new Cylinder(new Circle(new Plane(foot, Vector3d.ZAxis), Math.Max(0.12 * toDoc, r * 0.08)), trunk).ToBrep(true, true), Trunk);
                 }
                 else if (type == "text")
                 {
@@ -218,16 +251,16 @@ namespace SidaRhino
             return corner;
         }
 
-        /// <summary>The diagram's own sublayer; diagram layers mean "ignore", so a drawing never counts as a building.</summary>
-        private static int Layer(RhinoDoc doc, string title)
+        /// <summary>The drawing's own sublayer; these layers mean "ignore", so a drawing never counts as a building.</summary>
+        private static int Layer(RhinoDoc doc, string parentName, string title)
         {
-            var parent = doc.Layers.FindByFullPath(ParentLayer, -1);
+            var parent = doc.Layers.FindByFullPath(parentName, -1);
             if (parent < 0)
             {
-                parent = doc.Layers.Add(new Layer { Name = ParentLayer });
+                parent = doc.Layers.Add(new Layer { Name = parentName });
                 Meanings.Set(doc, parent, "ignore", null);
             }
-            var index = doc.Layers.FindByFullPath(ParentLayer + "::" + title, -1);
+            var index = doc.Layers.FindByFullPath(parentName + "::" + title, -1);
             if (index < 0)
             {
                 index = doc.Layers.Add(new Layer { Name = title, ParentLayerId = doc.Layers.FindIndex(parent).Id });
