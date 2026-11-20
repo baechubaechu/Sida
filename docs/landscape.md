@@ -6,6 +6,8 @@
 2. 제도판 도구 막대의 매스 묶음에 있는 "자동 조경" 버튼(명령 `landscape`)은 매스 밖 땅이나 직접 그린 영역에 조경 세 안을 규칙대로 그립니다. 세 안은 정형(축선), 자연형(산책), 광장형(도로변 개방)입니다.
 3. 라이노 플러그인의 `SidaLandscape` 명령(패널의 "라이노에 조경 그리기")은 라이노에서 고른 닫힌 커브 안에 한 안을 라이노 도형으로 그립니다. 아래 "라이노에서"를 보세요.
 
+자동 조경 카드의 "조절"과 Conductor의 조경 제안, 명령창의 짧은 말, "비교"는 아래 "조절값과 말로 조절"을 보세요(2026-11-20 4단계).
+
 로직은 `sida/experts/landscape/`에 있습니다.
 
 | 파일 | 하는 일 |
@@ -45,13 +47,13 @@
 ## 자동 조경이 그리는 순서 (`generator.py`)
 
 1. **길**: 각 동의 문(도로를 향한 벽의 가운데)에서 도로 변까지 냅니다. 주 동의 문은 가장 넓은 도로를 향합니다. 정형과 광장형은 곧은 길이고, 자연형은 굽은 길입니다.
-2. **광장**: 가장 넓은 도로 쪽에 둡니다. 크기는 공개 공지면적과 안마다 정한 몫 중 큰 쪽이고, 공개 공지의 최소 폭을 지킵니다. 광장은 포장이라 길이 그 앞에서 끝납니다.
-3. **관목 띠**: 이웃 대지 경계를 따라 1.5m 폭으로 둡니다.
+2. **광장**: 가장 넓은 도로 쪽에 둡니다. 크기는 공개 공지면적과 안마다 정한 몫 중 큰 쪽이고, 공개 공지의 최소 폭을 지킵니다. 광장은 포장이라 길이 그 앞에서 끝납니다. 조절값 "광장 크기"는 이 크기에 곱하지만 공개 공지면적보다 작아지지 않습니다.
+3. **관목 띠**: 이웃 대지 경계를 따라 1.5m 폭으로 둡니다(조절값 "관목 띠 폭": 0이면 없음, 1~3m).
 4. **남은 땅**: 동지 9~15시에 매스 그림자가 5시간 이상 드는 곳은 음지 지피, 나머지는 잔디·초화입니다. 한 변이 1m가 안 되는 조각은 포장으로 둡니다.
 5. **교목**: 벽에서 2.5m, 길에서 1m, 영역 가장자리에서 1.5m 떨어뜨립니다.
    - 정형은 축과 경계를 따라 줄지어 심고, 광장 안에서는 식재함에 심습니다.
    - 광장형은 광장에 식재함 격자로 심습니다.
-   - 그 뒤 조경기준의 수량이 찰 때까지, 또는 자리가 남는 만큼 흩어 심습니다.
+   - 그 뒤 조경기준의 수량이 찰 때까지, 또는 자리가 남는 만큼 흩어 심습니다. 조절값 "나무 수"는 이 목표를 1.25배·1.5배로 늘리거나 자리가 남는 만큼으로 바꿉니다. 자리가 모자라면 심을 수 있는 만큼만 심습니다.
    - 큰 나무를 2·4·8주로 셀 수 있는 조경기준 제7조②는 쓰지 않고 한 그루를 1주로 셉니다(가장 적게 세는 쪽).
 
 조경면적은 잔디, 음지 지피, 관목 띠, 식재함을 셉니다. 길, 광장, 포장은 셈에서 뺍니다.
@@ -63,17 +65,19 @@
 | 메서드·경로 | 요청 | 응답 |
 |---|---|---|
 | `GET /api/projects/{name}/landscape` | `placed_only`(참/거짓, 선택): 참이면 놓은 안이 없을 때 계산하지 않고 `{settings, plans: []}`만 줌. 놓은 안이 있으면 저장한 도로 변만 씀(지도에 묻지 않음). 제도판을 열 때 씀 | 아래 표. 대지 사실이 없으면 `404`, 대지 경계가 없거나 영역에 남는 땅이 없으면 `400`, 영역이 30,000㎡를 넘으면 `400`, 지도 오류는 `502` |
-| `PUT /api/projects/{name}/landscape` | `{mass, region, style, seed, use, placed}` 중 바꿀 것. `region`은 제도판 좌표(m) 고리 3~200점이고 `null`이면 대지 전체. `style`은 `formal`·`natural`·`plaza`. `seed`는 1~9999. `use`는 `uses`의 `key`, `"other"` 또는 `null`. `placed`는 참/거짓 | GET과 같음. 받지 않는 값이면 `400`. 프로젝트 폴더 `landscape.json`에 저장 |
-| `POST /api/projects/{name}/landscape/rhino` | `{snapshot, region, style, seed}`. `snapshot`은 라이노 스냅샷 id(필수), `region`은 고리 3~200점 또는 `null`(대지 전체), `style`·`seed`는 없으면 `landscape.json`의 값 | `{drawing, lines, roads_note, gross_m2, plan: {style, label, about, checks, planting_m2, trees_in_lot, plaza_m2}}`. `drawing`은 `docs/rhino-api.md`의 그리기 지시(`in_place`, 레이어 `Sida 조경`), `lines`는 검사 줄. 스냅샷이 없으면 `404`, 그 밖은 GET과 같음. 아무것도 저장하지 않음 |
+| `PUT /api/projects/{name}/landscape` | `{mass, region, style, seed, tune, use, placed}` 중 바꿀 것. `tune`은 조절값 `{plaza, trees, path, hedge}`(빠진 값은 기본, `null`이면 모두 기본, 아래 "조절값" 표). `region`은 제도판 좌표(m) 고리 3~200점이고 `null`이면 대지 전체. `style`은 `formal`·`natural`·`plaza`. `seed`는 1~9999. `use`는 `uses`의 `key`, `"other"` 또는 `null`. `placed`는 참/거짓 | GET과 같음. 받지 않는 값이면 `400`. 프로젝트 폴더 `landscape.json`에 저장 |
+| `DELETE /api/projects/{name}/landscape/proposals/{id}` | 없음 | Conductor의 조경 제안 하나를 지우고 GET과 같은 응답. 그런 제안이 없으면 `404` |
+| `POST /api/projects/{name}/landscape/rhino` | `{snapshot, region, style, seed, tune}`. `snapshot`은 라이노 스냅샷 id(필수), `region`은 고리 3~200점 또는 `null`(대지 전체), `style`·`seed`·`tune`은 없으면 `landscape.json`의 값 | `{drawing, lines, roads_note, gross_m2, plan: {style, label, about, checks, planting_m2, trees_in_lot, plaza_m2, tune}}`. `drawing`은 `docs/rhino-api.md`의 그리기 지시(`in_place`, 레이어 `Sida 조경`), `lines`는 검사 줄. 스냅샷이 없으면 `404`, 그 밖은 GET과 같음. 아무것도 저장하지 않음 |
 
 | 키 | 뜻 |
 |---|---|
-| `settings` | `{mass, region, style, seed, use, placed}` |
+| `settings` | `{mass, region, style, seed, tune, use, placed}` |
 | `uses`, `masses`, `mass` | 고를 수 있는 용도(공개 공지 대상, 마지막은 "그 밖의 용도"), 매스안 `[{id, title}]`, 계산에 쓴 매스안 |
 | `gross_m2`, `site_area_m2` | 그 매스안의 연면적, 대지면적 |
 | `region`, `region_drawn`, `roads_note` | 조경을 그린 영역(`[{outer, holes}]`, 동은 뺌, 대지 밖은 자름), 직접 그린 영역인지, 도로 변을 못 찾았을 때의 말 |
 | `requirement` | `rules.requirement`: `landscape`(조경면적), `open_space`(공개 공지), `planting`(교목·관목 수). 각각 `status`, `detail`, 원문 `quote`, `source`를 가짐 |
-| `plans` | 세 안 `[{style, label, about, zones, paths, trees, doors, areas, planting_m2, trees_in_lot, plaza_m2, plaza_width_ok, checks}]` |
+| `plans` | 세 안 `[{style, label, about, zones, paths, trees, doors, areas, planting_m2, trees_in_lot, plaza_m2, plaza_width_ok, tune, checks}]`. 세 안 모두 `settings.tune`으로 그림 |
+| `proposals` | Conductor의 조경 제안 `[{id, title, style, tune, seed, reason, at, by, plan}]`(최근 3개). `plan`은 `plans`의 한 안과 같은 모양 |
 
 `plans`의 각 키는 다음과 같습니다.
 
@@ -99,6 +103,30 @@
 | Esc | 취소 |
 | Backspace | 마지막 점 되돌리기 |
 
+## 조절값과 말로 조절 (4단계)
+
+AI는 배치를 그리지 않고 아래 네 조절값과 안(정형·자연형·광장형)만 고릅니다. 배치는 위 순서대로 규칙이 그리고, 결과는 매번 법 기준으로 다시 검사합니다. 기준보다 모자라도 막지 않고 카드와 비교표에 "모자람"으로 보여 줍니다.
+
+| 조절값 | 값 | 뜻 |
+|---|---|---|
+| `plaza` | `small`·`normal`·`wide`·`widest` | 안이 정한 광장 크기의 0.5·1·1.8·2.5배. 공개 공지면적보다 작아지지 않음 |
+| `trees` | `law`·`more`·`most`·`room` | 교목을 조경기준 수량만큼, 25%·50% 더, 자리가 남는 만큼 |
+| `path` | 1.5~4(m) 또는 `null` | 길 폭. `null`이면 안의 기본 |
+| `hedge` | 0, 1~3(m) 또는 `null` | 이웃 경계 관목 띠 폭. 0이면 없음, `null`이면 1.5m |
+
+조절값을 바꾸는 길은 네 가지입니다.
+
+1. **카드의 "조절"**: 광장 크기와 나무 수는 단추, 길 폭과 관목 띠 폭은 밀대입니다. 세 안 모두에 적용됩니다. "처음대로"는 조절값을 모두 기본으로 돌립니다.
+2. **명령창**: "조경"으로 시작하는 짧은 말은 AI 없이 규칙으로 읽습니다(`command-model.js`의 `readLandscape`). 예: "조경 광장 넓게 나무 더", "조경 자연형 관목 없이 길 2m", "조경 나무 50% 놓기", "조경 처음대로", "조경 비교". 읽지 못한 낱말이 하나라도 있으면 그 줄 전체가 Conductor에게 갑니다.
+3. **Conductor의 조경 제안**: 설계자가 "정형에서 광장 좀 넓히고 나무 더"처럼 말하면 Conductor가 도구 `propose_landscape`(`hooks.conductor_tools`)로 안과 조절값을 고릅니다. Sida가 그 안을 규칙대로 그려 검사하고(`landscape.propose`, 저장한 도로 변만 씀), `landscape.json`의 `proposals`에 남깁니다. Conductor는 그 수치와 놓인 안의 수치를 돌려받아 설명합니다. 수치를 스스로 지어내지 않습니다. 제도판은 바뀌지 않고, 화면은 자동 조경 카드를 열어 그 제안을 보여 줍니다. 카드에서 "이 안 제도판에 놓기"를 누르면 제안의 안·조절값·배치 번호가 설정으로 복사되고 놓입니다. 이 도구는 도구 호출을 받는 모델에서, 제도판 맥락이 켜져 있을 때만 쓰입니다.
+4. **라이노**: `SidaLandscape`의 옵션 `Plaza`, `Trees`, `PathWidth`, `HedgeWidth`(아래).
+
+카드의 "비교"는 세 안과 제안을 나란히 놓습니다. 칸마다 작은 평면, 조경면적(검사), 잔디·음지·관목 띠, 교목(검사), 광장, 공개 공지(대상일 때)를 같은 줄에 보여 주고, 놓인 안(없으면 보고 있는 안)과의 차이를 괄호로 적습니다. "이 안 놓기"로 바로 놓습니다.
+
+### 영역별 도구 (`conductor_tools`, `conductor_call`)
+
+Conductor의 조경 제안은 영역 공통 연결(`sida/experts/__init__.py`)로 들어갑니다. 영역의 `hooks.py`가 `conductor_tools(project_dir)`로 도구 설명을 내고 `conductor_call(project_dir, name, arguments)`로 실행합니다. 엔진은 실행 결과를 이벤트 `domain_tool`(`name`, `notice`, `open`)로, 거부를 `domain_tool_failed`(`name`, `reason`)로 알립니다. 한 메시지에서 AI 섹션 종이와 합쳐 최대 `MAX_PAPERS_PER_TURN`번까지 씁니다.
+
 ## 라이노에서 (`SidaLandscape`)
 
 라이노에서는 한 안만 그립니다. 순서는 다음과 같습니다.
@@ -108,4 +136,6 @@
 3. `POST /landscape/rhino`가 그 스냅샷의 건물 의미 입체를 건물로 씁니다(`landscape.rhino_buildings`: 바닥 외곽선과 `base + height`). 그림자, 벽에서 떨어뜨리기, 문 자리 모두 이 건물로 셉니다. 연면적은 스냅샷 수치의 연면적입니다. 대지, 도로 변, 용도는 제도판과 같습니다.
 4. 플러그인이 그리기 지시를 `Sida 조경` 레이어 아래에 제자리로 그립니다. 바닥 종류는 해치, 길 중심선은 점선, 나무는 평면 원과 수관·줄기 입체입니다.
 
-고른 안(`Style`)과 배치 번호는 라이노 문서에 남습니다(`sida.landscape.style`, `sida.landscape.seed`). 그래서 다시 돌리면 같은 그림을 다시 그리고, `Shuffle`은 다음 번호로 그립니다. 제도판의 `landscape.json`은 읽기만 하고 바꾸지 않습니다. 패널은 실시간 명령 `landscape`(`style`, `shuffle`)로 이 명령을 부릅니다.
+고른 안(`Style`)과 배치 번호는 라이노 문서에 남습니다(`sida.landscape.style`, `sida.landscape.seed`). 그래서 다시 돌리면 같은 그림을 다시 그리고, `Shuffle`은 다음 번호로 그립니다.
+
+조절값 옵션은 `Plaza`(`Small`·`Normal`·`Wide`·`Widest`), `Trees`(`Law`·`More25`·`More50`·`AsManyAsFit`), `PathWidth`(m, 0은 안의 기본), `HedgeWidth`(m, 0은 없음)입니다. 하나라도 바꾸면 네 값이 문서에 남고(`sida.landscape.tune.plaza` 등) 다음부터 그 값으로 그립니다. 라이노에서 바꾼 적이 없으면 제도판의 조절값으로 그립니다. 그린 레이어 제목에 조절값 말이 붙습니다(예: "자동 조경 · 정형 · 축선 · 관목 띠 없음"). 제도판의 `landscape.json`은 읽기만 하고 바꾸지 않습니다. 패널은 실시간 명령 `landscape`(`style`, `shuffle`)로 이 명령을 부릅니다.

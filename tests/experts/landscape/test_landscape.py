@@ -186,3 +186,63 @@ def test_the_rhino_panels_styles_are_the_generators():
     from sida.experts.rhino import live
 
     assert live.LANDSCAPE_STYLES == tuple(generator.STYLES)
+
+
+def test_the_knobs_are_kept_and_turn_all_three_plans(site):
+    add_mass(site)
+    with pytest.raises(ValueError, match="plaza"):
+        landscape.save_settings(site, {"tune": {"plaza": "huge"}})
+    kept = landscape.save_settings(site, {"tune": {"plaza": "wide", "hedge": 0}})
+    assert kept["tune"] == {"plaza": "wide", "trees": "law", "path": None, "hedge": 0.0}
+    got = landscape.plans(site)
+    assert got["settings"]["tune"] == kept["tune"] and got["proposals"] == []
+    assert all(p["tune"] == kept["tune"] and p["areas"]["hedge"] == 0 for p in got["plans"])
+    landscape.save_settings(site, {"placed": True})
+    landscape.plans(site)
+    assert "formal with 광장 넓게, 관목 띠 없음" in hooks.conductor_site(site)
+    assert landscape.save_settings(site, {"tune": None})["tune"] == landscape._defaults()["tune"]  # back to the style's own
+    data = json.loads((site / landscape.SETTINGS_FILE).read_text(encoding="utf-8"))
+    data["tune"] = {"plaza": "nope"}
+    (site / landscape.SETTINGS_FILE).write_text(json.dumps(data), encoding="utf-8")
+    assert landscape.load_settings(site)["tune"] == landscape._defaults()["tune"]  # a bad file falls back
+
+
+def test_the_conductors_proposals_are_laid_out_by_rule_and_kept_beside_the_three(site):
+    add_mass(site)
+    landscape.plans(site)  # the road edges are asked once (the proposals use only the kept ones)
+    asked = len(ASKED)
+    made = landscape.propose(site, {"style": "formal", "plaza": "wide", "trees": "most", "reason": "광장 넓게, 나무 더"})
+    assert len(ASKED) == asked  # no map is asked: the kept road edges only
+    p = made["proposal"]
+    assert (p["id"], p["title"], p["style"], p["by"]) == ("p1", "정형 · 광장 넓게 · 나무 50% 더", "formal", "conductor")
+    assert made["placed"] is None and "No landscape plan is placed" in made["text"]
+    assert made["text"].startswith('Landscape proposal p1 "정형 · 광장 넓게 · 나무 50% 더" (formal, 광장 넓게, 나무 50% 더)')
+    assert f"{made['plan']['trees_in_lot']}" in made["text"] and "meets" in made["text"]
+    got = landscape.plans(site)
+    assert [k["id"] for k in got["proposals"]] == ["p1"]
+    shown = got["proposals"][0]["plan"]
+    formal = next(x for x in got["plans"] if x["style"] == "formal")
+    assert shown["plaza_m2"] > formal["plaza_m2"] and shown["trees_in_lot"] > formal["trees_in_lot"]
+    assert shown["trees"] == made["plan"]["trees"]  # the same layout as told to the Conductor
+    # with a plan placed, its figures come back to compare
+    landscape.save_settings(site, {"placed": True, "style": "natural"})
+    made = landscape.propose(site, {"style": "plaza", "hedge": 0, "title": "도로 쪽 광장", "reason": "x"})
+    assert made["proposal"]["title"] == "도로 쪽 광장" and made["placed"]["style"] == "natural"
+    assert "The plan now on the table (자연형)" in made["text"]
+    for raw, word in (({"style": "baroque"}, "style"), ({"style": "formal", "trees": "lots"}, "trees"),
+                      ({"style": "formal", "path": 9}, "path")):
+        with pytest.raises(ValueError, match=word):
+            landscape.propose(site, raw)
+    for _ in range(3):
+        landscape.propose(site, {"style": "natural", "reason": "x"})
+    ids = [k["id"] for k in landscape.load_settings(site)["proposals"]]
+    assert len(ids) == landscape.MAX_PROPOSALS and "p1" not in ids  # the oldest go
+    assert landscape.drop_proposal(site, ids[0]) and not landscape.drop_proposal(site, ids[0])
+    assert [k["id"] for k in landscape.plans(site)["proposals"]] == ids[1:]
+    assert all("plan" not in k for k in landscape.load_settings(site)["proposals"])  # only the knobs are kept
+
+
+def test_a_proposal_needs_a_site(tmp_path):
+    with pytest.raises(LookupError):
+        landscape.propose(tmp_path, {"style": "formal", "reason": "x"})
+    assert hooks.conductor_tools(tmp_path) == []

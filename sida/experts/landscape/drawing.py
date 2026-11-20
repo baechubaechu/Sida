@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import math
 
+from sida.experts.landscape import generator
+
 LAYER = "Sida 조경"
 ZONES = {  # kind: (sublayer, colour), drawn bottom first
     "paving": ("포장", "#d8d2c4"),
@@ -54,7 +56,8 @@ def drawing(plan: dict) -> dict:
                       "closed": True, "bold": False, "dashed": False, "color": TREE_COLORS[t["kind"]], "layer": "교목 평면"})
         items.append({"type": "tree", "at": [_r(t["x"]), _r(t["y"]), 0.0], "r": _r(t["r"]), "height": TREE_HEIGHT[t["kind"]],
                       "color": TREE_COLORS[t["kind"]], "layer": "교목"})
-    return {"kind": "landscape", "title": f"자동 조경 · {plan['label']}", "view": "flat", "layer": LAYER, "in_place": True,
+    knobs = generator.Tune.read(plan.get("tune")).words()
+    return {"kind": "landscape", "title": " · ".join(["자동 조경", plan["label"], *knobs]), "view": "flat", "layer": LAYER, "in_place": True,
             "bounds": _extent(items), "items": items, "notes": check_lines(plan)}
 
 

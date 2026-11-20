@@ -56,7 +56,7 @@ export const pointerMethods = {
       if (e.target.dataset.diagramHour) this.diagramAction('hour', e.target.dataset.diagramHour, e.target.value);
       if (e.target === this.photoInput && this.photoInput.files.length) this.addPhotos([...this.photoInput.files]);
       if (e.target.dataset.detailTitle) this.saveTitle(e.target.dataset.detailTitle, e.target.value);
-      if (e.target.id === 'landscape-use' || e.target.id === 'landscape-mass') this.landscapeSelect(e.target);
+      if (['landscape-use', 'landscape-mass', 'landscape-path', 'landscape-hedge'].includes(e.target.id)) this.landscapeSelect(e.target);
     });
     // Photo files dragged in from the desktop land where they are dropped.
     const carriesFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
@@ -187,6 +187,7 @@ export const pointerMethods = {
       this.setView({ ...this.view, tilt: Number(t.value) });
       return;
     }
+    if (t.id === 'landscape-path' || t.id === 'landscape-hedge') { this.landscapeSlide(t); return; }
     if (!this.form || !t.closest('.scheme-form')) return;
     if (t.dataset.row !== undefined) this.form.rows[Number(t.dataset.row)][t.dataset.key] = t.value;
     else if (t.dataset.key) this.form[t.dataset.key] = t.value;
@@ -680,6 +681,7 @@ export const pointerMethods = {
     if (typing(e.target) || e.target.closest?.('dialog')) return;
     const k = e.key.toLowerCase();
     if (k === 'escape' && this.toolGroupOpen) { e.preventDefault(); this.toolGroupOpen = ''; this.drawControls(); return; }
+    if (k === 'escape' && this.landscapeComparing) { e.preventDefault(); this.landscapeAction('compare'); return; }
     if (this.landscapeDrawing && !(e.metaKey || e.ctrlKey || e.altKey)) {
       if (k === 'escape') { e.preventDefault(); this.cancelLandscapeRegion(); return; }
       if (k === 'enter') { e.preventDefault(); this.finishLandscapeRegion(); return; }

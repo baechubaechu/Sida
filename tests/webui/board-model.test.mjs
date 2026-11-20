@@ -1860,3 +1860,57 @@ test('the 자동 조경 card shows the plans with their checks, the trees by kin
   assert.equal(m.landscapeRing([[0, 0], [10, 0], [10.1, 0]]), null);
   assert.ok(m.TOOL_GROUPS.find((g) => g.id === 'mass').items.includes('landscape'));
 });
+
+test('the 자동 조경 knobs, the Conductor proposals and the comparison', async () => {
+  const m = await import('../../webui/app/board-model.js');
+  assert.deepEqual([0, 0.4, 0.5, 0.9, 1.26, 3.4].map(m.landscapeHedge), [0, 0, 1, 1, 1.3, 3]);
+  assert.deepEqual(m.landscapeTuneWords(null), []);
+  assert.deepEqual(m.landscapeTuneWords({ plaza: 'wide', trees: 'most', path: 2, hedge: 0 }), ['광장 넓게', '나무 50% 더', '길 2.0m', '관목 띠 없음']);
+  const zone = (x0, y0, x1, y1) => [{ outer: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], holes: [] }];
+  const plan = (style, over = {}) => ({
+    style, label: `${style} · x`, about: style, paths: [{ width: 2.4 }], zones: { lawn: zone(0, 0, 10, 20), plaza: zone(0, 20, 10, 24) },
+    trees: [{ x: 5, y: 5, r: 2, kind: 'sun' }], areas: { lawn: 366, shade: 140, hedge: 131 }, planting_m2: 645, trees_in_lot: 16, plaza_m2: 71,
+    checks: [{ id: 'landscape', ok: true, title: '조경면적', value: '645㎡' }, { id: 'trees', ok: true, title: '교목', value: '16주' }], ...over,
+  });
+  const wide = plan('formal', { planting_m2: 580.4, trees_in_lot: 24, plaza_m2: 128, checks: [{ id: 'landscape', ok: false, value: '580㎡' }, { id: 'trees', ok: true }] });
+  const data = {
+    settings: { style: 'formal', seed: 1, placed: true, tune: { plaza: 'normal', trees: 'law', path: null, hedge: null } },
+    plans: [plan('formal'), plan('natural', { planting_m2: 663, trees_in_lot: 22 }), plan('plaza')],
+    proposals: [{ id: 'p2', title: '정형 · 광장 넓게', reason: '광장 넓게', style: 'formal', seed: 1, tune: { plaza: 'wide', trees: 'most', path: null, hedge: null }, plan: wide }],
+  };
+  const card = m.landscapeCard(data);
+  assert.equal(card.proposal, null);
+  assert.deepEqual([card.knobs.plaza, card.knobs.pathValue, card.knobs.hedgeValue, card.knobs.changed], ['normal', 2.4, 1.5, false]);
+  assert.deepEqual(card.proposals.map((p) => [p.id, p.selected, p.short, p.about]), [['p2', false, 1, '정형 · 광장 넓게 · 나무 50% 더']]);
+  // looking at a proposal: the styles are not picked, the table draws the proposal's plan
+  const looking = m.landscapeCard(data, 'p2');
+  assert.equal(looking.proposal.id, 'p2');
+  assert.ok(looking.plans.every((p) => !p.selected));
+  assert.equal(m.landscapeShown(data, 'p2'), wide);
+  assert.equal(m.landscapeShown(data, 'gone').style, 'formal');
+  assert.deepEqual(m.landscapeTakeProposal(data.proposals[0]), { style: 'formal', tune: data.proposals[0].tune, seed: 1, placed: true });
+  // the comparison: the placed plan first in its place, the proposal against it
+  const cols = m.landscapeCompare(data);
+  assert.deepEqual(cols.map((c) => [c.key, c.kind, c.head, c.placed]), [
+    ['formal', 'style', '제도판에 놓인 안', true], ['natural', 'style', '세 안 중', false], ['plaza', 'style', '세 안 중', false],
+    ['p2', 'proposal', 'Conductor 제안', false]]);
+  assert.equal(cols[0].title, '정형 · 그대로');
+  const rows = Object.fromEntries(cols[3].rows.map((r) => [r.label, r]));
+  assert.deepEqual([rows['조경면적'].value, rows['조경면적'].state[1], rows['조경면적'].diff], ['580㎡', '모자람', '(−65)']);
+  assert.deepEqual([rows['교목'].value, rows['교목'].diff, rows['광장(포장)'].diff], ['24주', '(+8)', '(+57)']);
+  assert.equal(cols[0].rows[0].diff, '');
+  assert.equal(cols[1].rows[0].diff, '(+18)');
+  // once placed with the proposal's knobs, the proposal is the one on the table
+  const taken = { ...data, settings: { ...data.settings, tune: data.proposals[0].tune }, plans: [wide, plan('natural'), plan('plaza')] };
+  assert.equal(m.landscapeCompare(taken).at(-1).placed, true);
+  assert.equal(m.landscapeCompare(taken)[0].title, '정형 · 광장 넓게 · 나무 50% 더');
+  assert.deepEqual(m.landscapeCompare({ plans: [] }), []);
+  // the small plan: north up, every ground kind and tree drawn
+  const svg = m.landscapeMiniPlan(plan('formal'), { width: 100, height: 100, label: '정형 <평면>' });
+  assert.match(svg, /^<svg viewBox="0 0 100 100"/);
+  assert.equal((svg.match(/<path /g) || []).length, 2);
+  assert.equal((svg.match(/<circle /g) || []).length, 1);
+  assert.match(svg, /aria-label="정형 평면"/);
+  assert.match(svg, /fill="#e6dcc6"/); // the plaza's colour
+  assert.equal(m.landscapeMiniPlan({ zones: {} }), '');
+});

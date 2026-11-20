@@ -19,6 +19,7 @@ function commandMode(text) {
   if (ui.cmd.prompt) return { label: '답', tone: 'prompt' };
   const line = resolveLine(text);
   if (line.kind === 'command') return { label: line.command.name, tone: 'command' };
+  if (line.kind === 'landscape') return { label: '조경', tone: 'command' };
   if (line.kind === 'ask') return { label: 'AI에게', tone: 'ask' };
   return { label: '명령', tone: 'idle' };
 }
@@ -34,7 +35,7 @@ function helpCard() {
     .map((c) => `<dt>${escape([c.name, ...c.aliases].join(' · '))}</dt><dd>${escape(c.label)}</dd>`).join('')}</dl></div>`).join('');
   return `<section class="command-help" aria-label="명령 목록"><header><strong>명령</strong>
       <button type="button" class="ghost" data-action="cmd-help" aria-label="명령 목록 닫기">×</button></header>
-      <p class="muted">띄어쓰기 없는 영어 한 단어가 명령입니다. 그 밖의 글은 모두 Conductor에게 갑니다. Enter 실행 · Shift+Enter 줄 바꿈 · 빈 칸에서 Enter는 직전 명령 반복 · Esc 취소</p>
+      <p class="muted">띄어쓰기 없는 영어 한 단어가 명령입니다. "조경 광장 넓게 나무 더"처럼 조경으로 시작하는 짧은 말은 자동 조경 조절값을 AI 없이 바로 바꿉니다(광장·나무·길·관목, 정형·자연형·광장형, 섞기·놓기·비교). 그 밖의 글은 모두 Conductor에게 갑니다. Enter 실행 · Shift+Enter 줄 바꿈 · 빈 칸에서 Enter는 직전 명령 반복 · Esc 취소</p>
       <p class="muted">조작: 왼쪽 끌기 선택 상자(→ 안에 든 것, ← 걸친 것, Shift 더하기, Ctrl 빼기) · 건물 클릭 그 동만 고르기(끌면 옮김, 검볼: 화살표 이동·작은 네모 크기·파란 호 회전, 손잡이를 누르면 수치 입력, Alt 끌기 복사, Ctrl+가운데 네모 기준점, Delete 지우기) · Ctrl+C/V 복사·붙여넣기, Ctrl+A 모든 동 · 고른 이름표 끌기 종이 옮기기 · 휠 커서 기준 확대 · 우클릭 끌기 돌리기 · Shift+우클릭·가운데 버튼 끌기 이동 · Ctrl+Z 되돌리기 · 사진·PDF는 끌어다 놓거나 붙여넣기 · 종이 모서리 끌기 크기 조절(글자도 같이, Alt 가운데 기준, Ctrl 비율 유지) · 종이 위 가운데 핀: 동그라미로 접기 · 제도판에서 글자를 치면 명령창으로</p>
       <p class="muted">제도판: 종이 클릭은 고르기(내용은 속성 칸 아래에), 메모는 두 번 눌러 고치기, Shift+클릭은 여러 장 골라 대화에 보내기 · 기울이면 배치도가 3D가 됩니다 · 트레이싱지는 대지 위에 덮고, 옆으로 끌어내면 떼어집니다 · 도구 이름과 단축키는 아이콘에 마우스를 올리면 보입니다</p>
       <div class="command-help-groups">${groups}</div></section>`;

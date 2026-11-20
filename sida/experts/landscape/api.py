@@ -16,6 +16,7 @@ class Settings(BaseModel):
     region: list[list[float]] | None = None  # a ring on the table (m); null: the whole lot
     style: str | None = None  # formal | natural | plaza
     seed: int | None = None  # 다시 섞기
+    tune: dict | None = None  # the knobs (generator.Tune: plaza, trees, path, hedge); null: the defaults
     use: str | None = None  # the building's use for 공개 공지 (rules.uses), "other" or null
     placed: StrictBool | None = None  # the plan shown is placed on the table
 
@@ -25,6 +26,7 @@ class FromRhino(BaseModel):
     region: list[list[float]] | None = None  # the closed curve picked in Rhino (m, the snapshot's frame); null: the whole lot
     style: str | None = None  # formal | natural | plaza; null: the table's
     seed: int | None = None  # null: the table's
+    tune: dict | None = None  # the knobs; null: the table's
 
 
 def create_router(load_config, core) -> APIRouter:
@@ -67,6 +69,14 @@ def create_router(load_config, core) -> APIRouter:
             raise HTTPException(status_code=400, detail=t("web_landscape_setting", name=str(exc))) from exc
         return payload(path)
 
+    @router.delete("/proposals/{proposal}")
+    def drop_proposal(name: str, proposal: str) -> dict:
+        """Take away one of the Conductor's proposals and give the layouts again."""
+        path = core(workspace.find_project, load_config(), name)
+        if not core(landscape.drop_proposal, path, proposal):
+            raise HTTPException(status_code=404, detail=t("web_landscape_proposal_none", id=proposal))
+        return payload(path)
+
     @router.post("/rhino")
     def from_rhino(name: str, body: FromRhino) -> dict:
         """One layout around the building objects of a Rhino snapshot, in the region picked in Rhino,
@@ -79,7 +89,7 @@ def create_router(load_config, core) -> APIRouter:
         except snap.SnapshotNotFound as exc:
             raise HTTPException(status_code=404, detail=t("web_rhino_snapshot_none", id=body.snapshot)) from exc
         try:
-            made = core(landscape.rhino_plan, path, shot, region=body.region, style=body.style, seed=body.seed)
+            made = core(landscape.rhino_plan, path, shot, region=body.region, style=body.style, seed=body.seed, tune=body.tune)
         except LookupError as exc:
             if str(exc) == "no_site":
                 raise HTTPException(status_code=404, detail=t("web_site_none")) from exc
@@ -93,6 +103,6 @@ def create_router(load_config, core) -> APIRouter:
         plan = made["plan"]
         return {"drawing": drawing.drawing(plan), "lines": drawing.check_lines(plan), "roads_note": made["roads_note"],
                 "gross_m2": made["gross_m2"],
-                "plan": {k: plan[k] for k in ("style", "label", "about", "checks", "planting_m2", "trees_in_lot", "plaza_m2")}}
+                "plan": {k: plan[k] for k in ("style", "label", "about", "checks", "planting_m2", "trees_in_lot", "plaza_m2", "tune")}}
 
     return router

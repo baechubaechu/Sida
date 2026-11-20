@@ -702,7 +702,9 @@ def test_landscape_api_gives_three_plans_and_keeps_the_choices(client, project, 
     assert len(fake_vworld.calls) == before
     body = client.get(url).json()
     assert [p["style"] for p in body["plans"]] == ["formal", "natural", "plaza"] and body["mass"] is None
-    assert body["settings"] == {"mass": None, "region": None, "style": "formal", "seed": 1, "use": None, "placed": False}
+    assert body["settings"] == {"mass": None, "region": None, "style": "formal", "seed": 1, "use": None, "placed": False,
+                                "tune": {"plaza": "normal", "trees": "law", "path": None, "hedge": None}}
+    assert body["proposals"] == []
     # 경기도 is not in the rules file yet: the 조경 is to be checked in the ordinance, not guessed
     assert body["requirement"]["landscape"]["status"] == "check" and body["uses"][-1]["key"] == "other"
     assert all(p["checks"][0]["ok"] is None for p in body["plans"])
@@ -718,6 +720,24 @@ def test_landscape_api_gives_three_plans_and_keeps_the_choices(client, project, 
     assert len(placed["plans"]) == 3 and placed["settings"]["placed"] is True
     assert client.put(url, json={"region": [[0, 0], [0.5, 0], [0, 0.5]]}).status_code == 400  # too small to keep
     assert client.put("/api/projects/nope/landscape", json={}).status_code == 404
+    # the knobs turn all three; the Conductor's proposals come beside them and can be taken away
+    assert client.put(url, json={"tune": {"plaza": "huge"}}).status_code == 400
+    body = client.put(url, json={"tune": {"trees": "more", "path": 2.5}}).json()
+    assert body["settings"]["tune"] == {"plaza": "normal", "trees": "more", "path": 2.5, "hedge": None}
+    assert all(p["tune"]["path"] == 2.5 for p in body["plans"])
+    from sida.experts.landscape import hooks, landscape
+
+    done = hooks.conductor_call(project.path, hooks.PROPOSE, {"style": "plaza", "plaza": "wide", "reason": "광장 넓게"})
+    assert done["open"] == "landscape" and "조경 제안 '광장형 · 광장 넓게'" in done["notice"]
+    assert done["result"].startswith('Landscape proposal p1 "광장형 · 광장 넓게"')
+    body = client.get(url).json()
+    assert [(k["id"], k["plan"]["style"]) for k in body["proposals"]] == [("p1", "plaza")]
+    assert client.delete(f"{url}/proposals/p9").status_code == 404
+    assert client.delete(f"{url}/proposals/p1").json()["proposals"] == []
+    assert landscape.load_settings(project.path)["proposals"] == []
+    for bad in ({"style": "baroque", "reason": "x"}, {"style": "formal", "hedge": 0.5, "reason": "x"}):
+        with pytest.raises(ValueError, match="bad "):
+            hooks.conductor_call(project.path, hooks.PROPOSE, bad)
 
     facts = site_facts.load_facts(project.path)
     facts["parcels"][0]["shape"] = None
@@ -746,6 +766,11 @@ def test_landscape_from_rhino_draws_one_plan_around_the_snapshot_in_the_region_p
     assert got["drawing"]["kind"] == "landscape" and got["drawing"]["in_place"] is True and got["plan"]["style"] == "formal"
     assert got["gross_m2"] == 900.0 and len(got["lines"]) == len(got["plan"]["checks"])
     assert any(i["type"] == "tree" for i in got["drawing"]["items"])
+    tuned = client.post(url, json={"snapshot": shot, "style": "formal", "seed": 2, "tune": {"hedge": 0}}).json()
+    assert tuned["plan"]["tune"]["hedge"] == 0 and tuned["drawing"]["title"] == "자동 조경 · 정형 · 축선 · 관목 띠 없음"
+    assert any(i.get("layer") == "관목 띠" for i in got["drawing"]["items"])
+    assert not any(i.get("layer") == "관목 띠" for i in tuned["drawing"]["items"])  # no shrub band asked
+    assert client.post(url, json={"snapshot": shot, "tune": {"trees": "lots"}}).status_code == 400
     assert client.post(url, json={"snapshot": shot, "style": "baroque"}).status_code == 400
     assert client.post(url, json={"snapshot": shot, "region": [[0, 0], [1, 0]]}).status_code == 400
     assert client.post(url, json={"snapshot": shot, "region": [[900, 900], [950, 900], [950, 950]]}).status_code == 400  # off the lot

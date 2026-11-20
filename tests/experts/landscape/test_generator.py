@@ -72,3 +72,35 @@ def test_the_seed_shuffles_and_a_drawn_region_is_kept_to():
     ground = unary_union([shape(small["zones"][k]) for k in g.KINDS])
     assert ground.difference(corner.buffer(0.1)).area < 0.5
     assert all(corner.buffer(0.01).contains(Point(t["x"], t["y"])) for t in small["trees"])
+
+
+def test_the_knobs_change_only_what_they_name(made):
+    base = made["formal"]
+    assert base["tune"] == g.Tune().as_dict()
+    wide = g.generate(inputs(), "formal", g.Tune(plaza="wide"))
+    assert wide["plaza_m2"] > base["plaza_m2"] + 10
+    small = g.generate(inputs(), "formal", g.Tune(plaza="small"))
+    assert small["plaza_m2"] <= base["plaza_m2"]
+    assert small["plaza_m2"] >= 158.4 - 1  # never below the 공개 공지 the rules ask
+    few = {t: g.generate(inputs(trees_needed=10), "formal", g.Tune(trees=t))["trees_in_lot"] for t in g.TREE_COUNTS}
+    assert few == {"law": 10, "more": 13, "most": 15, "room": few["room"]} and few["room"] > 20  # ⌈10 × 1.25⌉, × 1.5, as many as fit
+    assert g.generate(inputs(), "formal", g.Tune(trees="most"))["trees_in_lot"] <= few["room"]  # never past what fits
+    bare = g.generate(inputs(), "formal", g.Tune(hedge=0))
+    assert base["areas"]["hedge"] > 0 and bare["areas"]["hedge"] == 0
+    thick = g.generate(inputs(), "formal", g.Tune(hedge=3.0))
+    assert thick["areas"]["hedge"] > base["areas"]["hedge"]
+    broad = g.generate(inputs(), "formal", g.Tune(path=3.5))
+    assert {p["width"] for p in broad["paths"]} == {3.5}
+    assert broad["areas"]["path"] > base["areas"]["path"]
+    assert broad["tune"] == {"plaza": "normal", "trees": "law", "path": 3.5, "hedge": None}
+
+
+def test_the_knobs_are_read_from_what_the_api_holds():
+    assert g.Tune.read(None) == g.Tune() == g.Tune.read({})
+    assert g.Tune.read({"plaza": "widest", "trees": "more", "path": 2, "hedge": 0}) == g.Tune("widest", "more", 2.0, 0.0)
+    for bad, key in (({"plaza": "huge"}, "plaza"), ({"trees": 3}, "trees"), ({"path": 1.0}, "path"), ({"path": True}, "path"),
+                     ({"hedge": 0.5}, "hedge"), ({"hedge": 4}, "hedge"), ({"colour": "red"}, "tune"), ("wide", "tune")):
+        with pytest.raises(ValueError, match=key):
+            g.Tune.read(bad)
+    assert g.Tune().words() == []
+    assert g.Tune("wide", "most", 2.0, 0.0).words() == ["광장 넓게", "나무 50% 더", "길 2.0m", "관목 띠 없음"]

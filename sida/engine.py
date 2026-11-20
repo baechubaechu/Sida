@@ -18,6 +18,9 @@ Event kinds and their data:
   tray_added        paper            (a paper in the drawing table's AI section, sida/board.py)
   tray_failed       reason           (the Conductor's paper was refused, it is told why; or an expert's
                                     result could not go to the AI section of an unreadable board)
+  domain_tool       name, notice, open (a domain's Conductor tool was carried out, sida/experts:
+                    notice is the designer's line, open what the screen should show, "" for nothing)
+  domain_tool_failed name, reason    (a domain refused the Conductor's call; it is told why)
   run_skipped       agent, reason ("limit" | "state_pending" | "held", or a domain's run_needs
                     reason such as "no_site"), limit; with a run_needs reason also address
                     (a site address the Conductor passed, "" when none)
@@ -44,7 +47,7 @@ from sida.conductor import ask_conductor, parse_action
 from sida.conductor_context import render_conductor_prompt
 from sida.config import ROOT, agent_by_id, get_agents, is_held, resolve_agent
 from sida.errors import SidaError, fail
-from sida.experts import run_needs
+from sida.experts import call_conductor_tool, conductor_tool_specs, run_needs
 from sida.i18n import get_language
 from sida.project import MAIN_TALK, Project, open_or_create
 from sida.project_documents import DocumentConflict
@@ -292,7 +295,7 @@ def resolve_action(session: Session, action: dict) -> tuple[str, dict | None]:
     kind = str(action.get("type", "none")).lower()
     if kind == "exit":
         return "exit", None
-    if kind in {"read_board", "propose_paper"}:
+    if kind in {"read_board", "propose_paper", "domain_tool"}:
         return kind, None
     if kind not in {"run", "read"}:
         return "continue", None
@@ -323,6 +326,7 @@ def conductor_turn(
     pending_text = user_text
     replies: list[str] = []
     table_context, board_tool = table_for_conductor(session)
+    domain_tools = conductor_tool_specs(session.project.path) if board_tool else []
     asked = [{"role": "user", "content": user_text}] if user_text is not None and not ephemeral else []
     shown = views.latest(session.project.path, session.history + asked) if _sees_pictures(session) else []
     while True:
@@ -345,6 +349,7 @@ def conductor_turn(
                 table_context=table_context,
                 board_tool=board_tool,
                 views=shown,
+                domain_tools=domain_tools,
             )
         except LLMError as exc:
             if isinstance(exc, ImagesUnsupported) and shown:
@@ -412,6 +417,24 @@ def conductor_turn(
                     + board.paper_text(paper, site)
                 )
             extra = [{"role": "user", "content": result + "\n\nTell the designer briefly what you made."}]
+            pending_text = None
+            ephemeral = True
+            continue
+        if kind == "domain_tool":
+            proposals += 1
+            name = str(action.get("name") or "")
+            if not domain_tools or proposals > MAX_PAPERS_PER_TURN:
+                session.send("domain_tool_failed", name=name, reason="limit")
+                return Turn("continue", replies=replies)
+            try:
+                done = call_conductor_tool(session.project.path, name, action.get("arguments") or {})
+            except (ValueError, LookupError, SidaError) as exc:
+                session.send("domain_tool_failed", name=name, reason=str(exc))
+                result = f"The {name} call was refused: {exc}. Fix it or tell the designer."
+            else:
+                session.send("domain_tool", name=name, notice=done["notice"], open=done["open"])
+                result = done["result"]
+            extra = [{"role": "user", "content": result + "\n\nTell the designer briefly what you did and what changed."}]
             pending_text = None
             ephemeral = True
             continue

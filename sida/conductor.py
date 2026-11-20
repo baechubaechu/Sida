@@ -66,7 +66,7 @@ def uses_tools(runtime: dict, provider, model: str) -> bool:
     return (str(getattr(provider, "name", "")), model) not in _NO_TOOLS
 
 
-def conductor_tools(agents: list[dict], *, board: bool = False) -> list[dict]:
+def conductor_tools(agents: list[dict], *, board: bool = False, domain: list[dict] | None = None) -> list[dict]:
     ids = [str(a.get("id")) for a in agents]
     target = {
         "type": "object",
@@ -99,7 +99,13 @@ def conductor_tools(agents: list[dict], *, board: bool = False) -> list[dict]:
             ),
             "parameters": target,
         },
-    ] + ([read_board_spec(), propose_paper_spec()] if board else [])
+    ] + ([read_board_spec(), propose_paper_spec(), *domain_specs(domain)] if board else [])
+
+
+def domain_specs(domain: list[dict] | None) -> list[dict]:
+    """The domains' tools (sida/experts conductor_tools) without any that takes a core tool's name."""
+    core = {RUN_TOOL, READ_TOOL, BOARD_TOOL, PROPOSE_TOOL}
+    return [d for d in domain or [] if d.get("name") not in core]
 
 
 def read_board_spec() -> dict:
@@ -157,10 +163,13 @@ def propose_paper_spec() -> dict:
     }
 
 
-def action_from_tool_calls(calls: list[dict]) -> dict:
-    """The first known tool call → an action dict like parse_action's."""
+def action_from_tool_calls(calls: list[dict], domain_names=()) -> dict:
+    """The first known tool call → an action dict like parse_action's. A domain's tool (named in
+    `domain_names`, sida/experts conductor_tools) → {"type": "domain_tool", "name", "arguments"}."""
     for call in calls:
         arguments = call.get("arguments") or {}
+        if call.get("name") in domain_names and isinstance(arguments, dict):
+            return {"type": "domain_tool", "name": call["name"], "arguments": arguments}
         if call.get("name") == BOARD_TOOL and str(arguments.get("paper") or "").strip():
             return {"type": "read_board", "paper": str(arguments["paper"]).strip()}
         if call.get("name") == PROPOSE_TOOL and isinstance(arguments, dict):
@@ -416,6 +425,7 @@ def ask_conductor(
     table_context: str = "",
     board_tool: bool = False,
     views: list[dict] | None = None,
+    domain_tools: list[dict] | None = None,
 ) -> tuple[str, dict, dict]:
     """
     One Conductor turn. Raises LLMError on provider failure (history is left
@@ -426,7 +436,7 @@ def ask_conductor(
     extra_messages are appended after history for this call only
     (module file injected for a `read` action).
     table_context is the drawing table for this call only (sida/board.py); board_tool adds
-    the read_board tool.
+    the read_board tool, and with it the domains' own tools (`domain_tools`, sida/experts).
     views are the talk's newest pictures, each with its "file" (sida/views.py latest); they go
     on the message that names them. A model that refuses them raises ImagesUnsupported, with
     the history unchanged.
@@ -494,14 +504,14 @@ def ask_conductor(
                 max_tokens,
                 role="conductor",
                 status=t("busy_conductor"),
-                tools=conductor_tools(agents, board=board_tool),
+                tools=conductor_tools(agents, board=board_tool, domain=domain_tools),
             )
         except ToolsUnsupported:
             _NO_TOOLS.add((str(getattr(provider, "name", "")), model))
         else:
             reply, action = parse_action(text)  # a model may still write the block
             if action.get("type") == "none":
-                action = action_from_tool_calls(calls)
+                action = action_from_tool_calls(calls, {t["name"] for t in domain_specs(domain_tools)} if board_tool else ())
             # Stored as an action block so later turns (in either mode) read what happened.
             if action.get("type") != "none":
                 raw = f"{reply}\n\n```action\n{json.dumps(action)}\n```".strip()
