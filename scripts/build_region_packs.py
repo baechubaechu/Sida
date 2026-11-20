@@ -506,8 +506,8 @@ def make_pack(region: regions.Region, kind: str, given: str, box, stamp: list, d
     made = staging / target.name
     old, new = counts(target, kind), counts(made, kind)
     remade = target.exists() and record.get("layout") != how
-    record.update({"checked_at": time.strftime("%Y-%m-%d %H:%M"), "counts": new, "previous": old,
-                   "box": box, "inputs": None, "refused": []})
+    record.update({"checked_at": time.strftime("%Y-%m-%d %H:%M"), "counts": new, "previous": {} if remade else old,
+                   "box": box, "inputs": None, "refused": []})  # remade: the report has nothing to compare with
     less = [] if remade else shrunk(old, new)  # cut or stored another way: the counts do not compare
     if remade:
         log(f"  {kind}: made the new way (format {terrain_pack.FORMAT}, cut to the 시·도), not compared with the old pack")

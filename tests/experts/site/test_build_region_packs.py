@@ -353,6 +353,8 @@ def test_contours_and_areas_are_cut_to_the_시도_and_made_again_when_made_a_new
     assert [next(a for a in args if a[2:] in sizes) for s, args in calls if s == "build_terrain_pack.py"] == [
         "--contours", "--areas"]
     assert brp.counts(out / f"busan-contours{terrain_pack.SUFFIX}", "contours")["contours"] == 2
+    state = json.loads((out / brp.STATE).read_text(encoding="utf-8"))
+    assert state["regions"]["busan"]["contours"]["previous"] == {}  # the report does not call it a drop
     calls.clear()
     assert brp.main() == 0
     assert [s for s, _ in calls if s == "build_terrain_pack.py"] == []
